@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.2 — 2026-07-21
+
+```text
+fix(code): preserve failed provider collections
+
+- complete fixture normalization and archive creation after conformance failures
+- report the conformance summary and retained nonzero provider status
+- treat unavailable optional impact indexing as a warning
+- accept structured MCP content when validating fetch and outline responses
+- add regressions for failed collection and optional provider capabilities
+```
+
 ## 0.8.1 — 2026-07-21
 
 ```text

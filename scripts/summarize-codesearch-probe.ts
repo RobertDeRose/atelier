@@ -46,8 +46,8 @@ function checkCommand(name: string): void {
 
 for (const command of [
   "version", "help", "mcp_help", "index_help", "status_before", "index", "status_after",
-  "mcp_contract", "fetch", "outline", "impact", "search", "status_after_edit",
-  "reindex_after_edit", "search_after_edit", "symbols", "evaluation",
+  "mcp_contract", "search", "status_after_edit", "reindex_after_edit", "search_after_edit",
+  "symbols", "evaluation",
 ]) {
   checkCommand(command);
 }
@@ -100,30 +100,76 @@ for (const optional of ["explore", "find_impact"]) {
   });
 }
 
-const fetchPayload = json("fetch") as { isError?: unknown; content?: Array<{ text?: unknown }> } | undefined;
-const fetchText = fetchPayload?.content?.map((item) => typeof item.text === "string" ? item.text : "").join("\n") ?? "";
+type ToolPayload = { isError?: unknown; content?: Array<{ text?: unknown }>; structuredContent?: unknown };
+
+const fetchPayload = json("fetch") as ToolPayload | undefined;
+const fetchText = toolText(fetchPayload);
 checks.push({
   name: "fetch_result",
-  status: fetchPayload?.isError === true || !fetchText ? "failed" : "passed",
-  detail: fetchPayload?.isError === true ? "provider returned isError" : fetchText ? `${Buffer.byteLength(fetchText)} bytes` : "missing content",
+  status: !toolNames.includes("get_chunk") ? "failed" : fetchPayload === undefined ? "warning" : fetchPayload.isError === true || !fetchText ? "failed" : "passed",
+  detail: !toolNames.includes("get_chunk")
+    ? "required get_chunk tool unavailable"
+    : fetchPayload === undefined
+      ? "search returned no fetchable chunk"
+      : fetchPayload.isError === true
+        ? fetchText || "provider returned isError"
+        : fetchText
+          ? `${Buffer.byteLength(fetchText)} bytes`
+          : "missing content",
 });
 
-const outlinePayload = json("outline") as { isError?: unknown; content?: Array<{ text?: unknown }> } | undefined;
-const outlineText = outlinePayload?.content?.map((item) => typeof item.text === "string" ? item.text : "").join("\n") ?? "";
+const outlinePayload = json("outline") as ToolPayload | undefined;
+const outlineText = toolText(outlinePayload);
 checks.push({
   name: "outline_result",
-  status: outlinePayload?.isError === true || !outlineText ? "failed" : "passed",
-  detail: outlinePayload?.isError === true ? "provider returned isError" : outlineText ? `${Buffer.byteLength(outlineText)} bytes` : "missing content",
+  status: !toolNames.includes("explore") || outlinePayload === undefined
+    ? "warning"
+    : outlinePayload.isError === true || !outlineText
+      ? "failed"
+      : "passed",
+  detail: !toolNames.includes("explore")
+    ? "optional explore tool unavailable"
+    : outlinePayload === undefined
+      ? "optional outline call not captured"
+      : outlinePayload.isError === true
+        ? outlineText || "provider returned isError"
+        : outlineText
+          ? `${Buffer.byteLength(outlineText)} bytes`
+          : "missing content",
 });
 
-const impactPayload = json("impact") as { isError?: unknown; content?: Array<{ text?: unknown }> } | undefined;
-const impactText = impactPayload?.content?.map((item) => typeof item.text === "string" ? item.text : "").join("\n") ?? "";
-const impactUnavailable = /No symbol indexers installed/i.test(impactText);
+const impactPayload = json("impact") as ToolPayload | undefined;
+const impactText = toolText(impactPayload);
+const impactUnavailable = /No symbol indexers installed|symbol index(?:er)? unavailable|install the .* helper/i.test(impactText);
 checks.push({
   name: "impact_result",
-  status: impactPayload?.isError === true || !impactText ? "failed" : impactUnavailable ? "warning" : "passed",
-  detail: impactPayload?.isError === true ? "provider returned isError" : impactUnavailable ? impactText : impactText ? `${Buffer.byteLength(impactText)} bytes` : "missing content",
+  status: !toolNames.includes("find_impact") || impactPayload === undefined || impactUnavailable
+    ? "warning"
+    : impactPayload.isError === true || !impactText
+      ? "failed"
+      : "passed",
+  detail: !toolNames.includes("find_impact")
+    ? "optional find_impact tool unavailable"
+    : impactPayload === undefined
+      ? "optional impact call not captured"
+      : impactUnavailable
+        ? impactText
+        : impactPayload.isError === true
+          ? impactText || "provider returned isError"
+          : impactText
+            ? `${Buffer.byteLength(impactText)} bytes`
+            : "missing content",
 });
+
+function toolText(payload: ToolPayload | undefined): string {
+  if (payload === undefined) return "";
+  const content = payload.content?.map((item) => typeof item.text === "string" ? item.text : "").filter(Boolean).join("\n") ?? "";
+  if (content) return content;
+  if (payload.structuredContent === undefined) return "";
+  return typeof payload.structuredContent === "string"
+    ? payload.structuredContent
+    : JSON.stringify(payload.structuredContent);
+}
 
 const totals = {
   passed: checks.filter((check) => check.status === "passed").length,

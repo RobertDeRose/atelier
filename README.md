@@ -4,9 +4,9 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.8.1 scope
+## v0.8.2 scope
 
-This release isolates live provider tests, commits the complete verified codesearch 1.1.30 response fixtures, and strengthens the comparative retrieval benchmark.
+This release makes live-provider collection failure-tolerant: conformance failures still produce normalized fixtures and a complete attachable archive, while the command retains a nonzero exit status.
 
 Atelier now owns:
 
@@ -269,4 +269,4 @@ The live task is intentionally separate from `mise run check`; ordinary tests in
 
 ## Codesearch conformance and evaluation
 
-Use `mise run collect:codesearch` on a development machine to gather the complete live-provider contract, optional tools, fetch behavior, reindex behavior, and comparative evaluation. `mise run fixtures:codesearch` normalizes a prior probe into portable regression fixtures and now fails clearly when the probe is empty. The benchmark records a separate cold start, repository-relative ranked paths, weighted recall, reciprocal rank, and nDCG@10. See `docs/CODESEARCH_EVALUATION.md` and the first live report in `docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md`.
+Use `mise run collect:codesearch` on a development machine to gather the complete live-provider contract, optional tools, fetch behavior, reindex behavior, and comparative evaluation. The collector now always normalizes available fixtures and creates `atelier-codesearch-knowledge.tar.xz`, even when conformance reports failures; it then exits with the retained conformance status. `mise run fixtures:codesearch` normalizes a prior probe independently and fails clearly when the probe is empty. See `docs/CODESEARCH_EVALUATION.md` and the first live report in `docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md`.

@@ -2,7 +2,7 @@
 
 ## Status
 
-Atelier v0.8.1 provides a repeatable live conformance workflow and a ranked comparative
+Atelier v0.8.2 provides a repeatable live conformance workflow and a ranked comparative
 retrieval benchmark for codesearch.
 
 The first evidence report is in
@@ -66,7 +66,12 @@ mise run collect:codesearch
 The script runs the complete live probe, captures MCP initialization and schemas, waits
 for the index, exercises search, definition lookup, fetch-on-demand, outline, optional
 impact analysis, edit and reindex behavior, and the comparative evaluation. It then
-creates normalized portable fixtures beneath the probe output.
+creates normalized portable fixtures beneath the probe output and writes
+`atelier-codesearch-knowledge.tar.xz` in the repository root.
 
-Archive the result with the command printed by the script and attach it to the next
+Collection is evidence gathering, so post-processing continues even when provider
+conformance fails. The archive and conformance report are retained, while the command
+still exits nonzero after packaging so automation can detect the failure. Known missing
+optional symbol indexers are warnings, including providers that set MCP `isError` while
+returning the actionable installation message. Attach the generated archive to the next
 development session.

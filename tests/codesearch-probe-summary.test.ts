@@ -48,3 +48,39 @@ test("codesearch probe summary reports a ready conforming provider", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test("codesearch probe summary treats unavailable optional impact indexing as a warning even when MCP sets isError", () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-probe-impact-warning-"));
+  try {
+    for (const name of commandNames) writeFileSync(join(root, `${name}.status`), "0\n");
+    writeFileSync(join(root, "index.stdout"), JSON.stringify({ state: "ready" }));
+    writeFileSync(join(root, "search.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "symbols.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "search_after_edit.stdout"), JSON.stringify([{ path: ".atelier/probe-staleness.txt" }]));
+    writeFileSync(join(root, "fetch.stdout"), JSON.stringify({ isError: false, content: [{ type: "text", text: "source chunk" }] }));
+    writeFileSync(join(root, "outline.stdout"), JSON.stringify({ isError: false, structuredContent: { items: [{ kind: "Class" }] } }));
+    writeFileSync(join(root, "impact.stdout"), JSON.stringify({ isError: true, content: [{ type: "text", text: "No symbol indexers installed. Install the scip helper." }] }));
+    writeFileSync(join(root, "mcp_contract.stdout"), JSON.stringify({
+      tools: ["status", "search", "find", "get_chunk", "explore", "find_impact"].map((name) => ({ name })),
+      statusHistory: [{ state: "ready" }],
+    }));
+
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      resolve("scripts/summarize-codesearch-probe.ts"),
+      root,
+    ], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const summary = JSON.parse(readFileSync(join(root, "conformance.json"), "utf8")) as {
+      totals: { failed: number; warnings: number };
+      checks: Array<{ name: string; status: string }>;
+    };
+    assert.equal(summary.totals.failed, 0);
+    assert.ok(summary.checks.some((check) => check.name === "impact_result" && check.status === "warning"));
+    assert.ok(summary.checks.some((check) => check.name === "outline_result" && check.status === "passed"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

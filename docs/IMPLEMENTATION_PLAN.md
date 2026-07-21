@@ -2633,3 +2633,22 @@ The initial four-task run showed that codesearch is operationally conforming but
 outperform literal retrieval for exact implementation-location tasks. The next live run
 must use the v0.8.1 weighted task set before Atelier changes default query routing or begins
 an Octocode comparison.
+
+## v0.8.2 evidence-preserving collection
+
+The second machine-side collection completed the live probe but the wrapper exited before
+normalizing fixtures or packaging the evidence because it inherited `set -e` semantics
+from the probe's nonzero conformance result.
+
+Atelier v0.8.2 therefore:
+
+- retains the live probe exit status without aborting post-processing;
+- always normalizes every available fixture;
+- creates an attachable knowledge archive automatically;
+- prints the conformance summary before returning the retained status;
+- accepts structured MCP content for fetch and outline validation; and
+- treats unavailable optional language-specific impact indexers as warnings, including
+  MCP responses that set `isError` while providing remediation guidance.
+
+A failed collection is now both machine-detectable and diagnostically complete. Provider
+conformance failures must not prevent evidence needed to correct them from being retained.
