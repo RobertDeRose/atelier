@@ -3,8 +3,14 @@
   "normalizedAt": "<normalized>",
   "fixtures": {
     "status_after": "status_after.json",
+    "mcp_contract": "mcp_contract.json",
     "search": "search.json",
     "symbols": "symbols.json",
-    "search_after_edit": "search_after_edit.json"
+    "search_after_edit": "search_after_edit.json",
+    "fetch": "fetch.json",
+    "outline": "outline.json",
+    "impact": "impact.json",
+    "conformance": "conformance.json",
+    "evaluation": "evaluation.json"
   }
 }

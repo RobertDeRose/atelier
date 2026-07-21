@@ -44,7 +44,11 @@ function checkCommand(name: string): void {
   });
 }
 
-for (const command of ["version", "help", "mcp_help", "index_help", "status_before", "index", "status_after", "mcp_contract", "search", "status_after_edit", "reindex_after_edit", "search_after_edit", "symbols", "evaluation"]) {
+for (const command of [
+  "version", "help", "mcp_help", "index_help", "status_before", "index", "status_after",
+  "mcp_contract", "fetch", "outline", "impact", "search", "status_after_edit",
+  "reindex_after_edit", "search_after_edit", "symbols", "evaluation",
+]) {
   checkCommand(command);
 }
 
@@ -88,6 +92,38 @@ for (const required of ["status", "search", "find", "get_chunk"]) {
     detail: toolNames.includes(required) ? "advertised" : `missing; advertised: ${toolNames.join(", ") || "none"}`,
   });
 }
+for (const optional of ["explore", "find_impact"]) {
+  checks.push({
+    name: `mcp_tool_${optional}`,
+    status: toolNames.includes(optional) ? "passed" : "warning",
+    detail: toolNames.includes(optional) ? "advertised" : `optional tool unavailable; advertised: ${toolNames.join(", ") || "none"}`,
+  });
+}
+
+const fetchPayload = json("fetch") as { isError?: unknown; content?: Array<{ text?: unknown }> } | undefined;
+const fetchText = fetchPayload?.content?.map((item) => typeof item.text === "string" ? item.text : "").join("\n") ?? "";
+checks.push({
+  name: "fetch_result",
+  status: fetchPayload?.isError === true || !fetchText ? "failed" : "passed",
+  detail: fetchPayload?.isError === true ? "provider returned isError" : fetchText ? `${Buffer.byteLength(fetchText)} bytes` : "missing content",
+});
+
+const outlinePayload = json("outline") as { isError?: unknown; content?: Array<{ text?: unknown }> } | undefined;
+const outlineText = outlinePayload?.content?.map((item) => typeof item.text === "string" ? item.text : "").join("\n") ?? "";
+checks.push({
+  name: "outline_result",
+  status: outlinePayload?.isError === true || !outlineText ? "failed" : "passed",
+  detail: outlinePayload?.isError === true ? "provider returned isError" : outlineText ? `${Buffer.byteLength(outlineText)} bytes` : "missing content",
+});
+
+const impactPayload = json("impact") as { isError?: unknown; content?: Array<{ text?: unknown }> } | undefined;
+const impactText = impactPayload?.content?.map((item) => typeof item.text === "string" ? item.text : "").join("\n") ?? "";
+const impactUnavailable = /No symbol indexers installed/i.test(impactText);
+checks.push({
+  name: "impact_result",
+  status: impactPayload?.isError === true || !impactText ? "failed" : impactUnavailable ? "warning" : "passed",
+  detail: impactPayload?.isError === true ? "provider returned isError" : impactUnavailable ? impactText : impactText ? `${Buffer.byteLength(impactText)} bytes` : "missing content",
+});
 
 const totals = {
   passed: checks.filter((check) => check.status === "passed").length,

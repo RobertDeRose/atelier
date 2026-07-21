@@ -1,16 +1,32 @@
-# Atelier v0.8.0 Build Report
+# Atelier v0.8.1 Build Report
 
 ## Implemented
 
-- Revision-qualified codesearch provenance and explicit stale-evidence classification.
-- Optional codesearch `find_impact` call-relationship mapping.
-- Optional `explore` capability discovery.
-- Fetch-on-demand and federated chunk-reference probe coverage.
-- Portable real-provider fixture normalization.
-- Baseline-versus-codesearch comparative evaluation.
-- Expanded machine-side knowledge collection script.
-- Real codesearch 1.1.30 regression fixture from the supplied probe archive.
+- Isolated all ordinary tests from the real codesearch process.
+- Added an explicit `test:codesearch:live` task and compatibility alias.
+- Added actionable failure for empty codesearch fixture imports.
+- Normalized local codesearch paths to repository-relative domain paths.
+- Imported the complete verified codesearch 1.1.30 MCP, search, symbol, fetch, outline,
+  impact, conformance, and evaluation fixtures.
+- Added regression coverage for real tool schemas and response payloads.
+- Separated codesearch cold-start timing from steady-state evaluation.
+- Added ranked returned paths, weighted recall, reciprocal rank, nDCG@10, and aggregate
+  evaluation metrics.
+- Replaced the initial exact-path task set with weighted relevance rubrics.
+- Expanded live conformance checks for fetch, outline, optional tools, and impact support.
+- Published the first evidence-based codesearch evaluation report.
 
 ## Validation
 
-Run `mise run check` for the authoritative development gate and `mise run collect:codesearch` on a machine with the pinned codesearch executable for live conformance.
+- Strict TypeScript check: passed.
+- Automated tests: 28 passed, 0 failed.
+- CLI smoke test: passed.
+- Line coverage: 80.07%.
+- Branch coverage: 61.56%.
+- Function coverage: 76.45%.
+- Ordinary test duration in this environment: approximately 7 seconds; no live-provider
+  timeout was observed.
+
+Run `mise run check` for the authoritative pinned development gate. Run
+`mise run collect:codesearch` on the development machine to generate the second weighted
+live evaluation and updated portable fixtures.

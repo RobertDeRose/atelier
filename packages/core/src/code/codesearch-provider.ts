@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { basename, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import { nowIso } from "../util/ids.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
@@ -200,10 +200,12 @@ export class CodesearchProvider implements CodeProvider {
     const language = stringField(row, ["language", "lang"]);
     const startLine = numberField(row, ["start_line", "startLine", "line_start"]);
     const endLine = numberField(row, ["end_line", "endLine", "line_end"]);
+    const rawPath = stringField(row, ["path", "file", "file_path"]) ?? reference.path;
+    const repository = this.workspace?.repositories.find((candidate) => candidate.id === reference.repositoryId);
     return {
-      reference,
+      reference: repository === undefined ? reference : { ...reference, path: normalizeRepositoryPath(repository, rawPath) },
       repositoryId: reference.repositoryId,
-      path: stringField(row, ["path", "file", "file_path"]) ?? reference.path,
+      path: repository === undefined ? rawPath : normalizeRepositoryPath(repository, rawPath),
       ...(language === undefined ? {} : { language }),
       ...(startLine === undefined ? {} : { startLine }),
       ...(endLine === undefined ? {} : { endLine }),
@@ -305,7 +307,7 @@ export class CodesearchProvider implements CodeProvider {
       timeoutMs: this.timeoutMs,
       ...(this.environment === undefined ? {} : { environment: this.environment }),
     });
-    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.7.1" });
+    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.8.1" });
     this.identity = {
       name: "codesearch",
       ...(initialized.serverInfo.version === undefined ? {} : { version: initialized.serverInfo.version }),
@@ -483,8 +485,9 @@ function normalizeHit(options: {
 }): CodeSearchHit {
   const { row, query, actualMode, workspace, identity, indexState } = options;
   const project = stringField(row, ["project", "repository", "repo", "alias"]);
-  const repository = resolveRepository(workspace, project, stringField(row, ["path", "file", "file_path"]));
-  const path = stringField(row, ["path", "file", "file_path", "relative_path"]) ?? "unknown";
+  const rawPath = stringField(row, ["path", "file", "file_path", "relative_path"]) ?? "unknown";
+  const repository = resolveRepository(workspace, project, rawPath);
+  const path = normalizeRepositoryPath(repository, rawPath);
   const chunkId = String(row.chunk_id ?? row.chunkId ?? row.id ?? `${project ?? repository.id}:${path}:${options.rank}`);
   const chunkRef = stringField(row, ["chunk_ref", "chunkRef"]);
   const startLine = numberField(row, ["start_line", "startLine", "line_start", "line"]);
@@ -545,8 +548,9 @@ function normalizeHit(options: {
 
 function referenceFromRow(row: Record<string, unknown>, workspace: CodeWorkspace, provider: string): CodeReference {
   const project = stringField(row, ["project", "repository", "repo", "alias"]);
-  const path = stringField(row, ["path", "file", "file_path", "relative_path"]) ?? "unknown";
-  const repository = resolveRepository(workspace, project, path);
+  const rawPath = stringField(row, ["path", "file", "file_path", "relative_path"]) ?? "unknown";
+  const repository = resolveRepository(workspace, project, rawPath);
+  const path = normalizeRepositoryPath(repository, rawPath);
   const chunkId = String(row.chunk_id ?? row.chunkId ?? row.id ?? `${project ?? repository.id}:${path}`);
   const chunkRef = stringField(row, ["chunk_ref", "chunkRef"]);
   const startLine = numberField(row, ["start_line", "startLine", "line_start", "line"]);
@@ -568,14 +572,44 @@ function referenceFromRow(row: Record<string, unknown>, workspace: CodeWorkspace
 
 function resolveRepository(workspace: CodeWorkspace, project?: string, path?: string) {
   if (project) {
-    const match = workspace.repositories.find((repo) => repo.id === project || repo.name === project || basename(repo.root) === project);
+    const match = workspace.repositories.find((repo) => repo.id === project || repo.codesearchProject === project || repo.name === project || basename(repo.root) === project);
     if (match) return match;
   }
   if (path) {
-    const namespaced = workspace.repositories.find((repo) => path.startsWith(`${repo.name}/`) || path.startsWith(`${basename(repo.root)}/`));
+    const absolute = workspace.repositories
+      .filter((repository) => pathWithinRoot(repository.root, path))
+      .sort((left, right) => right.root.length - left.root.length)[0];
+    if (absolute) return absolute;
+    const namespaced = workspace.repositories.find((repo) => repositoryAliases(repo).some((alias) => normalizeSlashes(path).startsWith(`${alias}/`)));
     if (namespaced) return namespaced;
   }
   return workspace.repositories[0] ?? { id: "unknown", name: project ?? "unknown", root: "", snapshot: { repositoryId: "unknown", workspaceId: workspace.id, vcs: "git" as const, headCommit: "unknown", dirtyGeneration: 0, dirtyFingerprint: "unknown", indexSchemaVersion: 1 } };
+}
+
+function normalizeRepositoryPath(repository: CodeWorkspace["repositories"][number], path: string): string {
+  const normalized = normalizeSlashes(path).replace(/^\.\//, "");
+  if (isAbsolute(path) && pathWithinRoot(repository.root, path)) {
+    const candidate = normalizeSlashes(relative(repository.root, path));
+    return candidate || ".";
+  }
+  for (const alias of repositoryAliases(repository)) {
+    if (normalized.startsWith(`${alias}/`)) return normalized.slice(alias.length + 1);
+  }
+  return normalized;
+}
+
+function pathWithinRoot(root: string, path: string): boolean {
+  if (!isAbsolute(path)) return false;
+  const candidate = relative(resolve(root), resolve(path));
+  return candidate === "" || (!candidate.startsWith("..") && !isAbsolute(candidate));
+}
+
+function repositoryAliases(repository: CodeWorkspace["repositories"][number]): string[] {
+  return [...new Set([repository.codesearchProject, repository.name, basename(repository.root)].filter((value): value is string => Boolean(value)))];
+}
+
+function normalizeSlashes(value: string): string {
+  return value.replaceAll("\\", "/");
 }
 
 function provenanceFor(options: {

@@ -1,0 +1,126 @@
+{
+  "generatedAt": "<TIMESTAMP>",
+  "outputDirectory": "<REPOSITORY_ROOT>/.atelier/codesearch-probe",
+  "totals": {
+    "passed": 23,
+    "warnings": 0,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "name": "version",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "mcp_help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "index_help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "status_before",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "index",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "status_after",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "mcp_contract",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "search",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "status_after_edit",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "reindex_after_edit",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "search_after_edit",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "symbols",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "evaluation",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "index_ready",
+      "status": "passed",
+      "detail": "reported state: ready"
+    },
+    {
+      "name": "search_results",
+      "status": "passed",
+      "detail": "8 normalized results"
+    },
+    {
+      "name": "symbols_results",
+      "status": "passed",
+      "detail": "10 normalized results"
+    },
+    {
+      "name": "search_after_edit_results",
+      "status": "passed",
+      "detail": "8 normalized results"
+    },
+    {
+      "name": "mcp_index_ready",
+      "status": "passed",
+      "detail": "ready after 1 status observation(s)"
+    },
+    {
+      "name": "mcp_tool_status",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "mcp_tool_search",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "mcp_tool_find",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "mcp_tool_get_chunk",
+      "status": "passed",
+      "detail": "advertised"
+    }
+  ]
+}

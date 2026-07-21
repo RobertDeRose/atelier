@@ -1,13 +1,23 @@
-# Atelier v0.8.0 Migration Report
+# Atelier v0.8.1 Migration Report
 
-No configuration migration is required from v0.7.1.
+No configuration migration is required from v0.8.0.
 
-New development tasks:
+The ordinary test suite is now fully isolated from live code providers. Use the explicit
+live task when codesearch is installed:
 
 ```bash
-mise run fixtures:codesearch
-mise run collect:codesearch
-mise run evaluate:code
+mise run test:codesearch:live
 ```
 
-Code evidence now includes freshness and indexed/current revision identities when Atelier has observed the indexing operation. Evidence returned after the working copy changes is marked `known_stale` until reindexing succeeds.
+`mise run test:codesearch` remains an alias.
+
+Fixture import now fails when no recognized probe artifacts exist. Run:
+
+```bash
+mise run collect:codesearch
+mise run fixtures:codesearch
+```
+
+The comparative evaluation report schema now includes a separate `coldStart` record,
+repository-relative ranked paths, weighted recall, reciprocal rank, nDCG@10, and aggregate
+metrics. Consumers of `.atelier/evaluation/latest.json` should tolerate these added fields.

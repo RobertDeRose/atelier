@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { AtelierCore } from "../packages/core/src/index.ts";
+import { AtelierCore, DisabledCodeProvider } from "../packages/core/src/index.ts";
 
 test("validation evidence is snapshot-qualified and becomes stale after edits", () => {
   const root = mkdtempSync(join(tmpdir(), "atelier-validation-"));
@@ -12,7 +12,7 @@ test("validation evidence is snapshot-qualified and becomes stale after edits", 
   mkdirSync(join(root, ".atelier"));
   writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({ validations: { pass: { command: [process.execPath, "-e", "process.exit(0)"] } } }));
   writeFileSync(join(root, "source.txt"), "one\n");
-  const core = AtelierCore.open(root, { taskProvider: "memory" });
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
   try {
     const snapshot = core.repository.snapshot();
     const evidence = core.validation.run("pass", snapshot);
@@ -33,7 +33,7 @@ test("focused validation selection uses changed paths and symbols", () => {
     state: { command: [process.execPath, "-e", "process.exit(0)"], symbols: ["WorkingState*"] },
     smoke: { command: [process.execPath, "-e", "process.exit(0)"], focused: true },
   } }));
-  const core = AtelierCore.open(root, { taskProvider: "memory" });
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
   try {
     const plan = core.validation.planFocused(["src/core/state.ts"], ["WorkingStateBuilder"]);
     assert.deepEqual(plan.map((item) => item.name).sort(), ["smoke", "state", "types"]);

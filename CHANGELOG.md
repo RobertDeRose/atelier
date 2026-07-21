@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.1 — 2026-07-21
+
+```text
+fix(code): isolate live providers and strengthen retrieval evaluation
+
+- prevent ordinary tests from launching the real codesearch provider
+- add an explicit live codesearch test task
+- fail empty fixture imports with actionable guidance
+- normalize local provider paths to repository-relative paths
+- commit the complete verified codesearch 1.1.30 response fixtures
+- separate cold-start latency from steady-state evaluation
+- report ranked paths, weighted recall, reciprocal rank, and nDCG
+- replace rigid benchmark prompts with weighted retrieval rubrics
+- expand conformance checks for fetch, outline, and impact responses
+- publish the first evidence-based codesearch evaluation report
+```
+
 ## 0.8.0 — 2026-07-21
 
 ```text

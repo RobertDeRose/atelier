@@ -30,8 +30,12 @@ description = "Run all repository checks"
 run = "aubr check"
 
 [tasks."test:codesearch"]
+description = "Alias for the explicit live codesearch test"
+run = "aubr test:codesearch:live"
+
+[tasks."test:codesearch:live"]
 description = "Probe a real codesearch installation and capture conformance data"
-run = "aubr test:codesearch"
+run = "aubr test:codesearch:live"
 
 [tasks."evaluate:code"]
 description = "Run the code-intelligence evaluation task set"

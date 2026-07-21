@@ -38,9 +38,9 @@ process.stdin.on('data', chunk => {
         const buildingCalls = Number(process.env.FAKE_BUILDING_STATUS_COUNT ?? '0');
         result = { structuredContent: statusCalls <= buildingCalls ? { index_state: 'building' } : { index_state: 'ready', index_age_seconds: 3 } };
       }
-      else if (name === 'search') result = { structuredContent: { index_state: 'ready', results: [{ chunk_id: 42, project: input.project ?? 'repo', path: 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', symbol: 'refreshToken', score: 0.91, preview: 'export function refreshToken()' }] } };
-      else if (name === 'find') result = { structuredContent: { results: [{ chunk_id: 43, project: input.project ?? 'repo', path: 'src/auth.ts', start_line: 10, end_line: 14, symbol: input.symbol, kind: input.kind }] } };
-      else if (name === 'get_chunk') result = { structuredContent: { chunk: { chunk_id: input.chunk_id, project: input.project, path: 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', content: 'export function refreshToken() { return token; }' } } };
+      else if (name === 'search') result = { structuredContent: { index_state: 'ready', results: [{ chunk_id: 42, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', symbol: 'refreshToken', score: 0.91, preview: 'export function refreshToken()' }] } };
+      else if (name === 'find') result = { structuredContent: { results: [{ chunk_id: 43, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, symbol: input.symbol, kind: input.kind }] } };
+      else if (name === 'get_chunk') result = { structuredContent: { chunk: { chunk_id: input.chunk_id, project: input.project, path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', content: 'export function refreshToken() { return token; }' } } };
       else if (name === 'explore') result = { structuredContent: { results: [{ chunk_id: 44, path: input.target, start_line: 1, end_line: 20, kind: 'Class', signature: 'class CodesearchProvider' }] } };
       else if (name === 'find_impact') result = { structuredContent: { results: [{ chunk_id: 45, path: 'src/caller.ts', line: 3, kind: 'Call', signature: 'refreshToken()' }] } };
       else result = { isError: true, content: [{ type: 'text', text: 'unknown tool' }] };
@@ -87,7 +87,7 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
     pollIntervalMs: 5,
-    environment: { FAKE_BUILDING_STATUS_COUNT: "2" },
+    environment: { FAKE_BUILDING_STATUS_COUNT: "2", FAKE_RESULT_PATH: join(root, "src", "auth.ts") },
   });
   try {
     const indexed = await provider.ensureIndex(workspace(root));
@@ -112,6 +112,8 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     assert.equal(hits.length, 1);
     assert.equal(hits[0]?.repositoryId, "repo");
     assert.equal(hits[0]?.symbol, "refreshToken");
+    assert.equal(hits[0]?.path, "src/auth.ts");
+    assert.equal(hits[0]?.reference.path, "src/auth.ts");
     assert.equal(hits[0]?.provenance.provider.name, "codesearch");
     assert.equal(hits[0]?.provenance.indexState, "ready");
     assert.equal(hits[0]?.provenance.freshness, "current");
@@ -133,6 +135,8 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
 
     const chunk = await provider.read(hits[0]!.reference);
     assert.match(chunk.content, /refreshToken/);
+    assert.equal(chunk.path, "src/auth.ts");
+    assert.equal(chunk.reference.path, "src/auth.ts");
 
     const symbols = await provider.symbols({ workspace: workspace(root), text: "refreshToken", limit: 5 });
     assert.equal(symbols[0]?.path, "src/auth.ts");

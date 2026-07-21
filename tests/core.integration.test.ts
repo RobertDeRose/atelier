@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { AtelierCore } from "../packages/core/src/core.ts";
+import { DisabledCodeProvider } from "../packages/core/src/code/disabled-provider.ts";
 import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
 
 test("review, approval, reconciliation, and Working State form a runnable vertical slice", async () => {
   const root = createTemporaryRepository("atlr-core-");
-  const core = AtelierCore.open(root, { taskProvider: "memory" });
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
   try {
     core.initialize();
     writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");

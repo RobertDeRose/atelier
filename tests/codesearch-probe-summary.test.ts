@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 
 const commandNames = [
   "version", "help", "mcp_help", "index_help", "status_before", "index", "status_after",
-  "mcp_contract", "search", "status_after_edit", "reindex_after_edit", "search_after_edit",
+  "mcp_contract", "fetch", "outline", "impact", "search", "status_after_edit", "reindex_after_edit", "search_after_edit",
   "symbols", "evaluation",
 ];
 
@@ -19,8 +19,11 @@ test("codesearch probe summary reports a ready conforming provider", () => {
     writeFileSync(join(root, "search.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
     writeFileSync(join(root, "symbols.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
     writeFileSync(join(root, "search_after_edit.stdout"), JSON.stringify([{ path: ".atelier/probe-staleness.txt" }]));
+    writeFileSync(join(root, "fetch.stdout"), JSON.stringify({ isError: false, content: [{ type: "text", text: "source chunk" }] }));
+    writeFileSync(join(root, "outline.stdout"), JSON.stringify({ isError: false, content: [{ type: "text", text: "[{\"kind\":\"Class\"}]" }] }));
+    writeFileSync(join(root, "impact.stdout"), JSON.stringify({ isError: false, content: [{ type: "text", text: "No symbol indexers installed." }] }));
     writeFileSync(join(root, "mcp_contract.stdout"), JSON.stringify({
-      tools: ["status", "search", "find", "get_chunk"].map((name) => ({ name })),
+      tools: ["status", "search", "find", "get_chunk", "explore", "find_impact"].map((name) => ({ name })),
       statusHistory: [{ state: "building" }, { state: "ready" }],
     }));
 
@@ -36,8 +39,11 @@ test("codesearch probe summary reports a ready conforming provider", () => {
       checks: Array<{ name: string; status: string }>;
     };
     assert.equal(summary.totals.failed, 0);
-    assert.equal(summary.totals.warnings, 0);
+    assert.equal(summary.totals.warnings, 1);
     assert.ok(summary.checks.some((check) => check.name === "mcp_index_ready" && check.status === "passed"));
+    assert.ok(summary.checks.some((check) => check.name === "fetch_result" && check.status === "passed"));
+    assert.ok(summary.checks.some((check) => check.name === "outline_result" && check.status === "passed"));
+    assert.ok(summary.checks.some((check) => check.name === "impact_result" && check.status === "warning"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

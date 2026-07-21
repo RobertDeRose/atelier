@@ -2610,3 +2610,26 @@ The v0.7.1 hardening stage therefore:
 - removes generated runtime and evaluation state from version control.
 
 The next provider decision must be based on a successful v0.7.1 live conformance run and the comparative evaluation report, not on mock-provider results alone.
+
+## v0.8.0–v0.8.1 codesearch evidence stage
+
+The real codesearch 1.1.30 collection is complete. It verified MCP initialization, tool
+schemas, asynchronous index readiness, semantic search, symbol lookup, fetch-on-demand,
+file outlines, optional impact analysis, and edit/reindex behavior.
+
+Atelier v0.8.1 incorporates that evidence by:
+
+- committing portable real-provider fixtures for every captured operation;
+- isolating ordinary tests from the live provider and exposing an explicit
+  `test:codesearch:live` task;
+- normalizing local provider paths to repository-relative paths;
+- treating an empty fixture import as an actionable error;
+- separating provider cold start from evaluated query latency;
+- recording ranked returned paths, weighted recall, reciprocal rank, and nDCG@10;
+- replacing rigid exact-file expectations with weighted retrieval rubrics; and
+- publishing the first evidence-based evaluation report.
+
+The initial four-task run showed that codesearch is operationally conforming but did not
+outperform literal retrieval for exact implementation-location tasks. The next live run
+must use the v0.8.1 weighted task set before Atelier changes default query routing or begins
+an Octocode comparison.
