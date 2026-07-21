@@ -100,6 +100,7 @@ export class AtelierCore {
             codeCommand: this.config.codeCommand,
             codeMode: this.config.codeMode,
             codeTimeoutMs: this.config.codeTimeoutMs,
+            codeIndexTimeoutMs: this.config.codeIndexTimeoutMs,
             codeMaxResults: this.config.codeMaxResults,
             codeMaxPreviewBytes: this.config.codeMaxPreviewBytes,
             codeMaxChunkBytes: this.config.codeMaxChunkBytes,
@@ -252,6 +253,8 @@ export class AtelierCore {
 
   validateConfiguration(): string[] {
     const issues = validateCodeWorkspace(this.codeWorkspace());
+    if (this.config.codeTimeoutMs < 1) issues.push("codeTimeoutMs must be positive");
+    if (this.config.codeIndexTimeoutMs < 1) issues.push("codeIndexTimeoutMs must be positive");
     if (this.config.codeMaxResults < 1) issues.push("codeMaxResults must be positive");
     if (this.config.codeMaxTotalBytes < this.config.codeMaxChunkBytes) issues.push("codeMaxTotalBytes must be >= codeMaxChunkBytes");
     return issues;
@@ -325,6 +328,7 @@ function createCodeProvider(config: AtelierConfig): CodeProvider {
       cwd: config.repositoryRoot,
       mode: config.codeMode,
       timeoutMs: config.codeTimeoutMs,
+      indexTimeoutMs: config.codeIndexTimeoutMs,
     });
   }
   return new DisabledCodeProvider();

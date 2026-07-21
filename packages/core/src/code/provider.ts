@@ -22,7 +22,7 @@ export class UnsupportedCodeCapabilityError extends Error {
 
 export interface CodeProvider {
   readonly name: string;
-  status(): Promise<CodeProviderStatus>;
+  status(workspace?: CodeWorkspace): Promise<CodeProviderStatus>;
   ensureIndex(workspace: CodeWorkspace): Promise<CodeIndexState>;
   search(query: CodeSearchQuery): Promise<CodeSearchHit[]>;
   read(reference: CodeSearchHit["reference"]): Promise<CodeChunk>;

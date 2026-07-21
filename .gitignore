@@ -1,6 +1,14 @@
-.ade/*.db
-.ade/*.db-*
-.ade/artifacts/
+# Atelier runtime state
+.atelier/*.db
+.atelier/*.db-*
+.atelier/codesearch-probe/
+.atelier/evaluation/
+.atelier/probe-staleness.txt
+
+# External provider indexes
+.codesearch.db/
+
+# JavaScript dependencies and generated output
 node_modules/
 coverage/
 *.log

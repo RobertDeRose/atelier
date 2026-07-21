@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodesearchProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
 
-function fakeCodesearch(root: string): { command: string; log: string } {
+function fakeCodesearch(root: string): { command: string; log: string; mcpLog: string } {
   const command = join(root, "codesearch");
   const log = join(root, "calls.jsonl");
+  const mcpLog = join(root, "mcp-calls.jsonl");
   writeFileSync(command, `#!/usr/bin/env node
 import fs from 'node:fs';
 const args = process.argv.slice(2);
@@ -16,6 +17,7 @@ if (args[0] === '--version') { console.log('codesearch 1.1.30'); process.exit(0)
 if (args[0] === 'index') { console.log('indexed'); process.exit(0); }
 if (args[0] !== 'mcp') process.exit(2);
 let buffer = '';
+let statusCalls = 0;
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => {
   buffer += chunk;
@@ -25,12 +27,17 @@ process.stdin.on('data', chunk => {
     if (!line.trim()) continue;
     const request = JSON.parse(line);
     if (!('id' in request)) continue;
+    fs.appendFileSync(${JSON.stringify(mcpLog)}, JSON.stringify({ method: request.method, params: request.params }) + '\\n');
     let result;
     if (request.method === 'initialize') result = { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'codesearch', version: '1.1.30' }, instructions: 'Prefer semantic search.' };
     else if (request.method === 'tools/list') result = { tools: ['search','find','get_chunk','status'].map(name => ({ name, inputSchema: { type: 'object' } })) };
     else if (request.method === 'tools/call') {
       const { name, arguments: input } = request.params;
-      if (name === 'status') result = { structuredContent: { index_state: 'ready', index_age_seconds: 3 } };
+      if (name === 'status') {
+        statusCalls += 1;
+        const buildingCalls = Number(process.env.FAKE_BUILDING_STATUS_COUNT ?? '0');
+        result = { structuredContent: statusCalls <= buildingCalls ? { index_state: 'building' } : { index_state: 'ready', index_age_seconds: 3 } };
+      }
       else if (name === 'search') result = { structuredContent: { index_state: 'ready', results: [{ chunk_id: 42, project: input.project ?? 'repo', path: 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', symbol: 'refreshToken', score: 0.91, preview: 'export function refreshToken()' }] } };
       else if (name === 'find') result = { structuredContent: { results: [{ chunk_id: 43, project: input.project ?? 'repo', path: 'src/auth.ts', start_line: 10, end_line: 14, symbol: input.symbol, kind: input.kind }] } };
       else if (name === 'get_chunk') result = { structuredContent: { chunk: { chunk_id: input.chunk_id, project: input.project, path: 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', content: 'export function refreshToken() { return token; }' } } };
@@ -41,7 +48,7 @@ process.stdin.on('data', chunk => {
 });
 `, "utf8");
   chmodSync(command, 0o755);
-  return { command, log };
+  return { command, log, mcpLog };
 }
 
 function workspace(root: string): CodeWorkspace {
@@ -71,7 +78,15 @@ function workspace(root: string): CodeWorkspace {
 test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and symbol results", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-"));
   const fake = fakeCodesearch(root);
-  const provider = new CodesearchProvider({ command: fake.command, cwd: root, mode: "local", timeoutMs: 2_000 });
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_BUILDING_STATUS_COUNT: "2" },
+  });
   try {
     const indexed = await provider.ensureIndex(workspace(root));
     assert.equal(indexed, "ready");
@@ -82,6 +97,7 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     assert.equal(status.identity.version, "1.1.30");
     assert.ok(status.capabilities.includes("search.semantic"));
     assert.ok(status.capabilities.includes("result.fetch_on_demand"));
+    assert.equal(status.capabilities.includes("index.multi_repository"), false);
 
     const hits = await provider.search({
       workspace: workspace(root),
@@ -106,6 +122,53 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
     assert.ok(calls.some((args) => args[0] === "index" && args[1] === "add" && args[2] === root));
     assert.ok(calls.some((args) => args[0] === "mcp" && args.includes("local")));
+
+    const mcpCalls = readFileSync(fake.mcpLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { method: string; params?: { name?: string; arguments?: Record<string, unknown> } });
+    const searchCall = mcpCalls.find((call) => call.method === "tools/call" && call.params?.name === "search");
+    assert.equal(searchCall?.params?.arguments?.project, undefined);
+    assert.equal(searchCall?.params?.arguments?.group, undefined);
+    assert.equal(searchCall?.params?.arguments?.mode, "semantic");
+    assert.equal(searchCall?.params?.arguments?.semantic_mode, "hybrid");
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("codesearch client mode uses configured project aliases", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-client-"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "client",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+  });
+  const configuredWorkspace = workspace(root);
+  configuredWorkspace.repositories[0]!.codesearchProject = "atelier-api";
+  try {
+    await provider.search({
+      workspace: configuredWorkspace,
+      text: "refresh token",
+      mode: "semantic",
+      limit: 5,
+      includeTests: true,
+      includeGenerated: false,
+    });
+    const mcpCalls = readFileSync(fake.mcpLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { method: string; params?: { name?: string; arguments?: Record<string, unknown> } });
+    const statusCall = mcpCalls.find((call) => call.method === "tools/call" && call.params?.name === "status");
+    assert.equal(statusCall?.params?.arguments?.project, "atelier-api");
+    const searchCall = mcpCalls.find((call) => call.method === "tools/call" && call.params?.name === "search");
+    assert.equal(searchCall?.params?.arguments?.project, "atelier-api");
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });

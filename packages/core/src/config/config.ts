@@ -20,6 +20,7 @@ export interface AtelierConfig {
   codeCommand: string;
   codeMode: "auto" | "local" | "client";
   codeTimeoutMs: number;
+  codeIndexTimeoutMs: number;
   codeMaxResults: number;
   codeMaxPreviewBytes: number;
   codeMaxChunkBytes: number;
@@ -42,6 +43,7 @@ interface PartialAtelierConfig {
   codeCommand?: string;
   codeMode?: AtelierConfig["codeMode"];
   codeTimeoutMs?: number;
+  codeIndexTimeoutMs?: number;
   codeMaxResults?: number;
   codeMaxPreviewBytes?: number;
   codeMaxChunkBytes?: number;
@@ -90,6 +92,7 @@ export function loadConfig(repositoryRoot: string): AtelierConfig {
     codeCommand: merged.codeCommand ?? "codesearch",
     codeMode: merged.codeMode ?? "auto",
     codeTimeoutMs: merged.codeTimeoutMs ?? 60_000,
+    codeIndexTimeoutMs: merged.codeIndexTimeoutMs ?? 300_000,
     codeMaxResults: merged.codeMaxResults ?? 10,
     codeMaxPreviewBytes: merged.codeMaxPreviewBytes ?? 2_000,
     codeMaxChunkBytes: merged.codeMaxChunkBytes ?? 16_000,

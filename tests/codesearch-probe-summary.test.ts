@@ -1,0 +1,44 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+
+const commandNames = [
+  "version", "help", "mcp_help", "index_help", "status_before", "index", "status_after",
+  "mcp_contract", "search", "status_after_edit", "reindex_after_edit", "search_after_edit",
+  "symbols", "evaluation",
+];
+
+test("codesearch probe summary reports a ready conforming provider", () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-probe-summary-"));
+  try {
+    for (const name of commandNames) writeFileSync(join(root, `${name}.status`), "0\n");
+    writeFileSync(join(root, "index.stdout"), JSON.stringify({ state: "ready" }));
+    writeFileSync(join(root, "search.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "symbols.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "search_after_edit.stdout"), JSON.stringify([{ path: ".atelier/probe-staleness.txt" }]));
+    writeFileSync(join(root, "mcp_contract.stdout"), JSON.stringify({
+      tools: ["status", "search", "find", "get_chunk"].map((name) => ({ name })),
+      statusHistory: [{ state: "building" }, { state: "ready" }],
+    }));
+
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      resolve("scripts/summarize-codesearch-probe.ts"),
+      root,
+    ], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const summary = JSON.parse(readFileSync(join(root, "conformance.json"), "utf8")) as {
+      totals: { failed: number; warnings: number };
+      checks: Array<{ name: string; status: string }>;
+    };
+    assert.equal(summary.totals.failed, 0);
+    assert.equal(summary.totals.warnings, 0);
+    assert.ok(summary.checks.some((check) => check.name === "mcp_index_ready" && check.status === "passed"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

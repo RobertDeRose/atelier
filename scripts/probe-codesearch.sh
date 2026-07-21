@@ -1,9 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT=${1:-$PWD}; OUT=${2:-$ROOT/.atelier/codesearch-probe}; mkdir -p "$OUT"
-log(){ printf '%s\n' "$*" | tee -a "$OUT/probe.log"; }
-run(){ local name=$1; shift; log "== $name =="; { "$@" >"$OUT/$name.stdout" 2>"$OUT/$name.stderr"; echo $? >"$OUT/$name.status"; } || echo $? >"$OUT/$name.status"; }
-command -v codesearch >"$OUT/codesearch.path" || { log "codesearch not installed"; exit 2; }
+
+ROOT=${1:-$PWD}
+OUT=${2:-$ROOT/.atelier/codesearch-probe}
+rm -rf "$OUT"
+mkdir -p "$OUT"
+
+log() { printf '%s\n' "$*" | tee -a "$OUT/probe.log"; }
+run() {
+  local name=$1
+  shift
+  log "== $name =="
+  if "$@" >"$OUT/$name.stdout" 2>"$OUT/$name.stderr"; then
+    printf '0\n' >"$OUT/$name.status"
+  else
+    printf '%s\n' "$?" >"$OUT/$name.status"
+  fi
+}
+
+command -v codesearch >"$OUT/codesearch.path" || {
+  log "codesearch not installed"
+  exit 2
+}
+
+PROBE_FILE="$ROOT/.atelier/probe-staleness.txt"
+trap 'rm -f "$PROBE_FILE"' EXIT
+
 run version codesearch --version
 run help codesearch --help
 run mcp_help codesearch mcp --help
@@ -11,14 +33,19 @@ run index_help codesearch index --help
 run status_before node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code doctor --json
 run index node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code index --json
 run status_after node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code doctor --json
+run mcp_contract node --experimental-strip-types "$ROOT/scripts/probe-codesearch-mcp.ts" "$ROOT"
 run search node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code search "where is code provider selection implemented" --json
-PROBE_FILE="$ROOT/.atelier/probe-staleness.txt"
-printf 'probe %s\n' "$(date -u +%FT%TZ)" > "$PROBE_FILE"
+
+printf 'probe staleness marker %s\n' "$(date -u +%FT%TZ)" >"$PROBE_FILE"
 run status_after_edit node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code doctor --json
 run reindex_after_edit node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code index --json
-run search_after_edit node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code search "probe staleness" --json
-rm -f "$PROBE_FILE"
+run search_after_edit node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code search "probe staleness marker" --json
 run symbols node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code symbols CodesearchProvider --json
 run evaluation node --experimental-strip-types "$ROOT/scripts/evaluate-code.ts" "$ROOT" "$ROOT/evaluation/tasks.json" "$OUT/evaluation"
-find "$OUT" -type f -maxdepth 3 -print0 | sort -z | xargs -0 shasum -a 256 >"$OUT/SHA256SUMS"
+run conformance node --experimental-strip-types "$ROOT/scripts/summarize-codesearch-probe.ts" "$OUT"
+
+find "$OUT" -type f ! -name SHA256SUMS -print | LC_ALL=C sort | while IFS= read -r file; do
+  shasum -a 256 "$file"
+done >"$OUT/SHA256SUMS"
 log "Probe complete: $OUT"
+exit "$(cat "$OUT/conformance.status")"

@@ -1,5 +1,5 @@
 import type { CodeProvider } from "./provider.ts";
-import type { CodeProviderStatus } from "./types.ts";
+import type { CodeProviderStatus, CodeWorkspace } from "./types.ts";
 
 export class CodeProviderRegistry {
   private readonly providers = new Map<string, CodeProvider>();
@@ -20,8 +20,8 @@ export class CodeProviderRegistry {
     return [...this.providers.keys()].sort();
   }
 
-  async statuses(): Promise<CodeProviderStatus[]> {
-    return Promise.all(this.names().map((name) => this.get(name).status()));
+  async statuses(workspace?: CodeWorkspace): Promise<CodeProviderStatus[]> {
+    return Promise.all(this.names().map((name) => this.get(name).status(workspace)));
   }
 
   async close(): Promise<void> {

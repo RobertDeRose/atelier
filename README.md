@@ -4,9 +4,9 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.6.1 scope
+## v0.7.1 scope
 
-This release corrects Atelier's code-intelligence ownership boundary.
+This release hardens Atelier's development setup and its first live codesearch integration after testing against codesearch 1.1.30.
 
 Atelier now owns:
 
@@ -26,7 +26,7 @@ Atelier now includes a verified `codesearch` adapter based on the documented `co
 ## Requirements
 
 - mise for the development toolchain
-- Node.js 22.6 or newer (installed by mise)
+- Node.js 24.18.0 (installed and pinned by mise)
 - Aube 1.29.1 (installed by mise)
 - Git for compatibility mode
 - Jujutsu (`jj`) for the primary repository model
@@ -42,7 +42,7 @@ mise run install
 mise run check
 ```
 
-`mise install` provisions Node and Aube. `mise run install` installs JavaScript dependencies from the committed `package-lock.json`; Aube keeps that lockfile as the shared source of truth. Use `aubr <script>` for direct package-script execution.
+`mise install` provisions the versions pinned in `mise.toml` and `mise.lock`: Node, Aube, Jujutsu, jjui, and codesearch. `mise run install` performs a frozen Aube install from the committed `package-lock.json`. Use `aubr <script>` for direct package-script execution.
 
 Run the CLI directly:
 
@@ -173,7 +173,7 @@ Providers advertise capabilities as data. Atelier does not spread provider-name 
 - graceful termination;
 - pending-request failure propagation.
 
-The codesearch adapter performs MCP initialization, tool discovery, capability mapping, result normalization, index-state interpretation, fetch-on-demand, and direct argument-array indexing.
+The codesearch adapter performs MCP initialization, tool discovery, capability mapping, result normalization, index-state interpretation, fetch-on-demand, and direct argument-array indexing. Indexing and query operations poll the provider until its status changes from `building` to `ready`; a configurable timeout prevents indefinite waits.
 
 ## Multi-repository workspace model
 
@@ -221,10 +221,9 @@ Validation evidence remains qualified by repository snapshot and becomes stale a
 ## Current limitations
 
 - No Octocode adapter yet.
-- Live codesearch conformance still requires a real supported binary in the deployment environment.
+- The v0.7.1 codesearch hardening must be rerun against the pinned real provider after upgrading from v0.7.0.
 - No persistent daemon or JSON-RPC service boundary.
-- `CodeWorkspace` is currently constructed from the active repository by default; explicit multi-repository workspace configuration is the next common-model extension.
-- Relationship traversal is represented in the contract but not implemented by the mock provider.
+- The codesearch adapter supports imports, dependents, and usage relationships; deeper provider-specific graph evaluation remains pending.
 - Jujutsu live conformance still requires a real supported `jj` binary.
 
 Configure the provider in `.atelier/config.json`:
@@ -234,7 +233,8 @@ Configure the provider in `.atelier/config.json`:
   "codeProvider": "codesearch",
   "codeCommand": "codesearch",
   "codeMode": "auto",
-  "codeTimeoutMs": 60000
+  "codeTimeoutMs": 60000,
+  "codeIndexTimeoutMs": 300000
 }
 ```
 
@@ -264,4 +264,4 @@ On a machine with codesearch installed, run:
 mise run test:codesearch
 ```
 
-The probe writes a self-contained report under `.atelier/codesearch-probe`, including versions, help output, provider diagnostics, index attempts, search and symbol responses, an edit/reindex staleness check, evaluation outputs, stderr, exit statuses, and checksums.
+The probe writes a self-contained report under `.atelier/codesearch-probe`. It now waits for the raw MCP index to become ready, captures the complete advertised tool schemas and raw provider responses, exercises search/symbol/edit/reindex behavior, and produces `CONFORMANCE.md` plus `conformance.json`. The script exits nonzero for contract or readiness failures. Generated probe, evaluation, SQLite, and codesearch database files are ignored by Git.

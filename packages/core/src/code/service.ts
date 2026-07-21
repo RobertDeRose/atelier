@@ -15,9 +15,9 @@ export class CodeService {
     this.limits = limits;
   }
 
-  providers() { return this.registry.statuses(); }
+  providers(workspace?: CodeWorkspace) { return this.registry.statuses(workspace); }
 
-  async status(provider?: string) { return this.registry.get(provider).status(); }
+  async status(provider?: string, workspace?: CodeWorkspace) { return this.registry.get(provider).status(workspace); }
 
   async ensureIndex(workspace: CodeWorkspace, provider?: string) {
     const selected = this.registry.get(provider);

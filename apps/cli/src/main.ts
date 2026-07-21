@@ -146,12 +146,12 @@ async function main(): Promise<void> {
         }
       })();
       asJson({
-        node: { version: process.version, supported: Number(process.versions.node.split(".")[0]) >= 22 },
+        node: { version: process.version, supported: Number(process.versions.node.split(".")[0]) >= 24 },
         git: commandAvailable("git"),
         jj: commandAvailable("jj"),
         beads: status,
         editor,
-        code: await core.code.status(),
+        code: await core.code.status(undefined, core.codeWorkspace()),
         repositoryRoot: root,
       });
     } finally {
@@ -398,13 +398,13 @@ async function main(): Promise<void> {
 async function handleCode(core: AtelierCore, subcommand: string | undefined, rest: string[], parsed: ParsedArgs): Promise<void> {
   const provider = flagString(parsed, "provider");
   if (subcommand === "providers") {
-    const statuses = await core.code.providers();
+    const statuses = await core.code.providers(core.codeWorkspace());
     if (flagBoolean(parsed, "json")) asJson(statuses);
     else for (const status of statuses) process.stdout.write(`${status.identity.name}\t${status.available ? "available" : "unavailable"}\t${status.indexState}\t${status.capabilities.join(",")}\n`);
     return;
   }
   if (subcommand === "status" || subcommand === "doctor") {
-    const status = await core.code.status(provider);
+    const status = await core.code.status(provider, core.codeWorkspace());
     if (flagBoolean(parsed, "json") || subcommand === "doctor") asJson({ workspace: core.codeWorkspace(), status });
     else process.stdout.write([
       `Provider: ${status.identity.name}`,

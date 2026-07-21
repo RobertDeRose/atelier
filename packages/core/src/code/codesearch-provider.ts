@@ -25,12 +25,16 @@ export interface CodesearchProviderOptions {
   cwd: string;
   mode?: "auto" | "local" | "client";
   timeoutMs?: number;
+  indexTimeoutMs?: number;
+  pollIntervalMs?: number;
   environment?: Record<string, string>;
 }
 
 interface CodesearchReferenceData {
-  chunkId: string;
+  chunkId?: string;
+  chunkRef?: string;
   project?: string;
+  symbol?: string;
 }
 
 export class CodesearchProvider implements CodeProvider {
@@ -39,6 +43,8 @@ export class CodesearchProvider implements CodeProvider {
   private readonly cwd: string;
   private readonly mode: "auto" | "local" | "client";
   private readonly timeoutMs: number;
+  private readonly indexTimeoutMs: number;
+  private readonly pollIntervalMs: number;
   private readonly environment: Record<string, string> | undefined;
   private client: McpStdioClient | undefined;
   private identity: CodeProviderIdentity = { name: "codesearch", instanceId: "codesearch-local" };
@@ -47,16 +53,21 @@ export class CodesearchProvider implements CodeProvider {
   private lastIndexedAt?: string;
   private lastQueryAt?: string;
   private detail?: string;
+  private routingMode: "unknown" | "local" | "client" = "unknown";
+  private workspace: CodeWorkspace | undefined;
 
   constructor(options: CodesearchProviderOptions) {
     this.command = options.command ?? "codesearch";
     this.cwd = resolve(options.cwd);
     this.mode = options.mode ?? "auto";
     this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.indexTimeoutMs = options.indexTimeoutMs ?? 300_000;
+    this.pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.environment = options.environment;
   }
 
-  async status(): Promise<CodeProviderStatus> {
+  async status(workspace?: CodeWorkspace): Promise<CodeProviderStatus> {
+    if (workspace !== undefined) this.workspace = workspace;
     const version = this.detectVersion();
     if (version === undefined) {
       return {
@@ -71,10 +82,7 @@ export class CodesearchProvider implements CodeProvider {
 
     try {
       await this.connect();
-      const statusResult = this.hasTool("status")
-        ? await this.call("status", { kind: "index" })
-        : undefined;
-      if (statusResult !== undefined) this.indexState = inferIndexState(extractData(statusResult));
+      if (this.hasTool("status")) this.indexState = await this.readIndexState(this.workspace);
       return {
         identity: this.identity,
         available: true,
@@ -100,6 +108,7 @@ export class CodesearchProvider implements CodeProvider {
   }
 
   async ensureIndex(workspace: CodeWorkspace): Promise<CodeIndexState> {
+    this.workspace = workspace;
     const version = this.detectVersion();
     if (version === undefined) throw new Error(`codesearch executable not found: ${this.command}`);
     this.indexState = "building";
@@ -109,7 +118,7 @@ export class CodesearchProvider implements CodeProvider {
         env: { ...process.env, ...this.environment },
         encoding: "utf8",
         shell: false,
-        timeout: this.timeoutMs,
+        timeout: this.indexTimeoutMs,
       });
       if (result.error || result.status !== 0) {
         this.indexState = "failed";
@@ -118,17 +127,19 @@ export class CodesearchProvider implements CodeProvider {
     }
     this.lastIndexedAt = nowIso();
     await this.reconnect();
-    this.indexState = "ready";
-    return this.indexState;
+    return this.waitForReady(workspace);
   }
 
   async search(query: CodeSearchQuery): Promise<CodeSearchHit[]> {
+    this.workspace = query.workspace;
     await this.requireTool("search", "search.semantic");
+    await this.waitForReady(query.workspace);
     const actualMode = mapSearchMode(query.mode);
-    const scope = scopeArguments(query.workspace, query.repositoryIds);
+    const scope = this.scopeArguments(query.workspace, query.repositoryIds);
     const args: Record<string, unknown> = {
       query: query.text,
       mode: actualMode === "lexical" ? "literal" : "semantic",
+      ...(actualMode === "lexical" ? {} : { semantic_mode: semanticSearchMode(query.mode) }),
       compact: true,
       limit: query.limit,
       ...scope,
@@ -160,11 +171,13 @@ export class CodesearchProvider implements CodeProvider {
   async read(reference: CodeReference): Promise<CodeChunk> {
     await this.requireTool("get_chunk", "result.fetch_on_demand");
     const decoded = decodeReference(reference.opaqueId);
-    const result = await this.call("get_chunk", {
-      chunk_id: numericOrString(decoded.chunkId),
-      context_lines: 0,
-      ...(decoded.project === undefined ? {} : { project: decoded.project }),
-    });
+    const result = await this.call("get_chunk", decoded.chunkRef === undefined
+      ? {
+          chunk_id: numericOrString(decoded.chunkId ?? reference.opaqueId),
+          context_lines: 0,
+          ...(this.routingMode !== "client" || decoded.project === undefined ? {} : { project: decoded.project }),
+        }
+      : { chunk_ref: decoded.chunkRef, context_lines: 0 });
     const data = extractData(result);
     const row = firstRecord(data);
     const content = stringField(row, ["content", "code", "text", "chunk", "source"]) ?? extractText(result);
@@ -196,9 +209,11 @@ export class CodesearchProvider implements CodeProvider {
   }
 
   async symbols(query: CodeSymbolQuery): Promise<CodeSearchHit[]> {
+    this.workspace = query.workspace;
     await this.requireTool("find", "symbol.search");
-    const scope = scopeArguments(query.workspace, query.repositoryIds);
-    const result = await this.call("find", { symbol: query.text, kind: "definition", ...scope });
+    await this.waitForReady(query.workspace);
+    const scope = this.scopeArguments(query.workspace, query.repositoryIds);
+    const result = await this.call("find", { symbol: query.text, kind: "definition", limit: query.limit, ...scope });
     this.lastQueryAt = nowIso();
     const data = extractData(result);
     const rows = extractRows(data);
@@ -224,18 +239,23 @@ export class CodesearchProvider implements CodeProvider {
   }
 
   async relationships(query: CodeRelationshipQuery): Promise<CodeRelationship[]> {
+    this.workspace = query.workspace;
     const supported = query.kinds.filter((kind) => kind === "imports" || kind === "dependencies" || kind === "references");
     if (supported.length === 0) throw new UnsupportedCodeCapabilityError("graph.relationships", this.name);
     await this.requireTool("find", "graph.relationships");
+    await this.waitForReady(query.workspace);
     const decoded = decodeReference(query.reference.opaqueId);
-    const symbol = query.reference.path;
     const output: CodeRelationship[] = [];
     for (const kind of supported) {
       const findKind = kind === "imports" ? "imports" : kind === "dependencies" ? "dependents" : "usages";
+      const searchTarget = kind === "references" ? decoded.symbol ?? query.reference.path : query.reference.path;
+      const referenceScope = this.scopeArguments(query.workspace, [query.reference.repositoryId]);
       const result = await this.call("find", {
-        symbol,
+        symbol: searchTarget,
         kind: findKind,
-        ...(decoded.project === undefined ? {} : { project: decoded.project }),
+        limit: query.limit - output.length,
+        ...referenceScope,
+        ...(this.routingMode !== "client" || decoded.project === undefined ? {} : { project: decoded.project }),
       });
       const data = extractData(result);
       const rows = extractRows(data).slice(0, query.limit - output.length);
@@ -253,7 +273,7 @@ export class CodesearchProvider implements CodeProvider {
             repositoryId: target.repositoryId,
             requestedMode: "auto",
             actualMode: "auto",
-            query: symbol,
+            query: searchTarget,
             indexState: inferIndexState(data, this.indexState),
             requestedFilters: { kinds: query.kinds, depth: query.depth },
             enforcedFilters: ["kind"],
@@ -277,20 +297,69 @@ export class CodesearchProvider implements CodeProvider {
       timeoutMs: this.timeoutMs,
       ...(this.environment === undefined ? {} : { environment: this.environment }),
     });
-    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.6.0" });
+    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.7.1" });
     this.identity = {
       name: "codesearch",
       ...(initialized.serverInfo.version === undefined ? {} : { version: initialized.serverInfo.version }),
       instanceId: `${initialized.serverInfo.name}:${this.mode}`,
     };
     this.tools = await this.client.listTools();
-    if (initialized.instructions !== undefined) this.detail = initialized.instructions;
+    if (initialized.instructions !== undefined) {
+      this.detail = initialized.instructions;
+      this.routingMode = inferRoutingMode(initialized.instructions, this.mode);
+    } else {
+      this.routingMode = this.mode === "client" ? "client" : this.mode === "local" ? "local" : "unknown";
+    }
   }
 
   private async reconnect(): Promise<void> {
     await this.close();
     this.tools = [];
     await this.connect();
+  }
+
+
+  private async readIndexState(workspace?: CodeWorkspace): Promise<CodeIndexState> {
+    const scope = workspace === undefined ? {} : this.scopeArguments(workspace);
+    const result = await this.call("status", { kind: "index", ...scope });
+    return inferIndexState(extractData(result), inferIndexState(this.detail, this.indexState));
+  }
+
+  private async waitForReady(workspace: CodeWorkspace): Promise<CodeIndexState> {
+    if (!this.hasTool("status")) {
+      this.indexState = "ready";
+      return this.indexState;
+    }
+
+    const deadline = Date.now() + this.indexTimeoutMs;
+    let state = await this.readIndexState(workspace);
+    while (state === "building" || state === "unknown") {
+      if (Date.now() >= deadline) {
+        this.indexState = state;
+        throw new Error(`codesearch index did not become ready within ${this.indexTimeoutMs} ms for workspace ${workspace.name} (state: ${state})`);
+      }
+      await delay(this.pollIntervalMs);
+      state = await this.readIndexState(workspace);
+    }
+
+    this.indexState = state;
+    if (state !== "ready") {
+      throw new Error(`codesearch index is ${state} for workspace ${workspace.name}; run atlr code index before querying`);
+    }
+    return state;
+  }
+
+  private scopeArguments(workspace: CodeWorkspace, repositoryIds?: string[]): Record<string, unknown> {
+    if (this.routingMode === "local" || this.mode === "local") return {};
+    const selected = repositoryIds?.length
+      ? workspace.repositories.filter((repository) => repositoryIds.includes(repository.id))
+      : workspace.repositories;
+    if (selected.length === 1) {
+      const repository = selected[0]!;
+      return { project: repository.codesearchProject ?? repository.name ?? basename(repository.root) };
+    }
+    if (selected.length > 1) return { group: "all" };
+    return {};
   }
 
   private async call(name: string, args: Record<string, unknown>): Promise<McpToolCallResult> {
@@ -310,7 +379,7 @@ export class CodesearchProvider implements CodeProvider {
 
   private capabilities(): CodeCapability[] {
     const capabilities: CodeCapability[] = ["index.repository", "index.incremental"];
-    if (this.mode !== "local") capabilities.push("index.multi_repository");
+    if (this.routingMode === "client" || (this.routingMode === "unknown" && this.mode !== "local")) capabilities.push("index.multi_repository");
     if (this.hasTool("search")) capabilities.push("search.lexical", "search.semantic", "search.hybrid");
     if (this.hasTool("find")) capabilities.push("symbol.search", "symbol.definition", "symbol.references", "graph.relationships", "graph.imports", "graph.dependencies");
     if (this.hasTool("get_chunk")) capabilities.push("result.fetch_on_demand");
@@ -337,15 +406,13 @@ function mcpArgs(mode: "auto" | "local" | "client"): string[] {
 }
 
 function mapSearchMode(mode: CodeSearchMode): CodeSearchMode {
-  return mode === "lexical" ? "lexical" : mode === "auto" ? "hybrid" : mode;
+  return mode === "lexical" ? "lexical" : "semantic";
 }
 
-function scopeArguments(workspace: CodeWorkspace, repositoryIds?: string[]): Record<string, unknown> {
-  const selected = repositoryIds?.length ? workspace.repositories.filter((repo) => repositoryIds.includes(repo.id)) : workspace.repositories;
-  if (selected.length === 1) return { project: basename(selected[0]!.root) };
-  if (selected.length > 1) return { group: "all" };
-  return {};
+function semanticSearchMode(mode: CodeSearchMode): "auto" | "semantic" | "hybrid" {
+  return mode === "hybrid" ? "hybrid" : mode === "semantic" ? "semantic" : "auto";
 }
+
 
 function prefixFromGlob(glob: string): string {
   return glob.split(/[?*[]/, 1)[0]?.replace(/\/$/, "") ?? glob;
@@ -408,17 +475,22 @@ function normalizeHit(options: {
   const repository = resolveRepository(workspace, project, stringField(row, ["path", "file", "file_path"]));
   const path = stringField(row, ["path", "file", "file_path", "relative_path"]) ?? "unknown";
   const chunkId = String(row.chunk_id ?? row.chunkId ?? row.id ?? `${project ?? repository.id}:${path}:${options.rank}`);
-  const startLine = numberField(row, ["start_line", "startLine", "line_start"]);
-  const endLine = numberField(row, ["end_line", "endLine", "line_end"]);
+  const chunkRef = stringField(row, ["chunk_ref", "chunkRef"]);
+  const startLine = numberField(row, ["start_line", "startLine", "line_start", "line"]);
+  const endLine = numberField(row, ["end_line", "endLine", "line_end"]) ?? startLine;
+  const symbol = stringField(row, ["symbol", "name", "signature"]);
   const reference: CodeReference = {
     provider: "codesearch",
-    opaqueId: encodeReference({ chunkId, ...(project === undefined ? {} : { project }) }),
+    opaqueId: encodeReference({
+      ...(chunkRef === undefined ? { chunkId } : { chunkRef }),
+      ...(project === undefined ? {} : { project }),
+      ...(symbol === undefined ? {} : { symbol }),
+    }),
     repositoryId: repository.id,
     path,
     ...(startLine === undefined ? {} : { startLine }),
     ...(endLine === undefined ? {} : { endLine }),
   };
-  const symbol = stringField(row, ["symbol", "name", "signature"]);
   const language = stringField(row, ["language", "lang"]);
   const providerScore = numberField(row, ["score", "rrf_score", "similarity", "provider_score"]);
   const summary = stringField(row, ["summary"]);
@@ -463,11 +535,17 @@ function referenceFromRow(row: Record<string, unknown>, workspace: CodeWorkspace
   const path = stringField(row, ["path", "file", "file_path", "relative_path"]) ?? "unknown";
   const repository = resolveRepository(workspace, project, path);
   const chunkId = String(row.chunk_id ?? row.chunkId ?? row.id ?? `${project ?? repository.id}:${path}`);
-  const startLine = numberField(row, ["start_line", "startLine", "line_start"]);
-  const endLine = numberField(row, ["end_line", "endLine", "line_end"]);
+  const chunkRef = stringField(row, ["chunk_ref", "chunkRef"]);
+  const startLine = numberField(row, ["start_line", "startLine", "line_start", "line"]);
+  const endLine = numberField(row, ["end_line", "endLine", "line_end"]) ?? startLine;
+  const symbol = stringField(row, ["symbol", "name", "signature"]);
   return {
     provider,
-    opaqueId: encodeReference({ chunkId, ...(project === undefined ? {} : { project }) }),
+    opaqueId: encodeReference({
+      ...(chunkRef === undefined ? { chunkId } : { chunkRef }),
+      ...(project === undefined ? {} : { project }),
+      ...(symbol === undefined ? {} : { symbol }),
+    }),
     repositoryId: repository.id,
     path,
     ...(startLine === undefined ? {} : { startLine }),
@@ -515,19 +593,68 @@ function provenanceFor(options: {
 }
 
 function inferIndexState(data: unknown, fallback: CodeIndexState = "unknown"): CodeIndexState {
-  const record = isRecord(data) ? data : {};
-  const raw = stringField(record, ["index_state", "indexState", "state", "status"])?.toLowerCase();
-  if (raw?.includes("build") || raw?.includes("indexing")) return "building";
-  if (raw?.includes("stale")) return "stale";
-  if (raw?.includes("fail") || raw?.includes("error")) return "failed";
-  if (raw?.includes("missing") || raw?.includes("not found") || raw?.includes("unindexed")) return "missing";
-  if (raw?.includes("ready") || raw?.includes("current") || raw?.includes("indexed") || raw?.includes("ok")) return "ready";
-  if (typeof record.index_age_seconds === "number") return "ready";
-  const text = stringField(record, ["text"])?.toLowerCase();
-  if (text?.includes("not indexed")) return "missing";
-  if (text?.includes("stale")) return "stale";
-  if (text?.includes("indexed") || text?.includes("ready")) return "ready";
+  const explicit = findStateValue(data);
+  if (explicit !== undefined) return explicit;
+
+  const text = collectStrings(data).join("\n").toLowerCase();
+  if (/database:\s+.+\(ready\)/.test(text) || /index(?:_state| state)?:?\s*ready/.test(text)) return "ready";
+  if (/index(?:_state| state)?:?\s*(building|indexing)/.test(text)) return "building";
+  if (/index(?:_state| state)?:?\s*stale/.test(text)) return "stale";
+  if (/index(?:_state| state)?:?\s*(failed|error)/.test(text)) return "failed";
+  if (/not indexed|index(?:_state| state)?:?\s*(missing|unindexed)/.test(text)) return "missing";
   return fallback;
+}
+
+function findStateValue(data: unknown): CodeIndexState | undefined {
+  if (Array.isArray(data)) {
+    for (const value of data) {
+      const state = findStateValue(value);
+      if (state !== undefined) return state;
+    }
+    return undefined;
+  }
+  if (!isRecord(data)) return undefined;
+
+  for (const key of ["index_state", "indexState", "state", "status"]) {
+    const value = data[key];
+    if (typeof value !== "string") continue;
+    const state = normalizeIndexState(value);
+    if (state !== undefined) return state;
+  }
+  if (typeof data.index_age_seconds === "number") return "ready";
+  for (const value of Object.values(data)) {
+    const state = findStateValue(value);
+    if (state !== undefined) return state;
+  }
+  return undefined;
+}
+
+function normalizeIndexState(value: string): CodeIndexState | undefined {
+  const raw = value.toLowerCase();
+  if (raw.includes("build") || raw.includes("indexing")) return "building";
+  if (raw.includes("stale")) return "stale";
+  if (raw.includes("fail") || raw.includes("error")) return "failed";
+  if (raw.includes("missing") || raw.includes("not found") || raw.includes("unindexed")) return "missing";
+  if (raw.includes("ready") || raw.includes("current") || raw === "indexed" || raw === "ok") return "ready";
+  return undefined;
+}
+
+function collectStrings(data: unknown): string[] {
+  if (typeof data === "string") return [data];
+  if (Array.isArray(data)) return data.flatMap(collectStrings);
+  if (isRecord(data)) return Object.values(data).flatMap(collectStrings);
+  return [];
+}
+
+function inferRoutingMode(instructions: string, configured: "auto" | "local" | "client"): "unknown" | "local" | "client" {
+  const normalized = instructions.toLowerCase();
+  if (normalized.includes("mode: self-contained") || normalized.includes("mode: local")) return "local";
+  if (normalized.includes("mode: client") || normalized.includes("serve mode")) return "client";
+  return configured === "client" ? "client" : configured === "local" ? "local" : "unknown";
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
 function encodeReference(data: CodesearchReferenceData): string {
@@ -537,7 +664,7 @@ function encodeReference(data: CodesearchReferenceData): string {
 function decodeReference(value: string): CodesearchReferenceData {
   try {
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as CodesearchReferenceData;
-    if (!parsed || typeof parsed.chunkId !== "string") throw new Error("invalid reference");
+    if (!parsed || (typeof parsed.chunkId !== "string" && typeof parsed.chunkRef !== "string")) throw new Error("invalid reference");
     return parsed;
   } catch {
     return { chunkId: value };

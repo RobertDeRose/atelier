@@ -70,7 +70,7 @@ export class McpStdioClient {
       capabilities: {},
       clientInfo: {
         name: options.clientName ?? "atelier",
-        version: options.clientVersion ?? "0.6.0",
+        version: options.clientVersion ?? "0.7.1",
       },
     });
     if (!result || typeof result.protocolVersion !== "string" || !result.serverInfo || typeof result.serverInfo.name !== "string") {

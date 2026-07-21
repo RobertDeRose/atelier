@@ -2449,7 +2449,7 @@ A feature is complete only when:
 | Area | Initial choice | Upgrade trigger |
 |---|---|---|
 | Shell | Pi extensions | Required hook unavailable or UI constraints become dominant |
-| Core runtime | TypeScript on Node.js 22+ | Profiling shows sustained performance or memory failure |
+| Core runtime | TypeScript on Node.js 24+ | Profiling shows sustained performance or memory failure |
 | Database | SQLite + FTS5 | Large repositories exceed latency or size targets |
 | Task provider | Beads through `bd --json` adapter | Replace only through the provider contract |
 | Plan format | Human-readable Markdown with stable task IDs | Add richer metadata only when reconciliation requires it |
@@ -2593,3 +2593,20 @@ Implemented the provider-independent portions of the codesearch proof:
 - a one-command live codesearch conformance probe
 
 Completion of provider conformance now depends only on running `mise run test:codesearch` with a real pinned codesearch installation and reviewing the captured artifacts.
+
+## v0.7.1 live-provider hardening
+
+The first codesearch 1.1.30 run exposed two release-blocking gaps: TypeScript 7 did not load Node declarations during the authoritative `check` task, and every new self-contained MCP process could report an index as `building` even after the indexing CLI returned successfully.
+
+The v0.7.1 hardening stage therefore:
+
+- declares Node types explicitly in the TypeScript project;
+- pins the mise development toolchain and freezes Aube dependency installation;
+- models codesearch readiness as an asynchronous transition and polls `status(kind="index")` until `ready`;
+- blocks search, symbol, and relationship operations while the index is not ready;
+- distinguishes self-contained stdio routing from serve/client multi-repository routing;
+- records raw MCP schemas and responses in the live-provider probe;
+- generates a machine-readable and Markdown conformance result;
+- removes generated runtime and evaluation state from version control.
+
+The next provider decision must be based on a successful v0.7.1 live conformance run and the comparative evaluation report, not on mock-provider results alone.

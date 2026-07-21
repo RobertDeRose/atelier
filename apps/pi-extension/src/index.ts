@@ -517,7 +517,7 @@ export default function atelierExtension(pi: ExtensionAPI): void {
     description: "Show Atelier code-provider health, capabilities, and index state",
     handler: async (_args, ctx) => {
       const core = coreFor(ctx);
-      const status = await core.code.status();
+      const status = await core.code.status(undefined, core.codeWorkspace());
       ctx.ui.notify([
         `Provider: ${status.identity.name}`,
         `Available: ${status.available}`,

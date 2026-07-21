@@ -1,30 +1,31 @@
-# Atelier v0.7.0 Build Report
+# Atelier v0.7.1 Build Report
 
 ## Result
 
-The offline implementation is complete and validated without requiring a real codesearch executable.
+The authoritative v0.7.0 Git bundle was hardened using the supplied live codesearch 1.1.30 probe results.
 
 ## Implemented
 
-1. Explicit multi-repository workspace configuration in `.atelier/workspace.json`.
-2. Workspace and repository identity validation.
-3. Repository-scoped and workspace-wide code search and symbol queries.
-4. Relationship retrieval through `atlr code related`.
-5. Provider-neutral retrieval budgets for results, previews, chunks, fetches, and total bytes.
-6. Compact normalized code evidence in deterministic Working State.
-7. Configuration validation through `atlr config validate`.
-8. Extended provider diagnostics with workspace mappings and index state.
-9. Repeatable code-intelligence evaluation tasks and JSON report generation.
-10. Real codesearch conformance probe covering installation, MCP, indexing, search, symbols, edits, reindexing, and evaluation.
+1. Explicit Node declarations for the TypeScript 7 project.
+2. Exact mise tool versions matching `mise.lock`.
+3. Frozen Aube installation from `package-lock.json`.
+4. Configurable codesearch index-readiness timeout and polling.
+5. Query blocking while the provider reports `building` or `unknown`.
+6. Correct local-stdio versus multi-repository client routing.
+7. Search arguments aligned with codesearch 1.1.30 semantic/literal modes.
+8. Federated `chunk_ref` preservation and fetch-on-demand support.
+9. Raw MCP schema/response capture and conformance summaries.
+10. Git removal and ignore rules for generated database, probe, and evaluation state.
 
 ## Validation
 
-- Aube install: passed.
 - Strict TypeScript check: passed.
-- Automated tests: 23 passed, 0 failed.
+- Automated tests: 25 passed, 0 failed.
 - CLI smoke test: passed.
-- Native AST, Tree-sitter, embeddings, vector indexing, and code-graph ownership remain absent.
+- Coverage: 78.42% lines, 62.89% branches, 75.65% functions.
+- Probe shell syntax: passed.
+- Package source contains no tracked `.atelier` runtime databases, probe output, evaluation output, or `.codesearch.db` data.
 
-## Deferred live confirmation
+## Environment note
 
-The build environment did not contain a real codesearch executable. Run `mise run test:codesearch` on a development machine with codesearch installed. The generated `.atelier/codesearch-probe` directory contains all raw artifacts required to finalize provider conformance and update response normalization where necessary.
+The build container runs Node 22 and does not contain Aube or codesearch. The project itself pins Node 24.18.0, Aube 1.29.1, and codesearch 1.1.30 through mise. Run `mise install`, `mise run install`, `mise run check`, and `mise run test:codesearch` on the development machine to verify the complete pinned environment and live provider behavior.

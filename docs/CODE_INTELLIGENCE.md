@@ -2,7 +2,7 @@
 
 ## Status
 
-Codesearch adapter implemented in Atelier v0.6.0; Octocode integration and comparative evaluation remain proposed.
+Codesearch adapter implemented in Atelier v0.6.0 and hardened against live codesearch 1.1.30 behavior in v0.7.1; Octocode integration and comparative evaluation remain proposed.
 
 ## Purpose
 
@@ -720,7 +720,7 @@ Exit criteria:
 - Atlr can execute search and fetch operations.
 - Errors and provenance are preserved.
 
-### Phase 2: codesearch Adapter — Implemented in v0.6.0
+### Phase 2: codesearch Adapter — Implemented in v0.6.0, hardened in v0.7.1
 
 Implemented:
 

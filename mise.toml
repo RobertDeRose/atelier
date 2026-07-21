@@ -1,13 +1,13 @@
 [tools]
-node = "lts"
-aube = "latest"
-jj = "latest"
-jjui = "latest"
-"github:flupkede/codesearch" = "latest"
+node = "24.18.0"
+aube = "1.29.1"
+jj = "0.43.0"
+jjui = "0.10.8"
+"github:flupkede/codesearch" = "1.1.30"
 
 [tasks.install]
 description = "Install Atelier development dependencies"
-run = "aube install"
+run = "aube install --frozen-lockfile"
 
 [tasks.atlr]
 description = "Run the Atelier CLI"

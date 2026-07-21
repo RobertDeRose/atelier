@@ -42,8 +42,9 @@ test("reconciliation is idempotent and Working State advances through ready task
     const first = await builder.build({ mode: "act", snapshot, plan });
     assert.equal(first.planTask?.id, "ATLR-001");
     assert.ok(first.activeTask);
+    const activeTask = first.activeTask;
 
-    await provider.close(first.activeTask.id, "validated");
+    await provider.close(activeTask.id, "validated");
     const second = await builder.build({ mode: "act", snapshot, plan });
     assert.equal(second.planTask?.id, "ATLR-002");
   } finally {
