@@ -34,6 +34,10 @@ run status_before node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" -
 run index node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code index --json
 run status_after node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code doctor --json
 run mcp_contract node --experimental-strip-types "$ROOT/scripts/probe-codesearch-mcp.ts" "$ROOT"
+if [ -s "$OUT/mcp_contract.stdout" ]; then
+  node -e 'const fs=require("fs");const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));for(const n of ["fetch","outline","impact"]){const v=x.calls?.[n];if(v!==undefined)fs.writeFileSync(process.argv[2]+"/"+n+".stdout",JSON.stringify(v,null,2)+"\n");}' "$OUT/mcp_contract.stdout" "$OUT"
+  for name in fetch outline impact; do [ -f "$OUT/$name.stdout" ] && printf '0\n' >"$OUT/$name.status" || true; done
+fi
 run search node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code search "where is code provider selection implemented" --json
 
 printf 'probe staleness marker %s\n' "$(date -u +%FT%TZ)" >"$PROBE_FILE"

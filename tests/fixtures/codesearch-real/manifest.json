@@ -1,0 +1,10 @@
+{
+  "generatedFrom": "codesearch-probe",
+  "normalizedAt": "<normalized>",
+  "fixtures": {
+    "status_after": "status_after.json",
+    "search": "search.json",
+    "symbols": "symbols.json",
+    "search_after_edit": "search_after_edit.json"
+  }
+}

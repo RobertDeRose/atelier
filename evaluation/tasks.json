@@ -1,18 +1,26 @@
 [
   {
     "id": "locate-behavior",
-    "query": "where is code provider selection implemented"
+    "query": "where is code provider selection implemented",
+    "literals": ["CodeProviderRegistry", "codeProvider"],
+    "expectedPaths": ["packages/core/src/code/registry.ts", "packages/core/src/core.ts"]
   },
   {
     "id": "trace-command",
-    "query": "trace the code search CLI command to the provider call"
+    "query": "trace the code search CLI command to the provider call",
+    "literals": ["code search", "codeService.search", "selected.search"],
+    "expectedPaths": ["apps/cli/src/main.ts", "packages/core/src/code/service.ts"]
   },
   {
     "id": "find-tests",
-    "query": "tests for codesearch provider response normalization"
+    "query": "tests for codesearch provider response normalization",
+    "literals": ["normalizes search", "normalizeHit", "codesearch adapter"],
+    "expectedPaths": ["tests/codesearch-provider.test.ts", "packages/core/src/code/codesearch-provider.ts"]
   },
   {
     "id": "working-state",
-    "query": "how code evidence is included in Working State"
+    "query": "how code evidence is included in Working State",
+    "literals": ["codeEvidence", "Working State", "code evidence"],
+    "expectedPaths": ["packages/core/src/state/working-state-builder.ts", "packages/core/src/core.ts"]
   }
 ]

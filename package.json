@@ -1,6 +1,6 @@
 {
   "name": "atelier-prototype",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Runnable initial TypeScript implementation of Atelier, an Agentic Development Environment",
   "type": "module",
   "private": true,
@@ -19,7 +19,9 @@
     "smoke": "bash ./scripts/smoke.sh",
     "check": "aubr typecheck && aubr test && aubr smoke",
     "test:codesearch": "bash ./scripts/probe-codesearch.sh",
-    "evaluate:code": "node --no-warnings --experimental-strip-types scripts/evaluate-code.ts"
+    "evaluate:code": "node --no-warnings --experimental-strip-types scripts/evaluate-code.ts",
+    "fixtures:codesearch": "node --no-warnings --experimental-strip-types scripts/update-codesearch-fixtures.ts",
+    "collect:codesearch": "bash ./scripts/collect-codesearch-knowledge.sh"
   },
   "pi": {
     "extensions": [

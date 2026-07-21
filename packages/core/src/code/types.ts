@@ -15,6 +15,8 @@ export const CODE_CAPABILITIES = [
   "graph.imports",
   "graph.calls",
   "graph.dependencies",
+  "graph.impact",
+  "file.outline",
   "result.fetch_on_demand",
   "result.rerank",
 ] as const;
@@ -54,6 +56,7 @@ export interface CodeProviderStatus {
   detail?: string;
   lastIndexedAt?: string;
   lastQueryAt?: string;
+  indexedRevisions?: Record<string, string>;
 }
 
 export interface CodeSearchQuery {
@@ -91,6 +94,8 @@ export interface CodeProvenance {
   postProcessing: string[];
   reranked: boolean;
   freshness?: CodeFreshness;
+  indexedRevision?: string;
+  currentRevision?: string;
 }
 
 export interface CodeSearchHit {

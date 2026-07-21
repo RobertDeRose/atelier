@@ -36,3 +36,11 @@ run = "aubr test:codesearch"
 [tasks."evaluate:code"]
 description = "Run the code-intelligence evaluation task set"
 run = "aubr evaluate:code"
+
+[tasks."fixtures:codesearch"]
+description = "Normalize a real codesearch probe into portable fixtures"
+run = "aubr fixtures:codesearch"
+
+[tasks."collect:codesearch"]
+description = "Collect all remaining real-provider knowledge on this machine"
+run = "aubr collect:codesearch"

@@ -55,6 +55,7 @@ export class CodesearchProvider implements CodeProvider {
   private detail?: string;
   private routingMode: "unknown" | "local" | "client" = "unknown";
   private workspace: CodeWorkspace | undefined;
+  private readonly indexedSnapshots = new Map<string, string>();
 
   constructor(options: CodesearchProviderOptions) {
     this.command = options.command ?? "codesearch";
@@ -92,6 +93,7 @@ export class CodesearchProvider implements CodeProvider {
         ...(this.detail === undefined ? {} : { detail: this.detail }),
         ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
         ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
+        ...(this.indexedSnapshots.size === 0 ? {} : { indexedRevisions: Object.fromEntries(this.indexedSnapshots) }),
       };
     } catch (error) {
       return {
@@ -126,6 +128,7 @@ export class CodesearchProvider implements CodeProvider {
       }
     }
     this.lastIndexedAt = nowIso();
+    for (const repository of workspace.repositories) this.indexedSnapshots.set(repository.id, snapshotIdentity(repository.snapshot));
     await this.reconnect();
     return this.waitForReady(workspace);
   }
@@ -165,6 +168,7 @@ export class CodesearchProvider implements CodeProvider {
       identity: this.identity,
       indexState,
       enforcedFilters: enforcedSearchFilters(query, actualMode),
+      indexedSnapshots: Object.fromEntries(this.indexedSnapshots),
     }));
   }
 
@@ -235,12 +239,13 @@ export class CodesearchProvider implements CodeProvider {
       identity: this.identity,
       indexState: inferIndexState(data, this.indexState),
       enforcedFilters: query.repositoryIds ? ["repositoryIds"] : [],
+      indexedSnapshots: Object.fromEntries(this.indexedSnapshots),
     }));
   }
 
   async relationships(query: CodeRelationshipQuery): Promise<CodeRelationship[]> {
     this.workspace = query.workspace;
-    const supported = query.kinds.filter((kind) => kind === "imports" || kind === "dependencies" || kind === "references");
+    const supported = query.kinds.filter((kind) => kind === "imports" || kind === "dependencies" || kind === "references" || kind === "calls");
     if (supported.length === 0) throw new UnsupportedCodeCapabilityError("graph.relationships", this.name);
     await this.requireTool("find", "graph.relationships");
     await this.waitForReady(query.workspace);
@@ -248,15 +253,18 @@ export class CodesearchProvider implements CodeProvider {
     const output: CodeRelationship[] = [];
     for (const kind of supported) {
       const findKind = kind === "imports" ? "imports" : kind === "dependencies" ? "dependents" : "usages";
-      const searchTarget = kind === "references" ? decoded.symbol ?? query.reference.path : query.reference.path;
+      const searchTarget = kind === "references" || kind === "calls" ? decoded.symbol ?? query.reference.path : query.reference.path;
       const referenceScope = this.scopeArguments(query.workspace, [query.reference.repositoryId]);
-      const result = await this.call("find", {
-        symbol: searchTarget,
-        kind: findKind,
-        limit: query.limit - output.length,
-        ...referenceScope,
-        ...(this.routingMode !== "client" || decoded.project === undefined ? {} : { project: decoded.project }),
-      });
+      const useImpact = kind === "calls" && this.hasTool("find_impact");
+      const result = useImpact
+        ? await this.call("find_impact", { symbol_name: searchTarget, ...referenceScope })
+        : await this.call("find", {
+            symbol: searchTarget,
+            kind: findKind,
+            limit: query.limit - output.length,
+            ...referenceScope,
+            ...(this.routingMode !== "client" || decoded.project === undefined ? {} : { project: decoded.project }),
+          });
       const data = extractData(result);
       const rows = extractRows(data).slice(0, query.limit - output.length);
       for (const row of rows) {
@@ -382,6 +390,8 @@ export class CodesearchProvider implements CodeProvider {
     if (this.routingMode === "client" || (this.routingMode === "unknown" && this.mode !== "local")) capabilities.push("index.multi_repository");
     if (this.hasTool("search")) capabilities.push("search.lexical", "search.semantic", "search.hybrid");
     if (this.hasTool("find")) capabilities.push("symbol.search", "symbol.definition", "symbol.references", "graph.relationships", "graph.imports", "graph.dependencies");
+    if (this.hasTool("find_impact")) capabilities.push("graph.relationships", "graph.calls", "graph.impact");
+    if (this.hasTool("explore")) capabilities.push("file.outline");
     if (this.hasTool("get_chunk")) capabilities.push("result.fetch_on_demand");
     return [...new Set(capabilities)];
   }
@@ -469,6 +479,7 @@ function normalizeHit(options: {
   identity: CodeProviderIdentity;
   indexState: CodeIndexState;
   enforcedFilters: string[];
+  indexedSnapshots?: Record<string, string>;
 }): CodeSearchHit {
   const { row, query, actualMode, workspace, identity, indexState } = options;
   const project = stringField(row, ["project", "repository", "repo", "alias"]);
@@ -526,6 +537,8 @@ function normalizeHit(options: {
         includeGenerated: query.includeGenerated,
       },
       enforcedFilters: options.enforcedFilters,
+      ...(options.indexedSnapshots?.[repository.id] === undefined ? {} : { indexedSnapshot: options.indexedSnapshots[repository.id] }),
+      currentSnapshot: snapshotIdentity(repository.snapshot),
     }),
   };
 }
@@ -575,6 +588,8 @@ function provenanceFor(options: {
   indexState: CodeIndexState;
   requestedFilters: Record<string, unknown>;
   enforcedFilters: string[];
+  indexedSnapshot?: string;
+  currentSnapshot?: string;
 }): CodeProvenance {
   return {
     provider: options.identity,
@@ -589,6 +604,11 @@ function provenanceFor(options: {
     enforcedFilters: options.enforcedFilters,
     postProcessing: ["normalized by Atelier codesearch adapter"],
     reranked: false,
+    ...(options.indexedSnapshot === undefined ? { freshness: "unknown" as const } : {
+      freshness: options.indexedSnapshot === options.currentSnapshot ? "current" as const : "known_stale" as const,
+      indexedRevision: options.indexedSnapshot,
+      ...(options.currentSnapshot === undefined ? {} : { currentRevision: options.currentSnapshot }),
+    }),
   };
 }
 
@@ -655,6 +675,10 @@ function inferRoutingMode(instructions: string, configured: "auto" | "local" | "
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+function snapshotIdentity(snapshot: CodeWorkspace["repositories"][number]["snapshot"]): string {
+  return [snapshot.vcs, snapshot.headCommit, snapshot.changeId ?? "", snapshot.operationId ?? "", snapshot.dirtyFingerprint].join(":");
 }
 
 function encodeReference(data: CodesearchReferenceData): string {

@@ -42,8 +42,18 @@ try {
   const symbols = toolNames.has("find")
     ? await client.callTool("find", { symbol: "CodesearchProvider", kind: "definition", limit: 5 })
     : undefined;
+  const firstChunk = findFirstChunk(search);
+  const fetch = toolNames.has("get_chunk") && firstChunk !== undefined
+    ? await client.callTool("get_chunk", firstChunk.chunkRef === undefined ? { chunk_id: firstChunk.chunkId, context_lines: 0 } : { chunk_ref: firstChunk.chunkRef, context_lines: 0 })
+    : undefined;
+  const outline = toolNames.has("explore")
+    ? await client.callTool("explore", { kind: "outline", target: "packages/core/src/code/codesearch-provider.ts", limit: 20 })
+    : undefined;
+  const impact = toolNames.has("find_impact")
+    ? await client.callTool("find_impact", { symbol_name: "CodesearchProvider" })
+    : undefined;
 
-  process.stdout.write(`${JSON.stringify({ initialize, tools, statusHistory, calls: { search, symbols } }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ initialize, tools, statusHistory, calls: { search, symbols, fetch, outline, impact } }, null, 2)}\n`);
 } finally {
   await client.close();
 }
@@ -106,4 +116,27 @@ function collectStrings(value: unknown): string[] {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+function findFirstChunk(result: McpToolCallResult | undefined): { chunkId: number; chunkRef?: string } | undefined {
+  if (result === undefined) return undefined;
+  const data = result.structuredContent ?? parseText(result);
+  const rows = findRows(data);
+  for (const row of rows) {
+    const chunkId = row.chunk_id ?? row.chunkId;
+    const chunkRef = typeof row.chunk_ref === "string" ? row.chunk_ref : typeof row.chunkRef === "string" ? row.chunkRef : undefined;
+    if (typeof chunkId === "number") return { chunkId, ...(chunkRef === undefined ? {} : { chunkRef }) };
+  }
+  return undefined;
+}
+
+function findRows(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value.filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item));
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  for (const key of ["results", "hits", "items", "matches"]) {
+    if (Array.isArray(record[key])) return findRows(record[key]);
+  }
+  for (const item of Object.values(record)) { const rows = findRows(item); if (rows.length) return rows; }
+  return [];
 }

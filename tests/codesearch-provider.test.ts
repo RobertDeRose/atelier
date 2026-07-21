@@ -30,7 +30,7 @@ process.stdin.on('data', chunk => {
     fs.appendFileSync(${JSON.stringify(mcpLog)}, JSON.stringify({ method: request.method, params: request.params }) + '\\n');
     let result;
     if (request.method === 'initialize') result = { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'codesearch', version: '1.1.30' }, instructions: 'Prefer semantic search.' };
-    else if (request.method === 'tools/list') result = { tools: ['search','find','get_chunk','status'].map(name => ({ name, inputSchema: { type: 'object' } })) };
+    else if (request.method === 'tools/list') result = { tools: ['search','find','get_chunk','status','explore','find_impact'].map(name => ({ name, inputSchema: { type: 'object' } })) };
     else if (request.method === 'tools/call') {
       const { name, arguments: input } = request.params;
       if (name === 'status') {
@@ -41,6 +41,8 @@ process.stdin.on('data', chunk => {
       else if (name === 'search') result = { structuredContent: { index_state: 'ready', results: [{ chunk_id: 42, project: input.project ?? 'repo', path: 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', symbol: 'refreshToken', score: 0.91, preview: 'export function refreshToken()' }] } };
       else if (name === 'find') result = { structuredContent: { results: [{ chunk_id: 43, project: input.project ?? 'repo', path: 'src/auth.ts', start_line: 10, end_line: 14, symbol: input.symbol, kind: input.kind }] } };
       else if (name === 'get_chunk') result = { structuredContent: { chunk: { chunk_id: input.chunk_id, project: input.project, path: 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', content: 'export function refreshToken() { return token; }' } } };
+      else if (name === 'explore') result = { structuredContent: { results: [{ chunk_id: 44, path: input.target, start_line: 1, end_line: 20, kind: 'Class', signature: 'class CodesearchProvider' }] } };
+      else if (name === 'find_impact') result = { structuredContent: { results: [{ chunk_id: 45, path: 'src/caller.ts', line: 3, kind: 'Call', signature: 'refreshToken()' }] } };
       else result = { isError: true, content: [{ type: 'text', text: 'unknown tool' }] };
     } else result = {};
     process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }) + '\\n');
@@ -112,6 +114,22 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     assert.equal(hits[0]?.symbol, "refreshToken");
     assert.equal(hits[0]?.provenance.provider.name, "codesearch");
     assert.equal(hits[0]?.provenance.indexState, "ready");
+    assert.equal(hits[0]?.provenance.freshness, "current");
+
+
+    const changedWorkspace = workspace(root);
+    changedWorkspace.repositories[0]!.snapshot.dirtyFingerprint = "changed";
+    const staleHits = await provider.search({
+      workspace: changedWorkspace, text: "refresh token", mode: "semantic", limit: 5, includeTests: true, includeGenerated: false,
+    });
+    assert.equal(staleHits[0]?.provenance.freshness, "known_stale");
+
+    const callsRelationships = await provider.relationships({
+      workspace: changedWorkspace, reference: hits[0]!.reference, kinds: ["calls"], depth: 1, limit: 5,
+    });
+    assert.equal(callsRelationships[0]?.kind, "calls");
+    assert.ok(status.capabilities.includes("graph.impact"));
+    assert.ok(status.capabilities.includes("file.outline"));
 
     const chunk = await provider.read(hits[0]!.reference);
     assert.match(chunk.content, /refreshToken/);

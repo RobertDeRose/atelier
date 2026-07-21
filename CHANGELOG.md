@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 — 2026-07-21
+
+```text
+feat(code): complete codesearch conformance and evaluation tooling
+
+- qualify code evidence with indexed and current repository identities
+- mark provider evidence stale after working-copy changes
+- support optional codesearch impact and outline capabilities
+- capture fetch, outline, impact, and MCP schemas in the live probe
+- normalize real-provider output into portable test fixtures
+- compare baseline ripgrep retrieval with codesearch retrieval
+- add a single machine-side knowledge collection workflow
+```
+
 ## 0.7.1 — 2026-07-21
 
 ```text

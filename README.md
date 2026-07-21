@@ -4,7 +4,7 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.7.1 scope
+## v0.8.0 scope
 
 This release hardens Atelier's development setup and its first live codesearch integration after testing against codesearch 1.1.30.
 
@@ -221,7 +221,7 @@ Validation evidence remains qualified by repository snapshot and becomes stale a
 ## Current limitations
 
 - No Octocode adapter yet.
-- The v0.7.1 codesearch hardening must be rerun against the pinned real provider after upgrading from v0.7.0.
+- The v0.8.0 codesearch hardening must be rerun against the pinned real provider after upgrading from v0.7.0.
 - No persistent daemon or JSON-RPC service boundary.
 - The codesearch adapter supports imports, dependents, and usage relationships; deeper provider-specific graph evaluation remains pending.
 - Jujutsu live conformance still requires a real supported `jj` binary.
@@ -265,3 +265,8 @@ mise run test:codesearch
 ```
 
 The probe writes a self-contained report under `.atelier/codesearch-probe`. It now waits for the raw MCP index to become ready, captures the complete advertised tool schemas and raw provider responses, exercises search/symbol/edit/reindex behavior, and produces `CONFORMANCE.md` plus `conformance.json`. The script exits nonzero for contract or readiness failures. Generated probe, evaluation, SQLite, and codesearch database files are ignored by Git.
+
+
+## Codesearch conformance and evaluation
+
+Use `mise run collect:codesearch` on a development machine to gather the complete live-provider contract, optional tools, fetch behavior, reindex behavior, and comparative evaluation. Use `mise run fixtures:codesearch` to normalize a prior probe into portable regression fixtures. See `docs/CODESEARCH_EVALUATION.md`.
