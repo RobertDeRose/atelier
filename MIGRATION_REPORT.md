@@ -1,31 +1,16 @@
-# Atelier v0.8.3 Migration Report
+# Atelier v0.8.4 Migration Report
 
-No configuration migration is required from v0.8.2.
+No configuration migration is required.
 
-`atlr code search` now accepts:
+`atlr code index` now performs real local repair and incremental indexing rather than calling `codesearch index add` for an existing local database. The first run may take longer because interrupted vector indexes are rebuilt.
+
+Serve-backed `codeMode: "client"` continues to use repository registration and routed provider status.
+
+Run after updating:
 
 ```bash
-atlr code search --mode auto QUERY
-atlr code search --mode semantic QUERY
-atlr code search --mode hybrid QUERY
-atlr code search --mode lexical QUERY
+mise install
+mise run install
+mise run check
+mise run collect:codesearch
 ```
-
-`auto` remains the default. When a semantic provider operation fails, automatic and
-hybrid searches use a bounded literal fallback and mark returned evidence as degraded.
-Explicit semantic mode returns a nonzero error instead of silently returning an empty
-array.
-
-Provider status and result provenance may now contain:
-
-```json
-{
-  "degraded": true,
-  "warnings": ["provider error text"]
-}
-```
-
-Run `mise run collect:codesearch` after upgrading. The resulting archive now includes
-separate semantic, hybrid, literal, and automatic search evidence; codesearch doctor and
-statistics output; direct CLI search output; and metadata for the local `.codesearch.db`
-store. No database contents are copied.

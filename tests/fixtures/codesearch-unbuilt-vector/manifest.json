@@ -1,0 +1,25 @@
+{
+  "generatedFrom": "codesearch-probe",
+  "normalizedAt": "<normalized>",
+  "fixtures": {
+    "status_after": "status_after.json",
+    "mcp_contract": "mcp_contract.json",
+    "search": "search.json",
+    "search_semantic": "search_semantic.json",
+    "search_literal": "search_literal.json",
+    "symbols": "symbols.json",
+    "search_after_edit": "search_after_edit.json",
+    "semantic": "semantic.json",
+    "hybrid": "hybrid.json",
+    "literal": "literal.json",
+    "fetch": "fetch.json",
+    "outline": "outline.json",
+    "impact": "impact.json",
+    "codesearch_doctor": "codesearch_doctor.json",
+    "codesearch_stats": "codesearch_stats.json",
+    "direct_search": "direct_search.json",
+    "store_metadata": "store_metadata.json",
+    "conformance": "conformance.json",
+    "evaluation": "evaluation.json"
+  }
+}

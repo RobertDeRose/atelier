@@ -4,7 +4,7 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.8.3 scope
+## v0.8.4 scope
 
 This release hardens real-provider degradation handling. Atelier now distinguishes operational MCP errors from legitimate empty results, preserves automatic retrieval through bounded provider-native literal fallback, and records degraded provenance without claiming semantic success.
 
@@ -21,7 +21,7 @@ Atelier now owns:
 
 External providers own general-purpose code indexing, parsing, embeddings, ranking, and graphs. Native FTS5 and Tree-sitter code indexes from v0.4.0 were removed.
 
-Atelier now includes a verified `codesearch` adapter based on the documented `codesearch mcp`, `codesearch index add`, and `search`, `find`, `get_chunk`, and `status` MCP operations. Octocode remains a later experimental provider after codesearch semantic health and multi-repository behavior are fully evaluated.
+Atelier now includes a verified `codesearch` adapter based on the documented `codesearch mcp`, bare `codesearch index <path>` repair command, serve registration through `codesearch index add`, and `search`, `find`, `get_chunk`, and `status` MCP operations. Octocode remains a later experimental provider after codesearch semantic health and multi-repository behavior are fully evaluated.
 
 ## Requirements
 
@@ -177,7 +177,7 @@ Providers advertise capabilities as data. Atelier does not spread provider-name 
 - graceful termination;
 - pending-request failure propagation.
 
-The codesearch adapter performs MCP initialization, tool discovery, capability mapping, result normalization, index-state interpretation, fetch-on-demand, and direct argument-array indexing. Indexing and query operations poll the provider until its status changes from `building` to `ready`; a configurable timeout prevents indefinite waits.
+The codesearch adapter performs MCP initialization, tool discovery, capability mapping, result normalization, index-state interpretation, fetch-on-demand, and direct argument-array indexing. Local indexing runs the real repair/update command and verifies that the vector store reports `Indexed: Yes` before accepting MCP `ready`; serve-backed client mode retains `index add` registration. Query operations still poll the provider with a configurable timeout.
 
 ## Multi-repository workspace model
 
@@ -268,7 +268,7 @@ On a machine with codesearch installed, run:
 mise run test:codesearch:live
 ```
 
-The live task is intentionally separate from `mise run check`; ordinary tests inject disabled, mock, or process-compatible fake providers and never start codesearch. The probe writes a self-contained report under `.atelier/codesearch-probe`, waits for the raw MCP index to become ready, captures complete tool schemas and raw provider responses, separately exercises semantic, hybrid, literal, and automatic search, captures codesearch doctor/statistics and index-store metadata, and exercises symbols, fetch, outline, impact, edit, and reindex behavior, and produces `CONFORMANCE.md` plus `conformance.json`.
+The live task is intentionally separate from `mise run check`; ordinary tests inject disabled, mock, or process-compatible fake providers and never start codesearch. The probe writes a self-contained report under `.atelier/codesearch-probe`, records vector statistics before and after repair, requires the HNSW index to be built, waits for the raw MCP index to become ready, captures complete tool schemas and raw provider responses, separately exercises semantic, hybrid, literal, and automatic search, captures codesearch doctor/statistics and index-store metadata, and exercises symbols, fetch, outline, impact, edit, and reindex behavior, and produces `CONFORMANCE.md` plus `conformance.json`.
 
 
 ## Codesearch conformance and evaluation

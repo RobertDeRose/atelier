@@ -10,7 +10,7 @@ const output = resolve(positional[1] ?? "tests/fixtures/codesearch-real");
 if (!existsSync(probe)) throw new Error(`Probe directory does not exist: ${probe}`);
 
 const sources = [
-  ...["status_after", "mcp_contract", "search", "search_semantic", "search_literal", "symbols", "search_after_edit", "semantic", "hybrid", "literal", "fetch", "outline", "impact", "codesearch_doctor", "codesearch_stats", "direct_search", "store_metadata", "conformance"]
+  ...["status_after", "mcp_contract", "search", "search_semantic", "search_literal", "symbols", "search_after_edit", "semantic", "hybrid", "literal", "fetch", "outline", "impact", "codesearch_doctor", "codesearch_doctor_after", "codesearch_stats", "codesearch_stats_after", "direct_search", "store_metadata_before", "store_metadata", "conformance"]
     .map((name) => ({ name, path: resolve(probe, `${name}.stdout`) })),
   { name: "evaluation", path: resolve(probe, "evaluation", "latest.json") },
 ];

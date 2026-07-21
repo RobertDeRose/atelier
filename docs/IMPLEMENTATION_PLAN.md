@@ -2662,3 +2662,8 @@ provider-native literal fallback with explicit degraded provenance. Explicit sem
 mode remains strict. Further codesearch decisions must use the separated semantic,
 hybrid, literal, direct-CLI, doctor, statistics, and store-metadata evidence produced by
 `mise run collect:codesearch`.
+
+
+## v0.8.4 verified local index repair
+
+The third live codesearch run demonstrated that MCP status may report `ready` while the LMDB store contains chunks but the HNSW index is not built. Local and auto-local `ensureIndex` operations now run `codesearch index <repository-root>`, which is the codesearch repair and incremental update path. They then parse `codesearch stats` and require a non-empty vector store with `Indexed: Yes`. Serve-backed client mode continues to register repositories with `index add` and relies on routed status. Automatic lexical fallback remains available for provider failures, but no longer substitutes for a successful indexing operation.

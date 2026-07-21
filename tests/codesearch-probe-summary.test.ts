@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const commandNames = [
-  "version", "help", "mcp_help", "index_help", "search_help", "codesearch_doctor", "codesearch_stats", "direct_search", "store_metadata",
+  "version", "help", "mcp_help", "index_help", "search_help", "codesearch_doctor", "codesearch_doctor_after", "codesearch_stats", "codesearch_stats_after", "direct_search", "store_metadata",
   "status_before", "index", "status_after", "mcp_contract", "fetch", "outline", "impact", "semantic", "hybrid", "literal",
   "search", "search_semantic", "search_literal", "status_after_edit", "reindex_after_edit", "search_after_edit", "symbols", "evaluation",
 ];
@@ -16,6 +16,8 @@ test("codesearch probe summary reports a ready conforming provider", () => {
   try {
     for (const name of commandNames) writeFileSync(join(root, `${name}.status`), "0\n");
     writeFileSync(join(root, "index.stdout"), JSON.stringify({ state: "ready" }));
+    writeFileSync(join(root, "codesearch_stats.stdout"), "Vector Store:\n   Total chunks: 42\n   Indexed: ❌ No\n");
+    writeFileSync(join(root, "codesearch_stats_after.stdout"), "Vector Store:\n   Total chunks: 42\n   Indexed: ✅ Yes\n");
     writeFileSync(join(root, "search.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
     writeFileSync(join(root, "search_semantic.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
     writeFileSync(join(root, "search_literal.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
@@ -61,6 +63,8 @@ test("codesearch probe summary treats unavailable optional impact indexing as a 
   try {
     for (const name of commandNames) writeFileSync(join(root, `${name}.status`), "0\n");
     writeFileSync(join(root, "index.stdout"), JSON.stringify({ state: "ready" }));
+    writeFileSync(join(root, "codesearch_stats.stdout"), "Vector Store:\n   Total chunks: 42\n   Indexed: ❌ No\n");
+    writeFileSync(join(root, "codesearch_stats_after.stdout"), "Vector Store:\n   Total chunks: 42\n   Indexed: ✅ Yes\n");
     writeFileSync(join(root, "search.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
     writeFileSync(join(root, "search_semantic.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
     writeFileSync(join(root, "search_literal.stdout"), JSON.stringify([{ path: "src/code.ts" }]));

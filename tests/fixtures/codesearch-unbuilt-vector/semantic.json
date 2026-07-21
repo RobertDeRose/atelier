@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Error searching vector store: Error opening database for read fallback"
+    }
+  ],
+  "isError": false
+}

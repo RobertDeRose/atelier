@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"results\":[{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/core.ts\",\"start_line\":325,\"end_line\":325,\"snippet\":\"    return new CodesearchProvider({\",\"score\":4.857268,\"kind\":\"Function\",\"signature\":\"function createCodeProvider(config: AtelierConfig): : CodeProvider\"},{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/core.ts\",\"start_line\":25,\"end_line\":25,\"snippet\":\"import { CodesearchProvider } from \\\"./code/codesearch-provider.ts\\\";\",\"score\":1.7525805,\"kind\":\"Imports\",\"signature\":\"imports (37 lines)\"}]}"
+    }
+  ],
+  "isError": false
+}

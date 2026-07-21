@@ -57,6 +57,7 @@ export class CodesearchProvider implements CodeProvider {
   private workspace: CodeWorkspace | undefined;
   private readonly indexedSnapshots = new Map<string, string>();
   private lastWarnings: string[] = [];
+  private localIndexWarnings: string[] = [];
 
   constructor(options: CodesearchProviderOptions) {
     this.command = options.command ?? "codesearch";
@@ -95,7 +96,7 @@ export class CodesearchProvider implements CodeProvider {
         ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
         ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
         ...(this.indexedSnapshots.size === 0 ? {} : { indexedRevisions: Object.fromEntries(this.indexedSnapshots) }),
-        ...(this.lastWarnings.length === 0 ? {} : { degraded: true, warnings: [...this.lastWarnings] }),
+        ...(this.combinedWarnings().length === 0 ? {} : { degraded: true, warnings: this.combinedWarnings() }),
       };
     } catch (error) {
       return {
@@ -107,7 +108,7 @@ export class CodesearchProvider implements CodeProvider {
         detail: errorMessage(error),
         ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
         ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
-        ...(this.lastWarnings.length === 0 ? {} : { degraded: true, warnings: [...this.lastWarnings] }),
+        ...(this.combinedWarnings().length === 0 ? {} : { degraded: true, warnings: this.combinedWarnings() }),
       };
     }
   }
@@ -116,24 +117,73 @@ export class CodesearchProvider implements CodeProvider {
     this.workspace = workspace;
     const version = this.detectVersion();
     if (version === undefined) throw new Error(`codesearch executable not found: ${this.command}`);
+    await this.connect();
     this.indexState = "building";
+    this.localIndexWarnings = [];
+
     for (const repository of workspace.repositories) {
-      const result = spawnSync(this.command, ["index", "add", repository.root], {
-        cwd: this.cwd,
-        env: { ...process.env, ...this.environment },
-        encoding: "utf8",
-        shell: false,
-        timeout: this.indexTimeoutMs,
-      });
-      if (result.error || result.status !== 0) {
-        this.indexState = "failed";
-        throw new Error(`codesearch index add failed for ${repository.root}: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`);
+      if (this.routingMode === "client" || this.mode === "client") {
+        this.runIndexCommand(["index", "add", repository.root], repository.root, "index add");
+      } else {
+        // `index add` returns early when a local database already exists. The bare
+        // `index <path>` command is the repair/update path and rebuilds a missing
+        // HNSW index even when the file set is otherwise unchanged.
+        this.runIndexCommand(["index", repository.root], repository.root, "index");
+        const health = this.readLocalVectorHealth(repository.root);
+        if (health.state !== "ready") {
+          this.indexState = health.state;
+          this.localIndexWarnings = [health.detail];
+          throw new Error(`codesearch local vector index is not ready for ${repository.root}: ${health.detail}`);
+        }
       }
     }
+
     this.lastIndexedAt = nowIso();
     for (const repository of workspace.repositories) this.indexedSnapshots.set(repository.id, snapshotIdentity(repository.snapshot));
     await this.reconnect();
     return this.waitForReady(workspace);
+  }
+
+
+  private runIndexCommand(args: string[], repositoryRoot: string, operation: string): void {
+    const result = spawnSync(this.command, args, {
+      cwd: repositoryRoot,
+      env: { ...process.env, ...this.environment },
+      encoding: "utf8",
+      shell: false,
+      timeout: this.indexTimeoutMs,
+    });
+    if (result.error || result.status !== 0) {
+      this.indexState = "failed";
+      throw new Error(`codesearch ${operation} failed for ${repositoryRoot}: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`);
+    }
+  }
+
+  private readLocalVectorHealth(repositoryRoot: string): { state: CodeIndexState; detail: string } {
+    const result = spawnSync(this.command, ["stats", repositoryRoot], {
+      cwd: repositoryRoot,
+      env: { ...process.env, ...this.environment },
+      encoding: "utf8",
+      shell: false,
+      timeout: this.timeoutMs,
+    });
+    if (result.error || result.status !== 0) {
+      return {
+        state: "failed",
+        detail: `unable to read codesearch vector statistics: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`,
+      };
+    }
+    const output = stripAnsi(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+    if (/No database found/i.test(output)) return { state: "missing", detail: "codesearch database is missing" };
+    const chunks = Number(output.match(/Total chunks:\s*(\d+)/i)?.[1] ?? "0");
+    const indexed = /Indexed:\s*[^\n]*\bYes\b/i.test(output);
+    if (indexed && chunks > 0) return { state: "ready", detail: `vector index ready with ${chunks} chunks` };
+    if (chunks > 0) return { state: "failed", detail: `vector store contains ${chunks} chunks but the HNSW index is not built` };
+    return { state: "missing", detail: "vector store contains no indexed chunks" };
+  }
+
+  private combinedWarnings(): string[] {
+    return [...new Set([...this.localIndexWarnings, ...this.lastWarnings])];
   }
 
   async search(query: CodeSearchQuery): Promise<CodeSearchHit[]> {
@@ -368,7 +418,7 @@ export class CodesearchProvider implements CodeProvider {
       timeoutMs: this.timeoutMs,
       ...(this.environment === undefined ? {} : { environment: this.environment }),
     });
-    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.8.3" });
+    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.8.4" });
     this.identity = {
       name: "codesearch",
       ...(initialized.serverInfo.version === undefined ? {} : { version: initialized.serverInfo.version }),
@@ -860,6 +910,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function truncate(value: string, maximum: number): string {
   return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001B\[[0-?]*[ -\/]*[@-~]/g, "");
 }
 
 function errorMessage(error: unknown): string {

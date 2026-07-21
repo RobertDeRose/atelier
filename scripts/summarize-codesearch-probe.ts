@@ -51,7 +51,7 @@ for (const command of [
 ]) {
   checkCommand(command);
 }
-for (const diagnostic of ["codesearch_doctor", "codesearch_stats", "direct_search", "store_metadata", "search_semantic"] as const) {
+for (const diagnostic of ["codesearch_doctor", "codesearch_doctor_after", "codesearch_stats", "codesearch_stats_after", "direct_search", "store_metadata", "search_semantic"] as const) {
   const status = exitStatus(diagnostic);
   checks.push({
     name: `${diagnostic}_command`,
@@ -66,6 +66,23 @@ checks.push({
   status: index?.state === "ready" ? "passed" : "failed",
   detail: `reported state: ${String(index?.state ?? "missing")}`,
 });
+
+const vectorStatsBefore = parseVectorStats(text("codesearch_stats"));
+const vectorStatsAfter = parseVectorStats(text("codesearch_stats_after"));
+checks.push({
+  name: "vector_index_built",
+  status: vectorStatsAfter.indexed && vectorStatsAfter.totalChunks > 0 ? "passed" : "failed",
+  detail: vectorStatsAfter.indexed
+    ? `indexed with ${vectorStatsAfter.totalChunks} chunks`
+    : `not indexed (${vectorStatsAfter.totalChunks} chunks)`,
+});
+if (!vectorStatsBefore.indexed && vectorStatsAfter.indexed) {
+  checks.push({
+    name: "vector_index_repaired",
+    status: "passed",
+    detail: `repaired an unbuilt vector index containing ${vectorStatsBefore.totalChunks} chunks`,
+  });
+}
 
 for (const name of ["search", "search_literal", "symbols", "search_after_edit"] as const) {
   const status = exitStatus(name);
@@ -186,6 +203,15 @@ checks.push({
             : "missing content",
 });
 
+
+
+function parseVectorStats(value: string): { totalChunks: number; indexed: boolean } {
+  const normalized = value.replace(/\u001B\[[0-?]*[ -\/]*[@-~]/g, "");
+  return {
+    totalChunks: Number(normalized.match(/Total chunks:\s*(\d+)/i)?.[1] ?? "0"),
+    indexed: /Indexed:\s*[^\n]*\bYes\b/i.test(normalized),
+  };
+}
 
 function providerError(payload: ToolPayload | undefined): string | undefined {
   const value = toolText(payload).trim();

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.4 — 2026-07-21
+
+```text
+fix(code): repair and verify local vector indexes
+
+- use the bare codesearch index command for local repair and incremental updates
+- retain index add only for serve-backed client registration
+- verify local HNSW readiness through codesearch statistics
+- reject false-ready indexes that contain chunks without a built vector index
+- capture vector statistics and store metadata before and after indexing
+- require a built vector index in live conformance results
+- commit the third real-provider archive as a portable regression fixture
+- preserve lexical degradation as a fallback rather than an indexing substitute
+```
+
 ## 0.8.3 — 2026-07-21
 
 ```text

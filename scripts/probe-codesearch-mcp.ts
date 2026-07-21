@@ -8,7 +8,7 @@ const pollIntervalMs = Number(process.env.ATLR_CODE_POLL_INTERVAL_MS ?? 1_000);
 const client = new McpStdioClient("codesearch", ["mcp"], { cwd: root, timeoutMs: 60_000 });
 
 try {
-  const initialize = await client.initialize({ clientName: "atelier-probe", clientVersion: "0.8.3" });
+  const initialize = await client.initialize({ clientName: "atelier-probe", clientVersion: "0.8.4" });
   const tools = await client.listTools();
   const toolNames = new Set(tools.map((tool) => tool.name));
   const statusHistory: Array<{ observedAt: string; state: string; response: McpToolCallResult }> = [];

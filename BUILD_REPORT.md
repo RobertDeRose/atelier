@@ -1,25 +1,19 @@
-# Atelier v0.8.3 Build Report
-
-## Implemented
-
-- Distinguished provider operational errors from legitimate empty MCP search results.
-- Detected codesearch's real `Error opening database for read fallback` response even
-  though it used `isError: false`.
-- Added bounded codesearch literal fallback for automatic and hybrid searches.
-- Kept explicit semantic mode strict so diagnostics cannot hide vector failures.
-- Added degraded status and warnings to normalized provenance and provider diagnostics.
-- Added `--mode auto|semantic|hybrid|lexical` to `atlr code search`.
-- Expanded live probing to capture semantic, hybrid, literal, automatic, and direct CLI
-  search behavior, plus codesearch doctor, statistics, and index-store metadata.
-- Improved outline probing by using a path returned by the real symbol index.
-- Added a portable regression fixture from the second live knowledge archive.
-- Added evaluation fields for degraded-result counts and provider warnings.
+# Atelier v0.8.4 Build Report
 
 ## Validation
 
-- Strict TypeScript check: passed.
-- Automated tests: 33 passed, 0 failed.
-- CLI smoke test: passed.
-- Coverage: 81.01% lines, 62.65% branches, 77.55% functions.
-- Ordinary tests remain isolated from the live codesearch process.
-- Live vector behavior still requires the included machine-side collection workflow.
+- Strict TypeScript check: passed
+- Automated tests: 35 passed, 0 failed
+- CLI smoke test: passed
+- Line coverage: 81.34%
+- Branch coverage: 62.92%
+- Function coverage: 78.17%
+- Third real-provider archive: normalized and committed as regression fixtures
+
+## Main correction
+
+Local and auto-local codesearch indexing now run `codesearch index <path>` and verify a non-empty vector store with `Indexed: Yes`. MCP `ready` alone is no longer accepted as evidence of local semantic readiness.
+
+## Environment note
+
+The project remains pinned to Node 24.18.0, Aube 1.29.1, and codesearch 1.1.30 through mise. Packaging validation used the available container Node runtime with the committed dependencies.

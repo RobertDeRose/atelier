@@ -33,10 +33,13 @@ run index_help codesearch index --help
 run search_help codesearch search --help
 run codesearch_doctor codesearch doctor
 run codesearch_stats codesearch stats
-run direct_search codesearch search "where is code provider selection implemented"
-run store_metadata node --experimental-strip-types "$ROOT/scripts/inspect-codesearch-store.ts" "$ROOT"
+run store_metadata_before node --experimental-strip-types "$ROOT/scripts/inspect-codesearch-store.ts" "$ROOT"
 run status_before node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code doctor --json
 run index node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code index --json
+run codesearch_doctor_after codesearch doctor
+run codesearch_stats_after codesearch stats
+run direct_search codesearch search "where is code provider selection implemented"
+run store_metadata node --experimental-strip-types "$ROOT/scripts/inspect-codesearch-store.ts" "$ROOT"
 run status_after node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code doctor --json
 run mcp_contract node --experimental-strip-types "$ROOT/scripts/probe-codesearch-mcp.ts" "$ROOT"
 if [ -s "$OUT/mcp_contract.stdout" ]; then

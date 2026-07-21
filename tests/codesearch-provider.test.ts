@@ -15,6 +15,14 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
 if (args[0] === '--version') { console.log('codesearch 1.1.30'); process.exit(0); }
 if (args[0] === 'index') { console.log('indexed'); process.exit(0); }
+if (args[0] === 'stats') {
+  const indexed = process.env.FAKE_STATS_INDEXED !== '0';
+  console.log('Vector Store:');
+  console.log('   Total chunks: 42');
+  console.log('   Total files: 4');
+  console.log('   Indexed: ' + (indexed ? '✅ Yes' : '❌ No'));
+  process.exit(0);
+}
 if (args[0] !== 'mcp') process.exit(2);
 let buffer = '';
 let statusCalls = 0;
@@ -143,7 +151,9 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     assert.equal(symbols[0]?.path, "src/auth.ts");
 
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-    assert.ok(calls.some((args) => args[0] === "index" && args[1] === "add" && args[2] === root));
+    assert.ok(calls.some((args) => args[0] === "index" && args[1] === root));
+    assert.ok(calls.some((args) => args[0] === "stats" && args[1] === root));
+    assert.equal(calls.some((args) => args[0] === "index" && args[1] === "add"), false);
     assert.ok(calls.some((args) => args[0] === "mcp" && args.includes("local")));
 
     const mcpCalls = readFileSync(fake.mcpLog, "utf8")
@@ -176,6 +186,8 @@ test("codesearch client mode uses configured project aliases", async () => {
   const configuredWorkspace = workspace(root);
   configuredWorkspace.repositories[0]!.codesearchProject = "atelier-api";
   try {
+    const indexed = await provider.ensureIndex(configuredWorkspace);
+    assert.equal(indexed, "ready");
     await provider.search({
       workspace: configuredWorkspace,
       text: "refresh token",
@@ -184,6 +196,9 @@ test("codesearch client mode uses configured project aliases", async () => {
       includeTests: true,
       includeGenerated: false,
     });
+    const processCalls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+    assert.ok(processCalls.some((args) => args[0] === "index" && args[1] === "add" && args[2] === root));
+
     const mcpCalls = readFileSync(fake.mcpLog, "utf8")
       .trim()
       .split("\n")
@@ -264,6 +279,33 @@ test("explicit semantic search surfaces provider operational errors", async () =
       includeTests: true,
       includeGenerated: false,
     }), /codesearch semantic search failed.*Error opening database for read fallback/);
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("codesearch local indexing rejects an unbuilt vector index even when MCP reports ready", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-unbuilt-"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_STATS_INDEXED: "0" },
+  });
+  try {
+    await assert.rejects(
+      provider.ensureIndex(workspace(root)),
+      /vector store contains 42 chunks but the HNSW index is not built/,
+    );
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+    assert.ok(calls.some((args) => args[0] === "index" && args[1] === root));
+    assert.ok(calls.some((args) => args[0] === "stats" && args[1] === root));
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });

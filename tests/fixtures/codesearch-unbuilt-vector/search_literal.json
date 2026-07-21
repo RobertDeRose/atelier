@@ -1,0 +1,96 @@
+[
+  {
+    "rank": 1,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "b64847f23479be41c202bcf88a2e087af9f5f65a",
+    "path": "packages/core/src/core.ts",
+    "startLine": 325,
+    "endLine": 325,
+    "symbol": "function createCodeProvider(config: AtelierConfig): : CodeProvider",
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 4.857268,
+    "preview": "    return new CodesearchProvider({",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9jb3JlLnRzOjEiLCJzeW1ib2wiOiJmdW5jdGlvbiBjcmVhdGVDb2RlUHJvdmlkZXIoY29uZmlnOiBBdGVsaWVyQ29uZmlnKTogOiBDb2RlUHJvdmlkZXIifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts",
+      "startLine": 325,
+      "endLine": 325
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "lexical",
+      "actualMode": "lexical",
+      "query": "CodesearchProvider",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 2,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "b64847f23479be41c202bcf88a2e087af9f5f65a",
+    "path": "packages/core/src/core.ts",
+    "startLine": 25,
+    "endLine": 25,
+    "symbol": "imports (37 lines)",
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 1.7525805,
+    "preview": "import { CodesearchProvider } from \"./code/codesearch-provider.ts\";",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9jb3JlLnRzOjIiLCJzeW1ib2wiOiJpbXBvcnRzICgzNyBsaW5lcykifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts",
+      "startLine": 25,
+      "endLine": 25
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "lexical",
+      "actualMode": "lexical",
+      "query": "CodesearchProvider",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  }
+]
