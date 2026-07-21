@@ -38,6 +38,7 @@ process.stdin.on('data', chunk => {
         const buildingCalls = Number(process.env.FAKE_BUILDING_STATUS_COUNT ?? '0');
         result = { structuredContent: statusCalls <= buildingCalls ? { index_state: 'building' } : { index_state: 'ready', index_age_seconds: 3 } };
       }
+      else if (name === 'search' && input.mode === 'semantic' && process.env.FAKE_SEMANTIC_ERROR === '1') result = { content: [{ type: 'text', text: 'Error searching vector store: Error opening database for read fallback' }], isError: false };
       else if (name === 'search') result = { structuredContent: { index_state: 'ready', results: [{ chunk_id: 42, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', symbol: 'refreshToken', score: 0.91, preview: 'export function refreshToken()' }] } };
       else if (name === 'find') result = { structuredContent: { results: [{ chunk_id: 43, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, symbol: input.symbol, kind: input.kind }] } };
       else if (name === 'get_chunk') result = { structuredContent: { chunk: { chunk_id: input.chunk_id, project: input.project, path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', content: 'export function refreshToken() { return token; }' } } };
@@ -191,6 +192,78 @@ test("codesearch client mode uses configured project aliases", async () => {
     assert.equal(statusCall?.params?.arguments?.project, "atelier-api");
     const searchCall = mcpCalls.find((call) => call.method === "tools/call" && call.params?.name === "search");
     assert.equal(searchCall?.params?.arguments?.project, "atelier-api");
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("codesearch auto search degrades to bounded literal retrieval when semantic storage fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-fallback-"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_SEMANTIC_ERROR: "1" },
+  });
+  try {
+    const hits = await provider.search({
+      workspace: workspace(root),
+      text: "where is code provider selection implemented",
+      mode: "auto",
+      limit: 5,
+      includeTests: true,
+      includeGenerated: false,
+    });
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0]?.provenance.actualMode, "lexical");
+    assert.equal(hits[0]?.provenance.degraded, true);
+    assert.match(hits[0]?.provenance.warnings?.[0] ?? "", /Error opening database for read fallback/);
+    assert.ok(hits[0]?.provenance.postProcessing.some((item) => item.includes("literal fallback")));
+
+    const status = await provider.status(workspace(root));
+    assert.equal(status.degraded, true);
+    assert.match(status.warnings?.[0] ?? "", /vector store/);
+
+    const calls = readFileSync(fake.mcpLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { method: string; params?: { name?: string; arguments?: Record<string, unknown> } });
+    const searches = calls.filter((call) => call.method === "tools/call" && call.params?.name === "search");
+    assert.equal(searches[0]?.params?.arguments?.mode, "semantic");
+    assert.ok(searches.slice(1).some((call) => call.params?.arguments?.mode === "literal"));
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit semantic search surfaces provider operational errors", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-semantic-error-"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_SEMANTIC_ERROR: "1" },
+  });
+  try {
+    await assert.rejects(provider.search({
+      workspace: workspace(root),
+      text: "provider selection",
+      mode: "semantic",
+      limit: 5,
+      includeTests: true,
+      includeGenerated: false,
+    }), /codesearch semantic search failed.*Error opening database for read fallback/);
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.3 — 2026-07-21
+
+```text
+fix(code): preserve retrieval across semantic provider failures
+
+- detect error-bearing MCP text even when providers omit isError
+- surface explicit semantic failures instead of returning empty results
+- fall back from automatic and hybrid searches to bounded literal retrieval
+- mark fallback evidence and provider status as degraded with warnings
+- add explicit code-search mode selection to the CLI
+- separately probe semantic, hybrid, literal, and automatic search health
+- capture codesearch doctor, statistics, direct search, and store metadata
+- commit the real vector-store failure as a portable regression fixture
+- record degraded results and provider warnings in evaluation reports
+```
+
 ## 0.8.2 — 2026-07-21
 
 ```text

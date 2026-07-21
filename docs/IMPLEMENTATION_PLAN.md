@@ -2652,3 +2652,13 @@ Atelier v0.8.2 therefore:
 
 A failed collection is now both machine-detectable and diagnostically complete. Provider
 conformance failures must not prevent evidence needed to correct them from being retained.
+
+## v0.8.3 semantic degradation handling
+
+Real-provider evidence demonstrated that MCP search errors may be returned as text with
+`isError: false`. The Code provider adapter now treats error-bearing text as an
+operational failure. Automatic and hybrid search preserve retrieval through a bounded
+provider-native literal fallback with explicit degraded provenance. Explicit semantic
+mode remains strict. Further codesearch decisions must use the separated semantic,
+hybrid, literal, direct-CLI, doctor, statistics, and store-metadata evidence produced by
+`mise run collect:codesearch`.

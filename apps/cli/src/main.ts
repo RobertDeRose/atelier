@@ -412,6 +412,8 @@ async function handleCode(core: AtelierCore, subcommand: string | undefined, res
       `Healthy: ${status.healthy}`,
       `Index: ${status.indexState}`,
       `Capabilities: ${status.capabilities.join(", ") || "none"}`,
+      ...(status.degraded === true ? ["Degraded: true"] : []),
+      ...(status.warnings?.map((warning) => `Warning: ${warning}`) ?? []),
       ...(status.detail === undefined ? [] : [`Detail: ${status.detail}`]),
     ].join("\n") + "\n");
     return;
@@ -435,11 +437,13 @@ async function handleCode(core: AtelierCore, subcommand: string | undefined, res
   }
   if (subcommand === "search" || subcommand === "symbols") {
     const query = rest.join(" ").trim();
-    if (!query) throw new Error(`Usage: atlr code ${subcommand} QUERY [--provider NAME] [--repo ID] [--limit N]`);
+    if (!query) throw new Error(`Usage: atlr code ${subcommand} QUERY [--provider NAME] [--repo ID] [--limit N] [--mode auto|semantic|hybrid|lexical]`);
     const repositoryIds = flagString(parsed, "repo")?.split(",").map((value) => value.trim()).filter(Boolean);
     const limit = Number(flagString(parsed, "limit") ?? "10");
+    const mode = flagString(parsed, "mode") ?? "auto";
+    if (!(["auto", "semantic", "hybrid", "lexical"] as const).includes(mode as "auto" | "semantic" | "hybrid" | "lexical")) throw new Error(`Invalid code search mode: ${mode}`);
     const results = subcommand === "search"
-      ? await core.code.search({ workspace: core.codeWorkspace(), text: query, ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 })
+      ? await core.code.search({ workspace: core.codeWorkspace(), text: query, mode: mode as "auto" | "semantic" | "hybrid" | "lexical", ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 })
       : await core.code.symbols({ workspace: core.codeWorkspace(), text: query, ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 });
     if (flagBoolean(parsed, "json")) asJson(results);
     else for (const hit of results) process.stdout.write(`${hit.repositoryName}:${hit.path}${hit.startLine === undefined ? "" : `:${hit.startLine}`}\t${hit.symbol ?? ""}\t${hit.preview ?? ""}\t[${hit.provenance.provider.name}/${hit.provenance.indexState}]\n`);

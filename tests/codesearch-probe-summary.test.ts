@@ -6,9 +6,9 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const commandNames = [
-  "version", "help", "mcp_help", "index_help", "status_before", "index", "status_after",
-  "mcp_contract", "fetch", "outline", "impact", "search", "status_after_edit", "reindex_after_edit", "search_after_edit",
-  "symbols", "evaluation",
+  "version", "help", "mcp_help", "index_help", "search_help", "codesearch_doctor", "codesearch_stats", "direct_search", "store_metadata",
+  "status_before", "index", "status_after", "mcp_contract", "fetch", "outline", "impact", "semantic", "hybrid", "literal",
+  "search", "search_semantic", "search_literal", "status_after_edit", "reindex_after_edit", "search_after_edit", "symbols", "evaluation",
 ];
 
 test("codesearch probe summary reports a ready conforming provider", () => {
@@ -17,6 +17,12 @@ test("codesearch probe summary reports a ready conforming provider", () => {
     for (const name of commandNames) writeFileSync(join(root, `${name}.status`), "0\n");
     writeFileSync(join(root, "index.stdout"), JSON.stringify({ state: "ready" }));
     writeFileSync(join(root, "search.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "search_semantic.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "search_literal.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    for (const name of ["semantic", "hybrid", "literal"]) writeFileSync(join(root, `${name}.stdout`), JSON.stringify({ isError: false, content: [{ type: "text", text: "[{\"chunk_id\":1,\"path\":\"src/code.ts\"}]" }] }));
+    writeFileSync(join(root, "search_semantic.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "search_literal.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    for (const name of ["semantic", "hybrid", "literal"]) writeFileSync(join(root, `${name}.stdout`), JSON.stringify({ isError: false, content: [{ type: "text", text: "[{\"chunk_id\":1,\"path\":\"src/code.ts\"}]" }] }));
     writeFileSync(join(root, "symbols.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
     writeFileSync(join(root, "search_after_edit.stdout"), JSON.stringify([{ path: ".atelier/probe-staleness.txt" }]));
     writeFileSync(join(root, "fetch.stdout"), JSON.stringify({ isError: false, content: [{ type: "text", text: "source chunk" }] }));
@@ -56,6 +62,12 @@ test("codesearch probe summary treats unavailable optional impact indexing as a 
     for (const name of commandNames) writeFileSync(join(root, `${name}.status`), "0\n");
     writeFileSync(join(root, "index.stdout"), JSON.stringify({ state: "ready" }));
     writeFileSync(join(root, "search.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "search_semantic.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "search_literal.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    for (const name of ["semantic", "hybrid", "literal"]) writeFileSync(join(root, `${name}.stdout`), JSON.stringify({ isError: false, content: [{ type: "text", text: "[{\"chunk_id\":1,\"path\":\"src/code.ts\"}]" }] }));
+    writeFileSync(join(root, "search_semantic.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    writeFileSync(join(root, "search_literal.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
+    for (const name of ["semantic", "hybrid", "literal"]) writeFileSync(join(root, `${name}.stdout`), JSON.stringify({ isError: false, content: [{ type: "text", text: "[{\"chunk_id\":1,\"path\":\"src/code.ts\"}]" }] }));
     writeFileSync(join(root, "symbols.stdout"), JSON.stringify([{ path: "src/code.ts" }]));
     writeFileSync(join(root, "search_after_edit.stdout"), JSON.stringify([{ path: ".atelier/probe-staleness.txt" }]));
     writeFileSync(join(root, "fetch.stdout"), JSON.stringify({ isError: false, content: [{ type: "text", text: "source chunk" }] }));

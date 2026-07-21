@@ -1,24 +1,25 @@
-# Atelier v0.8.2 Build Report
+# Atelier v0.8.3 Build Report
 
 ## Implemented
 
-- Fixed `collect:codesearch` stopping immediately after a failed conformance probe.
-- Preserved the original probe exit status while always running fixture normalization.
-- Added automatic creation of `atelier-codesearch-knowledge.tar.xz`.
-- Printed the conformance summary and archive location before returning a failure.
-- Classified missing optional impact indexers as warnings even when MCP sets `isError`.
-- Accepted MCP `structuredContent` when validating fetch and outline results.
-- Added regression coverage for failed collection, retained artifacts, archives, and
-  optional impact capability gaps.
+- Distinguished provider operational errors from legitimate empty MCP search results.
+- Detected codesearch's real `Error opening database for read fallback` response even
+  though it used `isError: false`.
+- Added bounded codesearch literal fallback for automatic and hybrid searches.
+- Kept explicit semantic mode strict so diagnostics cannot hide vector failures.
+- Added degraded status and warnings to normalized provenance and provider diagnostics.
+- Added `--mode auto|semantic|hybrid|lexical` to `atlr code search`.
+- Expanded live probing to capture semantic, hybrid, literal, automatic, and direct CLI
+  search behavior, plus codesearch doctor, statistics, and index-store metadata.
+- Improved outline probing by using a path returned by the real symbol index.
+- Added a portable regression fixture from the second live knowledge archive.
+- Added evaluation fields for degraded-result counts and provider warnings.
 
 ## Validation
 
 - Strict TypeScript check: passed.
-- Automated tests: 30 passed, 0 failed.
+- Automated tests: 33 passed, 0 failed.
 - CLI smoke test: passed.
-- Focused collection and conformance regressions: passed.
-- The ordinary suite remained isolated from the live codesearch process.
-
-Run `mise run collect:codesearch`. If provider conformance fails, the task returns nonzero
-but still creates `.atelier/codesearch-probe`, normalized fixtures, and
-`atelier-codesearch-knowledge.tar.xz` for diagnosis.
+- Coverage: 81.01% lines, 62.65% branches, 77.55% functions.
+- Ordinary tests remain isolated from the live codesearch process.
+- Live vector behavior still requires the included machine-side collection workflow.

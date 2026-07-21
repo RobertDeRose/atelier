@@ -8,7 +8,7 @@ const pollIntervalMs = Number(process.env.ATLR_CODE_POLL_INTERVAL_MS ?? 1_000);
 const client = new McpStdioClient("codesearch", ["mcp"], { cwd: root, timeoutMs: 60_000 });
 
 try {
-  const initialize = await client.initialize({ clientName: "atelier-probe", clientVersion: "0.7.1" });
+  const initialize = await client.initialize({ clientName: "atelier-probe", clientVersion: "0.8.3" });
   const tools = await client.listTools();
   const toolNames = new Set(tools.map((tool) => tool.name));
   const statusHistory: Array<{ observedAt: string; state: string; response: McpToolCallResult }> = [];
@@ -20,40 +20,37 @@ try {
       const state = inferIndexState(response);
       statusHistory.push({ observedAt: new Date().toISOString(), state, response });
       if (state === "ready") break;
-      if (state === "failed" || state === "missing") {
-        throw new Error(`codesearch index is ${state}`);
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(`codesearch index did not become ready within ${timeoutMs} ms (last state: ${state})`);
-      }
+      if (state === "failed" || state === "missing") throw new Error(`codesearch index is ${state}`);
+      if (Date.now() >= deadline) throw new Error(`codesearch index did not become ready within ${timeoutMs} ms (last state: ${state})`);
       await delay(pollIntervalMs);
     }
   }
 
-  const search = toolNames.has("search")
-    ? await client.callTool("search", {
-        query: "where is code provider selection implemented",
-        mode: "semantic",
-        semantic_mode: "auto",
-        compact: true,
-        limit: 5,
-      })
+  const semantic = toolNames.has("search")
+    ? await client.callTool("search", { query: "where is code provider selection implemented", mode: "semantic", semantic_mode: "semantic", compact: true, limit: 5 })
+    : undefined;
+  const hybrid = toolNames.has("search")
+    ? await client.callTool("search", { query: "where is code provider selection implemented", mode: "semantic", semantic_mode: "hybrid", compact: true, limit: 5 })
+    : undefined;
+  const literal = toolNames.has("search")
+    ? await client.callTool("search", { query: "CodesearchProvider", mode: "literal", compact: true, limit: 5 })
     : undefined;
   const symbols = toolNames.has("find")
     ? await client.callTool("find", { symbol: "CodesearchProvider", kind: "definition", limit: 5 })
     : undefined;
-  const firstChunk = findFirstChunk(search);
+  const firstChunk = findFirstChunk(semantic) ?? findFirstChunk(hybrid) ?? findFirstChunk(literal) ?? findFirstChunk(symbols);
   const fetch = toolNames.has("get_chunk") && firstChunk !== undefined
     ? await client.callTool("get_chunk", firstChunk.chunkRef === undefined ? { chunk_id: firstChunk.chunkId, context_lines: 0 } : { chunk_ref: firstChunk.chunkRef, context_lines: 0 })
     : undefined;
+  const outlineTarget = findFirstPath(symbols) ?? "packages/core/src/code/codesearch-provider.ts";
   const outline = toolNames.has("explore")
-    ? await client.callTool("explore", { kind: "outline", target: "packages/core/src/code/codesearch-provider.ts", limit: 20 })
+    ? await client.callTool("explore", { kind: "outline", target: outlineTarget, limit: 20 })
     : undefined;
   const impact = toolNames.has("find_impact")
     ? await client.callTool("find_impact", { symbol_name: "CodesearchProvider" })
     : undefined;
 
-  process.stdout.write(`${JSON.stringify({ initialize, tools, statusHistory, calls: { search, symbols, fetch, outline, impact } }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ initialize, tools, statusHistory, calls: { semantic, hybrid, literal, symbols, fetch, outline, impact } }, null, 2)}\n`);
 } finally {
   await client.close();
 }
@@ -78,10 +75,7 @@ function parseText(result: McpToolCallResult): unknown {
 
 function findStatus(value: unknown): string | undefined {
   if (Array.isArray(value)) {
-    for (const item of value) {
-      const status = findStatus(item);
-      if (status !== undefined) return status;
-    }
+    for (const item of value) { const status = findStatus(item); if (status !== undefined) return status; }
     return undefined;
   }
   if (!value || typeof value !== "object") return undefined;
@@ -91,10 +85,7 @@ function findStatus(value: unknown): string | undefined {
     const normalized = normalizeState(record[key]);
     if (normalized !== undefined) return normalized;
   }
-  for (const item of Object.values(record)) {
-    const status = findStatus(item);
-    if (status !== undefined) return status;
-  }
+  for (const item of Object.values(record)) { const status = findStatus(item); if (status !== undefined) return status; }
   return undefined;
 }
 
@@ -114,18 +105,25 @@ function collectStrings(value: unknown): string[] {
   return [];
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
-}
+function delay(milliseconds: number): Promise<void> { return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds)); }
 
 function findFirstChunk(result: McpToolCallResult | undefined): { chunkId: number; chunkRef?: string } | undefined {
   if (result === undefined) return undefined;
   const data = result.structuredContent ?? parseText(result);
-  const rows = findRows(data);
-  for (const row of rows) {
+  for (const row of findRows(data)) {
     const chunkId = row.chunk_id ?? row.chunkId;
     const chunkRef = typeof row.chunk_ref === "string" ? row.chunk_ref : typeof row.chunkRef === "string" ? row.chunkRef : undefined;
     if (typeof chunkId === "number") return { chunkId, ...(chunkRef === undefined ? {} : { chunkRef }) };
+  }
+  return undefined;
+}
+
+function findFirstPath(result: McpToolCallResult | undefined): string | undefined {
+  if (result === undefined) return undefined;
+  const data = result.structuredContent ?? parseText(result);
+  for (const row of findRows(data)) {
+    const path = row.path ?? row.file ?? row.file_path;
+    if (typeof path === "string" && path) return path;
   }
   return undefined;
 }
@@ -134,9 +132,7 @@ function findRows(value: unknown): Array<Record<string, unknown>> {
   if (Array.isArray(value)) return value.filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item));
   if (!value || typeof value !== "object") return [];
   const record = value as Record<string, unknown>;
-  for (const key of ["results", "hits", "items", "matches"]) {
-    if (Array.isArray(record[key])) return findRows(record[key]);
-  }
+  for (const key of ["results", "hits", "items", "matches"]) if (Array.isArray(record[key])) return findRows(record[key]);
   for (const item of Object.values(record)) { const rows = findRows(item); if (rows.length) return rows; }
   return [];
 }

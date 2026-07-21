@@ -4,9 +4,9 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.8.2 scope
+## v0.8.3 scope
 
-This release makes live-provider collection failure-tolerant: conformance failures still produce normalized fixtures and a complete attachable archive, while the command retains a nonzero exit status.
+This release hardens real-provider degradation handling. Atelier now distinguishes operational MCP errors from legitimate empty results, preserves automatic retrieval through bounded provider-native literal fallback, and records degraded provenance without claiming semantic success.
 
 Atelier now owns:
 
@@ -21,7 +21,7 @@ Atelier now owns:
 
 External providers own general-purpose code indexing, parsing, embeddings, ranking, and graphs. Native FTS5 and Tree-sitter code indexes from v0.4.0 were removed.
 
-Atelier now includes a verified `codesearch` adapter based on the documented `codesearch mcp`, `codesearch index add`, and `search`, `find`, `get_chunk`, and `status` MCP operations. Octocode remains the next experimental provider.
+Atelier now includes a verified `codesearch` adapter based on the documented `codesearch mcp`, `codesearch index add`, and `search`, `find`, `get_chunk`, and `status` MCP operations. Octocode remains a later experimental provider after codesearch semantic health and multi-repository behavior are fully evaluated.
 
 ## Requirements
 
@@ -86,6 +86,8 @@ atlr code status
 atlr code doctor
 atlr code index
 atlr code search "where is device authentication handled?"
+atlr code search --mode lexical CodesearchProvider
+atlr code search --mode semantic "where is authentication handled?"
 atlr code symbols AuthSession
 ```
 
@@ -94,6 +96,8 @@ Provider and repository filters are available where supported:
 ```bash
 atlr code search --provider codesearch --repo api,auth "token refresh"
 ```
+
+Search mode may be `auto`, `semantic`, `hybrid`, or `lexical`. `auto` is the normal workflow mode. If codesearch reports an operational failure from its semantic/vector path, Atelier performs a bounded literal fallback, marks every result as degraded, and preserves the original provider error in provenance. Explicit `--mode semantic` never hides that failure.
 
 Unsupported provider capabilities must be reported explicitly. Atelier does not silently discard filters or hide fallback-provider semantics.
 
@@ -264,7 +268,7 @@ On a machine with codesearch installed, run:
 mise run test:codesearch:live
 ```
 
-The live task is intentionally separate from `mise run check`; ordinary tests inject disabled, mock, or process-compatible fake providers and never start codesearch. The probe writes a self-contained report under `.atelier/codesearch-probe`, waits for the raw MCP index to become ready, captures complete tool schemas and raw provider responses, exercises search, symbols, fetch, outline, impact, edit, and reindex behavior, and produces `CONFORMANCE.md` plus `conformance.json`.
+The live task is intentionally separate from `mise run check`; ordinary tests inject disabled, mock, or process-compatible fake providers and never start codesearch. The probe writes a self-contained report under `.atelier/codesearch-probe`, waits for the raw MCP index to become ready, captures complete tool schemas and raw provider responses, separately exercises semantic, hybrid, literal, and automatic search, captures codesearch doctor/statistics and index-store metadata, and exercises symbols, fetch, outline, impact, edit, and reindex behavior, and produces `CONFORMANCE.md` plus `conformance.json`.
 
 
 ## Codesearch conformance and evaluation

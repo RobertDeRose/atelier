@@ -56,6 +56,7 @@ export class CodesearchProvider implements CodeProvider {
   private routingMode: "unknown" | "local" | "client" = "unknown";
   private workspace: CodeWorkspace | undefined;
   private readonly indexedSnapshots = new Map<string, string>();
+  private lastWarnings: string[] = [];
 
   constructor(options: CodesearchProviderOptions) {
     this.command = options.command ?? "codesearch";
@@ -94,6 +95,7 @@ export class CodesearchProvider implements CodeProvider {
         ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
         ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
         ...(this.indexedSnapshots.size === 0 ? {} : { indexedRevisions: Object.fromEntries(this.indexedSnapshots) }),
+        ...(this.lastWarnings.length === 0 ? {} : { degraded: true, warnings: [...this.lastWarnings] }),
       };
     } catch (error) {
       return {
@@ -105,6 +107,7 @@ export class CodesearchProvider implements CodeProvider {
         detail: errorMessage(error),
         ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
         ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
+        ...(this.lastWarnings.length === 0 ? {} : { degraded: true, warnings: [...this.lastWarnings] }),
       };
     }
   }
@@ -137,26 +140,37 @@ export class CodesearchProvider implements CodeProvider {
     this.workspace = query.workspace;
     await this.requireTool("search", "search.semantic");
     await this.waitForReady(query.workspace);
-    const actualMode = mapSearchMode(query.mode);
+    const requestedActualMode = mapSearchMode(query.mode);
     const scope = this.scopeArguments(query.workspace, query.repositoryIds);
-    const args: Record<string, unknown> = {
-      query: query.text,
-      mode: actualMode === "lexical" ? "literal" : "semantic",
-      ...(actualMode === "lexical" ? {} : { semantic_mode: semanticSearchMode(query.mode) }),
-      compact: true,
-      limit: query.limit,
-      ...scope,
-    };
-    if (query.languages?.length === 1 && actualMode === "lexical") args.language = query.languages[0];
-    const onlyPathGlob = query.pathGlobs?.length === 1 ? query.pathGlobs[0] : undefined;
-    if (onlyPathGlob !== undefined) {
-      if (actualMode === "lexical") args.file_glob = onlyPathGlob;
-      else args.filter_path = prefixFromGlob(onlyPathGlob);
-    }
-    const result = await this.call("search", args);
+    const primaryArgs = searchArguments(query, requestedActualMode, scope);
+    const primary = await this.call("search", primaryArgs);
     this.lastQueryAt = nowIso();
-    const data = extractData(result);
-    const rows = extractRows(data);
+
+    const primaryError = toolResponseError(primary);
+    let data = extractData(primary);
+    let rows = extractRows(data);
+    let actualMode = requestedActualMode;
+    let warnings: string[] = [];
+    let postProcessing: string[] = [];
+
+    if (primaryError !== undefined) {
+      if (query.mode === "semantic") {
+        this.lastWarnings = [primaryError];
+        throw new Error(`codesearch semantic search failed: ${primaryError}`);
+      }
+      const fallback = await this.literalFallback(query, scope, primaryError);
+      data = fallback.data;
+      rows = fallback.rows;
+      actualMode = "lexical";
+      warnings = [primaryError, ...fallback.warnings];
+      postProcessing = ["semantic search failed; merged bounded literal fallback results"];
+      if (rows.length === 0) {
+        this.lastWarnings = warnings;
+        throw new Error(`codesearch semantic search failed and literal fallback returned no results: ${primaryError}`);
+      }
+    }
+
+    this.lastWarnings = warnings;
     const indexState = inferIndexState(data, this.indexState);
     this.indexState = indexState;
     return rows.slice(0, query.limit).map((row, index) => normalizeHit({
@@ -169,7 +183,54 @@ export class CodesearchProvider implements CodeProvider {
       indexState,
       enforcedFilters: enforcedSearchFilters(query, actualMode),
       indexedSnapshots: Object.fromEntries(this.indexedSnapshots),
+      postProcessing,
+      warnings,
     }));
+  }
+
+  private async literalFallback(
+    query: CodeSearchQuery,
+    scope: Record<string, unknown>,
+    primaryError: string,
+  ): Promise<{ data: unknown; rows: Array<Record<string, unknown>>; warnings: string[] }> {
+    const candidates = literalQueryCandidates(query.text);
+    const merged = new Map<string, { row: Record<string, unknown>; score: number }>();
+    const warnings: string[] = [];
+    let lastData: unknown = {};
+
+    for (const candidate of candidates) {
+      const response = await this.call("search", {
+        query: candidate,
+        mode: "literal",
+        compact: true,
+        limit: query.limit,
+        ...scope,
+        ...(query.languages?.length === 1 ? { language: query.languages[0] } : {}),
+        ...(query.pathGlobs?.length === 1 ? { file_glob: query.pathGlobs[0] } : {}),
+      });
+      const error = toolResponseError(response);
+      if (error !== undefined) {
+        warnings.push(`literal fallback query ${JSON.stringify(candidate)} failed: ${error}`);
+        continue;
+      }
+      lastData = extractData(response);
+      const candidateRows = extractRows(lastData);
+      for (const [index, row] of candidateRows.entries()) {
+        const key = rowIdentity(row);
+        const contribution = 1 / (60 + index + 1);
+        const existing = merged.get(key);
+        if (existing === undefined) merged.set(key, { row: { ...row }, score: contribution });
+        else existing.score += contribution;
+      }
+      if (merged.size >= query.limit * 3) break;
+    }
+
+    const rows = [...merged.values()]
+      .sort((left, right) => right.score - left.score)
+      .slice(0, query.limit)
+      .map(({ row, score }) => ({ ...row, provider_score: score }));
+    if (rows.length === 0) warnings.push(`literal fallback returned no results after semantic failure: ${primaryError}`);
+    return { data: lastData, rows, warnings };
   }
 
   async read(reference: CodeReference): Promise<CodeChunk> {
@@ -307,7 +368,7 @@ export class CodesearchProvider implements CodeProvider {
       timeoutMs: this.timeoutMs,
       ...(this.environment === undefined ? {} : { environment: this.environment }),
     });
-    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.8.1" });
+    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.8.3" });
     this.identity = {
       name: "codesearch",
       ...(initialized.serverInfo.version === undefined ? {} : { version: initialized.serverInfo.version }),
@@ -426,6 +487,44 @@ function semanticSearchMode(mode: CodeSearchMode): "auto" | "semantic" | "hybrid
 }
 
 
+function searchArguments(query: CodeSearchQuery, actualMode: CodeSearchMode, scope: Record<string, unknown>): Record<string, unknown> {
+  const args: Record<string, unknown> = {
+    query: query.text,
+    mode: actualMode === "lexical" ? "literal" : "semantic",
+    ...(actualMode === "lexical" ? {} : { semantic_mode: semanticSearchMode(query.mode) }),
+    compact: true,
+    limit: query.limit,
+    ...scope,
+  };
+  if (query.languages?.length === 1 && actualMode === "lexical") args.language = query.languages[0];
+  const onlyPathGlob = query.pathGlobs?.length === 1 ? query.pathGlobs[0] : undefined;
+  if (onlyPathGlob !== undefined) {
+    if (actualMode === "lexical") args.file_glob = onlyPathGlob;
+    else args.filter_path = prefixFromGlob(onlyPathGlob);
+  }
+  return args;
+}
+
+function toolResponseError(result: McpToolCallResult): string | undefined {
+  const text = extractText(result).trim();
+  if (result.isError === true) return text || "provider returned isError";
+  if (!text) return undefined;
+  if (/^(?:error|failed)\b/i.test(text) || /error (?:searching|opening|reading|querying)|vector store.*(?:error|failed)|database.*(?:error|failed)/i.test(text)) return text;
+  return undefined;
+}
+
+function literalQueryCandidates(query: string): string[] {
+  const stop = new Set(["about", "after", "before", "code", "does", "from", "have", "into", "where", "which", "with", "through", "implemented", "implementation", "configured", "initialize", "initializes"]);
+  const quoted = [...query.matchAll(/[`"']([^`"']+)[`"']/g)].map((match) => match[1]!.trim()).filter(Boolean);
+  const words = query.match(/[A-Za-z_$][A-Za-z0-9_$.-]*/g) ?? [];
+  const candidates = [...quoted, ...words.filter((word) => word.length >= 4 && !stop.has(word.toLowerCase()))];
+  return [...new Set(candidates)].slice(0, 6).length > 0 ? [...new Set(candidates)].slice(0, 6) : [query];
+}
+
+function rowIdentity(row: Record<string, unknown>): string {
+  return String(row.chunk_ref ?? row.chunkRef ?? row.chunk_id ?? row.chunkId ?? row.id ?? `${row.path ?? row.file ?? "unknown"}:${row.start_line ?? row.startLine ?? row.line ?? ""}`);
+}
+
 function prefixFromGlob(glob: string): string {
   return glob.split(/[?*[]/, 1)[0]?.replace(/\/$/, "") ?? glob;
 }
@@ -482,6 +581,8 @@ function normalizeHit(options: {
   indexState: CodeIndexState;
   enforcedFilters: string[];
   indexedSnapshots?: Record<string, string>;
+  postProcessing?: string[];
+  warnings?: string[];
 }): CodeSearchHit {
   const { row, query, actualMode, workspace, identity, indexState } = options;
   const project = stringField(row, ["project", "repository", "repo", "alias"]);
@@ -542,6 +643,8 @@ function normalizeHit(options: {
       enforcedFilters: options.enforcedFilters,
       ...(options.indexedSnapshots?.[repository.id] === undefined ? {} : { indexedSnapshot: options.indexedSnapshots[repository.id] }),
       currentSnapshot: snapshotIdentity(repository.snapshot),
+      ...(options.postProcessing === undefined ? {} : { postProcessing: options.postProcessing }),
+      ...(options.warnings === undefined ? {} : { warnings: options.warnings }),
     }),
   };
 }
@@ -624,6 +727,8 @@ function provenanceFor(options: {
   enforcedFilters: string[];
   indexedSnapshot?: string;
   currentSnapshot?: string;
+  postProcessing?: string[];
+  warnings?: string[];
 }): CodeProvenance {
   return {
     provider: options.identity,
@@ -636,8 +741,9 @@ function provenanceFor(options: {
     indexState: options.indexState,
     requestedFilters: options.requestedFilters,
     enforcedFilters: options.enforcedFilters,
-    postProcessing: ["normalized by Atelier codesearch adapter"],
+    postProcessing: ["normalized by Atelier codesearch adapter", ...(options.postProcessing ?? [])],
     reranked: false,
+    ...((options.warnings?.length ?? 0) === 0 ? {} : { degraded: true, warnings: options.warnings }),
     ...(options.indexedSnapshot === undefined ? { freshness: "unknown" as const } : {
       freshness: options.indexedSnapshot === options.currentSnapshot ? "current" as const : "known_stale" as const,
       indexedRevision: options.indexedSnapshot,

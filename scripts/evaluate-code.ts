@@ -21,6 +21,8 @@ type Run = {
   bytes: number;
   stdout: string;
   stderr: string;
+  degradedResultCount: number;
+  warnings: string[];
 };
 
 const root = resolve(process.argv[2] ?? process.cwd());
@@ -88,17 +90,19 @@ function runBaseline(task: Task): Run {
     bytes: Buffer.byteLength(result.stdout),
     stdout: result.stdout,
     stderr: result.stderr,
+    degradedResultCount: 0,
+    warnings: [],
   };
 }
 
 function runCodesearch(task: Task): Run {
   const started = Date.now();
-  const args = ["--experimental-strip-types", "apps/cli/src/main.ts", "--root", root, "code", "search", task.query, "--json", ...(task.repos?.length ? ["--repo", task.repos.join(",")] : [])];
+  const args = ["--experimental-strip-types", "apps/cli/src/main.ts", "--root", root, "code", "search", task.query, "--mode", "auto", "--json", ...(task.repos?.length ? ["--repo", task.repos.join(",")] : [])];
   const result = spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
-  let rows: Array<{ path?: string }> = [];
+  let rows: Array<{ path?: string; provenance?: { degraded?: boolean; warnings?: string[] } }> = [];
   try {
     const value = JSON.parse(result.stdout) as unknown;
-    rows = Array.isArray(value) ? value as Array<{ path?: string }> : [];
+    rows = Array.isArray(value) ? value as Array<{ path?: string; provenance?: { degraded?: boolean; warnings?: string[] } }> : [];
   } catch { /* retain raw output */ }
   const paths: string[] = [];
   for (const row of rows) if (typeof row.path === "string") pushUnique(paths, normalizePath(row.path));
@@ -111,6 +115,8 @@ function runCodesearch(task: Task): Run {
     bytes: Buffer.byteLength(result.stdout),
     stdout: result.stdout,
     stderr: result.stderr,
+    degradedResultCount: rows.filter((row) => row.provenance?.degraded === true).length,
+    warnings: [...new Set(rows.flatMap((row) => row.provenance?.warnings ?? []))],
   };
 }
 
@@ -144,11 +150,13 @@ function score(run: Run, task: Task) {
 }
 
 function aggregate(scores: Array<ReturnType<typeof score>>) {
-  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
+  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, degradedResultCount: 0, warnings: [], meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
   return {
     tasks: scores.length,
     durationMs: scores.reduce((sum, item) => sum + item.durationMs, 0),
     bytes: scores.reduce((sum, item) => sum + item.bytes, 0),
+    degradedResultCount: scores.reduce((sum, item) => sum + item.degradedResultCount, 0),
+    warnings: [...new Set(scores.flatMap((item) => item.warnings))],
     meanWeightedRecall: round(scores.reduce((sum, item) => sum + item.weightedRecall, 0) / scores.length),
     meanReciprocalRank: round(scores.reduce((sum, item) => sum + item.reciprocalRank, 0) / scores.length),
     meanNdcgAt10: round(scores.reduce((sum, item) => sum + item.ndcgAt10, 0) / scores.length),
@@ -168,6 +176,8 @@ function summarizeRun(run: Run) {
     pathCount: run.paths.length,
     bytes: run.bytes,
     paths: run.paths,
+    degradedResultCount: run.degradedResultCount,
+    warnings: run.warnings,
   };
 }
 

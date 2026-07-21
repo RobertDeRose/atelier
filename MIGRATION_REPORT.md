@@ -1,18 +1,31 @@
-# Atelier v0.8.2 Migration Report
+# Atelier v0.8.3 Migration Report
 
-No configuration migration is required from v0.8.1.
+No configuration migration is required from v0.8.2.
 
-The behavior of `mise run collect:codesearch` changed intentionally. Previously, a
-nonzero live-probe result stopped the wrapper before fixture normalization and archive
-creation. It now:
+`atlr code search` now accepts:
 
-1. Runs the live probe and retains its exit status.
-2. Normalizes every available probe artifact.
-3. Creates `atelier-codesearch-knowledge.tar.xz` in the repository root.
-4. Prints the archive path and conformance summary.
-5. Returns the retained nonzero status after all evidence is packaged.
+```bash
+atlr code search --mode auto QUERY
+atlr code search --mode semantic QUERY
+atlr code search --mode hybrid QUERY
+atlr code search --mode lexical QUERY
+```
 
-Therefore a failed task can still produce a complete knowledge archive. Inspect
-`.atelier/codesearch-probe/CONFORMANCE.md` or attach the generated archive for analysis.
-Missing optional language-specific impact indexers are warnings rather than provider
-conformance failures.
+`auto` remains the default. When a semantic provider operation fails, automatic and
+hybrid searches use a bounded literal fallback and mark returned evidence as degraded.
+Explicit semantic mode returns a nonzero error instead of silently returning an empty
+array.
+
+Provider status and result provenance may now contain:
+
+```json
+{
+  "degraded": true,
+  "warnings": ["provider error text"]
+}
+```
+
+Run `mise run collect:codesearch` after upgrading. The resulting archive now includes
+separate semantic, hybrid, literal, and automatic search evidence; codesearch doctor and
+statistics output; direct CLI search output; and metadata for the local `.codesearch.db`
+store. No database contents are copied.

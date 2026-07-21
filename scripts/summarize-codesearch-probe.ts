@@ -45,11 +45,19 @@ function checkCommand(name: string): void {
 }
 
 for (const command of [
-  "version", "help", "mcp_help", "index_help", "status_before", "index", "status_after",
-  "mcp_contract", "search", "status_after_edit", "reindex_after_edit", "search_after_edit",
-  "symbols", "evaluation",
+  "version", "help", "mcp_help", "index_help", "search_help",
+  "status_before", "index", "status_after", "mcp_contract", "search", "search_literal",
+  "status_after_edit", "reindex_after_edit", "search_after_edit", "symbols", "evaluation",
 ]) {
   checkCommand(command);
+}
+for (const diagnostic of ["codesearch_doctor", "codesearch_stats", "direct_search", "store_metadata", "search_semantic"] as const) {
+  const status = exitStatus(diagnostic);
+  checks.push({
+    name: `${diagnostic}_command`,
+    status: status === 0 ? "passed" : "warning",
+    detail: status === undefined ? "missing exit status" : `exit ${status}`,
+  });
 }
 
 const index = json("index") as { state?: unknown } | undefined;
@@ -59,7 +67,7 @@ checks.push({
   detail: `reported state: ${String(index?.state ?? "missing")}`,
 });
 
-for (const name of ["search", "symbols", "search_after_edit"] as const) {
+for (const name of ["search", "search_literal", "symbols", "search_after_edit"] as const) {
   const status = exitStatus(name);
   const count = resultCount(name);
   checks.push({
@@ -101,6 +109,23 @@ for (const optional of ["explore", "find_impact"]) {
 }
 
 type ToolPayload = { isError?: unknown; content?: Array<{ text?: unknown }>; structuredContent?: unknown };
+
+const semanticPayload = json("semantic") as ToolPayload | undefined;
+const hybridPayload = json("hybrid") as ToolPayload | undefined;
+const literalPayload = json("literal") as ToolPayload | undefined;
+for (const [name, payload, required] of [
+  ["semantic_health", semanticPayload, false],
+  ["hybrid_health", hybridPayload, false],
+  ["literal_health", literalPayload, true],
+] as const) {
+  const error = providerError(payload);
+  const count = toolResultCount(payload);
+  checks.push({
+    name,
+    status: error !== undefined ? (required ? "failed" : "warning") : count > 0 ? "passed" : "warning",
+    detail: error ?? `${count} raw result(s)`,
+  });
+}
 
 const fetchPayload = json("fetch") as ToolPayload | undefined;
 const fetchText = toolText(fetchPayload);
@@ -160,6 +185,31 @@ checks.push({
             ? `${Buffer.byteLength(impactText)} bytes`
             : "missing content",
 });
+
+
+function providerError(payload: ToolPayload | undefined): string | undefined {
+  const value = toolText(payload).trim();
+  if (payload?.isError === true) return value || "provider returned isError";
+  return /^(?:error|failed)\b/i.test(value) || /error (?:searching|opening|reading|querying)|vector store.*(?:error|failed)|database.*(?:error|failed)/i.test(value)
+    ? value
+    : undefined;
+}
+
+function toolResultCount(payload: ToolPayload | undefined): number {
+  if (payload === undefined) return 0;
+  const textValue = toolText(payload);
+  try {
+    const parsed = JSON.parse(textValue) as unknown;
+    if (Array.isArray(parsed)) return parsed.length;
+    if (parsed && typeof parsed === "object") {
+      for (const key of ["results", "hits", "items", "matches"]) {
+        const candidate = (parsed as Record<string, unknown>)[key];
+        if (Array.isArray(candidate)) return candidate.length;
+      }
+    }
+  } catch { /* provider diagnostic text */ }
+  return 0;
+}
 
 function toolText(payload: ToolPayload | undefined): string {
   if (payload === undefined) return "";

@@ -57,6 +57,8 @@ export interface CodeProviderStatus {
   lastIndexedAt?: string;
   lastQueryAt?: string;
   indexedRevisions?: Record<string, string>;
+  degraded?: boolean;
+  warnings?: string[];
 }
 
 export interface CodeSearchQuery {
@@ -96,6 +98,8 @@ export interface CodeProvenance {
   freshness?: CodeFreshness;
   indexedRevision?: string;
   currentRevision?: string;
+  degraded?: boolean;
+  warnings?: string[];
 }
 
 export interface CodeSearchHit {

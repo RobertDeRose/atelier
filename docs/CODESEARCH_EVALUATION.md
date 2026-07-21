@@ -2,7 +2,7 @@
 
 ## Status
 
-Atelier v0.8.2 provides a repeatable live conformance workflow and a ranked comparative
+Atelier v0.8.3 provides a repeatable live conformance workflow and a ranked comparative
 retrieval benchmark for codesearch.
 
 The first evidence report is in
@@ -36,7 +36,9 @@ artifacts. Use `--allow-empty` only for an intentional empty-probe test.
 through both retrieval paths:
 
 1. Baseline retrieval through ripgrep.
-2. Codesearch retrieval through Atelier's provider contract.
+2. Codesearch retrieval through Atelier's provider contract in automatic mode.
+
+Automatic mode first requests semantic retrieval. Provider operational failures are not treated as empty search results: Atelier retries through a bounded set of literal queries, records degraded provenance, and retains the original semantic error. Explicit semantic-mode probes remain separate so the benchmark cannot misrepresent literal fallback as healthy vector retrieval.
 
 The report records:
 
@@ -48,6 +50,7 @@ The report records:
 - Reciprocal rank.
 - nDCG@10.
 - Aggregate metrics for each retrieval method.
+- Degraded-result counts and unique provider warnings.
 
 It writes `.atelier/evaluation/latest.json` plus a timestamped immutable report.
 
@@ -64,8 +67,8 @@ mise run collect:codesearch
 ```
 
 The script runs the complete live probe, captures MCP initialization and schemas, waits
-for the index, exercises search, definition lookup, fetch-on-demand, outline, optional
-impact analysis, edit and reindex behavior, and the comparative evaluation. It then
+for the index, exercises semantic, hybrid, literal, and automatic search; definition lookup; fetch-on-demand; outline; optional
+impact analysis; codesearch doctor/statistics; direct CLI search; index-store metadata, edit and reindex behavior, and the comparative evaluation. It then
 creates normalized portable fixtures beneath the probe output and writes
 `atelier-codesearch-knowledge.tar.xz` in the repository root.
 

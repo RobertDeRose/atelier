@@ -1,0 +1,425 @@
+{
+  "initialize": {
+    "protocolVersion": "2025-11-25",
+    "capabilities": {
+      "tools": {}
+    },
+    "serverInfo": {
+      "name": "codesearch",
+      "version": "1.1.30"
+    },
+    "instructions": "codesearch — semantic code search + symbol impact analysis.\n\nWHEN TO USE codesearch (prefer over grep/glob):\n  Good for: semantic or cross-file lookup, unknown file paths, symbol navigation,\n    \"where is X implemented\", \"find usages of Y\", \"how does Z flow through the code\"\n  Not for: a single known file (just read it), trivial one-line edits,\n    exact literal patterns where plain grep is faster\n\nSERVICE-MODE NOTES (codesearch serve, esp. on another host):\n  - Paths come from the SERVER's filesystem. Use get_chunk to read content;\n    don't try to open returned paths locally.\n  - Not every directory is indexed (e.g. .venv, node_modules, build/). If a\n    search returns nothing, the dir may be unindexed — ask, don't grep blindly.\n\nPICK THE RIGHT TOOL FOR THE TASK:\n  \"who calls X?\" / \"what breaks if I rename X?\"\n    → find_impact (C# via SCIP; other languages: use find kind=\"usages\")\n  \"find code about X\" / \"how does X work\" / \"show me X\"\n    → search(mode=\"semantic\") — concepts + synonyms + identifiers\n  exact syntax like Vec<T> / foo = null / a::b\n    → search(mode=\"literal\", regex=true) — patterns semantic can't match\n  \"where is X defined?\" / \"what does file X import?\"\n    → find(kind=\"definition\" | \"imports\")\n  \"show all symbols in file X\" / \"code like chunk Y\"\n    → explore(kind=\"outline\" | \"similar\")\n  read chunk content → get_chunk(chunk_id)\n  index health / repo list → status\n\nRULES:\n  - search(semantic) is the DEFAULT for code lookup. Don't skip it.\n  - find_impact for C# refactors; find(kind=\"usages\") for other languages.\n  - NEVER use literal as first search unless you need exact syntax.\n  - project or group is REQUIRED in multi-repo mode.\n\nMode: self-contained (stdio)\nProject: <REPOSITORY_ROOT>\nDatabase: <REPOSITORY_ROOT>/.codesearch.db (ready)\nModel: minilm-l6-q (384d)\n"
+  },
+  "tools": [
+    {
+      "name": "explore",
+      "description": "Unified code exploration. Set `kind` to choose the action:\n\n- `outline` (default): list all indexed top-level symbols in a file — kind, signature, and line range. Set `target` to a file path.\n- `similar`: find chunks semantically similar to a given chunk by its ID. Set `target` to the chunk_id (as string).\n\nIMPORTANT (multi-repo): always specify either `project` (single repo) or `group` (cross-repo). Omitting both in multi-repo mode returns a `scope_required` error with the list of available projects and groups. If the user has not indicated which repository to search, ask them to choose.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Unified exploration request — replaces `file_outline` and `similar_chunks`.",
+        "properties": {
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "What to explore: `\"outline\"` (default) | `\"similar\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Maximum number of results (default: 5 for similar, unlimited for outline).",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "description": "File path for outline mode, or chunk_id for similar mode.\nFor outline: a file path relative to project root or absolute.\nFor similar: a numeric chunk_id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "title": "ExploreRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "find",
+      "description": "Unified symbol navigation. Set `kind` to choose the action:\n\n- `definition` (default): locate where a symbol is defined (function, class, struct, etc.)\n- `usages`: find all call-sites and references to a symbol\n- `imports`: list all imports/dependencies declared in a file (set `symbol` to the file path)\n- `dependents`: find all files that import or depend on a module, file, or symbol\n\nFor `imports`, set `symbol` to a file path. For other kinds, `symbol` is the symbol name.\n\nIMPORTANT (multi-repo): always specify either `project` (single repo) or `group` (cross-repo). Omitting both in multi-repo mode returns a `scope_required` error with the list of available projects and groups. If the user has not indicated which repository to search, ask them to choose.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Unified symbol navigation request — replaces `find_definition`, `find_usages`,\n`find_imports`, and `find_dependents`.",
+        "properties": {
+          "definition_kind": {
+            "description": "Optional kind filter for definitions.\nAccepted: \"Function\" | \"Class\" | \"Method\" | \"Struct\" | \"Trait\" | \"Enum\" | \"TypeAlias\" | \"Interface\"",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "What to find: `\"definition\"` (default) | `\"usages\"` | `\"imports\"` | `\"dependents\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Maximum number of results (default: 20).",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "symbol": {
+            "description": "Symbol name (for definition/usages) or module path (for imports/dependents).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "FindRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "find_impact",
+      "description": "Symbol impact analysis — find all references to a symbol with IDE-class precision (SCIP).\n\nReturns transitive call-sites with file/line precision, enabling agents to plan refactors without missing a caller. More accurate than text-based `find kind=\"usages\"` because it understands the language semantics.\n\nInput variants:\n- By name: `{ \"symbol_name\": \"FieldDefinition.Validate\", \"project\": \"myrepo\" }`\n- By position: `{ \"file\": \"src/Validation/FieldDefinition.cs\", \"line\": 42, \"project\": \"myrepo\" }`\n\nLanguages: C# today (requires the `scip-csharp` helper, bundled in `-with-csharp` releases). For Rust/Python/Go/etc., use `find` with `kind=\"usages\"` as a text-based fallback until SCIP backends for those languages ship.\n\nIMPORTANT (multi-repo): always specify `project` (single repo). Omitting `project` in multi-repo mode returns a `scope_required` error.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Symbol impact analysis request — returns transitive call-sites of a symbol\nwith file/line precision, using language-specific semantic analysis (SCIP).\n\nInput variants:\n- By name: `{ \"symbol_name\": \"FieldDefinition.Validate\", \"project\": \"myrepo\" }`\n- By position: `{ \"file\": \"src/Validation/FieldDefinition.cs\", \"line\": 42, \"project\": \"myrepo\" }`",
+        "properties": {
+          "file": {
+            "description": "File path for position-based lookup (relative to project root or absolute).\nMust be combined with `line`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "language": {
+            "description": "Language filter (e.g. `\"csharp\"`). If omitted, auto-detects from file extension\nor searches all installed language adapters.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line": {
+            "description": "1-based line number for position-based lookup.\nMust be combined with `file`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "symbol_name": {
+            "description": "Symbol name to look up (e.g. `\"FieldDefinition.Validate\"`).\nUsed when you know the name. Mutually exclusive with `file`+`line`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "FindImpactRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_chunk",
+      "description": "Retrieve the full content of a specific chunk by its ID, plus optional surrounding lines for context.\nUse this after search or explore to read the actual code without loading the whole file.\n\nUSE FOR: reading a specific function/class body after finding it via search.\nSet context_lines (default 0, max 20) to include lines before and after the chunk.\n\nIMPORTANT (multi-repo): chunk_ids are local to each repository and are NOT globally unique.\nWhen `project` is omitted in multi-repo mode, the tool scans all repositories for the chunk_id.\nIf found in exactly one repo, it is returned automatically. If found in multiple repos, an `ambiguous_chunk_id` error lists the candidates so you can retry with `project`.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Request to fetch a chunk by ID",
+        "properties": {
+          "chunk_id": {
+            "default": 0,
+            "description": "Local chunk id. Ignored when `chunk_ref` is set (federated fetch).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chunk_ref": {
+            "default": null,
+            "description": "Federated chunk reference `\"<peer>/<remote_alias>:<chunk_id>\"`\n(e.g. `\"cloud/inriver:12345\"`), as returned verbatim in a remote search\nresult's `chunk_ref`. The `<remote_alias>` segment scopes the fetch to a\nsingle remote project so the multi-repo peer can disambiguate the\nchunk_id. When set, the chunk is fetched from the named remote peer and\n`chunk_id`/`project`/`group` are ignored. (A legacy `\"<peer>:<chunk_id>\"`\nref without an alias is still accepted for backward compatibility.)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context_lines": {
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "group": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "GetChunkRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "search",
+      "description": "Unified code search. Set `mode` to choose the backend:\n\n- `semantic` (default): vector embeddings + BM25 FTS + exact-identifier boosting, fused with RRF. Best for conceptual queries, identifier lookups, and mixed natural-language + symbol queries.\n- `literal`: pure FTS, no embeddings. Fast and works without an embedding model. Sub-mode selection:\n  * Queries with operators, brackets, or punctuation (`foo = null`, `Vec<T>`, `return x;`, `a::b`) -> set `regex=true` and write the query as a regex. BM25 tokenizes on punctuation otherwise, producing noisy results.\n  * Multi-word exact phrases -> set `phrase=true`.\n  * Plain identifier lookups (`CodesearchService`) -> leave both false.\n\nFor semantic mode, optionally set `semantic_mode`: \"auto\" (default) | \"semantic\" | \"lexical\" | \"hybrid\".\nReturns metadata only by default (`compact=true`). Use `get_chunk` to read full code. Prefer `search(mode=\"literal\", regex=true)` over external grep/ripgrep for code patterns.\n\nIMPORTANT (multi-repo): always specify either `project` (single repo) or `group` (cross-repo). Omitting both in multi-repo mode returns a `scope_required` error with the list of available projects and groups. If the user has not indicated which repository to search, ask them to choose.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Unified search request — replaces `semantic_search` and `literal_search`.\n\nSet `mode` to choose the search backend:\n- `\"semantic\"` (default) — vector embeddings + BM25 FTS + exact-identifier boosting, fused with RRF.\n- `\"literal\"` — pure FTS, no embeddings. Supports regex, phrase, and exact-term matching.",
+        "properties": {
+          "compact": {
+            "description": "Return compact results (metadata only) to save tokens (default: true).\nOnly applies in semantic mode.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "file_glob": {
+            "description": "File glob filter (literal mode). e.g. \"src/mcp/**\", \"**/*.rs\"",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filter_path": {
+            "description": "Only return results from files under this path prefix (semantic mode).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "description": "Output format for literal mode: `\"json\"` (default) or `\"grep\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "language": {
+            "description": "Language filter (literal mode). e.g. \"Rust\", \"Python\"",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Maximum number of results (default: 10 for semantic, 20 for literal).",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mode": {
+            "description": "Search backend: `\"semantic\"` (default) or `\"literal\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phrase": {
+            "description": "Treat `query` as a phrase (literal mode only).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": {
+            "description": "The search query (natural language, code snippet, regex, or exact term).",
+            "type": "string"
+          },
+          "regex": {
+            "description": "Treat `query` as a regex pattern (literal mode only).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "semantic_mode": {
+            "description": "Override auto-detection of query intent (semantic mode only).\n`\"auto\"` (default) | `\"semantic\"` | `\"lexical\"` | `\"hybrid\"`",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SearchRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "status",
+      "description": "Unified status/info tool. Set `kind` to choose the action:\n\n- `index` (default): get the status of the local search index (model info, chunk count, readiness)\n- `projects`: list all registered projects/repositories, groups, and their index status",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Unified status/info request — replaces `index_status` and `list_projects`.",
+        "properties": {
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group for aggregated index status (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "What status to return: `\"index\"` (default) | `\"projects\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project's index status (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "StatusRequest",
+        "type": "object"
+      }
+    }
+  ],
+  "statusHistory": [
+    {
+      "observedAt": "<TIMESTAMP>",
+      "state": "ready",
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"indexed\":false,\"status\":\"ready\",\"status_message\":\"Index is ready for searching.\",\"total_chunks\":1191,\"total_files\":60,\"model\":\"minilm-l6-q\",\"dimensions\":384,\"max_chunk_id\":1760,\"db_path\":\"<REPOSITORY_ROOT>/.codesearch.db\",\"project_path\":\"<REPOSITORY_ROOT>\",\"mode\":\"stdio\"}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  ],
+  "calls": {
+    "search": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Error searching vector store: Error opening database for read fallback"
+        }
+      ],
+      "isError": false
+    },
+    "symbols": {
+      "content": [
+        {
+          "type": "text",
+          "text": "[{\"chunk_id\":616,\"path\":\"<REPOSITORY_ROOT>/scripts/probe-codesearch-mcp.ts\",\"line\":51,\"kind\":\"Function\",\"score\":6.3835616},{\"chunk_id\":612,\"path\":\"<REPOSITORY_ROOT>/scripts/probe-codesearch-mcp.ts\",\"line\":41,\"kind\":\"Function\",\"score\":6.2936683},{\"chunk_id\":1419,\"path\":\"<REPOSITORY_ROOT>/packages/core/src/core.ts\",\"line\":322,\"kind\":\"Function\",\"signature\":\"function createCodeProvider(config: AtelierConfig): : CodeProvider\",\"score\":4.857268}]"
+        }
+      ],
+      "isError": false
+    },
+    "outline": {
+      "content": [
+        {
+          "type": "text",
+          "text": "No indexed chunks found for path. Verify the file is within the project root and the index is up to date."
+        }
+      ],
+      "isError": false
+    },
+    "impact": {
+      "content": [
+        {
+          "type": "text",
+          "text": "No symbol indexers installed. Install the `scip-csharp` helper for C# support."
+        }
+      ],
+      "isError": false
+    }
+  }
+}

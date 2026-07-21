@@ -38,7 +38,8 @@ export class CodeService {
       includeGenerated: false,
     });
     const bounded = results.slice(0, this.limits.maxResults).map((hit) => ({ ...hit, ...(hit.preview === undefined ? {} : { preview: truncateUtf8(hit.preview, this.limits.maxPreviewBytes) }) }));
-    this.ledger.append({ kind: "code.search_completed", actor: "system", payload: { provider: selected.name, workspaceId: options.workspace.id, query: options.text, resultCount: bounded.length, truncated: results.length > bounded.length } });
+    const warnings = [...new Set(bounded.flatMap((hit) => hit.provenance.warnings ?? []))];
+    this.ledger.append({ kind: "code.search_completed", actor: "system", payload: { provider: selected.name, workspaceId: options.workspace.id, query: options.text, resultCount: bounded.length, truncated: results.length > bounded.length, degraded: bounded.some((hit) => hit.provenance.degraded === true), warnings } });
     return bounded;
   }
 
