@@ -1,0 +1,38 @@
+[tools]
+node = "lts"
+aube = "latest"
+jj = "latest"
+jjui = "latest"
+"github:flupkede/codesearch" = "latest"
+
+[tasks.install]
+description = "Install Atelier development dependencies"
+run = "aube install"
+
+[tasks.atlr]
+description = "Run the Atelier CLI"
+run = "aubr atlr --"
+
+[tasks.doctor]
+description = "Run Atelier diagnostics"
+run = "aubr doctor"
+
+[tasks.test]
+description = "Run the test suite"
+run = "aubr test"
+
+[tasks."test:coverage"]
+description = "Run tests with coverage"
+run = "aubr test:coverage"
+
+[tasks.check]
+description = "Run all repository checks"
+run = "aubr check"
+
+[tasks."test:codesearch"]
+description = "Probe a real codesearch installation and capture conformance data"
+run = "aubr test:codesearch"
+
+[tasks."evaluate:code"]
+description = "Run the code-intelligence evaluation task set"
+run = "aubr evaluate:code"

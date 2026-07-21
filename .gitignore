@@ -1,0 +1,7 @@
+.ade/*.db
+.ade/*.db-*
+.ade/artifacts/
+node_modules/
+coverage/
+*.log
+.DS_Store

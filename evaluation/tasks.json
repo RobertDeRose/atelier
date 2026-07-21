@@ -1,0 +1,18 @@
+[
+  {
+    "id": "locate-behavior",
+    "query": "where is code provider selection implemented"
+  },
+  {
+    "id": "trace-command",
+    "query": "trace the code search CLI command to the provider call"
+  },
+  {
+    "id": "find-tests",
+    "query": "tests for codesearch provider response normalization"
+  },
+  {
+    "id": "working-state",
+    "query": "how code evidence is included in Working State"
+  }
+]

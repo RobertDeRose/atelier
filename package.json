@@ -1,0 +1,43 @@
+{
+  "name": "atelier-prototype",
+  "version": "0.7.0",
+  "description": "Runnable initial TypeScript implementation of Atelier, an Agentic Development Environment",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "atlr": "./bin/atlr.mjs"
+  },
+  "scripts": {
+    "atlr": "node --no-warnings --experimental-strip-types apps/cli/src/main.ts",
+    "doctor": "aubr atlr -- doctor",
+    "typecheck": "tsc --noEmit",
+    "test": "node --no-warnings --experimental-strip-types --test tests/*.test.ts",
+    "test:coverage": "node --no-warnings --experimental-strip-types --experimental-test-coverage --test tests/*.test.ts",
+    "smoke": "bash ./scripts/smoke.sh",
+    "check": "aubr typecheck && aubr test && aubr smoke",
+    "test:codesearch": "bash ./scripts/probe-codesearch.sh",
+    "evaluate:code": "node --no-warnings --experimental-strip-types scripts/evaluate-code.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./apps/pi-extension/src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.80.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "typescript": "^7"
+  },
+  "dependencies": {},
+  "packageManager": "aube@1.29.1"
+}

@@ -1,0 +1,54 @@
+{
+  "generatedAt": "2026-07-21T11:01:38.138Z",
+  "root": "/Users/DeRoseR/workspace/personal/atelier",
+  "report": [
+    {
+      "task": {
+        "id": "locate-behavior",
+        "query": "where is code provider selection implemented"
+      },
+      "id": "locate-behavior",
+      "query": "where is code provider selection implemented",
+      "status": 0,
+      "durationMs": 548,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "task": {
+        "id": "trace-command",
+        "query": "trace the code search CLI command to the provider call"
+      },
+      "id": "trace-command",
+      "query": "trace the code search CLI command to the provider call",
+      "status": 0,
+      "durationMs": 511,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "task": {
+        "id": "find-tests",
+        "query": "tests for codesearch provider response normalization"
+      },
+      "id": "find-tests",
+      "query": "tests for codesearch provider response normalization",
+      "status": 0,
+      "durationMs": 505,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "task": {
+        "id": "working-state",
+        "query": "how code evidence is included in Working State"
+      },
+      "id": "working-state",
+      "query": "how code evidence is included in Working State",
+      "status": 0,
+      "durationMs": 598,
+      "stdout": "[]\n",
+      "stderr": ""
+    }
+  ]
+}

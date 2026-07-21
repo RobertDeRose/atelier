@@ -1,0 +1,30 @@
+Index the repository or manage global index registry
+
+Usage: codesearch index [OPTIONS] [PATH] [COMMAND]
+
+Commands:
+  add      Add a repository to the index (creates local or global index)
+  remove   Remove the index (local or global, auto-detected) [aliases: rm]
+  list     Show index status (local, global, or on a remote peer) [aliases: ls]
+  symbol   Rebuild symbol index (C# via scip-csharp) for a repository
+  reindex  Reindex a repository (incremental, or full rebuild with --force)
+  prune    Remove stale entries from repos.json (relocates moved repos first)
+  help     Print this message or the help of the given subcommand(s)
+
+Arguments:
+  [PATH]  Path to index (defaults to current directory) — used when no subcommand given
+
+Options:
+      --dry-run              Show what would be indexed without actually indexing
+  -f, --force                Force full re-index
+      --symbols              Also rebuild symbol index (C# via scip-csharp) after text reindex
+      --add                  Add a repository to the index (creates local or global index)
+  -g, --global               Create global index instead of local (only with --add)
+      --remove               Remove the index (local or global, auto-detected) [aliases: --rm]
+      --keep-config          Delete the DB only, preserve the config entry (only with --remove)
+  -l, --loglevel <LOGLEVEL>  Set log level (error, warn, info, debug, trace) [default: info]
+      --list                 Show index status (local or global)
+  -q, --quiet                Suppress informational output (only show results/errors)
+      --store <STORE>        Override default store name
+      --model <MODEL>        Embedding model to use (e.g., bge-small, minilm-l6-q, jina-code) Available: minilm-l6, minilm-l6-q, minilm-l12, minilm-l12-q, paraphrase-minilm, bge-small, bge-small-q, bge-base, nomic-v1, nomic-v1.5, nomic-v1.5-q, jina-code, e5-multilingual, mxbai-large, modernbert-large
+  -h, --help                 Print help

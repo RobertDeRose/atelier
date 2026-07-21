@@ -1,0 +1,76 @@
+# Example Atelier Implementation Plan
+
+<!-- atlr:plan version="1" -->
+
+## ATLR-001 — Establish guarded runtime
+<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task"} -->
+
+### Goal
+
+Create the policy and provenance boundary required before repository mutation.
+
+### Scope
+
+- Action classification
+- Explicit permission grants
+- Durable policy decisions
+
+### Out of scope
+
+- Semantic repository indexing
+- Capability forging
+
+### Depends on
+
+- None
+
+### Validation
+
+- Run the policy and classifier unit tests
+
+### Completion criteria
+
+- Read-only actions are allowed by default
+- Mutations require an explicit matching grant
+- Plan mode permits writes only to the designated plan document
+
+### Notes
+
+- Runtime enforcement is authoritative; prompts are advisory
+
+## ATLR-002 — Add task-backed continuation
+<!-- atlr:task {"id":"ATLR-002","priority":2,"type":"feature"} -->
+
+### Goal
+
+Reconstruct working state from durable task state instead of model-authored compaction.
+
+### Scope
+
+- Beads task-provider adapter
+- Ready-task selection
+- Approved-plan mapping
+- Bounded working state
+
+### Out of scope
+
+- Embedding retrieval
+- Multi-agent scheduling
+
+### Depends on
+
+- ATLR-001
+
+### Validation
+
+- Run reconciliation and working state integration tests
+
+### Completion criteria
+
+- Reconciliation is idempotent
+- The first unblocked task is selected deterministically
+- Provider outages do not prevent read-only investigation
+
+### Notes
+
+- Current repository source remains authoritative for code behavior

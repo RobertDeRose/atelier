@@ -1,0 +1,51 @@
+{
+  "workspace": {
+    "id": "a145708934785fbb",
+    "name": "a145708934785fbb",
+    "roots": [
+      "/Users/DeRoseR/workspace/personal/atelier"
+    ],
+    "repositories": [
+      {
+        "id": "git:53cf955b6d94b518e653fbc3",
+        "name": "atelier",
+        "root": "/Users/DeRoseR/workspace/personal/atelier",
+        "snapshot": {
+          "repositoryId": "git:53cf955b6d94b518e653fbc3",
+          "workspaceId": "a145708934785fbb",
+          "vcs": "git",
+          "headCommit": "unborn",
+          "dirtyGeneration": 14,
+          "dirtyFingerprint": "ee0908e52a8862ce29c9093e9db094ad4c475b23420cc3cdfdf587f3c0b1474b",
+          "indexSchemaVersion": 1
+        }
+      }
+    ]
+  },
+  "status": {
+    "identity": {
+      "name": "codesearch",
+      "version": "1.1.30",
+      "instanceId": "codesearch:auto"
+    },
+    "available": true,
+    "healthy": true,
+    "capabilities": [
+      "index.repository",
+      "index.incremental",
+      "index.multi_repository",
+      "search.lexical",
+      "search.semantic",
+      "search.hybrid",
+      "symbol.search",
+      "symbol.definition",
+      "symbol.references",
+      "graph.relationships",
+      "graph.imports",
+      "graph.dependencies",
+      "result.fetch_on_demand"
+    ],
+    "indexState": "building",
+    "detail": "codesearch — semantic code search + symbol impact analysis.\n\nWHEN TO USE codesearch (prefer over grep/glob):\n  Good for: semantic or cross-file lookup, unknown file paths, symbol navigation,\n    \"where is X implemented\", \"find usages of Y\", \"how does Z flow through the code\"\n  Not for: a single known file (just read it), trivial one-line edits,\n    exact literal patterns where plain grep is faster\n\nSERVICE-MODE NOTES (codesearch serve, esp. on another host):\n  - Paths come from the SERVER's filesystem. Use get_chunk to read content;\n    don't try to open returned paths locally.\n  - Not every directory is indexed (e.g. .venv, node_modules, build/). If a\n    search returns nothing, the dir may be unindexed — ask, don't grep blindly.\n\nPICK THE RIGHT TOOL FOR THE TASK:\n  \"who calls X?\" / \"what breaks if I rename X?\"\n    → find_impact (C# via SCIP; other languages: use find kind=\"usages\")\n  \"find code about X\" / \"how does X work\" / \"show me X\"\n    → search(mode=\"semantic\") — concepts + synonyms + identifiers\n  exact syntax like Vec<T> / foo = null / a::b\n    → search(mode=\"literal\", regex=true) — patterns semantic can't match\n  \"where is X defined?\" / \"what does file X import?\"\n    → find(kind=\"definition\" | \"imports\")\n  \"show all symbols in file X\" / \"code like chunk Y\"\n    → explore(kind=\"outline\" | \"similar\")\n  read chunk content → get_chunk(chunk_id)\n  index health / repo list → status\n\nRULES:\n  - search(semantic) is the DEFAULT for code lookup. Don't skip it.\n  - find_impact for C# refactors; find(kind=\"usages\") for other languages.\n  - NEVER use literal as first search unless you need exact syntax.\n  - project or group is REQUIRED in multi-repo mode.\n\nMode: self-contained (stdio)\nProject: /Users/DeRoseR/workspace/personal/atelier\nDatabase: /Users/DeRoseR/workspace/personal/atelier/.codesearch.db (ready)\nModel: minilm-l6-q (384d)\n"
+  }
+}
