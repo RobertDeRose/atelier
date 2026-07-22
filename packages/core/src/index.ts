@@ -35,5 +35,6 @@ export * from "./code/disabled-provider.ts";
 export * from "./code/mcp-stdio-client.ts";
 
 export * from "./code/codesearch-provider.ts";
+export * from "./code/octocode-provider.ts";
 
 export * from "./code/workspace.ts";

@@ -72,11 +72,6 @@
         "path": "tests/codesearch-provider.test.ts",
         "relevance": 3,
         "rationale": "Verifies the adapter contract and normalized output."
-      },
-      {
-        "path": "tests/codesearch-real-fixture.test.ts",
-        "relevance": 1,
-        "rationale": "Verifies portable responses captured from a real provider."
       }
     ],
     "focus": "auto"

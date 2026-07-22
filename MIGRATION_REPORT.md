@@ -1,25 +1,14 @@
-# Atelier v0.8.9 Migration Report
+# Atelier v0.9.0 Migration Report
 
-No configuration migration is required.
+No migration is required for existing codesearch users. Codesearch remains the default.
 
-Automatic and hybrid searches may now receive exact identifier hints:
+New optional configuration:
 
-```bash
-atlr code search \
-  --hint createCodeProvider,CodeProviderRegistry,codeProvider \
-  "How does Atelier choose the configured code provider?"
+```json
+{
+  "codeProvider": "octocode",
+  "octocodeCommand": "octocode"
+}
 ```
 
-Healthy semantic retrieval no longer derives literal augmentation from generic workflow nouns.
-Broad term extraction remains available only for degraded fallback when the semantic provider
-fails. Questions that explicitly request both implementation and tests resolve to an internal
-mixed focus and interleave source and test evidence inside the final result budget.
-
-Run after updating:
-
-```bash
-mise install
-mise run install
-mise run check
-mise run collect:codesearch
-```
+Run `mise run collect:octocode` after installing and configuring Muvon Octocode.

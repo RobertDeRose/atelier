@@ -24,6 +24,7 @@ import type { CodeProvider } from "./code/provider.ts";
 import { DisabledCodeProvider } from "./code/disabled-provider.ts";
 import { MockCodeProvider } from "./code/mock-provider.ts";
 import { CodesearchProvider } from "./code/codesearch-provider.ts";
+import { OctocodeProvider } from "./code/octocode-provider.ts";
 import { CodeProviderRegistry } from "./code/registry.ts";
 import { CodeService } from "./code/service.ts";
 import type { CodeWorkspace } from "./code/types.ts";
@@ -64,8 +65,8 @@ export class AtelierCore {
     this.taskProvider = taskProvider;
     this.repository = createRepositoryProvider(config, ledger);
     this.validation = new ValidationService({ root: config.repositoryRoot, database: ledger.database });
-    const provider = codeProvider ?? createCodeProvider(config);
-    this.code = new CodeService(new CodeProviderRegistry([provider], provider.name), ledger, { maxResults: config.codeMaxResults, maxPreviewBytes: config.codeMaxPreviewBytes, maxChunkBytes: config.codeMaxChunkBytes, maxFetches: config.codeMaxFetches, maxTotalBytes: config.codeMaxTotalBytes });
+    const selection = codeProvider === undefined ? createCodeProviders(config) : { providers: [codeProvider], defaultProvider: codeProvider.name };
+    this.code = new CodeService(new CodeProviderRegistry(selection.providers, selection.defaultProvider), ledger, { maxResults: config.codeMaxResults, maxPreviewBytes: config.codeMaxPreviewBytes, maxChunkBytes: config.codeMaxChunkBytes, maxFetches: config.codeMaxFetches, maxTotalBytes: config.codeMaxTotalBytes });
     this.workingStateBuilder = new WorkingStateBuilder(taskProvider, ledger, this.code, this.validation);
   }
 
@@ -98,6 +99,7 @@ export class AtelierCore {
             jjCommand: this.config.jjCommand,
             codeProvider: this.config.codeProvider,
             codeCommand: this.config.codeCommand,
+            octocodeCommand: this.config.octocodeCommand,
             codeMode: this.config.codeMode,
             codeTimeoutMs: this.config.codeTimeoutMs,
             codeIndexTimeoutMs: this.config.codeIndexTimeoutMs,
@@ -320,18 +322,32 @@ export class AtelierCore {
   }
 }
 
-function createCodeProvider(config: AtelierConfig): CodeProvider {
-  if (config.codeProvider === "mock") return new MockCodeProvider();
-  if (config.codeProvider === "codesearch") {
-    return new CodesearchProvider({
-      command: config.codeCommand,
-      cwd: config.repositoryRoot,
-      mode: config.codeMode,
-      timeoutMs: config.codeTimeoutMs,
-      indexTimeoutMs: config.codeIndexTimeoutMs,
-    });
+function createCodeProviders(config: AtelierConfig): { providers: CodeProvider[]; defaultProvider: string } {
+  if (config.codeProvider === "mock") {
+    const provider = new MockCodeProvider();
+    return { providers: [provider], defaultProvider: provider.name };
   }
-  return new DisabledCodeProvider();
+  if (config.codeProvider === "disabled") {
+    const provider = new DisabledCodeProvider();
+    return { providers: [provider], defaultProvider: provider.name };
+  }
+
+  const codesearch = new CodesearchProvider({
+    command: config.codeCommand,
+    cwd: config.repositoryRoot,
+    mode: config.codeMode,
+    timeoutMs: config.codeTimeoutMs,
+    indexTimeoutMs: config.codeIndexTimeoutMs,
+  });
+  const octocode = new OctocodeProvider({
+    command: config.octocodeCommand,
+    cwd: config.repositoryRoot,
+    timeoutMs: config.codeTimeoutMs,
+  });
+  return {
+    providers: [codesearch, octocode],
+    defaultProvider: config.codeProvider,
+  };
 }
 
 function structuralPlanDiff(

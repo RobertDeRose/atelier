@@ -2777,3 +2777,12 @@ Exit evidence required from the next live run:
 - mixed normalization queries retain both adapter source and tests in the top ten;
 - weighted recall remains at or above the v0.8.8 value of 0.8571;
 - semantic health remains operational and no results are degraded.
+
+
+## v0.9.0 — Second provider evaluation
+
+- Codesearch proof-of-concept decision gate: accepted.
+- Codesearch remains the default provider.
+- Octocode adapter: implemented as experimental.
+- Octocode live contract: pending machine-side `mise run collect:octocode`.
+- Comparative graph evaluation: pending real provider fixtures.

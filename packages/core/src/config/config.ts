@@ -16,8 +16,9 @@ export interface AtelierConfig {
   jjCommand: string;
   indexSchemaVersion: number;
   longRunningThresholdMs: number;
-  codeProvider: "disabled" | "mock" | "codesearch";
+  codeProvider: "disabled" | "mock" | "codesearch" | "octocode";
   codeCommand: string;
+  octocodeCommand: string;
   codeMode: "auto" | "local" | "client";
   codeTimeoutMs: number;
   codeIndexTimeoutMs: number;
@@ -41,6 +42,7 @@ interface PartialAtelierConfig {
   longRunningThresholdMs?: number;
   codeProvider?: AtelierConfig["codeProvider"];
   codeCommand?: string;
+  octocodeCommand?: string;
   codeMode?: AtelierConfig["codeMode"];
   codeTimeoutMs?: number;
   codeIndexTimeoutMs?: number;
@@ -90,6 +92,7 @@ export function loadConfig(repositoryRoot: string): AtelierConfig {
     longRunningThresholdMs: merged.longRunningThresholdMs ?? 300_000,
     codeProvider: merged.codeProvider ?? "codesearch",
     codeCommand: merged.codeCommand ?? "codesearch",
+    octocodeCommand: merged.octocodeCommand ?? "octocode",
     codeMode: merged.codeMode ?? "auto",
     codeTimeoutMs: merged.codeTimeoutMs ?? 60_000,
     codeIndexTimeoutMs: merged.codeIndexTimeoutMs ?? 300_000,

@@ -282,3 +282,16 @@ The live task is intentionally separate from `mise run check`; ordinary tests in
 ## Codesearch conformance and evaluation
 
 Use `mise run collect:codesearch` on a development machine to gather the complete live-provider contract, optional tools, fetch behavior, reindex behavior, and comparative evaluation. The collector now always normalizes available fixtures and creates `atelier-codesearch-knowledge.tar.xz`, even when conformance reports failures; it then exits with the retained conformance status. `mise run fixtures:codesearch` normalizes a prior probe independently and fails clearly when the probe is empty. See `docs/CODESEARCH_EVALUATION.md` and the first live report in `docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md`.
+
+## Code providers
+
+Codesearch is the accepted default provider. Octocode is available as an experimental second provider for graph-oriented evaluation.
+
+```bash
+atlr code providers
+atlr code search --provider codesearch "where is provider selection implemented?"
+atlr code search --provider octocode "where is provider selection implemented?"
+mise run collect:octocode
+```
+
+Octocode is not installed by the development bootstrap. Install and configure Muvon Octocode separately before running its live collector.

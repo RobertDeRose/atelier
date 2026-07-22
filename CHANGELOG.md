@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0 — 2026-07-22
+
+```text
+feat(code): add experimental Octocode provider
+
+- accept codesearch as the default after matching baseline recall with better ranking
+- add an Octocode MCP adapter behind the existing Code provider contract
+- route multi-repository workspaces through one Octocode process per repository
+- discover semantic, signature, graph, and structural capabilities at runtime
+- add safe direct source fetching for local Octocode references
+- add live Octocode MCP and indexing collection scripts
+- correct the normalization benchmark to measure direct implementation evidence
+```
+
 ## 0.8.9 — 2026-07-22
 
 ```text

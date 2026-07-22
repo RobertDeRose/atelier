@@ -1,0 +1,246 @@
+{
+  "generatedAt": "<TIMESTAMP>",
+  "outputDirectory": "<REPOSITORY_ROOT>/.atelier/codesearch-probe",
+  "totals": {
+    "passed": 46,
+    "warnings": 1,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "name": "version",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "mcp_help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "index_help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "search_help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "status_before",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "index",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "status_after",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "mcp_contract",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "search",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "search_literal",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "status_after_edit",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "reindex_after_edit",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "search_after_edit",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "symbols",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "evaluation",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "codesearch_doctor_command",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "codesearch_doctor_after_command",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "codesearch_stats_command",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "codesearch_stats_after_command",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "direct_search_command",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "store_metadata_command",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "search_semantic_command",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "index_ready",
+      "status": "passed",
+      "detail": "reported state: ready"
+    },
+    {
+      "name": "vector_index_built",
+      "status": "passed",
+      "detail": "indexed with 2333 chunks"
+    },
+    {
+      "name": "search_results",
+      "status": "passed",
+      "detail": "10 normalized results"
+    },
+    {
+      "name": "search_literal_results",
+      "status": "passed",
+      "detail": "10 normalized results"
+    },
+    {
+      "name": "symbols_results",
+      "status": "passed",
+      "detail": "10 normalized results"
+    },
+    {
+      "name": "search_after_edit_results",
+      "status": "passed",
+      "detail": "9 normalized results"
+    },
+    {
+      "name": "fixture_pollution",
+      "status": "passed",
+      "detail": "captured provider results exclude committed codesearch fixtures"
+    },
+    {
+      "name": "implementation_focus",
+      "status": "passed",
+      "detail": "first product source path ranked 1: packages/core/src/code/service.ts"
+    },
+    {
+      "name": "retrieval_quality",
+      "status": "passed",
+      "detail": "codesearch mean weighted recall 0.9643; baseline 0.9643"
+    },
+    {
+      "name": "retrieval_fusion",
+      "status": "passed",
+      "detail": "8 returned result(s) combined semantic and lexical evidence"
+    },
+    {
+      "name": "retrieval_hints",
+      "status": "passed",
+      "detail": "14 exact identifier hint(s) were supplied across evaluated searches"
+    },
+    {
+      "name": "mcp_index_ready",
+      "status": "passed",
+      "detail": "ready after 1 status observation(s)"
+    },
+    {
+      "name": "mcp_tool_status",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "mcp_tool_search",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "mcp_tool_find",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "mcp_tool_get_chunk",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "mcp_tool_explore",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "mcp_tool_find_impact",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "semantic_health",
+      "status": "passed",
+      "detail": "5 raw result(s)"
+    },
+    {
+      "name": "hybrid_health",
+      "status": "passed",
+      "detail": "5 raw result(s)"
+    },
+    {
+      "name": "literal_health",
+      "status": "passed",
+      "detail": "5 raw result(s)"
+    },
+    {
+      "name": "fetch_result",
+      "status": "passed",
+      "detail": "579 bytes"
+    },
+    {
+      "name": "outline_result",
+      "status": "passed",
+      "detail": "23453 bytes"
+    },
+    {
+      "name": "impact_result",
+      "status": "warning",
+      "detail": "No symbol indexers installed. Install the `scip-csharp` helper for C# support."
+    }
+  ]
+}

@@ -48,3 +48,11 @@ run = "aubr fixtures:codesearch"
 [tasks."collect:codesearch"]
 description = "Collect all remaining real-provider knowledge on this machine"
 run = "aubr collect:codesearch"
+
+[tasks."test:octocode:live"]
+description = "Probe a real Octocode installation and capture conformance data"
+run = "aubr test:octocode:live"
+
+[tasks."collect:octocode"]
+description = "Collect Octocode provider knowledge on this machine"
+run = "aubr collect:octocode"
