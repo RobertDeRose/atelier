@@ -2,7 +2,7 @@
 
 ## Status
 
-Atelier v0.8.7 provides a repeatable live conformance workflow and a ranked comparative
+Atelier v0.8.8 provides a repeatable live conformance workflow and a ranked comparative
 retrieval benchmark for codesearch.
 
 The first evidence report is in
@@ -38,7 +38,7 @@ through both retrieval paths:
 1. Baseline retrieval through ripgrep.
 2. Codesearch retrieval through Atelier's provider contract in automatic mode.
 
-Automatic mode first requests semantic retrieval. Provider operational failures are not treated as empty search results: Atelier retries through a bounded set of literal queries, records degraded provenance, and retains the original semantic error. Explicit semantic-mode probes remain separate so the benchmark cannot misrepresent literal fallback as healthy vector retrieval.
+Automatic mode first requests semantic retrieval. Focused source and test searches then augment that candidate set with at most four bounded literal provider queries and fuse the two rankings before final path selection. Provider operational failures are not treated as empty search results: Atelier retries through a bounded set of literal queries, records degraded provenance, and retains the original semantic error. Explicit semantic-mode probes remain separate so the benchmark cannot misrepresent literal fallback as healthy vector retrieval.
 
 The report records:
 
@@ -51,6 +51,7 @@ The report records:
 - nDCG@10.
 - Aggregate metrics for each retrieval method.
 - Degraded-result counts and unique provider warnings.
+- Results supported by both semantic and literal retrieval.
 
 It writes `.atelier/evaluation/latest.json` plus a timestamped immutable report.
 
@@ -101,8 +102,9 @@ development session.
 The live collection now records `codesearch stats` before and after `atlr code index`. Conformance requires a non-empty vector store with `Indexed: Yes`; MCP `ready` alone is insufficient. A transition from unbuilt to built is recorded as `vector_index_repaired`.
 
 
-## v0.8.7 rerun requirement
+## v0.8.8 rerun requirement
 
-The next authoritative benchmark must be collected with focused retrieval enabled. The
-live conformance summary now reports the rank of the first product-source path for the
-implementation probe and warns when codesearch mean weighted recall remains below 0.5.
+The next authoritative benchmark must be collected with focused semantic-plus-literal
+fusion enabled. The live conformance summary reports fused-result count, implementation
+source rank, and weighted recall so the added provider calls can be evaluated against the
+0.5625 v0.8.7 baseline.

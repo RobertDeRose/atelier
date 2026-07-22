@@ -1,0 +1,436 @@
+[
+  {
+    "rank": 1,
+    "providerRank": 1,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "d390055a0f303f436e32489871a88e0c29f3caa3",
+    "path": "tests/codesearch-provider.test.ts",
+    "startLine": 152,
+    "endLine": 154,
+    "symbol": "block (2 lines)",
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.04761905,
+    "preview": "block (2 lines)",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjE3MiIsInN5bWJvbCI6ImJsb2NrICgyIGxpbmVzKSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "tests/codesearch-provider.test.ts",
+      "startLine": 152,
+      "endLine": 154
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "semantic",
+      "query": "probe staleness marker",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "all"
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 2,
+    "providerRank": 2,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "d390055a0f303f436e32489871a88e0c29f3caa3",
+    "path": "README.md",
+    "startLine": 280,
+    "endLine": 283,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.045454547,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjU5MiJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "README.md",
+      "startLine": 280,
+      "endLine": 283
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "semantic",
+      "query": "probe staleness marker",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "all"
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 3,
+    "providerRank": 3,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "d390055a0f303f436e32489871a88e0c29f3caa3",
+    "path": "docs/IMPLEMENTATION_PLAN.md",
+    "startLine": 2638,
+    "endLine": 2657,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.04347826,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjU2OSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "docs/IMPLEMENTATION_PLAN.md",
+      "startLine": 2638,
+      "endLine": 2657
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "semantic",
+      "query": "probe staleness marker",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "all"
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 4,
+    "providerRank": 4,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "d390055a0f303f436e32489871a88e0c29f3caa3",
+    "path": "packages/core/src/code/types.ts",
+    "startLine": 27,
+    "endLine": 28,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.041666668,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjc3NiJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/types.ts",
+      "startLine": 27,
+      "endLine": 28
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "semantic",
+      "query": "probe staleness marker",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "all"
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 5,
+    "providerRank": 5,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "d390055a0f303f436e32489871a88e0c29f3caa3",
+    "path": "docs/CODE_INTELLIGENCE.md",
+    "startLine": 348,
+    "endLine": 369,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.04,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjMwOCJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "docs/CODE_INTELLIGENCE.md",
+      "startLine": 348,
+      "endLine": 369
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "semantic",
+      "query": "probe staleness marker",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "all"
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 6,
+    "providerRank": 6,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "d390055a0f303f436e32489871a88e0c29f3caa3",
+    "path": "docs/CODE_INTELLIGENCE.md",
+    "startLine": 478,
+    "endLine": 493,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.03846154,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjMxMyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "docs/CODE_INTELLIGENCE.md",
+      "startLine": 478,
+      "endLine": 493
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "semantic",
+      "query": "probe staleness marker",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "all"
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 7,
+    "providerRank": 7,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "d390055a0f303f436e32489871a88e0c29f3caa3",
+    "path": "docs/IMPLEMENTATION_PLAN.md",
+    "startLine": 1634,
+    "endLine": 1644,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.037037037,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjQ3MyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "docs/IMPLEMENTATION_PLAN.md",
+      "startLine": 1634,
+      "endLine": 1644
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "semantic",
+      "query": "probe staleness marker",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "all"
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 8,
+    "providerRank": 8,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "d390055a0f303f436e32489871a88e0c29f3caa3",
+    "path": "docs/IMPLEMENTATION_PLAN.md",
+    "startLine": 1806,
+    "endLine": 1816,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.035714287,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjQ5MiJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "docs/IMPLEMENTATION_PLAN.md",
+      "startLine": 1806,
+      "endLine": 1816
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "semantic",
+      "query": "probe staleness marker",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "all"
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 9,
+    "providerRank": 9,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "d390055a0f303f436e32489871a88e0c29f3caa3",
+    "path": "tests/codesearch-provider.test.ts",
+    "startLine": 149,
+    "endLine": 152,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.03448276,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjE3MSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "tests/codesearch-provider.test.ts",
+      "startLine": 149,
+      "endLine": 152
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "semantic",
+      "query": "probe staleness marker",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "all"
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  }
+]

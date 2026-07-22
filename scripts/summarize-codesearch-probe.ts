@@ -118,7 +118,7 @@ checks.push({
 const evaluation = jsonFromPath(resolve(outputDirectory, "evaluation", "latest.json")) as {
   aggregate?: {
     baseline?: { meanWeightedRecall?: unknown };
-    codesearch?: { meanWeightedRecall?: unknown };
+    codesearch?: { meanWeightedRecall?: unknown; fusionResultCount?: unknown };
   };
 } | undefined;
 const baselineRecall = numeric(evaluation?.aggregate?.baseline?.meanWeightedRecall);
@@ -130,6 +130,16 @@ checks.push({
     ? "evaluation did not report mean weighted recall"
     : `codesearch mean weighted recall ${codesearchRecall.toFixed(4)}${baselineRecall === undefined ? "" : `; baseline ${baselineRecall.toFixed(4)}`}`,
 });
+const fusionResultCount = numeric(evaluation?.aggregate?.codesearch?.fusionResultCount);
+if (fusionResultCount !== undefined) {
+  checks.push({
+    name: "retrieval_fusion",
+    status: fusionResultCount > 0 ? "passed" : "warning",
+    detail: fusionResultCount > 0
+      ? `${fusionResultCount} returned result(s) combined semantic and lexical evidence`
+      : "focused automatic evaluation returned no semantic-plus-lexical fused result",
+  });
+}
 
 const mcpContract = json("mcp_contract") as {
   tools?: Array<{ name?: unknown }>;

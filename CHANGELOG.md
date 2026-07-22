@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.8 — 2026-07-22
+
+```text
+feat(code): fuse semantic and literal focused retrieval
+
+- augment focused automatic and hybrid searches with bounded literal provider queries
+- derive deterministic candidates from code-shaped identifiers and workflow terms
+- merge semantic and lexical results with weighted reciprocal-rank fusion
+- preserve provider rank while assigning Atelier orchestration rank separately
+- record semantic, lexical, or combined retrieval methods on every result
+- leave explicit semantic, explicit lexical, documentation, and neutral searches unchanged
+- add fused-result metrics to comparative evaluation and live conformance
+- commit the 0.5625 weighted-recall run as a portable pre-fusion regression fixture
+```
+
 ## 0.8.7 — 2026-07-22
 
 ```text

@@ -62,7 +62,8 @@ process.stdin.on('data', chunk => {
       }
       else if (name === 'search' && input.mode === 'semantic' && process.env.FAKE_SEMANTIC_ERROR === '1') result = { content: [{ type: 'text', text: 'Error searching vector store: Error opening database for read fallback' }], isError: false };
       else if (name === 'search') {
-        const configured = process.env.FAKE_SEARCH_ROWS ? JSON.parse(process.env.FAKE_SEARCH_ROWS) : [{ chunk_id: 42, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', symbol: 'refreshToken', score: 0.91, preview: 'export function refreshToken()' }];
+        const source = input.mode === 'literal' ? process.env.FAKE_LITERAL_ROWS : process.env.FAKE_SEMANTIC_ROWS;
+        const configured = source ? JSON.parse(source) : process.env.FAKE_SEARCH_ROWS ? JSON.parse(process.env.FAKE_SEARCH_ROWS) : [{ chunk_id: 42, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', symbol: 'refreshToken', score: 0.91, preview: 'export function refreshToken()' }];
         result = { structuredContent: { index_state: 'ready', results: configured.slice(0, Number(input.limit ?? 10)) } };
       }
       else if (name === 'find') result = { structuredContent: { results: [{ chunk_id: 43, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, symbol: input.symbol, kind: input.kind }] } };
@@ -449,6 +450,66 @@ test("codesearch overfetches and reranks implementation searches toward diverse 
       .map((line) => JSON.parse(line) as { method: string; params?: { name?: string; arguments?: Record<string, unknown> } });
     const searchCall = calls.find((call) => call.method === "tools/call" && call.params?.name === "search");
     assert.equal(searchCall?.params?.arguments?.limit, 25);
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("codesearch fuses bounded literal identifiers into focused automatic retrieval", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-fusion-"));
+  const fake = fakeCodesearch(root);
+  const semanticRows = [
+    { chunk_id: 1, path: "docs/CODE_INTELLIGENCE.md", start_line: 1, end_line: 4, score: 0.99 },
+    { chunk_id: 2, path: "packages/core/src/core.ts", start_line: 1, end_line: 4, score: 0.95 },
+    { chunk_id: 3, path: "README.md", start_line: 1, end_line: 4, score: 0.90 },
+  ];
+  const literalRows = [
+    { chunk_id: 4, path: "packages/core/src/code/registry.ts", start_line: 1, end_line: 4, score: 1.0 },
+    { chunk_id: 5, path: "packages/core/src/code/service.ts", start_line: 1, end_line: 4, score: 0.9 },
+    { chunk_id: 2, path: "packages/core/src/core.ts", start_line: 1, end_line: 4, score: 0.8 },
+  ];
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: {
+      FAKE_SEMANTIC_ROWS: JSON.stringify(semanticRows),
+      FAKE_LITERAL_ROWS: JSON.stringify(literalRows),
+    },
+  });
+  try {
+    const hits = await provider.search({
+      workspace: workspace(root),
+      text: "How does Atelier choose and initialize the configured code intelligence provider?",
+      mode: "auto",
+      focus: "source",
+      limit: 3,
+      includeTests: true,
+      includeGenerated: false,
+    });
+    assert.deepEqual(hits.map((hit) => hit.path), [
+      "packages/core/src/core.ts",
+      "packages/core/src/code/registry.ts",
+      "packages/core/src/code/service.ts",
+    ]);
+    assert.deepEqual(hits[0]?.retrievalMethods.sort(), ["lexical", "semantic"]);
+    assert.equal(hits[0]?.provenance.actualMode, "hybrid");
+    assert.equal(hits[0]?.provenance.degraded, undefined);
+    assert.ok(hits[0]?.provenance.postProcessing.some((item) => item.includes("literal identifier augmentation")));
+
+    const calls = readFileSync(fake.mcpLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { method: string; params?: { name?: string; arguments?: Record<string, unknown> } });
+    const searches = calls.filter((call) => call.method === "tools/call" && call.params?.name === "search");
+    assert.equal(searches[0]?.params?.arguments?.mode, "semantic");
+    assert.ok(searches.slice(1).some((call) => call.params?.arguments?.mode === "literal"));
+    assert.ok(searches.length <= 5);
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });

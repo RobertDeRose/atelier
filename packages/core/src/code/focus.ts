@@ -63,7 +63,7 @@ export function applyCodeSearchFocus(
   const sorted = [...hits].sort((left, right) => {
     const priorityDifference = priority(left) - priority(right);
     if (priorityDifference !== 0) return priorityDifference;
-    return (left.providerRank ?? left.rank) - (right.providerRank ?? right.rank);
+    return left.rank - right.rank;
   });
 
   const unique: CodeSearchHit[] = [];

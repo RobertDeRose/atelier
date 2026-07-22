@@ -1,19 +1,26 @@
-# Atelier v0.8.7 Migration Report
+# Atelier v0.8.8 Migration Report
 
 No configuration migration is required.
 
-`atlr code search` accepts a new optional focus:
+Focused `auto` and `hybrid` source/test searches now perform bounded literal augmentation in
+addition to semantic retrieval. JSON results may therefore contain:
 
-```bash
-atlr code search --focus source "where is provider selection implemented?"
-atlr code search --focus tests "which tests verify normalization?"
-atlr code search --focus docs "why was codesearch selected?"
+```json
+{
+  "retrievalMethods": ["semantic", "lexical"],
+  "providerRank": 8,
+  "rank": 1,
+  "provenance": {
+    "actualMode": "hybrid",
+    "postProcessing": [
+      "fused semantic results with bounded literal identifier augmentation"
+    ]
+  }
+}
 ```
 
-The default remains `--focus auto`. Neutral queries preserve provider order. Focused
-queries may return different top results because the final limit is now applied after
-bounded overfetch, workflow path preference, and path diversification. Original provider
-rank remains available as `providerRank` in JSON output.
+Explicit `--mode semantic`, explicit `--mode lexical`, `--focus docs`, and `--focus all`
+retain their previous behavior.
 
 Run after updating:
 

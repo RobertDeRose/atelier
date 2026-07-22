@@ -1,4 +1,4 @@
-> **v0.8.7 retrieval policy:** The external provider remains authoritative for indexing and semantic ranking. Atelier now owns a bounded workflow-focus layer that preserves provider rank, overfetches compact candidates, diversifies paths, and selects source, tests, or documentation evidence before final context truncation. See ADR-0008.
+> **v0.8.8 retrieval policy:** The external provider remains authoritative for semantic and literal retrieval. Atelier now fuses bounded provider results for focused source and test queries, preserves retrieval method and provider rank, then applies workflow focus and final truncation. See ADR-0009.
 
 > **v0.5.0 architectural correction:** Atelier no longer owns a native source, FTS5, Tree-sitter, embedding, vector, or code-graph implementation by default. The accepted design is external provider integration behind the Atelier-owned CodeProvider contract. `codesearch` is the first planned provider and Octocode the second experimental provider. See `CODE_INTELLIGENCE.md` and ADR-0002.
 
@@ -2731,3 +2731,26 @@ Exit evidence required from the next live run:
 - no provider fixture paths re-enter the selected corpus;
 - semantic and hybrid retrieval remain non-degraded;
 - provider rank remains available for audit beside Atelier's final rank.
+
+
+## v0.8.8 semantic-literal focused fusion
+
+Implemented:
+
+- retain semantic retrieval as the primary automatic provider query;
+- derive at most four deterministic literal candidates for focused source and test work;
+- bound each literal provider request and merge results by repository path;
+- use weighted reciprocal-rank fusion without introducing a native Atelier index;
+- preserve semantic, lexical, or combined retrieval methods on every result;
+- keep original provider rank separate from fused and focused result rank;
+- leave explicit semantic, explicit lexical, docs, and neutral searches unchanged;
+- record fused-result counts in evaluation and live conformance;
+- commit the 0.5625 weighted-recall focused run as the pre-fusion regression fixture.
+
+Exit evidence required from the next live run:
+
+- focused automatic results contain semantic-plus-lexical fused evidence;
+- mean weighted recall improves from the v0.8.7 value of 0.5625;
+- no search becomes degraded while semantic health remains operational;
+- implementation source remains within the first three results;
+- bounded augmentation does not materially inflate retrieval bytes or latency.

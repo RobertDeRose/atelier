@@ -1,21 +1,21 @@
-# Atelier v0.8.7 Build Report
+# Atelier v0.8.8 Build Report
 
 ## Validation
 
 - Strict TypeScript check: passed
-- Automated tests: 46 passed, 0 failed
+- Automated tests: 48 passed, 0 failed
 - CLI smoke test: passed
-- Line coverage: 82.77%
-- Branch coverage: 66.12%
-- Function coverage: 80.55%
-- Sixth real-provider archive: normalized and committed as a clean-corpus regression fixture
+- Line coverage: 83.05%
+- Branch coverage: 66.75%
+- Function coverage: 81.25%
+- Seventh real-provider archive: normalized and committed as a pre-fusion retrieval fixture
 
 ## Main correction
 
-The clean 2,138-chunk codesearch index was healthy, but implementation-oriented queries
-were dominated by documentation before Atelier's 10-result cutoff. Atelier now overfetches
-a bounded compact candidate pool, resolves source/test/docs focus, preserves provider rank,
-diversifies paths, and applies the final retrieval budget after workflow selection.
+The v0.8.7 focus policy raised codesearch mean weighted recall to 0.5625 and ranked product
+source first, but semantic candidates still omitted companion files recoverable through exact
+provider search. Focused automatic and hybrid searches now fuse bounded semantic and literal
+codesearch results before path selection and final truncation.
 
 ## Environment note
 

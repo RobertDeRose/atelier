@@ -27,6 +27,7 @@ type Run = {
   stdout: string;
   stderr: string;
   degradedResultCount: number;
+  fusionResultCount: number;
   warnings: string[];
 };
 
@@ -106,6 +107,7 @@ function runBaseline(task: Task): Run {
     stdout: result.stdout,
     stderr: result.stderr,
     degradedResultCount: 0,
+    fusionResultCount: 0,
     warnings: [],
   };
 }
@@ -121,7 +123,8 @@ function runCodesearch(task: Task): Run {
   let rows: Array<{
     path?: string;
     providerRank?: number;
-    provenance?: { degraded?: boolean; warnings?: string[]; reranked?: boolean; requestedFilters?: Record<string, unknown> };
+    retrievalMethods?: string[];
+    provenance?: { degraded?: boolean; warnings?: string[]; reranked?: boolean; requestedFilters?: Record<string, unknown>; postProcessing?: string[] };
   }> = [];
   try {
     const value = JSON.parse(result.stdout) as unknown;
@@ -147,6 +150,7 @@ function runCodesearch(task: Task): Run {
     stdout: result.stdout,
     stderr: result.stderr,
     degradedResultCount: rows.filter((row) => row.provenance?.degraded === true).length,
+    fusionResultCount: rows.filter((row) => row.retrievalMethods?.includes("semantic") && row.retrievalMethods.includes("lexical")).length,
     warnings: [...new Set(rows.flatMap((row) => row.provenance?.warnings ?? []))],
   };
 }
@@ -181,12 +185,13 @@ function score(run: Run, task: Task) {
 }
 
 function aggregate(scores: Array<ReturnType<typeof score>>) {
-  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, degradedResultCount: 0, rerankedTasks: 0, warnings: [], meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
+  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, degradedResultCount: 0, fusionResultCount: 0, rerankedTasks: 0, warnings: [], meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
   return {
     tasks: scores.length,
     durationMs: scores.reduce((sum, item) => sum + item.durationMs, 0),
     bytes: scores.reduce((sum, item) => sum + item.bytes, 0),
     degradedResultCount: scores.reduce((sum, item) => sum + item.degradedResultCount, 0),
+    fusionResultCount: scores.reduce((sum, item) => sum + item.fusionResultCount, 0),
     rerankedTasks: scores.filter((item) => item.reranked).length,
     warnings: [...new Set(scores.flatMap((item) => item.warnings))],
     meanWeightedRecall: round(scores.reduce((sum, item) => sum + item.weightedRecall, 0) / scores.length),
@@ -212,6 +217,7 @@ function summarizeRun(run: Run) {
     focus: run.focus,
     reranked: run.reranked,
     degradedResultCount: run.degradedResultCount,
+    fusionResultCount: run.fusionResultCount,
     warnings: run.warnings,
   };
 }

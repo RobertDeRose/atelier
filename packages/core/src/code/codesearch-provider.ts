@@ -249,6 +249,16 @@ export class CodesearchProvider implements CodeProvider {
         this.lastWarnings = warnings;
         throw new Error(`codesearch semantic search failed and literal fallback returned no results: ${primaryError}`);
       }
+    } else if (shouldAugmentSearch(query.mode, resolvedFocus)) {
+      const augmentation = await this.literalCandidateSearch(providerQuery, scope, 4, Math.min(12, providerLimit));
+      if (augmentation.rows.length > 0) {
+        rows = fuseSearchRows(rows, augmentation.rows, providerLimit);
+        actualMode = "hybrid";
+        postProcessing = [...postProcessing, "fused semantic results with bounded literal identifier augmentation"];
+      }
+      if (augmentation.failedCandidates > 0) {
+        postProcessing = [...postProcessing, `literal augmentation skipped ${augmentation.failedCandidates} failed candidate query(s)`];
+      }
     }
 
     this.lastWarnings = warnings;
@@ -289,9 +299,22 @@ export class CodesearchProvider implements CodeProvider {
     scope: Record<string, unknown>,
     primaryError: string,
   ): Promise<{ data: unknown; rows: Array<Record<string, unknown>>; warnings: string[] }> {
-    const candidates = literalQueryCandidates(query.text);
+    const result = await this.literalCandidateSearch(query, scope, 6, query.limit);
+    const warnings = [...result.warnings];
+    if (result.rows.length === 0) warnings.push(`literal fallback returned no results after semantic failure: ${primaryError}`);
+    return { data: result.data, rows: result.rows, warnings };
+  }
+
+  private async literalCandidateSearch(
+    query: CodeSearchQuery,
+    scope: Record<string, unknown>,
+    maxCandidates: number,
+    perCandidateLimit: number,
+  ): Promise<{ data: unknown; rows: Array<Record<string, unknown>>; warnings: string[]; failedCandidates: number }> {
+    const candidates = literalQueryCandidates(query.text, maxCandidates);
     const merged = new Map<string, { row: Record<string, unknown>; score: number }>();
     const warnings: string[] = [];
+    let failedCandidates = 0;
     let lastData: unknown = {};
 
     for (const candidate of candidates) {
@@ -299,20 +322,21 @@ export class CodesearchProvider implements CodeProvider {
         query: candidate,
         mode: "literal",
         compact: true,
-        limit: query.limit,
+        limit: perCandidateLimit,
         ...scope,
         ...(query.languages?.length === 1 ? { language: query.languages[0] } : {}),
         ...(query.pathGlobs?.length === 1 ? { file_glob: query.pathGlobs[0] } : {}),
       });
       const error = toolResponseError(response);
       if (error !== undefined) {
-        warnings.push(`literal fallback query ${JSON.stringify(candidate)} failed: ${error}`);
+        failedCandidates += 1;
+        warnings.push(`literal query ${JSON.stringify(candidate)} failed: ${error}`);
         continue;
       }
       lastData = extractData(response);
       const candidateRows = extractRows(lastData);
       for (const [index, row] of candidateRows.entries()) {
-        const key = rowIdentity(row);
+        const key = rowPathIdentity(row);
         const contribution = 1 / (60 + index + 1);
         const existing = merged.get(key);
         if (existing === undefined) merged.set(key, { row: { ...row }, score: contribution });
@@ -324,9 +348,8 @@ export class CodesearchProvider implements CodeProvider {
     const rows = [...merged.values()]
       .sort((left, right) => right.score - left.score)
       .slice(0, query.limit)
-      .map(({ row, score }) => ({ ...row, provider_score: score }));
-    if (rows.length === 0) warnings.push(`literal fallback returned no results after semantic failure: ${primaryError}`);
-    return { data: lastData, rows, warnings };
+      .map(({ row, score }, index) => ({ ...row, rank: index + 1, provider_score: score }));
+    return { data: lastData, rows, warnings, failedCandidates };
   }
 
   async read(reference: CodeReference): Promise<CodeChunk> {
@@ -609,12 +632,85 @@ function toolResponseError(result: McpToolCallResult): string | undefined {
   return undefined;
 }
 
-function literalQueryCandidates(query: string): string[] {
-  const stop = new Set(["about", "after", "before", "code", "does", "from", "have", "into", "where", "which", "with", "through", "implemented", "implementation", "configured", "initialize", "initializes"]);
+function literalQueryCandidates(query: string, limit = 6): string[] {
+  const stop = new Set(["about", "after", "atelier", "before", "choose", "code", "configured", "does", "from", "have", "initialize", "initializes", "intelligence", "into", "through", "where", "which", "with", "implemented", "implementation"]);
+  const priority = new Set(["adapter", "command", "evidence", "freshness", "normalize", "normalization", "provider", "registry", "search", "service", "state", "tests"]);
   const quoted = [...query.matchAll(/[`"']([^`"']+)[`"']/g)].map((match) => match[1]!.trim()).filter(Boolean);
   const words = query.match(/[A-Za-z_$][A-Za-z0-9_$.-]*/g) ?? [];
-  const candidates = [...quoted, ...words.filter((word) => word.length >= 4 && !stop.has(word.toLowerCase()))];
-  return [...new Set(candidates)].slice(0, 6).length > 0 ? [...new Set(candidates)].slice(0, 6) : [query];
+  const codeLike = words.filter((word) => /[A-Z].*[A-Z]|[a-z][A-Z]|[.$]/.test(word));
+  const significant = words.filter((word) => word.length >= 4 && !stop.has(word.toLowerCase()));
+  const ordered = [...new Set([...codeLike, ...significant, ...quoted])]
+    .sort((left, right) => candidatePriority(left, priority) - candidatePriority(right, priority));
+  return ordered.slice(0, limit).length > 0 ? ordered.slice(0, limit) : [query];
+}
+
+function candidatePriority(value: string, priority: Set<string>): number {
+  const normalized = value.toLowerCase();
+  if (/[A-Z].*[A-Z]|[a-z][A-Z]|[.$]/.test(value)) return 0;
+  if (priority.has(normalized)) return 1;
+  if (value.includes(" ")) return 2;
+  return 3;
+}
+
+function shouldAugmentSearch(mode: CodeSearchMode, focus: ReturnType<typeof resolveCodeSearchFocus>): boolean {
+  return (mode === "auto" || mode === "hybrid") && (focus === "source" || focus === "tests");
+}
+
+function fuseSearchRows(
+  semanticRows: Array<Record<string, unknown>>,
+  lexicalRows: Array<Record<string, unknown>>,
+  limit: number,
+): Array<Record<string, unknown>> {
+  const merged = new Map<string, {
+    row: Record<string, unknown>;
+    semanticRank?: number;
+    lexicalRank?: number;
+    score: number;
+    methods: Set<CodeSearchMode>;
+  }>();
+
+  const add = (rows: Array<Record<string, unknown>>, method: "semantic" | "lexical", weight: number) => {
+    for (const [index, row] of rows.entries()) {
+      const rank = index + 1;
+      const key = rowPathIdentity(row);
+      const existing = merged.get(key);
+      const contribution = weight / (60 + rank);
+      if (existing === undefined) {
+        merged.set(key, {
+          row: { ...row },
+          ...(method === "semantic" ? { semanticRank: rank } : { lexicalRank: rank }),
+          score: contribution,
+          methods: new Set<CodeSearchMode>([method]),
+        });
+      } else {
+        if (method === "semantic") {
+          existing.semanticRank = Math.min(existing.semanticRank ?? rank, rank);
+          existing.row = { ...row };
+        } else existing.lexicalRank = Math.min(existing.lexicalRank ?? rank, rank);
+        existing.score += contribution;
+        existing.methods.add(method);
+      }
+    }
+  };
+
+  add(semanticRows, "semantic", 1);
+  add(lexicalRows, "lexical", 1.1);
+  return [...merged.values()]
+    .sort((left, right) => right.score - left.score
+      || (left.semanticRank ?? Number.MAX_SAFE_INTEGER) - (right.semanticRank ?? Number.MAX_SAFE_INTEGER)
+      || (left.lexicalRank ?? Number.MAX_SAFE_INTEGER) - (right.lexicalRank ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, limit)
+    .map((entry, index) => ({
+      ...entry.row,
+      atelier_rank: index + 1,
+      provider_rank: entry.semanticRank ?? entry.lexicalRank ?? index + 1,
+      provider_score: entry.score,
+      retrieval_methods: [...entry.methods],
+    }));
+}
+
+function rowPathIdentity(row: Record<string, unknown>): string {
+  return `${row.project ?? row.repository ?? row.repo ?? row.alias ?? ""}:${row.path ?? row.file ?? row.file_path ?? row.relative_path ?? rowIdentity(row)}`;
 }
 
 function rowIdentity(row: Record<string, unknown>): string {
@@ -706,9 +802,11 @@ function normalizeHit(options: {
   const providerScore = numberField(row, ["score", "rrf_score", "similarity", "provider_score"]);
   const summary = stringField(row, ["summary"]);
   const preview = stringField(row, ["preview", "snippet", "summary", "text", "signature", "content"]);
-  const providerRank = numberField(row, ["rank"]) ?? options.rank;
+  const providerRank = numberField(row, ["provider_rank", "providerRank", "rank"]) ?? options.rank;
+  const orchestrationRank = numberField(row, ["atelier_rank", "atelierRank"]) ?? providerRank;
+  const retrievalMethods = codeSearchModes(row.retrieval_methods ?? row.retrievalMethods) ?? [actualMode];
   return {
-    rank: providerRank,
+    rank: orchestrationRank,
     providerRank,
     repositoryId: repository.id,
     repositoryName: repository.name,
@@ -718,7 +816,7 @@ function normalizeHit(options: {
     ...(reference.endLine === undefined ? {} : { endLine: reference.endLine }),
     ...(symbol === undefined ? {} : { symbol }),
     ...(language === undefined ? {} : { language }),
-    retrievalMethods: [actualMode],
+    retrievalMethods,
     ...(providerScore === undefined ? {} : { providerScore }),
     ...(summary === undefined ? {} : { summary }),
     ...(preview === undefined ? {} : { preview: truncate(preview, 1_000) }),
@@ -746,6 +844,12 @@ function normalizeHit(options: {
       ...(options.warnings === undefined ? {} : { warnings: options.warnings }),
     }),
   };
+}
+
+function codeSearchModes(value: unknown): CodeSearchMode[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const modes = value.filter((item): item is CodeSearchMode => item === "auto" || item === "lexical" || item === "semantic" || item === "hybrid");
+  return modes.length > 0 ? [...new Set(modes)] : undefined;
 }
 
 function referenceFromRow(row: Record<string, unknown>, workspace: CodeWorkspace, provider: string): CodeReference {
