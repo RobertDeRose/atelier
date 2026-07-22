@@ -2686,3 +2686,23 @@ Exit evidence required from the next live run:
 - vector statistics transition from unbuilt to built;
 - semantic and hybrid MCP search return non-degraded results;
 - edit-triggered reindexing succeeds without LockBusy.
+
+## v0.8.6 corpus-selection correction
+
+Implemented:
+
+- add repository-local `.codesearchignore` support to Atelier's own repository;
+- exclude captured provider-response fixtures from semantic retrieval;
+- persist an Atelier-owned fingerprint of repository search-selection inputs;
+- force one local codesearch rebuild when ignore inputs or provider version change;
+- keep later indexing incremental when the fingerprint remains stable;
+- apply `.codesearchignore` to the ripgrep evaluation baseline;
+- fail live conformance when ignored fixture paths leak into provider results;
+- commit the successful HNSW repair and semantic recovery as a portable fixture.
+
+Exit evidence required from the next live run:
+
+- vector index rebuilt against the reduced corpus;
+- no search result beneath `tests/fixtures/codesearch-*`;
+- semantic and hybrid health remain operational;
+- weighted retrieval metrics rerun against the corrected corpus.

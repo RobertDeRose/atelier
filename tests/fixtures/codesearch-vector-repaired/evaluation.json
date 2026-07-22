@@ -4,23 +4,19 @@
   "tasksPath": "<REPOSITORY_ROOT>/evaluation/tasks.json",
   "coldStart": {
     "status": 0,
-    "durationMs": 464,
+    "durationMs": 488,
     "resultCount": 10,
-    "pathCount": 7,
-    "bytes": 16977,
+    "pathCount": 5,
+    "bytes": 13490,
     "paths": [
-      "tests/jujutsu-repository-provider.test.ts",
+      "tests/fixtures/codesearch-vector-failure/evaluation.json",
       "docs/CODE_INTELLIGENCE.md",
-      "packages/core/src/planning/plan-reconciler.ts",
-      "apps/pi-extension/README.md",
-      "packages/core/src/ledger/sqlite-ledger.ts",
       "docs/ARCHITECTURE.md",
-      "packages/core/src/code/registry.ts"
+      "docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md",
+      "docs/IMPLEMENTATION_PLAN.md"
     ],
-    "degradedResultCount": 10,
-    "warnings": [
-      "Error searching vector store: Error opening database for read fallback"
-    ]
+    "degradedResultCount": 0,
+    "warnings": []
   },
   "report": [
     {
@@ -53,50 +49,60 @@
       "baseline": {
         "method": "baseline",
         "status": 0,
-        "durationMs": 40,
-        "resultCount": 43,
+        "durationMs": 63,
+        "resultCount": 71,
         "paths": [
-          "evaluation/tasks.json",
-          "tests/code-service.test.ts",
           "README.md",
-          "tests/code-budgets.test.ts",
-          "packages/core/src/core.ts",
-          "tests/fixtures/codesearch-vector-failure/symbols.json",
-          "packages/core/src/config/config.ts",
-          "tests/fixtures/codesearch-vector-failure/evaluation.json",
-          "packages/core/src/code/service.ts",
-          "tests/fixtures/codesearch-vector-failure/mcp_contract.json",
+          "tests/code-service.test.ts",
           "tests/core.integration.test.ts",
+          "evaluation/tasks.json",
+          "tests/fixtures/codesearch-vector-failure/symbols.json",
+          "apps/cli/src/main.ts",
+          "tests/code-budgets.test.ts",
+          "tests/fixtures/codesearch-vector-failure/mcp_contract.json",
+          "tests/fixtures/codesearch-vector-failure/evaluation.json",
+          "tests/fixtures/codesearch-unbuilt-vector/symbols.json",
+          "tests/validation-service.test.ts",
           "tests/fixtures/codesearch-real/symbols.json",
           "tests/fixtures/codesearch-real/evaluation.json",
-          "apps/cli/src/main.ts",
+          "tests/fixtures/codesearch-unbuilt-vector/evaluation.json",
+          "packages/core/src/core.ts",
           "docs/ARCHITECTURE.md",
-          "tests/validation-service.test.ts",
-          "packages/core/src/code/registry.ts"
+          "tests/fixtures/codesearch-unbuilt-vector/outline.json",
+          "tests/fixtures/codesearch-index-lock/symbols.json",
+          "tests/fixtures/codesearch-unbuilt-vector/search_literal.json",
+          "packages/core/src/code/service.ts",
+          "tests/fixtures/codesearch-unbuilt-vector/literal.json",
+          "packages/core/src/code/registry.ts",
+          "tests/fixtures/codesearch-unbuilt-vector/mcp_contract.json",
+          "packages/core/src/config/config.ts",
+          "tests/fixtures/codesearch-unbuilt-vector/fetch.json",
+          "tests/fixtures/codesearch-index-lock/fetch.json",
+          "tests/fixtures/codesearch-index-lock/literal.json",
+          "tests/fixtures/codesearch-index-lock/mcp_contract.json",
+          "tests/fixtures/codesearch-index-lock/outline.json",
+          "tests/fixtures/codesearch-index-lock/search_literal.json",
+          "tests/fixtures/codesearch-index-lock/evaluation.json"
         ],
-        "bytes": 119222,
+        "bytes": 1854214,
         "degradedResultCount": 0,
         "warnings": []
       },
       "codesearch": {
         "method": "codesearch",
         "status": 0,
-        "durationMs": 429,
+        "durationMs": 499,
         "resultCount": 10,
         "paths": [
-          "tests/jujutsu-repository-provider.test.ts",
+          "tests/fixtures/codesearch-vector-failure/evaluation.json",
           "docs/CODE_INTELLIGENCE.md",
-          "packages/core/src/planning/plan-reconciler.ts",
-          "apps/pi-extension/README.md",
-          "packages/core/src/ledger/sqlite-ledger.ts",
           "docs/ARCHITECTURE.md",
-          "packages/core/src/code/registry.ts"
+          "docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md",
+          "docs/IMPLEMENTATION_PLAN.md"
         ],
-        "bytes": 16977,
-        "degradedResultCount": 10,
-        "warnings": [
-          "Error searching vector store: Error opening database for read fallback"
-        ]
+        "bytes": 13490,
+        "degradedResultCount": 0,
+        "warnings": []
       }
     },
     {
@@ -129,50 +135,46 @@
       },
       "baseline": {
         "method": "baseline",
-        "status": 0,
-        "durationMs": 34,
-        "resultCount": 45,
+        "status": null,
+        "durationMs": 57,
+        "resultCount": 48,
         "paths": [
-          "MIGRATION_REPORT.md",
-          "BUILD_REPORT.md",
           "evaluation/tasks.json",
-          "apps/pi-extension/src/index.ts",
           "apps/cli/src/main.ts",
+          "apps/pi-extension/src/index.ts",
+          "tests/code-service.test.ts",
+          "README.md",
+          "tests/fixtures/codesearch-vector-failure/status_after.json",
+          "tests/fixtures/codesearch-real/evaluation.json",
+          "tests/fixtures/codesearch-vector-failure/evaluation.json",
+          "tests/fixtures/codesearch-vector-failure/mcp_contract.json",
+          "tests/fixtures/codesearch-real/status_after.json",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "tests/fixtures/codesearch-real/mcp_contract.json",
           "packages/core/src/code/codesearch-provider.ts",
           "packages/core/src/code/service.ts",
-          "README.md",
+          "tests/fixtures/codesearch-index-lock/status_after.json",
+          "tests/fixtures/codesearch-index-lock/mcp_contract.json",
           "scripts/probe-codesearch.sh",
-          "docs/IMPLEMENTATION_PLAN.md",
-          "tests/fixtures/codesearch-vector-failure/status_after.json",
-          "tests/fixtures/codesearch-vector-failure/mcp_contract.json",
-          "tests/fixtures/codesearch-vector-failure/evaluation.json",
-          "tests/fixtures/codesearch-real/evaluation.json",
-          "tests/fixtures/codesearch-real/status_after.json",
-          "tests/fixtures/codesearch-real/mcp_contract.json",
-          "tests/code-service.test.ts"
+          "tests/fixtures/codesearch-unbuilt-vector/evaluation.json"
         ],
-        "bytes": 628487,
+        "bytes": 4259840,
         "degradedResultCount": 0,
         "warnings": []
       },
       "codesearch": {
         "method": "codesearch",
         "status": 0,
-        "durationMs": 431,
+        "durationMs": 492,
         "resultCount": 10,
         "paths": [
           "docs/CODE_INTELLIGENCE.md",
-          "tests/fixtures.ts",
-          "packages/core/src/code/disabled-provider.ts",
-          "apps/pi-extension/README.md",
-          "tests/code-budgets.test.ts",
-          "examples/PLAN.md"
+          "docs/IMPLEMENTATION_PLAN.md",
+          "README.md"
         ],
-        "bytes": 17306,
-        "degradedResultCount": 10,
-        "warnings": [
-          "Error searching vector store: Error opening database for read fallback"
-        ]
+        "bytes": 13601,
+        "degradedResultCount": 0,
+        "warnings": []
       }
     },
     {
@@ -204,46 +206,45 @@
       },
       "baseline": {
         "method": "baseline",
-        "status": 0,
-        "durationMs": 36,
+        "status": null,
+        "durationMs": 51,
         "resultCount": 55,
         "paths": [
           "README.md",
-          "tests/fixtures/codesearch-vector-failure/symbols.json",
-          "tests/fixtures/codesearch-vector-failure/evaluation.json",
           "evaluation/tasks.json",
           "tests/codesearch-provider.test.ts",
+          "tests/fixtures/codesearch-vector-failure/symbols.json",
           "docs/CODE_INTELLIGENCE.md",
+          "tests/fixtures/codesearch-vector-failure/evaluation.json",
+          "tests/fixtures/codesearch-unbuilt-vector/symbols.json",
+          "tests/fixtures/codesearch-real/symbols.json",
           "packages/core/src/code/codesearch-provider.ts",
           "tests/fixtures/codesearch-real/outline.json",
-          "tests/fixtures/codesearch-real/mcp_contract.json",
+          "tests/fixtures/codesearch-real/evaluation.json",
           "tests/fixtures/codesearch-real/search.json",
-          "tests/fixtures/codesearch-real/search_after_edit.json",
-          "tests/fixtures/codesearch-real/symbols.json",
-          "tests/fixtures/codesearch-real/evaluation.json"
+          "tests/fixtures/codesearch-index-lock/symbols.json",
+          "tests/fixtures/codesearch-real/mcp_contract.json",
+          "tests/fixtures/codesearch-unbuilt-vector/evaluation.json"
         ],
-        "bytes": 713543,
+        "bytes": 4259840,
         "degradedResultCount": 0,
         "warnings": []
       },
       "codesearch": {
         "method": "codesearch",
         "status": 0,
-        "durationMs": 428,
-        "resultCount": 10,
+        "durationMs": 509,
+        "resultCount": 6,
         "paths": [
-          "packages/core/src/planning/plan-parser.ts",
-          "docs/ADR-0003-CODESEARCH-DEFAULT.md",
-          "packages/core/src/code/disabled-provider.ts",
-          "docs/CODE_INTELLIGENCE.md",
-          "examples/PLAN.md",
-          "tests/code-budgets.test.ts"
+          "tests/fixtures/codesearch-index-lock/evaluation.json",
+          "docs/CODESEARCH_EVALUATION.md",
+          "CHANGELOG.md",
+          "docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md",
+          "packages/core/src/code/codesearch-provider.ts"
         ],
-        "bytes": 17478,
-        "degradedResultCount": 10,
-        "warnings": [
-          "Error searching vector store: Error opening database for read fallback"
-        ]
+        "bytes": 8227,
+        "degradedResultCount": 0,
+        "warnings": []
       }
     },
     {
@@ -276,51 +277,47 @@
       },
       "baseline": {
         "method": "baseline",
-        "status": 0,
-        "durationMs": 33,
-        "resultCount": 77,
+        "status": null,
+        "durationMs": 44,
+        "resultCount": 41,
         "paths": [
           "evaluation/tasks.json",
-          "tests/validation-service.test.ts",
           "tests/codesearch-provider.test.ts",
-          "tests/code-service.test.ts",
+          "tests/validation-service.test.ts",
           "apps/cli/src/main.ts",
+          "tests/code-service.test.ts",
           "docs/IMPLEMENTATION_PLAN.md",
           "tests/fixtures/codesearch-vector-failure/symbols.json",
-          "tests/reconciliation-state.test.ts",
-          "tests/fixtures/codesearch-real/symbols.json",
+          "tests/fixtures/codesearch-unbuilt-vector/symbols.json",
           "packages/core/src/domain/types.ts",
           "tests/fixtures/codesearch-vector-failure/evaluation.json",
-          "tests/fixtures/codesearch-real/search.json",
-          "tests/fixtures/codesearch-real/search_after_edit.json",
+          "tests/reconciliation-state.test.ts",
           "packages/core/src/code/codesearch-provider.ts",
-          "tests/fixtures/codesearch-real/evaluation.json",
-          "packages/core/src/code/types.ts",
           "packages/core/src/core.ts",
-          "packages/core/src/state/working-state-builder.ts"
+          "tests/fixtures/codesearch-unbuilt-vector/evaluation.json"
         ],
-        "bytes": 707103,
+        "bytes": 4259840,
         "degradedResultCount": 0,
         "warnings": []
       },
       "codesearch": {
         "method": "codesearch",
         "status": 0,
-        "durationMs": 427,
+        "durationMs": 533,
         "resultCount": 10,
         "paths": [
-          "packages/core/src/state/working-state-builder.ts",
-          "examples/PLAN.md",
+          "docs/ARCHITECTURE.md",
+          "CHANGELOG.md",
+          "docs/IMPLEMENTATION_PLAN.md",
           "docs/CODE_INTELLIGENCE.md",
-          "packages/core/src/validation/validation-service.ts",
-          "apps/pi-extension/src/index.ts",
-          "docs/ARCHITECTURE.md"
+          "tests/fixtures/codesearch-index-lock/evaluation.json",
+          "docs/CODESEARCH_EVALUATION.md",
+          "README.md",
+          "docs/CODESEARCH_MCP_LOCK_REPORT_2026-07-21.md"
         ],
-        "bytes": 17292,
-        "degradedResultCount": 10,
-        "warnings": [
-          "Error searching vector store: Error opening database for read fallback"
-        ]
+        "bytes": 13486,
+        "degradedResultCount": 0,
+        "warnings": []
       }
     }
   ],
@@ -347,28 +344,42 @@
       ],
       "baseline": {
         "status": 0,
-        "durationMs": 40,
-        "resultCount": 43,
-        "pathCount": 17,
-        "bytes": 119222,
+        "durationMs": 63,
+        "resultCount": 71,
+        "pathCount": 31,
+        "bytes": 1854214,
         "paths": [
-          "evaluation/tasks.json",
-          "tests/code-service.test.ts",
           "README.md",
-          "tests/code-budgets.test.ts",
-          "packages/core/src/core.ts",
-          "tests/fixtures/codesearch-vector-failure/symbols.json",
-          "packages/core/src/config/config.ts",
-          "tests/fixtures/codesearch-vector-failure/evaluation.json",
-          "packages/core/src/code/service.ts",
-          "tests/fixtures/codesearch-vector-failure/mcp_contract.json",
+          "tests/code-service.test.ts",
           "tests/core.integration.test.ts",
+          "evaluation/tasks.json",
+          "tests/fixtures/codesearch-vector-failure/symbols.json",
+          "apps/cli/src/main.ts",
+          "tests/code-budgets.test.ts",
+          "tests/fixtures/codesearch-vector-failure/mcp_contract.json",
+          "tests/fixtures/codesearch-vector-failure/evaluation.json",
+          "tests/fixtures/codesearch-unbuilt-vector/symbols.json",
+          "tests/validation-service.test.ts",
           "tests/fixtures/codesearch-real/symbols.json",
           "tests/fixtures/codesearch-real/evaluation.json",
-          "apps/cli/src/main.ts",
+          "tests/fixtures/codesearch-unbuilt-vector/evaluation.json",
+          "packages/core/src/core.ts",
           "docs/ARCHITECTURE.md",
-          "tests/validation-service.test.ts",
-          "packages/core/src/code/registry.ts"
+          "tests/fixtures/codesearch-unbuilt-vector/outline.json",
+          "tests/fixtures/codesearch-index-lock/symbols.json",
+          "tests/fixtures/codesearch-unbuilt-vector/search_literal.json",
+          "packages/core/src/code/service.ts",
+          "tests/fixtures/codesearch-unbuilt-vector/literal.json",
+          "packages/core/src/code/registry.ts",
+          "tests/fixtures/codesearch-unbuilt-vector/mcp_contract.json",
+          "packages/core/src/config/config.ts",
+          "tests/fixtures/codesearch-unbuilt-vector/fetch.json",
+          "tests/fixtures/codesearch-index-lock/fetch.json",
+          "tests/fixtures/codesearch-index-lock/literal.json",
+          "tests/fixtures/codesearch-index-lock/mcp_contract.json",
+          "tests/fixtures/codesearch-index-lock/outline.json",
+          "tests/fixtures/codesearch-index-lock/search_literal.json",
+          "tests/fixtures/codesearch-index-lock/evaluation.json"
         ],
         "degradedResultCount": 0,
         "warnings": [],
@@ -383,49 +394,44 @@
             "path": "packages/core/src/core.ts",
             "relevance": 3,
             "rationale": "Creates the configured provider and injects it into CodeService.",
-            "rank": 5
+            "rank": 15
           },
           {
             "path": "packages/core/src/code/registry.ts",
             "relevance": 3,
             "rationale": "Selects registered providers and exposes their status.",
-            "rank": 17
+            "rank": 22
           },
           {
             "path": "packages/core/src/code/service.ts",
             "relevance": 1,
             "rationale": "Consumes the selected provider through the provider-neutral service.",
-            "rank": 9
+            "rank": 20
           }
         ],
         "weightedRecall": 1,
-        "reciprocalRank": 0.2,
-        "ndcgAt10": 0.2525
+        "reciprocalRank": 0.0667,
+        "ndcgAt10": 0
       },
       "codesearch": {
         "status": 0,
-        "durationMs": 429,
+        "durationMs": 499,
         "resultCount": 10,
-        "pathCount": 7,
-        "bytes": 16977,
+        "pathCount": 5,
+        "bytes": 13490,
         "paths": [
-          "tests/jujutsu-repository-provider.test.ts",
+          "tests/fixtures/codesearch-vector-failure/evaluation.json",
           "docs/CODE_INTELLIGENCE.md",
-          "packages/core/src/planning/plan-reconciler.ts",
-          "apps/pi-extension/README.md",
-          "packages/core/src/ledger/sqlite-ledger.ts",
           "docs/ARCHITECTURE.md",
-          "packages/core/src/code/registry.ts"
+          "docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md",
+          "docs/IMPLEMENTATION_PLAN.md"
         ],
-        "degradedResultCount": 10,
-        "warnings": [
-          "Error searching vector store: Error opening database for read fallback"
-        ],
-        "expectedFound": [
-          "packages/core/src/code/registry.ts"
-        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [],
         "expectedMissed": [
           "packages/core/src/core.ts",
+          "packages/core/src/code/registry.ts",
           "packages/core/src/code/service.ts"
         ],
         "rankedExpected": [
@@ -437,8 +443,7 @@
           {
             "path": "packages/core/src/code/registry.ts",
             "relevance": 3,
-            "rationale": "Selects registered providers and exposes their status.",
-            "rank": 7
+            "rationale": "Selects registered providers and exposes their status."
           },
           {
             "path": "packages/core/src/code/service.ts",
@@ -446,9 +451,9 @@
             "rationale": "Consumes the selected provider through the provider-neutral service."
           }
         ],
-        "weightedRecall": 0.4286,
-        "reciprocalRank": 0.1429,
-        "ndcgAt10": 0.1958
+        "weightedRecall": 0,
+        "reciprocalRank": 0,
+        "ndcgAt10": 0
       }
     },
     {
@@ -472,29 +477,30 @@
         }
       ],
       "baseline": {
-        "status": 0,
-        "durationMs": 34,
-        "resultCount": 45,
-        "pathCount": 17,
-        "bytes": 628487,
+        "status": null,
+        "durationMs": 57,
+        "resultCount": 48,
+        "pathCount": 18,
+        "bytes": 4259840,
         "paths": [
-          "MIGRATION_REPORT.md",
-          "BUILD_REPORT.md",
           "evaluation/tasks.json",
-          "apps/pi-extension/src/index.ts",
           "apps/cli/src/main.ts",
+          "apps/pi-extension/src/index.ts",
+          "tests/code-service.test.ts",
+          "README.md",
+          "tests/fixtures/codesearch-vector-failure/status_after.json",
+          "tests/fixtures/codesearch-real/evaluation.json",
+          "tests/fixtures/codesearch-vector-failure/evaluation.json",
+          "tests/fixtures/codesearch-vector-failure/mcp_contract.json",
+          "tests/fixtures/codesearch-real/status_after.json",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "tests/fixtures/codesearch-real/mcp_contract.json",
           "packages/core/src/code/codesearch-provider.ts",
           "packages/core/src/code/service.ts",
-          "README.md",
+          "tests/fixtures/codesearch-index-lock/status_after.json",
+          "tests/fixtures/codesearch-index-lock/mcp_contract.json",
           "scripts/probe-codesearch.sh",
-          "docs/IMPLEMENTATION_PLAN.md",
-          "tests/fixtures/codesearch-vector-failure/status_after.json",
-          "tests/fixtures/codesearch-vector-failure/mcp_contract.json",
-          "tests/fixtures/codesearch-vector-failure/evaluation.json",
-          "tests/fixtures/codesearch-real/evaluation.json",
-          "tests/fixtures/codesearch-real/status_after.json",
-          "tests/fixtures/codesearch-real/mcp_contract.json",
-          "tests/code-service.test.ts"
+          "tests/fixtures/codesearch-unbuilt-vector/evaluation.json"
         ],
         "degradedResultCount": 0,
         "warnings": [],
@@ -509,43 +515,38 @@
             "path": "apps/cli/src/main.ts",
             "relevance": 3,
             "rationale": "Parses and dispatches the CLI command.",
-            "rank": 5
+            "rank": 2
           },
           {
             "path": "packages/core/src/code/service.ts",
             "relevance": 3,
             "rationale": "Applies provider-neutral limits and invokes the selected provider.",
-            "rank": 7
+            "rank": 14
           },
           {
             "path": "packages/core/src/code/codesearch-provider.ts",
             "relevance": 2,
             "rationale": "Maps the request to codesearch MCP arguments.",
-            "rank": 6
+            "rank": 13
           }
         ],
         "weightedRecall": 1,
-        "reciprocalRank": 0.2,
-        "ndcgAt10": 0.473
+        "reciprocalRank": 0.5,
+        "ndcgAt10": 0.3419
       },
       "codesearch": {
         "status": 0,
-        "durationMs": 431,
+        "durationMs": 492,
         "resultCount": 10,
-        "pathCount": 6,
-        "bytes": 17306,
+        "pathCount": 3,
+        "bytes": 13601,
         "paths": [
           "docs/CODE_INTELLIGENCE.md",
-          "tests/fixtures.ts",
-          "packages/core/src/code/disabled-provider.ts",
-          "apps/pi-extension/README.md",
-          "tests/code-budgets.test.ts",
-          "examples/PLAN.md"
+          "docs/IMPLEMENTATION_PLAN.md",
+          "README.md"
         ],
-        "degradedResultCount": 10,
-        "warnings": [
-          "Error searching vector store: Error opening database for read fallback"
-        ],
+        "degradedResultCount": 0,
+        "warnings": [],
         "expectedFound": [],
         "expectedMissed": [
           "apps/cli/src/main.ts",
@@ -595,25 +596,27 @@
         }
       ],
       "baseline": {
-        "status": 0,
-        "durationMs": 36,
+        "status": null,
+        "durationMs": 51,
         "resultCount": 55,
-        "pathCount": 13,
-        "bytes": 713543,
+        "pathCount": 15,
+        "bytes": 4259840,
         "paths": [
           "README.md",
-          "tests/fixtures/codesearch-vector-failure/symbols.json",
-          "tests/fixtures/codesearch-vector-failure/evaluation.json",
           "evaluation/tasks.json",
           "tests/codesearch-provider.test.ts",
+          "tests/fixtures/codesearch-vector-failure/symbols.json",
           "docs/CODE_INTELLIGENCE.md",
+          "tests/fixtures/codesearch-vector-failure/evaluation.json",
+          "tests/fixtures/codesearch-unbuilt-vector/symbols.json",
+          "tests/fixtures/codesearch-real/symbols.json",
           "packages/core/src/code/codesearch-provider.ts",
           "tests/fixtures/codesearch-real/outline.json",
-          "tests/fixtures/codesearch-real/mcp_contract.json",
+          "tests/fixtures/codesearch-real/evaluation.json",
           "tests/fixtures/codesearch-real/search.json",
-          "tests/fixtures/codesearch-real/search_after_edit.json",
-          "tests/fixtures/codesearch-real/symbols.json",
-          "tests/fixtures/codesearch-real/evaluation.json"
+          "tests/fixtures/codesearch-index-lock/symbols.json",
+          "tests/fixtures/codesearch-real/mcp_contract.json",
+          "tests/fixtures/codesearch-unbuilt-vector/evaluation.json"
         ],
         "degradedResultCount": 0,
         "warnings": [],
@@ -629,13 +632,13 @@
             "path": "packages/core/src/code/codesearch-provider.ts",
             "relevance": 3,
             "rationale": "Contains response extraction and normalized hit construction.",
-            "rank": 7
+            "rank": 9
           },
           {
             "path": "tests/codesearch-provider.test.ts",
             "relevance": 3,
             "rationale": "Verifies the adapter contract and normalized output.",
-            "rank": 5
+            "rank": 3
           },
           {
             "path": "tests/codesearch-real-fixture.test.ts",
@@ -644,30 +647,28 @@
           }
         ],
         "weightedRecall": 0.8571,
-        "reciprocalRank": 0.2,
-        "ndcgAt10": 0.4231
+        "reciprocalRank": 0.3333,
+        "ndcgAt10": 0.4705
       },
       "codesearch": {
         "status": 0,
-        "durationMs": 428,
-        "resultCount": 10,
-        "pathCount": 6,
-        "bytes": 17478,
+        "durationMs": 509,
+        "resultCount": 6,
+        "pathCount": 5,
+        "bytes": 8227,
         "paths": [
-          "packages/core/src/planning/plan-parser.ts",
-          "docs/ADR-0003-CODESEARCH-DEFAULT.md",
-          "packages/core/src/code/disabled-provider.ts",
-          "docs/CODE_INTELLIGENCE.md",
-          "examples/PLAN.md",
-          "tests/code-budgets.test.ts"
+          "tests/fixtures/codesearch-index-lock/evaluation.json",
+          "docs/CODESEARCH_EVALUATION.md",
+          "CHANGELOG.md",
+          "docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md",
+          "packages/core/src/code/codesearch-provider.ts"
         ],
-        "degradedResultCount": 10,
-        "warnings": [
-          "Error searching vector store: Error opening database for read fallback"
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [
+          "packages/core/src/code/codesearch-provider.ts"
         ],
-        "expectedFound": [],
         "expectedMissed": [
-          "packages/core/src/code/codesearch-provider.ts",
           "tests/codesearch-provider.test.ts",
           "tests/codesearch-real-fixture.test.ts"
         ],
@@ -675,7 +676,8 @@
           {
             "path": "packages/core/src/code/codesearch-provider.ts",
             "relevance": 3,
-            "rationale": "Contains response extraction and normalized hit construction."
+            "rationale": "Contains response extraction and normalized hit construction.",
+            "rank": 5
           },
           {
             "path": "tests/codesearch-provider.test.ts",
@@ -688,9 +690,9 @@
             "rationale": "Verifies portable responses captured from a real provider."
           }
         ],
-        "weightedRecall": 0,
-        "reciprocalRank": 0,
-        "ndcgAt10": 0
+        "weightedRecall": 0.4286,
+        "reciprocalRank": 0.2,
+        "ndcgAt10": 0.2272
       }
     },
     {
@@ -714,85 +716,80 @@
         }
       ],
       "baseline": {
-        "status": 0,
-        "durationMs": 33,
-        "resultCount": 77,
-        "pathCount": 18,
-        "bytes": 707103,
+        "status": null,
+        "durationMs": 44,
+        "resultCount": 41,
+        "pathCount": 14,
+        "bytes": 4259840,
         "paths": [
           "evaluation/tasks.json",
-          "tests/validation-service.test.ts",
           "tests/codesearch-provider.test.ts",
-          "tests/code-service.test.ts",
+          "tests/validation-service.test.ts",
           "apps/cli/src/main.ts",
+          "tests/code-service.test.ts",
           "docs/IMPLEMENTATION_PLAN.md",
           "tests/fixtures/codesearch-vector-failure/symbols.json",
-          "tests/reconciliation-state.test.ts",
-          "tests/fixtures/codesearch-real/symbols.json",
+          "tests/fixtures/codesearch-unbuilt-vector/symbols.json",
           "packages/core/src/domain/types.ts",
           "tests/fixtures/codesearch-vector-failure/evaluation.json",
-          "tests/fixtures/codesearch-real/search.json",
-          "tests/fixtures/codesearch-real/search_after_edit.json",
+          "tests/reconciliation-state.test.ts",
           "packages/core/src/code/codesearch-provider.ts",
-          "tests/fixtures/codesearch-real/evaluation.json",
-          "packages/core/src/code/types.ts",
           "packages/core/src/core.ts",
-          "packages/core/src/state/working-state-builder.ts"
+          "tests/fixtures/codesearch-unbuilt-vector/evaluation.json"
         ],
         "degradedResultCount": 0,
         "warnings": [],
         "expectedFound": [
-          "packages/core/src/state/working-state-builder.ts",
           "packages/core/src/core.ts",
           "packages/core/src/code/codesearch-provider.ts"
         ],
-        "expectedMissed": [],
+        "expectedMissed": [
+          "packages/core/src/state/working-state-builder.ts"
+        ],
         "rankedExpected": [
           {
             "path": "packages/core/src/state/working-state-builder.ts",
             "relevance": 3,
-            "rationale": "Builds the code-evidence section of Working State.",
-            "rank": 18
+            "rationale": "Builds the code-evidence section of Working State."
           },
           {
             "path": "packages/core/src/core.ts",
             "relevance": 2,
             "rationale": "Constructs WorkingStateBuilder with CodeService and repository state.",
-            "rank": 17
+            "rank": 13
           },
           {
             "path": "packages/core/src/code/codesearch-provider.ts",
             "relevance": 2,
             "rationale": "Qualifies returned evidence with indexed and current snapshots.",
-            "rank": 14
+            "rank": 12
           }
         ],
-        "weightedRecall": 1,
-        "reciprocalRank": 0.0714,
+        "weightedRecall": 0.5714,
+        "reciprocalRank": 0.0833,
         "ndcgAt10": 0
       },
       "codesearch": {
         "status": 0,
-        "durationMs": 427,
+        "durationMs": 533,
         "resultCount": 10,
-        "pathCount": 6,
-        "bytes": 17292,
+        "pathCount": 8,
+        "bytes": 13486,
         "paths": [
-          "packages/core/src/state/working-state-builder.ts",
-          "examples/PLAN.md",
+          "docs/ARCHITECTURE.md",
+          "CHANGELOG.md",
+          "docs/IMPLEMENTATION_PLAN.md",
           "docs/CODE_INTELLIGENCE.md",
-          "packages/core/src/validation/validation-service.ts",
-          "apps/pi-extension/src/index.ts",
-          "docs/ARCHITECTURE.md"
+          "tests/fixtures/codesearch-index-lock/evaluation.json",
+          "docs/CODESEARCH_EVALUATION.md",
+          "README.md",
+          "docs/CODESEARCH_MCP_LOCK_REPORT_2026-07-21.md"
         ],
-        "degradedResultCount": 10,
-        "warnings": [
-          "Error searching vector store: Error opening database for read fallback"
-        ],
-        "expectedFound": [
-          "packages/core/src/state/working-state-builder.ts"
-        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [],
         "expectedMissed": [
+          "packages/core/src/state/working-state-builder.ts",
           "packages/core/src/core.ts",
           "packages/core/src/code/codesearch-provider.ts"
         ],
@@ -800,8 +797,7 @@
           {
             "path": "packages/core/src/state/working-state-builder.ts",
             "relevance": 3,
-            "rationale": "Builds the code-evidence section of Working State.",
-            "rank": 1
+            "rationale": "Builds the code-evidence section of Working State."
           },
           {
             "path": "packages/core/src/core.ts",
@@ -814,34 +810,32 @@
             "rationale": "Qualifies returned evidence with indexed and current snapshots."
           }
         ],
-        "weightedRecall": 0.4286,
-        "reciprocalRank": 1,
-        "ndcgAt10": 0.6735
+        "weightedRecall": 0,
+        "reciprocalRank": 0,
+        "ndcgAt10": 0
       }
     }
   ],
   "aggregate": {
     "baseline": {
       "tasks": 4,
-      "durationMs": 143,
-      "bytes": 2168355,
+      "durationMs": 215,
+      "bytes": 14633734,
       "degradedResultCount": 0,
       "warnings": [],
-      "meanWeightedRecall": 0.9643,
-      "meanReciprocalRank": 0.1679,
-      "meanNdcgAt10": 0.2872
+      "meanWeightedRecall": 0.8571,
+      "meanReciprocalRank": 0.2458,
+      "meanNdcgAt10": 0.2031
     },
     "codesearch": {
       "tasks": 4,
-      "durationMs": 1715,
-      "bytes": 69053,
-      "degradedResultCount": 40,
-      "warnings": [
-        "Error searching vector store: Error opening database for read fallback"
-      ],
-      "meanWeightedRecall": 0.2143,
-      "meanReciprocalRank": 0.2857,
-      "meanNdcgAt10": 0.2173
+      "durationMs": 2033,
+      "bytes": 48804,
+      "degradedResultCount": 0,
+      "warnings": [],
+      "meanWeightedRecall": 0.1072,
+      "meanReciprocalRank": 0.05,
+      "meanNdcgAt10": 0.0568
     }
   }
 }

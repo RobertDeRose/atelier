@@ -94,6 +94,17 @@ for (const name of ["search", "search_literal", "symbols", "search_after_edit"] 
   });
 }
 
+const pollutedPaths = ["search", "search_semantic", "search_literal", "search_after_edit"]
+  .flatMap((name) => normalizedResultPaths(json(name)))
+  .filter((path) => path.replaceAll("\\", "/").includes("tests/fixtures/codesearch-"));
+checks.push({
+  name: "fixture_pollution",
+  status: pollutedPaths.length === 0 ? "passed" : "failed",
+  detail: pollutedPaths.length === 0
+    ? "captured provider results exclude committed codesearch fixtures"
+    : `provider returned ignored fixture paths: ${[...new Set(pollutedPaths)].slice(0, 5).join(", ")}`,
+});
+
 const mcpContract = json("mcp_contract") as {
   tools?: Array<{ name?: unknown }>;
   statusHistory?: Array<{ state?: unknown }>;
@@ -204,6 +215,17 @@ checks.push({
 });
 
 
+
+function normalizedResultPaths(value: unknown): string[] {
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && Array.isArray((value as Record<string, unknown>).results)
+      ? (value as Record<string, unknown>).results as unknown[]
+      : [];
+  return rows.flatMap((row) => row && typeof row === "object" && typeof (row as Record<string, unknown>).path === "string"
+    ? [(row as Record<string, unknown>).path as string]
+    : []);
+}
 
 function parseVectorStats(value: string): { totalChunks: number; indexed: boolean } {
   const normalized = value.replace(/\u001B\[[0-?]*[ -\/]*[@-~]/g, "");

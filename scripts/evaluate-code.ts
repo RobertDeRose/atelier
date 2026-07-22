@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --experimental-strip-types
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -61,9 +61,11 @@ function runBaseline(task: Task): Run {
   const terms = task.literals?.length ? task.literals : task.query.split(/\s+/).filter((word) => word.length >= 4).slice(0, 4);
   const started = Date.now();
   const patterns = terms.length > 0 ? terms : [task.query];
+  const codesearchIgnore = resolve(root, ".codesearchignore");
   const args = [
     "--json", "--line-number", "--hidden", "--fixed-strings",
     "--glob", "!.git/**", "--glob", "!node_modules/**",
+    ...(existsSync(codesearchIgnore) ? ["--ignore-file", codesearchIgnore] : []),
     ...patterns.flatMap((pattern) => ["-e", pattern]),
     ".",
   ];

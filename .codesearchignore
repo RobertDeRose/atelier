@@ -1,0 +1,9 @@
+# Atelier runtime state and provider databases
+.atelier/
+.codesearch.db/
+
+# Captured real-provider responses are regression fixtures, not source context.
+tests/fixtures/codesearch-*/
+
+# Locally generated transfer archives
+atelier-codesearch-knowledge.tar.xz

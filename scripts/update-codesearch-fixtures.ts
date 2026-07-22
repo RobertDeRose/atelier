@@ -30,13 +30,26 @@ for (const source of available) {
   const raw = readFileSync(source.path, "utf8").trim();
   let value: unknown = raw;
   try { value = JSON.parse(raw) as unknown; } catch { /* retain text fixture */ }
-  const normalized = normalize(value);
+  const normalized = normalize(source.name === "evaluation" ? compactEvaluation(value) : value);
   const target = resolve(output, `${source.name}.json`);
   writeFileSync(target, `${JSON.stringify(normalized, null, 2)}\n`);
   (manifest.fixtures as Record<string, unknown>)[source.name] = `${source.name}.json`;
 }
 writeFileSync(resolve(output, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify({ probe, output, fixtures: Object.keys(manifest.fixtures as object) }, null, 2)}\n`);
+
+function compactEvaluation(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(compactEvaluation);
+  if (value && typeof value === "object") {
+    const output: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (key === "stdout" || key === "stderr") continue;
+      output[key] = compactEvaluation(item);
+    }
+    return output;
+  }
+  return value;
+}
 
 function normalize(value: unknown): unknown {
   if (typeof value === "string") return value

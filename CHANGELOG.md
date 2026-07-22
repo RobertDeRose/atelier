@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.6 — 2026-07-22
+
+```text
+fix(code): exclude captured evidence from repository retrieval
+
+- add a repository-local codesearch corpus-selection manifest
+- exclude real-provider response fixtures and generated knowledge archives
+- fingerprint ignore inputs and provider version for local index selection
+- force one rebuild when the selected corpus changes
+- retain incremental indexing while the selection fingerprint is unchanged
+- make the ripgrep baseline consume the same codesearch ignore file
+- fail live conformance when ignored fixture paths leak into results
+- compact captured evaluation fixtures by removing raw stdout and stderr payloads
+- commit the successful vector-repair run as a portable regression fixture
+```
+
 ## 0.8.5 — 2026-07-21
 
 ```text

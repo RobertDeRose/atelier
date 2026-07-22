@@ -350,3 +350,48 @@ test("codesearch local indexing rejects an unbuilt vector index even when MCP re
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("codesearch forces one local rebuild when repository selection inputs change", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-selection-"));
+  const fake = fakeCodesearch(root);
+  writeFileSync(join(root, ".codesearchignore"), "tests/fixtures/codesearch-*/\n", "utf8");
+
+  const run = async () => {
+    const provider = new CodesearchProvider({
+      command: fake.command,
+      cwd: root,
+      mode: "local",
+      timeoutMs: 2_000,
+      indexTimeoutMs: 2_000,
+      pollIntervalMs: 5,
+    });
+    try {
+      assert.equal(await provider.ensureIndex(workspace(root)), "ready");
+    } finally {
+      await provider.close();
+    }
+  };
+
+  try {
+    await run();
+    await run();
+    writeFileSync(join(root, ".codesearchignore"), "tests/fixtures/codesearch-*/\ndocs/generated/\n", "utf8");
+    await run();
+
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+    const indexCalls = calls.filter((args) => args[0] === "index" && args[1] === root);
+    assert.equal(indexCalls.length, 3);
+    assert.ok(indexCalls[0]?.includes("--force"));
+    assert.equal(indexCalls[1]?.includes("--force"), false);
+    assert.ok(indexCalls[2]?.includes("--force"));
+
+    const state = JSON.parse(readFileSync(join(root, ".atelier", "codesearch-index-state.json"), "utf8")) as {
+      version?: number;
+      repositories?: Record<string, { fingerprint?: string }>;
+    };
+    assert.equal(state.version, 1);
+    assert.match(state.repositories?.[root]?.fingerprint ?? "", /^[a-f0-9]{64}$/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

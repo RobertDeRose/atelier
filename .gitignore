@@ -4,6 +4,10 @@
 .atelier/codesearch-probe/
 .atelier/evaluation/
 .atelier/probe-staleness.txt
+.atelier/codesearch-index-state.json
+
+# Generated provider evidence archives
+atelier-codesearch-knowledge.tar.xz
 
 # External provider indexes
 .codesearch.db/

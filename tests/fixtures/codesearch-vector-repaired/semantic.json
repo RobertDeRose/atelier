@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"results\":[{\"chunk_id\":325,\"path\":\"<REPOSITORY_ROOT>/docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md\",\"start_line\":9,\"end_line\":17,\"kind\":\"Block\",\"score\":0.820999},{\"chunk_id\":289,\"path\":\"<REPOSITORY_ROOT>/docs/CODE_INTELLIGENCE.md\",\"start_line\":422,\"end_line\":439,\"kind\":\"Block\",\"score\":0.80361605},{\"chunk_id\":259,\"path\":\"<REPOSITORY_ROOT>/docs/ADR-0003-CODESEARCH-DEFAULT.md\",\"start_line\":9,\"end_line\":13,\"kind\":\"Block\",\"score\":0.7706342},{\"chunk_id\":276,\"path\":\"<REPOSITORY_ROOT>/docs/CODE_INTELLIGENCE.md\",\"start_line\":64,\"end_line\":66,\"kind\":\"Block\",\"score\":0.75994265},{\"chunk_id\":16803,\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/service.ts\",\"start_line\":22,\"end_line\":23,\"kind\":\"Function\",\"score\":0.7593432}]}"
+    }
+  ],
+  "isError": false
+}

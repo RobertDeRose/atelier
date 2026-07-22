@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { nowIso } from "../util/ids.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
@@ -46,6 +48,7 @@ export class CodesearchProvider implements CodeProvider {
   private readonly indexTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly environment: Record<string, string> | undefined;
+  private readonly indexSelectionStatePath: string;
   private client: McpStdioClient | undefined;
   private identity: CodeProviderIdentity = { name: "codesearch", instanceId: "codesearch-local" };
   private tools: McpToolDefinition[] = [];
@@ -67,6 +70,7 @@ export class CodesearchProvider implements CodeProvider {
     this.indexTimeoutMs = options.indexTimeoutMs ?? 300_000;
     this.pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.environment = options.environment;
+    this.indexSelectionStatePath = resolve(this.cwd, ".atelier", "codesearch-index-state.json");
   }
 
   async status(workspace?: CodeWorkspace): Promise<CodeProviderStatus> {
@@ -127,6 +131,7 @@ export class CodesearchProvider implements CodeProvider {
     // so local repair must stop MCP completely before invoking `codesearch index`.
     if (!routedThroughServe) await this.close();
 
+    const selectionState = readIndexSelectionState(this.indexSelectionStatePath);
     for (const repository of workspace.repositories) {
       if (routedThroughServe) {
         this.runIndexCommand(["index", "add", repository.root], repository.root, "index add");
@@ -134,13 +139,27 @@ export class CodesearchProvider implements CodeProvider {
         // `index add` returns early when a local database already exists. The bare
         // `index <path>` command is the repair/update path and rebuilds a missing
         // HNSW index even when the file set is otherwise unchanged.
-        this.runIndexCommand(["index", repository.root], repository.root, "index");
+        //
+        // Changes to ignore files alter the indexed corpus, but codesearch's
+        // incremental path cannot remove files that still exist and merely became
+        // ignored. Atelier therefore fingerprints the repository selection inputs
+        // and requests one full rebuild whenever that fingerprint changes.
+        const repositoryRoot = resolve(repository.root);
+        const fingerprint = indexSelectionFingerprint(repositoryRoot, version);
+        const force = selectionState.repositories[repositoryRoot]?.fingerprint !== fingerprint;
+        this.runIndexCommand(["index", repository.root, ...(force ? ["--force"] : [])], repository.root, force ? "index --force" : "index");
         const health = this.readLocalVectorHealth(repository.root);
         if (health.state !== "ready") {
           this.indexState = health.state;
           this.localIndexWarnings = [health.detail];
           throw new Error(`codesearch local vector index is not ready for ${repository.root}: ${health.detail}`);
         }
+        selectionState.repositories[repositoryRoot] = {
+          fingerprint,
+          providerVersion: version,
+          updatedAt: nowIso(),
+        };
+        writeIndexSelectionState(this.indexSelectionStatePath, selectionState);
       }
     }
 
@@ -924,4 +943,44 @@ function stripAnsi(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+interface IndexSelectionState {
+  version: 1;
+  repositories: Record<string, { fingerprint: string; providerVersion: string; updatedAt: string }>;
+}
+
+const INDEX_SELECTION_FILES = [".gitignore", ".codesearchignore", ".osgrepignore"] as const;
+
+function indexSelectionFingerprint(repositoryRoot: string, providerVersion: string): string {
+  const hash = createHash("sha256");
+  hash.update("atelier-codesearch-index-selection-v1\0");
+  hash.update(providerVersion);
+  hash.update("\0");
+  for (const name of INDEX_SELECTION_FILES) {
+    const path = resolve(repositoryRoot, name);
+    hash.update(name);
+    hash.update("\0");
+    hash.update(existsSync(path) ? readFileSync(path) : Buffer.from("<missing>", "utf8"));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+function readIndexSelectionState(path: string): IndexSelectionState {
+  if (!existsSync(path)) return { version: 1, repositories: {} };
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8")) as Partial<IndexSelectionState>;
+    if (value.version === 1 && value.repositories && typeof value.repositories === "object") {
+      return { version: 1, repositories: value.repositories as IndexSelectionState["repositories"] };
+    }
+  } catch { /* invalid runtime state is replaced after the next successful index */ }
+  return { version: 1, repositories: {} };
+}
+
+function writeIndexSelectionState(path: string, state: IndexSelectionState): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  renameSync(temporary, path);
 }

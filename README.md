@@ -4,9 +4,9 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.8.5 scope
+## v0.8.6 scope
 
-This release fixes local codesearch repair under the real MCP process lifecycle. Atelier now stops and waits for its self-contained MCP subprocess before running the codesearch CLI indexer, preventing the MCP-held Tantivy writer lock from blocking HNSW repair. It reconnects only after `codesearch stats` confirms a non-empty built vector index.
+This release corrects the repository corpus used by codesearch. Captured provider responses remain committed for regression testing but are excluded through `.codesearchignore`. Atelier fingerprints repository ignore inputs and the codesearch version, then performs one full rebuild when that selection changes so stale fixture chunks are removed before semantic evaluation.
 
 Atelier now owns:
 
@@ -179,6 +179,8 @@ Providers advertise capabilities as data. Atelier does not spread provider-name 
 
 The codesearch adapter performs MCP initialization, tool discovery, capability mapping, result normalization, index-state interpretation, fetch-on-demand, and direct argument-array indexing. Local indexing first closes and waits for the self-contained MCP process, then runs the real repair/update command and verifies that the vector store reports `Indexed: Yes` before reconnecting and accepting MCP `ready`. This avoids competing Tantivy writers. Serve-backed client mode retains `index add` registration because the service owns indexing and lock coordination. Query operations still poll the provider with a configurable timeout.
 
+The repository-local `.codesearchignore` defines the searchable corpus. Atelier fingerprints it together with `.gitignore`, `.osgrepignore`, and the provider version. A changed fingerprint triggers one force rebuild; unchanged inputs retain incremental indexing. Generated real-provider fixtures are therefore available to tests without becoming search evidence.
+
 ## Multi-repository workspace model
 
 A `CodeWorkspace` contains:
@@ -225,7 +227,7 @@ Validation evidence remains qualified by repository snapshot and becomes stale a
 ## Current limitations
 
 - No Octocode adapter yet.
-- The weighted retrieval benchmark must be rerun after v0.8.5 repairs the local vector index before changing Atelier's default search-routing policy.
+- The weighted retrieval benchmark must be rerun after v0.8.6 rebuilds the fixture-free corpus before changing Atelier's default search-routing policy.
 - No persistent daemon or JSON-RPC service boundary.
 - The codesearch adapter supports imports, dependents, and usage relationships; deeper provider-specific graph evaluation remains pending.
 - Jujutsu live conformance still requires a real supported `jj` binary.
