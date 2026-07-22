@@ -33,4 +33,4 @@ Run the machine-side probe with:
 mise run collect:octocode
 ```
 
-Octocode may require an embedding-provider configuration. The collector preserves all stdout, stderr, exit statuses, MCP tool schemas, and an attachable `atelier-octocode-knowledge.tar.xz` archive.
+The development bootstrap pins Octocode 0.14.0 through mise. Octocode may still require an embedding-provider configuration depending on the platform build. The collector preserves all stdout, stderr, exit statuses, MCP tool schemas, and an attachable `atelier-octocode-knowledge.tar.xz` archive.

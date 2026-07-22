@@ -4,6 +4,7 @@ aube = "1.29.1"
 jj = "0.43.0"
 jjui = "0.10.8"
 "github:flupkede/codesearch" = "1.1.30"
+"github:Muvon/octocode" = "0.14.0"
 
 [tasks.install]
 description = "Install Atelier development dependencies"

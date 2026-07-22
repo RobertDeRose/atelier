@@ -10,19 +10,19 @@ run() {
   "$@" >"$OUT/$name.stdout" 2>"$OUT/$name.stderr"
   printf '%s\n' "$?" >"$OUT/$name.status"
 }
-run version octocode --version
-run help octocode --help
-run mcp_help octocode mcp --help
 if ! command -v octocode >/dev/null 2>&1; then
   cat >"$OUT/SUMMARY.md" <<'TXT'
 # Octocode Probe
 
-Octocode was not found. Install Muvon Octocode, configure its embedding provider, then rerun `mise run collect:octocode`.
+Octocode was not found after `mise install`. The development manifest expects Muvon Octocode 0.14.0; capture `mise install` output and rerun `mise run collect:octocode`.
 TXT
   tar -cJf "$ARCHIVE" -C "$(dirname "$OUT")" "$(basename "$OUT")"
   echo "Octocode knowledge archive ready at: $ARCHIVE"
   exit 1
 fi
+run version octocode --version
+run help octocode --help
+run mcp_help octocode mcp --help
 run index octocode index
 run providers node --no-warnings --experimental-strip-types apps/cli/src/main.ts code providers --json
 run status node --no-warnings --experimental-strip-types apps/cli/src/main.ts code status --provider octocode --json

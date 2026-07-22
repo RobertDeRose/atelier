@@ -1,8 +1,9 @@
-# Atelier v0.9.0 Build Report
+# Atelier v0.9.1 Build Report
 
 - Strict TypeScript check: passed.
-- Automated tests: 53 passed, 0 failed.
+- Automated tests: 54 passed, 0 failed.
 - CLI smoke test: passed.
-- Codesearch decision gate: accepted at equal weighted recall and improved ranking.
-- Octocode adapter: contract-tested with multi-repository process isolation.
-- Live Octocode conformance: pending machine-side collection.
+- Octocode 0.14.0: declared in the mise development toolchain.
+- Octocode multi-repository process test: canonicalizes macOS temporary-directory paths.
+- Octocode collector preflight: verifies the executable before running probe commands.
+- Live Octocode conformance: pending rerun after mise installation.

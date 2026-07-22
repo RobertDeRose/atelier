@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OctocodeProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
@@ -93,8 +93,8 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
 
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { cwd: string; args: string[] });
     assert.equal(calls.filter((call) => call.args[0] === "index").length, 2);
-    assert.ok(calls.some((call) => call.args[0] === "mcp" && call.cwd === a));
-    assert.ok(calls.some((call) => call.args[0] === "mcp" && call.cwd === b));
+    assert.ok(calls.some((call) => call.args[0] === "mcp" && realpathSync(call.cwd) === realpathSync(a)));
+    assert.ok(calls.some((call) => call.args[0] === "mcp" && realpathSync(call.cwd) === realpathSync(b)));
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });

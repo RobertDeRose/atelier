@@ -1,14 +1,5 @@
-# Atelier v0.9.0 Migration Report
+# Atelier v0.9.1 Migration Report
 
-No migration is required for existing codesearch users. Codesearch remains the default.
+Run `mise install` to install the newly declared Octocode 0.14.0 development dependency. No Atelier configuration migration is required.
 
-New optional configuration:
-
-```json
-{
-  "codeProvider": "octocode",
-  "octocodeCommand": "octocode"
-}
-```
-
-Run `mise run collect:octocode` after installing and configuring Muvon Octocode.
+If Octocode indexing reports a missing embedding provider, configure a supported local or API-backed model and rerun `mise run collect:octocode`.

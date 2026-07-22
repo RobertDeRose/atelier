@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.1
+
+```text
+fix(code): provision and stabilize Octocode development integration
+
+- install Octocode 0.14.0 through the mise development manifest
+- compare canonical repository paths in multi-repository process tests
+- diagnose a missing Octocode executable before invoking probe commands
+- document platform-specific embedding-provider configuration
+```
+
 ## 0.9.0 — 2026-07-22
 
 ```text

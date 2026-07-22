@@ -294,4 +294,4 @@ atlr code search --provider octocode "where is provider selection implemented?"
 mise run collect:octocode
 ```
 
-Octocode is not installed by the development bootstrap. Install and configure Muvon Octocode separately before running its live collector.
+The development bootstrap installs Octocode 0.14.0 through mise. Configure an embedding provider when required by the installed platform build, then run the live collector.
