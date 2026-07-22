@@ -1,0 +1,512 @@
+[
+  {
+    "rank": 1,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "packages/core/src/state/working-state-builder.ts",
+    "startLine": 51,
+    "endLine": 51,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.9822183,
+    "preview": "    const selection = await this.selectTask(request.explicitTaskId, readyTasks);",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9zdGF0ZS93b3JraW5nLXN0YXRlLWJ1aWxkZXIudHM6MSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/state/working-state-builder.ts",
+      "startLine": 51,
+      "endLine": 51
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 2,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "packages/core/src/planning/plan-reconciler.ts",
+    "startLine": 67,
+    "endLine": 67,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.468414,
+    "preview": "constructor(provider: TaskProvider, ledger: SqliteLedger) {",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9wbGFubmluZy9wbGFuLXJlY29uY2lsZXIudHM6MiJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/planning/plan-reconciler.ts",
+      "startLine": 67,
+      "endLine": 67
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 3,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "packages/core/src/state/working-state-builder.ts",
+    "startLine": 54,
+    "endLine": 54,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 6.5073905,
+    "preview": "const activeTask = selection.task;",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9zdGF0ZS93b3JraW5nLXN0YXRlLWJ1aWxkZXIudHM6MyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/state/working-state-builder.ts",
+      "startLine": 54,
+      "endLine": 54
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 4,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "packages/core/src/ledger/sqlite-ledger.ts",
+    "startLine": 261,
+    "endLine": 261,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.421503,
+    "preview": "getTaskMapping(planTaskId: string): { provider: string; providerTaskId: string; planHash: string } | undefined {",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9sZWRnZXIvc3FsaXRlLWxlZGdlci50czo0In0",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/ledger/sqlite-ledger.ts",
+      "startLine": 261,
+      "endLine": 261
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 5,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "packages/core/src/state/working-state-builder.ts",
+    "startLine": 50,
+    "endLine": 50,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 6.0943055,
+    "preview": "const selection = await this.selectTask(request.explicitTaskId, readyTasks);",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9zdGF0ZS93b3JraW5nLXN0YXRlLWJ1aWxkZXIudHM6NSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/state/working-state-builder.ts",
+      "startLine": 50,
+      "endLine": 50
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 6,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "packages/core/src/code/registry.ts",
+    "startLine": 13,
+    "endLine": 13,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.3990073,
+    "preview": "    const provider = this.providers.get(name);",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9jb2RlL3JlZ2lzdHJ5LnRzOjYifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/registry.ts",
+      "startLine": 13,
+      "endLine": 13
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 7,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "examples/PLAN.md",
+    "startLine": 50,
+    "endLine": 50,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 5.5644636,
+    "preview": "- Ready-task selection",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpleGFtcGxlcy9QTEFOLm1kOjcifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "examples/PLAN.md",
+      "startLine": 50,
+      "endLine": 50
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 8,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "packages/core/src/planning/plan-reconciler.ts",
+    "startLine": 84,
+    "endLine": 84,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.3787026,
+    "preview": "const reason = `Task ${task.id} is mapped to provider ${mapping.provider}, not ${this.provider.name}.`;",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9wbGFubmluZy9wbGFuLXJlY29uY2lsZXIudHM6OCJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/planning/plan-reconciler.ts",
+      "startLine": 84,
+      "endLine": 84
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 9,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "docs/CODE_INTELLIGENCE.md",
+    "startLine": 830,
+    "endLine": 830,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 4.860214,
+    "preview": "- Provider selection",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpkb2NzL0NPREVfSU5URUxMSUdFTkNFLm1kOjkifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "docs/CODE_INTELLIGENCE.md",
+      "startLine": 830,
+      "endLine": 830
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 10,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "72cb5dde74eaf23167858814d1249d0c0f556a92",
+    "path": "packages/core/src/ledger/sqlite-ledger.ts",
+    "startLine": 247,
+    "endLine": 247,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.3555837,
+    "preview": "setTaskMapping(planTaskId: string, provider: string, providerTaskId: string, planHash: string): void {",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9sZWRnZXIvc3FsaXRlLWxlZGdlci50czoxMCJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/ledger/sqlite-ledger.ts",
+      "startLine": 247,
+      "endLine": 247
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "lexical",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "includeTests": true,
+        "includeGenerated": false
+      },
+      "enforcedFilters": [],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "semantic search failed; merged bounded literal fallback results"
+      ],
+      "reranked": false,
+      "degraded": true,
+      "warnings": [
+        "Error searching vector store: Error opening database for read fallback"
+      ],
+      "freshness": "unknown"
+    }
+  }
+]

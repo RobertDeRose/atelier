@@ -120,9 +120,15 @@ export class CodesearchProvider implements CodeProvider {
     await this.connect();
     this.indexState = "building";
     this.localIndexWarnings = [];
+    const routedThroughServe = this.routingMode === "client" || this.mode === "client";
+
+    // A self-contained codesearch MCP process keeps Tantivy's FTS writer open.
+    // Running the CLI indexer while that subprocess is alive fails with LockBusy,
+    // so local repair must stop MCP completely before invoking `codesearch index`.
+    if (!routedThroughServe) await this.close();
 
     for (const repository of workspace.repositories) {
-      if (this.routingMode === "client" || this.mode === "client") {
+      if (routedThroughServe) {
         this.runIndexCommand(["index", "add", repository.root], repository.root, "index add");
       } else {
         // `index add` returns early when a local database already exists. The bare
@@ -418,7 +424,7 @@ export class CodesearchProvider implements CodeProvider {
       timeoutMs: this.timeoutMs,
       ...(this.environment === undefined ? {} : { environment: this.environment }),
     });
-    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.8.4" });
+    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.8.5" });
     this.identity = {
       name: "codesearch",
       ...(initialized.serverInfo.version === undefined ? {} : { version: initialized.serverInfo.version }),

@@ -1,0 +1,1 @@
+"📊 Database Statistics\n============================================================\n💾 Database: <REPOSITORY_ROOT>/.codesearch.db\n📂 Project: <REPOSITORY_ROOT>\n\nVector Store:\n   Total chunks: 1006\n   Total files: 55\n   Indexed: ❌ No\n   Dimensions: 384\n\nStorage:\n   Database size: 9.27 MB\n   Avg per chunk: 9.44 KB"

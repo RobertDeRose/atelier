@@ -122,10 +122,16 @@ export class McpStdioClient {
   async close(): Promise<void> {
     const child = this.child;
     if (child === undefined) return;
-    child.stdin.end();
-    if (!child.killed) child.kill("SIGTERM");
     this.child = undefined;
     this.initialized = undefined;
+
+    child.stdin.end();
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    const exited = await waitForChildExit(child, 2_000);
+    if (!exited && child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+      await waitForChildExit(child, 1_000);
+    }
   }
 
   stderrTail(): string {
@@ -156,4 +162,21 @@ export class McpStdioClient {
     }
     this.pending.clear();
   }
+}
+
+function waitForChildExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolveExit) => {
+    let settled = false;
+    const finish = (value: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      child.off("exit", onExit);
+      resolveExit(value);
+    };
+    const onExit = (): void => finish(true);
+    const timeout = setTimeout(() => finish(false), timeoutMs);
+    child.once("exit", onExit);
+  });
 }

@@ -2,7 +2,7 @@
 
 ## Status
 
-Atelier v0.8.4 provides a repeatable live conformance workflow and a ranked comparative
+Atelier v0.8.5 provides a repeatable live conformance workflow and a ranked comparative
 retrieval benchmark for codesearch.
 
 The first evidence report is in
@@ -83,3 +83,10 @@ development session.
 ## Vector-index repair gate
 
 The live collection now records `codesearch stats` before and after `atlr code index`. Conformance requires a non-empty vector store with `Indexed: Yes`; MCP `ready` alone is insufficient. A transition from unbuilt to built is recorded as `vector_index_repaired`.
+
+
+## v0.8.5 rerun requirement
+
+The next authoritative benchmark must be collected after local HNSW repair succeeds.
+Results produced while the vector index is unbuilt are retained as degradation evidence,
+not as a measurement of semantic retrieval quality.

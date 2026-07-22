@@ -4,9 +4,9 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.8.4 scope
+## v0.8.5 scope
 
-This release hardens real-provider degradation handling. Atelier now distinguishes operational MCP errors from legitimate empty results, preserves automatic retrieval through bounded provider-native literal fallback, and records degraded provenance without claiming semantic success.
+This release fixes local codesearch repair under the real MCP process lifecycle. Atelier now stops and waits for its self-contained MCP subprocess before running the codesearch CLI indexer, preventing the MCP-held Tantivy writer lock from blocking HNSW repair. It reconnects only after `codesearch stats` confirms a non-empty built vector index.
 
 Atelier now owns:
 
@@ -177,7 +177,7 @@ Providers advertise capabilities as data. Atelier does not spread provider-name 
 - graceful termination;
 - pending-request failure propagation.
 
-The codesearch adapter performs MCP initialization, tool discovery, capability mapping, result normalization, index-state interpretation, fetch-on-demand, and direct argument-array indexing. Local indexing runs the real repair/update command and verifies that the vector store reports `Indexed: Yes` before accepting MCP `ready`; serve-backed client mode retains `index add` registration. Query operations still poll the provider with a configurable timeout.
+The codesearch adapter performs MCP initialization, tool discovery, capability mapping, result normalization, index-state interpretation, fetch-on-demand, and direct argument-array indexing. Local indexing first closes and waits for the self-contained MCP process, then runs the real repair/update command and verifies that the vector store reports `Indexed: Yes` before reconnecting and accepting MCP `ready`. This avoids competing Tantivy writers. Serve-backed client mode retains `index add` registration because the service owns indexing and lock coordination. Query operations still poll the provider with a configurable timeout.
 
 ## Multi-repository workspace model
 
@@ -225,7 +225,7 @@ Validation evidence remains qualified by repository snapshot and becomes stale a
 ## Current limitations
 
 - No Octocode adapter yet.
-- The weighted v0.8.1 retrieval benchmark still needs a second live run before changing Atelier's default search-routing policy.
+- The weighted retrieval benchmark must be rerun after v0.8.5 repairs the local vector index before changing Atelier's default search-routing policy.
 - No persistent daemon or JSON-RPC service boundary.
 - The codesearch adapter supports imports, dependents, and usage relationships; deeper provider-specific graph evaluation remains pending.
 - Jujutsu live conformance still requires a real supported `jj` binary.

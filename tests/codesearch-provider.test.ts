@@ -9,12 +9,20 @@ function fakeCodesearch(root: string): { command: string; log: string; mcpLog: s
   const command = join(root, "codesearch");
   const log = join(root, "calls.jsonl");
   const mcpLog = join(root, "mcp-calls.jsonl");
+  const mcpLock = join(root, "mcp-writer.lock");
   writeFileSync(command, `#!/usr/bin/env node
 import fs from 'node:fs';
 const args = process.argv.slice(2);
+const mcpLock = ${JSON.stringify(mcpLock)};
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
 if (args[0] === '--version') { console.log('codesearch 1.1.30'); process.exit(0); }
-if (args[0] === 'index') { console.log('indexed'); process.exit(0); }
+if (args[0] === 'index') {
+  if (process.env.FAKE_MCP_LOCK === '1' && fs.existsSync(mcpLock)) {
+    console.error('Failed to acquire Lockfile: LockBusy');
+    process.exit(1);
+  }
+  console.log('indexed'); process.exit(0);
+}
 if (args[0] === 'stats') {
   const indexed = process.env.FAKE_STATS_INDEXED !== '0';
   console.log('Vector Store:');
@@ -24,6 +32,12 @@ if (args[0] === 'stats') {
   process.exit(0);
 }
 if (args[0] !== 'mcp') process.exit(2);
+if (process.env.FAKE_MCP_LOCK === '1') fs.writeFileSync(mcpLock, String(process.pid));
+const cleanup = () => { try { fs.rmSync(mcpLock, { force: true }); } catch {} };
+process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+process.on('SIGINT', () => { cleanup(); process.exit(0); });
+process.on('exit', cleanup);
+process.stdin.on('end', () => { cleanup(); process.exit(0); });
 let buffer = '';
 let statusCalls = 0;
 process.stdin.setEncoding('utf8');
@@ -165,6 +179,31 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     assert.equal(searchCall?.params?.arguments?.group, undefined);
     assert.equal(searchCall?.params?.arguments?.mode, "semantic");
     assert.equal(searchCall?.params?.arguments?.semantic_mode, "hybrid");
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("codesearch local indexing closes the MCP writer before running the CLI repair", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-lock-"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_MCP_LOCK: "1" },
+  });
+  try {
+    const indexed = await provider.ensureIndex(workspace(root));
+    assert.equal(indexed, "ready");
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+    assert.ok(calls.some((args) => args[0] === "index" && args[1] === root));
+    assert.ok(calls.some((args) => args[0] === "stats" && args[1] === root));
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });

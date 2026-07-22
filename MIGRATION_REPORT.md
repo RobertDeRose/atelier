@@ -1,10 +1,11 @@
-# Atelier v0.8.4 Migration Report
+# Atelier v0.8.5 Migration Report
 
 No configuration migration is required.
 
-`atlr code index` now performs real local repair and incremental indexing rather than calling `codesearch index add` for an existing local database. The first run may take longer because interrupted vector indexes are rebuilt.
-
-Serve-backed `codeMode: "client"` continues to use repository registration and routed provider status.
+`atlr code index` now closes any self-contained codesearch MCP subprocess before running
+the local CLI indexer. This prevents the `Failed to acquire Lockfile: LockBusy` failure
+captured by the fourth live-provider run. Serve-backed `codeMode: "client"` behavior is
+unchanged.
 
 Run after updating:
 
@@ -14,3 +15,7 @@ mise run install
 mise run check
 mise run collect:codesearch
 ```
+
+The next collection should show `index` and `reindex_after_edit` exiting successfully,
+`codesearch stats` changing to `Indexed: Yes`, and semantic/hybrid retrieval operating
+without degraded literal fallback.

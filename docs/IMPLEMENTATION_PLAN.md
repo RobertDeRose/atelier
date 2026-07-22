@@ -2667,3 +2667,22 @@ hybrid, literal, direct-CLI, doctor, statistics, and store-metadata evidence pro
 ## v0.8.4 verified local index repair
 
 The third live codesearch run demonstrated that MCP status may report `ready` while the LMDB store contains chunks but the HNSW index is not built. Local and auto-local `ensureIndex` operations now run `codesearch index <repository-root>`, which is the codesearch repair and incremental update path. They then parse `codesearch stats` and require a non-empty vector store with `Indexed: Yes`. Serve-backed client mode continues to register repositories with `index add` and relies on routed status. Automatic lexical fallback remains available for provider failures, but no longer substitutes for a successful indexing operation.
+
+
+## v0.8.5 MCP writer-lock lifecycle correction
+
+Implemented:
+
+- close and await self-contained MCP before local CLI indexing;
+- retain client-mode registration through the external serve process;
+- verify local vector readiness before MCP reconnection;
+- add bounded forced shutdown for stuck MCP children;
+- commit the fourth real-provider lock failure as a regression fixture;
+- add a process-compatible test that fails when indexing overlaps the MCP writer.
+
+Exit evidence required from the next live run:
+
+- local index command exits successfully;
+- vector statistics transition from unbuilt to built;
+- semantic and hybrid MCP search return non-degraded results;
+- edit-triggered reindexing succeeds without LockBusy.

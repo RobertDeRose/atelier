@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.5 — 2026-07-21
+
+```text
+fix(code): release MCP writer before local indexing
+
+- stop and await the self-contained MCP subprocess before local repair
+- prevent Tantivy LockBusy failures caused by competing Atelier-owned processes
+- reconnect to MCP only after codesearch stats confirms HNSW readiness
+- wait for graceful provider exit with a bounded SIGKILL fallback
+- retain serve-backed client registration without disrupting the remote service
+- commit the fourth real-provider archive as a portable writer-lock fixture
+- add a regression that fails whenever indexing starts while MCP holds the writer
+```
+
 ## 0.8.4 — 2026-07-21
 
 ```text

@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"chunk_id\":1419,\"path\":\"<REPOSITORY_ROOT>/packages/core/src/core.ts\",\"start_line\":322,\"end_line\":335,\"kind\":\"Function\",\"signature\":\"function createCodeProvider(config: AtelierConfig): : CodeProvider\",\"content\":\"function createCodeProvider(config: AtelierConfig): CodeProvider {\\n  if (config.codeProvider === \\\"mock\\\") return new MockCodeProvider();\\n  if (config.codeProvider === \\\"codesearch\\\") {\\n    return new CodesearchProvider({\\n      command: config.codeCommand,\\n      cwd: config.repositoryRoot,\\n      mode: config.codeMode,\\n      timeoutMs: config.codeTimeoutMs,\\n      indexTimeoutMs: config.codeIndexTimeoutMs,\\n    });\\n  }\\n  return new DisabledCodeProvider();\\n}\"}"
+    }
+  ],
+  "isError": false
+}
