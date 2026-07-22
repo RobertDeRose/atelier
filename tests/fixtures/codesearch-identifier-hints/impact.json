@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "No symbol indexers installed. Install the `scip-csharp` helper for C# support."
+    }
+  ],
+  "isError": false
+}

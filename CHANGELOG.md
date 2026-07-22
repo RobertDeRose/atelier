@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.9 — 2026-07-22
+
+```text
+fix(code): constrain lexical fusion to exact identifiers
+
+- accept explicit exact identifier hints through the provider-neutral query model and CLI
+- stop augmenting healthy semantic retrieval with generic workflow nouns
+- retain broad literal term extraction only for degraded semantic fallback
+- infer mixed implementation-and-test focus for questions requesting both evidence classes
+- interleave source and test paths while preserving provider order within each class
+- pass benchmark literals as exact provider hints and record hint usage in evaluation
+- commit the 0.8571 weighted-recall fusion run as a portable pre-hint regression fixture
+```
+
 ## 0.8.8 — 2026-07-22
 
 ```text

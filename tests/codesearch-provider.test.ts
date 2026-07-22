@@ -488,6 +488,7 @@ test("codesearch fuses bounded literal identifiers into focused automatic retrie
       text: "How does Atelier choose and initialize the configured code intelligence provider?",
       mode: "auto",
       focus: "source",
+      literalHints: ["createCodeProvider", "CodeProviderRegistry", "codeProvider"],
       limit: 3,
       includeTests: true,
       includeGenerated: false,
@@ -510,6 +511,91 @@ test("codesearch fuses bounded literal identifiers into focused automatic retrie
     assert.equal(searches[0]?.params?.arguments?.mode, "semantic");
     assert.ok(searches.slice(1).some((call) => call.params?.arguments?.mode === "literal"));
     assert.ok(searches.length <= 5);
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codesearch augmentation uses explicit identifier hints instead of generic workflow nouns", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-hints-"));
+  const fake = fakeCodesearch(root);
+  const semanticRows = [
+    { chunk_id: 1, path: "src/registry.ts", start_line: 1, end_line: 4, score: 0.9 },
+    { chunk_id: 2, path: "src/service.ts", start_line: 1, end_line: 4, score: 0.8 },
+  ];
+  const literalRows = [
+    { chunk_id: 1, path: "src/registry.ts", start_line: 1, end_line: 4, score: 3.0 },
+  ];
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: {
+      FAKE_SEMANTIC_ROWS: JSON.stringify(semanticRows),
+      FAKE_LITERAL_ROWS: JSON.stringify(literalRows),
+    },
+  });
+  try {
+    const hits = await provider.search({
+      workspace: workspace(root),
+      text: "where is code provider selection implemented",
+      mode: "auto",
+      focus: "source",
+      literalHints: ["CodeProviderRegistry"],
+      limit: 5,
+      includeTests: true,
+      includeGenerated: false,
+    });
+    assert.deepEqual(hits[0]?.retrievalMethods.sort(), ["lexical", "semantic"]);
+    assert.deepEqual(hits[0]?.provenance.requestedFilters.literalHints, ["CodeProviderRegistry"]);
+
+    const calls = readFileSync(fake.mcpLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { method: string; params?: { name?: string; arguments?: Record<string, unknown> } });
+    const searches = calls.filter((call) => call.method === "tools/call" && call.params?.name === "search");
+    assert.equal(searches.length, 2);
+    assert.equal(searches[0]?.params?.arguments?.mode, "semantic");
+    assert.equal(searches[1]?.params?.arguments?.mode, "literal");
+    assert.equal(searches[1]?.params?.arguments?.query, "CodeProviderRegistry");
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codesearch does not augment healthy semantic search with generic natural-language terms", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-no-generic-"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+  });
+  try {
+    await provider.search({
+      workspace: workspace(root),
+      text: "where is provider selection implemented",
+      mode: "auto",
+      focus: "source",
+      limit: 5,
+      includeTests: true,
+      includeGenerated: false,
+    });
+    const calls = readFileSync(fake.mcpLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { method: string; params?: { name?: string; arguments?: Record<string, unknown> } });
+    const searches = calls.filter((call) => call.method === "tools/call" && call.params?.name === "search");
+    assert.equal(searches.length, 1);
+    assert.equal(searches[0]?.params?.arguments?.mode, "semantic");
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });

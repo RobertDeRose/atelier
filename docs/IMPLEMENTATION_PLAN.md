@@ -1,4 +1,4 @@
-> **v0.8.8 retrieval policy:** The external provider remains authoritative for semantic and literal retrieval. Atelier now fuses bounded provider results for focused source and test queries, preserves retrieval method and provider rank, then applies workflow focus and final truncation. See ADR-0009.
+> **v0.8.9 retrieval policy:** The external provider remains authoritative for semantic and literal retrieval. Atelier now augments healthy semantic results only with exact identifier hints or code-shaped query tokens, balances mixed source/test evidence, preserves provider rank, and reserves broad literal extraction for degraded fallback. See ADR-0010.
 
 > **v0.5.0 architectural correction:** Atelier no longer owns a native source, FTS5, Tree-sitter, embedding, vector, or code-graph implementation by default. The accepted design is external provider integration behind the Atelier-owned CodeProvider contract. `codesearch` is the first planned provider and Octocode the second experimental provider. See `CODE_INTELLIGENCE.md` and ADR-0002.
 
@@ -2754,3 +2754,26 @@ Exit evidence required from the next live run:
 - no search becomes degraded while semantic health remains operational;
 - implementation source remains within the first three results;
 - bounded augmentation does not materially inflate retrieval bytes or latency.
+
+
+## v0.8.9 exact identifier hints and mixed evidence
+
+Implemented:
+
+- add optional exact literal hints to the provider-neutral search query;
+- expose comma-separated hints through `atlr code search --hint`;
+- pass evaluation task literals through the same public CLI path;
+- augment healthy semantic retrieval only with explicit, quoted, or code-shaped identifiers;
+- retain broader natural-language candidates only for degraded semantic fallback;
+- infer mixed focus when a question explicitly asks for implementation and tests;
+- interleave source and test evidence while preserving provider order within each class;
+- record identifier-hint counts in evaluation and conformance output;
+- commit the 0.8571 weighted-recall fusion run as the pre-hint regression fixture.
+
+Exit evidence required from the next live run:
+
+- exact identifier hints are recorded by conformance;
+- generic lexical-only false positives decrease;
+- mixed normalization queries retain both adapter source and tests in the top ten;
+- weighted recall remains at or above the v0.8.8 value of 0.8571;
+- semantic health remains operational and no results are degraded.

@@ -1,6 +1,6 @@
 {
   "name": "atelier-prototype",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "Runnable initial TypeScript implementation of Atelier, an Agentic Development Environment",
   "type": "module",
   "private": true,

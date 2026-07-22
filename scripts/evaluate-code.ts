@@ -28,6 +28,7 @@ type Run = {
   stderr: string;
   degradedResultCount: number;
   fusionResultCount: number;
+  literalHintCount: number;
   warnings: string[];
 };
 
@@ -108,6 +109,7 @@ function runBaseline(task: Task): Run {
     stderr: result.stderr,
     degradedResultCount: 0,
     fusionResultCount: 0,
+    literalHintCount: task.literals?.length ?? 0,
     warnings: [],
   };
 }
@@ -117,6 +119,7 @@ function runCodesearch(task: Task): Run {
   const args = [
     "--experimental-strip-types", "apps/cli/src/main.ts", "--root", root, "code", "search", task.query,
     "--mode", "auto", "--focus", task.focus ?? "auto", "--json",
+    ...(task.literals?.length ? ["--hint", task.literals.join(",")] : []),
     ...(task.repos?.length ? ["--repo", task.repos.join(",")] : []),
   ];
   const result = spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
@@ -151,6 +154,10 @@ function runCodesearch(task: Task): Run {
     stderr: result.stderr,
     degradedResultCount: rows.filter((row) => row.provenance?.degraded === true).length,
     fusionResultCount: rows.filter((row) => row.retrievalMethods?.includes("semantic") && row.retrievalMethods.includes("lexical")).length,
+    literalHintCount: Math.max(0, ...rows.map((row) => {
+      const hints = row.provenance?.requestedFilters?.literalHints;
+      return Array.isArray(hints) ? hints.length : 0;
+    })),
     warnings: [...new Set(rows.flatMap((row) => row.provenance?.warnings ?? []))],
   };
 }
@@ -185,13 +192,14 @@ function score(run: Run, task: Task) {
 }
 
 function aggregate(scores: Array<ReturnType<typeof score>>) {
-  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, degradedResultCount: 0, fusionResultCount: 0, rerankedTasks: 0, warnings: [], meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
+  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, degradedResultCount: 0, fusionResultCount: 0, literalHintCount: 0, rerankedTasks: 0, warnings: [], meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
   return {
     tasks: scores.length,
     durationMs: scores.reduce((sum, item) => sum + item.durationMs, 0),
     bytes: scores.reduce((sum, item) => sum + item.bytes, 0),
     degradedResultCount: scores.reduce((sum, item) => sum + item.degradedResultCount, 0),
     fusionResultCount: scores.reduce((sum, item) => sum + item.fusionResultCount, 0),
+    literalHintCount: scores.reduce((sum, item) => sum + item.literalHintCount, 0),
     rerankedTasks: scores.filter((item) => item.reranked).length,
     warnings: [...new Set(scores.flatMap((item) => item.warnings))],
     meanWeightedRecall: round(scores.reduce((sum, item) => sum + item.weightedRecall, 0) / scores.length),
@@ -218,6 +226,7 @@ function summarizeRun(run: Run) {
     reranked: run.reranked,
     degradedResultCount: run.degradedResultCount,
     fusionResultCount: run.fusionResultCount,
+    literalHintCount: run.literalHintCount,
     warnings: run.warnings,
   };
 }

@@ -46,7 +46,7 @@ if [ -s "$OUT/mcp_contract.stdout" ]; then
   node -e 'const fs=require("fs");const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));for(const n of ["semantic","hybrid","literal","fetch","outline","impact"]){const v=x.calls?.[n];if(v!==undefined)fs.writeFileSync(process.argv[2]+"/"+n+".stdout",JSON.stringify(v,null,2)+"\n");}' "$OUT/mcp_contract.stdout" "$OUT"
   for name in semantic hybrid literal fetch outline impact; do [ -f "$OUT/$name.stdout" ] && printf '0\n' >"$OUT/$name.status" || true; done
 fi
-run search node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code search "where is code provider selection implemented" --mode auto --json
+run search node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code search "where is code provider selection implemented" --mode auto --hint "createCodeProvider,CodeProviderRegistry,codeProvider" --json
 run search_semantic node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code search "where is code provider selection implemented" --mode semantic --json
 run search_literal node --experimental-strip-types "$ROOT/apps/cli/src/main.ts" --root "$ROOT" code search "CodesearchProvider" --mode lexical --json
 

@@ -4,12 +4,12 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.8.8 scope
+## v0.8.9 scope
 
-This release improves focused implementation and test retrieval after the v0.8.7 ranking
-policy raised codesearch mean weighted recall to 0.5625. Codesearch remains the indexing and
-retrieval provider. Atelier now fuses bounded semantic candidates with a small deterministic
-set of literal provider queries before applying path focus and the final result budget.
+This release refines semantic-plus-literal retrieval after the first fused live run raised
+codesearch mean weighted recall to 0.8571. Codesearch remains the indexing and retrieval
+provider. Atelier now augments healthy semantic retrieval only with exact identifier hints or
+code-shaped query tokens, and balances source/test evidence for questions that request both.
 
 Atelier now owns:
 
@@ -93,6 +93,7 @@ atlr code search --mode lexical CodesearchProvider
 atlr code search --mode semantic "where is authentication handled?"
 atlr code search --focus source "where is provider selection implemented?"
 atlr code search --focus tests "which tests verify normalization?"
+atlr code search --hint createCodeProvider,CodeProviderRegistry "how is the provider selected?"
 atlr code symbols AuthSession
 ```
 
@@ -102,7 +103,7 @@ Provider and repository filters are available where supported:
 atlr code search --provider codesearch --repo api,auth "token refresh"
 ```
 
-Search mode may be `auto`, `semantic`, `hybrid`, or `lexical`. Search focus may be `auto`, `source`, `tests`, `docs`, or `all`. Automatic focus recognizes implementation-, test-, and documentation-oriented questions. Focused source and test searches overfetch compact semantic metadata, issue at most four bounded literal provider queries, fuse evidence by repository path, preserve `providerRank`, record `retrievalMethods`, diversify files, and apply the user-visible retrieval limit afterward. If codesearch reports an operational failure from its semantic/vector path, Atelier performs a bounded literal fallback, marks every result as degraded, and preserves the original provider error in provenance. Explicit `--mode semantic` never hides that failure.
+Search mode may be `auto`, `semantic`, `hybrid`, or `lexical`. Search focus may be `auto`, `source`, `tests`, `docs`, or `all`. Automatic focus recognizes implementation-, test-, documentation-, and mixed implementation/test questions. Focused automatic and hybrid searches overfetch compact semantic metadata and may issue bounded literal provider queries only for exact `--hint` identifiers or identifiers already expressed in code-like or quoted form. Atelier fuses evidence by repository path, preserves `providerRank`, records `retrievalMethods`, diversifies files, and applies the user-visible retrieval limit afterward. Broad natural-language literal extraction is reserved for degraded fallback when codesearch reports an operational semantic/vector failure. Explicit `--mode semantic` never hides that failure.
 
 Unsupported provider capabilities must be reported explicitly. Atelier does not silently discard filters or hide fallback-provider semantics.
 

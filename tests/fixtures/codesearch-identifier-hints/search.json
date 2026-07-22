@@ -1,0 +1,539 @@
+[
+  {
+    "rank": 1,
+    "providerRank": 23,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "packages/core/src/code/registry.ts",
+    "startLine": 12,
+    "endLine": 17,
+    "retrievalMethods": [
+      "semantic",
+      "lexical"
+    ],
+    "providerScore": 0.017857144,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMTQ2NyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/registry.ts",
+      "startLine": 12,
+      "endLine": 17
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 2,
+    "providerRank": 10,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "packages/core/src/code/service.ts",
+    "startLine": 55,
+    "endLine": 56,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.030303031,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjgwNSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/service.ts",
+      "startLine": 55,
+      "endLine": 56
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 3,
+    "providerRank": 35,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "packages/core/src/code/codesearch-provider.ts",
+    "startLine": 547,
+    "endLine": 548,
+    "retrievalMethods": [
+      "semantic",
+      "lexical"
+    ],
+    "providerScore": 0.018518519,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMzgwNCJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/codesearch-provider.ts",
+      "startLine": 547,
+      "endLine": 548
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 4,
+    "providerRank": 1,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "packages/core/src/ledger/sqlite-ledger.ts",
+    "startLine": 261,
+    "endLine": 261,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.2877114,
+    "preview": "getTaskMapping(planTaskId: string): { provider: string; providerTaskId: string; planHash: string } | undefined {",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9sZWRnZXIvc3FsaXRlLWxlZGdlci50czoxMyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/ledger/sqlite-ledger.ts",
+      "startLine": 261,
+      "endLine": 261
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 5,
+    "providerRank": 2,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "packages/core/src/state/working-state-builder.ts",
+    "startLine": 39,
+    "endLine": 39,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.124667,
+    "preview": "constructor(provider: TaskProvider, ledger: SqliteLedger, code?: CodeService, validation?: ValidationService) {",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9zdGF0ZS93b3JraW5nLXN0YXRlLWJ1aWxkZXIudHM6MTQifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/state/working-state-builder.ts",
+      "startLine": 39,
+      "endLine": 39
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 6,
+    "providerRank": 4,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "packages/core/src/planning/plan-reconciler.ts",
+    "startLine": 67,
+    "endLine": 67,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.326102,
+    "preview": "constructor(provider: TaskProvider, ledger: SqliteLedger) {",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9wbGFubmluZy9wbGFuLXJlY29uY2lsZXIudHM6MTUifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/planning/plan-reconciler.ts",
+      "startLine": 67,
+      "endLine": 67
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 7,
+    "providerRank": 5,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "apps/cli/src/main.ts",
+    "startLine": 402,
+    "endLine": 402,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.2619457,
+    "preview": "const provider = flagString(parsed, \"provider\");",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzphcHBzL2NsaS9zcmMvbWFpbi50czoxNiJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "apps/cli/src/main.ts",
+      "startLine": 402,
+      "endLine": 402
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 8,
+    "providerRank": 11,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "packages/core/src/code/provider.ts",
+    "startLine": 15,
+    "endLine": 15,
+    "retrievalMethods": [
+      "lexical"
+    ],
+    "providerScore": 3.1629782,
+    "preview": "constructor(capability: CodeCapability, provider: string) {",
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiZ2l0OjUzY2Y5NTViNmQ5NGI1MThlNjUzZmJjMzpwYWNrYWdlcy9jb3JlL3NyYy9jb2RlL3Byb3ZpZGVyLnRzOjE5In0",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/provider.ts",
+      "startLine": 15,
+      "endLine": 15
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 9,
+    "providerRank": 11,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "packages/core/src/core.ts",
+    "startLine": 66,
+    "endLine": 67,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.037037037,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMTc0NiJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts",
+      "startLine": 66,
+      "endLine": 67
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "rank": 10,
+    "providerRank": 32,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "9b8d70e54381065d65dcab911e4725fc19254544",
+    "path": "packages/core/src/code/types.ts",
+    "startLine": 106,
+    "endLine": 124,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.019607844,
+    "reference": {
+      "provider": "codesearch",
+      "opaqueId": "eyJjaHVua0lkIjoiMjc4MyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/types.ts",
+      "startLine": 106,
+      "endLine": 124
+    },
+    "provenance": {
+      "provider": {
+        "name": "codesearch",
+        "version": "1.1.30",
+        "instanceId": "codesearch:auto"
+      },
+      "workspaceId": "a145708934785fbb",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "auto",
+      "actualMode": "hybrid",
+      "query": "where is code provider selection implemented",
+      "retrievedAt": "<TIMESTAMP>",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "auto",
+        "includeTests": true,
+        "includeGenerated": false,
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier codesearch adapter",
+        "overfetched up to 40 compact provider results for source focus",
+        "fused semantic results with bounded literal identifier augmentation",
+        "reranked by source focus with path diversification"
+      ],
+      "reranked": true,
+      "freshness": "unknown"
+    }
+  }
+]

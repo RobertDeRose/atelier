@@ -67,6 +67,7 @@ export interface CodeSearchQuery {
   text: string;
   mode: CodeSearchMode;
   focus?: CodeSearchFocus;
+  literalHints?: string[];
   repositoryIds?: string[];
   languages?: string[];
   pathGlobs?: string[];

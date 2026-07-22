@@ -116,6 +116,7 @@ Commands:
 Code search options:
   --mode auto|semantic|hybrid|lexical
   --focus auto|source|tests|docs|all
+  --hint IDENTIFIER[,IDENTIFIER...] Exact identifiers for bounded lexical augmentation
 
 Permission grant options:
   --scope operation|turn|task|session|repository
@@ -441,15 +442,16 @@ async function handleCode(core: AtelierCore, subcommand: string | undefined, res
   }
   if (subcommand === "search" || subcommand === "symbols") {
     const query = rest.join(" ").trim();
-    if (!query) throw new Error(`Usage: atlr code ${subcommand} QUERY [--provider NAME] [--repo ID] [--limit N] [--mode auto|semantic|hybrid|lexical] [--focus auto|source|tests|docs|all]`);
+    if (!query) throw new Error(`Usage: atlr code ${subcommand} QUERY [--provider NAME] [--repo ID] [--limit N] [--mode auto|semantic|hybrid|lexical] [--focus auto|source|tests|docs|all] [--hint IDENTIFIER,...]`);
     const repositoryIds = flagString(parsed, "repo")?.split(",").map((value) => value.trim()).filter(Boolean);
     const limit = Number(flagString(parsed, "limit") ?? "10");
     const mode = flagString(parsed, "mode") ?? "auto";
     if (!(["auto", "semantic", "hybrid", "lexical"] as const).includes(mode as "auto" | "semantic" | "hybrid" | "lexical")) throw new Error(`Invalid code search mode: ${mode}`);
     const focus = flagString(parsed, "focus") ?? "auto";
     if (!(["auto", "source", "tests", "docs", "all"] as const).includes(focus as "auto" | "source" | "tests" | "docs" | "all")) throw new Error(`Invalid code search focus: ${focus}`);
+    const literalHints = flagString(parsed, "hint")?.split(",").map((value) => value.trim()).filter(Boolean);
     const results = subcommand === "search"
-      ? await core.code.search({ workspace: core.codeWorkspace(), text: query, mode: mode as "auto" | "semantic" | "hybrid" | "lexical", focus: focus as "auto" | "source" | "tests" | "docs" | "all", ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 })
+      ? await core.code.search({ workspace: core.codeWorkspace(), text: query, mode: mode as "auto" | "semantic" | "hybrid" | "lexical", focus: focus as "auto" | "source" | "tests" | "docs" | "all", ...(literalHints === undefined ? {} : { literalHints }), ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 })
       : await core.code.symbols({ workspace: core.codeWorkspace(), text: query, ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 });
     if (flagBoolean(parsed, "json")) asJson(results);
     else for (const hit of results) process.stdout.write(`${hit.repositoryName}:${hit.path}${hit.startLine === undefined ? "" : `:${hit.startLine}`}\t${hit.symbol ?? ""}\t${hit.preview ?? ""}\t[${hit.provenance.provider.name}/${hit.provenance.indexState}]\n`);

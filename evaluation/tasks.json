@@ -79,7 +79,7 @@
         "rationale": "Verifies portable responses captured from a real provider."
       }
     ],
-    "focus": "tests"
+    "focus": "auto"
   },
   {
     "id": "working-state-evidence",

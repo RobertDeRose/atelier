@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"results\":[{\"chunk_id\":529,\"path\":\"<REPOSITORY_ROOT>/docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md\",\"start_line\":9,\"end_line\":17,\"kind\":\"Block\",\"score\":0.820999},{\"chunk_id\":2311,\"path\":\"<REPOSITORY_ROOT>/docs/CODE_INTELLIGENCE.md\",\"start_line\":431,\"end_line\":448,\"kind\":\"Block\",\"score\":0.80361605},{\"chunk_id\":3273,\"path\":\"<REPOSITORY_ROOT>/docs/IMPLEMENTATION_PLAN.md\",\"start_line\":0,\"end_line\":4,\"kind\":\"Block\",\"score\":0.7733946},{\"chunk_id\":421,\"path\":\"<REPOSITORY_ROOT>/docs/ADR-0003-CODESEARCH-DEFAULT.md\",\"start_line\":9,\"end_line\":13,\"kind\":\"Block\",\"score\":0.7706342},{\"chunk_id\":2298,\"path\":\"<REPOSITORY_ROOT>/docs/CODE_INTELLIGENCE.md\",\"start_line\":64,\"end_line\":66,\"kind\":\"Block\",\"score\":0.75994265}]}"
+    }
+  ],
+  "isError": false
+}

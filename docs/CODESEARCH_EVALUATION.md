@@ -2,7 +2,7 @@
 
 ## Status
 
-Atelier v0.8.8 provides a repeatable live conformance workflow and a ranked comparative
+Atelier v0.8.9 provides a repeatable live conformance workflow and a ranked comparative
 retrieval benchmark for codesearch.
 
 The first evidence report is in
@@ -38,7 +38,7 @@ through both retrieval paths:
 1. Baseline retrieval through ripgrep.
 2. Codesearch retrieval through Atelier's provider contract in automatic mode.
 
-Automatic mode first requests semantic retrieval. Focused source and test searches then augment that candidate set with at most four bounded literal provider queries and fuse the two rankings before final path selection. Provider operational failures are not treated as empty search results: Atelier retries through a bounded set of literal queries, records degraded provenance, and retains the original semantic error. Explicit semantic-mode probes remain separate so the benchmark cannot misrepresent literal fallback as healthy vector retrieval.
+Automatic mode first requests semantic retrieval. Focused source and test searches augment that candidate set only with bounded exact identifier hints from the task or code-shaped query tokens, then fuse the two rankings before final path selection. Generic workflow nouns no longer drive healthy-search augmentation. Provider operational failures are not treated as empty search results: Atelier retries through a broader bounded set of literal queries, records degraded provenance, and retains the original semantic error. Explicit semantic-mode probes remain separate so the benchmark cannot misrepresent literal fallback as healthy vector retrieval.
 
 The report records:
 
@@ -52,6 +52,7 @@ The report records:
 - Aggregate metrics for each retrieval method.
 - Degraded-result counts and unique provider warnings.
 - Results supported by both semantic and literal retrieval.
+- Exact identifier hints supplied to provider retrieval.
 
 It writes `.atelier/evaluation/latest.json` plus a timestamped immutable report.
 
@@ -63,8 +64,10 @@ and human scoring.
 ## Workflow focus
 
 Each evaluation task may declare `focus: source|tests|docs|all`; otherwise Atelier resolves
-focus from the query. Both retrieval paths use the same path-class preference so the
-comparison measures provider discovery rather than giving only one side workflow context.
+focus from the query. Questions explicitly requesting both implementation and tests resolve
+to an internal mixed focus that interleaves both path classes. Both retrieval paths use the
+same path-class preference so the comparison measures provider discovery rather than giving
+only one side workflow context.
 
 Codesearch results preserve two orders:
 
@@ -102,9 +105,9 @@ development session.
 The live collection now records `codesearch stats` before and after `atlr code index`. Conformance requires a non-empty vector store with `Indexed: Yes`; MCP `ready` alone is insufficient. A transition from unbuilt to built is recorded as `vector_index_repaired`.
 
 
-## v0.8.8 rerun requirement
+## v0.8.9 rerun requirement
 
-The next authoritative benchmark must be collected with focused semantic-plus-literal
-fusion enabled. The live conformance summary reports fused-result count, implementation
-source rank, and weighted recall so the added provider calls can be evaluated against the
-0.5625 v0.8.7 baseline.
+The next authoritative benchmark must be collected with exact identifier hints and mixed
+source/test focus enabled. The live conformance summary reports hint count, fused-result
+count, implementation source rank, and weighted recall so the refinement can be evaluated
+against the 0.8571 v0.8.8 result.

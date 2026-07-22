@@ -6,9 +6,10 @@ import {
   rankCodePathsByFocus,
 } from "../packages/core/src/index.ts";
 
-test("code search focus infers source, tests, docs, and neutral queries", () => {
+test("code search focus infers source, tests, mixed, docs, and neutral queries", () => {
   assert.equal(inferCodeSearchFocus("How does the CLI dispatch this command?"), "source");
   assert.equal(inferCodeSearchFocus("Which tests verify codesearch normalization?"), "tests");
+  assert.equal(inferCodeSearchFocus("Where are responses normalized, and which tests verify that normalization?"), "mixed");
   assert.equal(inferCodeSearchFocus("Why did ADR-0003 choose codesearch?"), "docs");
   assert.equal(inferCodeSearchFocus("authentication session"), "all");
 });
@@ -38,5 +39,11 @@ test("focused path ranking preserves provider order within each path class", () 
   assert.deepEqual(rankCodePathsByFocus(input, "tests", "tests").paths.slice(0, 2), [
     "tests/core.test.ts",
     "packages/core/src/core.ts",
+  ]);
+  assert.deepEqual(rankCodePathsByFocus(input, "auto", "Where is this implemented and which tests verify it?").paths.slice(0, 4), [
+    "packages/core/src/core.ts",
+    "tests/core.test.ts",
+    "packages/core/src/code/service.ts",
+    "scripts/probe.ts",
   ]);
 });

@@ -35,7 +35,7 @@ test("codesearch probe summary reports a ready conforming provider", () => {
       statusHistory: [{ state: "building" }, { state: "ready" }],
     }));
     mkdirSync(join(root, "evaluation"), { recursive: true });
-    writeFileSync(join(root, "evaluation", "latest.json"), JSON.stringify({ aggregate: { baseline: { meanWeightedRecall: 0.9 }, codesearch: { meanWeightedRecall: 0.8 } } }));
+    writeFileSync(join(root, "evaluation", "latest.json"), JSON.stringify({ aggregate: { baseline: { meanWeightedRecall: 0.9 }, codesearch: { meanWeightedRecall: 0.8, fusionResultCount: 1, literalHintCount: 3 } } }));
 
     const result = spawnSync(process.execPath, [
       "--experimental-strip-types",
@@ -53,6 +53,7 @@ test("codesearch probe summary reports a ready conforming provider", () => {
     assert.ok(summary.checks.some((check) => check.name === "mcp_index_ready" && check.status === "passed"));
     assert.ok(summary.checks.some((check) => check.name === "fetch_result" && check.status === "passed"));
     assert.ok(summary.checks.some((check) => check.name === "outline_result" && check.status === "passed"));
+    assert.ok(summary.checks.some((check) => check.name === "retrieval_hints" && check.status === "passed"));
     assert.ok(summary.checks.some((check) => check.name === "impact_result" && check.status === "warning"));
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -1,26 +1,19 @@
-# Atelier v0.8.8 Migration Report
+# Atelier v0.8.9 Migration Report
 
 No configuration migration is required.
 
-Focused `auto` and `hybrid` source/test searches now perform bounded literal augmentation in
-addition to semantic retrieval. JSON results may therefore contain:
+Automatic and hybrid searches may now receive exact identifier hints:
 
-```json
-{
-  "retrievalMethods": ["semantic", "lexical"],
-  "providerRank": 8,
-  "rank": 1,
-  "provenance": {
-    "actualMode": "hybrid",
-    "postProcessing": [
-      "fused semantic results with bounded literal identifier augmentation"
-    ]
-  }
-}
+```bash
+atlr code search \
+  --hint createCodeProvider,CodeProviderRegistry,codeProvider \
+  "How does Atelier choose the configured code provider?"
 ```
 
-Explicit `--mode semantic`, explicit `--mode lexical`, `--focus docs`, and `--focus all`
-retain their previous behavior.
+Healthy semantic retrieval no longer derives literal augmentation from generic workflow nouns.
+Broad term extraction remains available only for degraded fallback when the semantic provider
+fails. Questions that explicitly request both implementation and tests resolve to an internal
+mixed focus and interleave source and test evidence inside the final result budget.
 
 Run after updating:
 

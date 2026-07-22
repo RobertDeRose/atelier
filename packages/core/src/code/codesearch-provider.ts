@@ -250,7 +250,7 @@ export class CodesearchProvider implements CodeProvider {
         throw new Error(`codesearch semantic search failed and literal fallback returned no results: ${primaryError}`);
       }
     } else if (shouldAugmentSearch(query.mode, resolvedFocus)) {
-      const augmentation = await this.literalCandidateSearch(providerQuery, scope, 4, Math.min(12, providerLimit));
+      const augmentation = await this.literalCandidateSearch(providerQuery, scope, 6, Math.min(12, providerLimit), "augmentation");
       if (augmentation.rows.length > 0) {
         rows = fuseSearchRows(rows, augmentation.rows, providerLimit);
         actualMode = "hybrid";
@@ -299,7 +299,7 @@ export class CodesearchProvider implements CodeProvider {
     scope: Record<string, unknown>,
     primaryError: string,
   ): Promise<{ data: unknown; rows: Array<Record<string, unknown>>; warnings: string[] }> {
-    const result = await this.literalCandidateSearch(query, scope, 6, query.limit);
+    const result = await this.literalCandidateSearch(query, scope, 6, query.limit, "fallback");
     const warnings = [...result.warnings];
     if (result.rows.length === 0) warnings.push(`literal fallback returned no results after semantic failure: ${primaryError}`);
     return { data: result.data, rows: result.rows, warnings };
@@ -310,8 +310,9 @@ export class CodesearchProvider implements CodeProvider {
     scope: Record<string, unknown>,
     maxCandidates: number,
     perCandidateLimit: number,
+    purpose: "augmentation" | "fallback",
   ): Promise<{ data: unknown; rows: Array<Record<string, unknown>>; warnings: string[]; failedCandidates: number }> {
-    const candidates = literalQueryCandidates(query.text, maxCandidates);
+    const candidates = literalQueryCandidates(query.text, query.literalHints, maxCandidates, purpose);
     const merged = new Map<string, { row: Record<string, unknown>; score: number }>();
     const warnings: string[] = [];
     let failedCandidates = 0;
@@ -632,24 +633,23 @@ function toolResponseError(result: McpToolCallResult): string | undefined {
   return undefined;
 }
 
-function literalQueryCandidates(query: string, limit = 6): string[] {
-  const stop = new Set(["about", "after", "atelier", "before", "choose", "code", "configured", "does", "from", "have", "initialize", "initializes", "intelligence", "into", "through", "where", "which", "with", "implemented", "implementation"]);
-  const priority = new Set(["adapter", "command", "evidence", "freshness", "normalize", "normalization", "provider", "registry", "search", "service", "state", "tests"]);
+function literalQueryCandidates(
+  query: string,
+  hints: string[] | undefined,
+  limit = 6,
+  purpose: "augmentation" | "fallback" = "augmentation",
+): string[] {
+  const stop = new Set(["about", "after", "atelier", "before", "choose", "code", "configured", "does", "from", "have", "initialize", "initializes", "intelligence", "into", "through", "where", "which", "with", "implemented", "implementation", "provider", "service", "search", "state", "tests"]);
+  const explicit = (hints ?? []).map((value) => value.trim()).filter(Boolean);
   const quoted = [...query.matchAll(/[`"']([^`"']+)[`"']/g)].map((match) => match[1]!.trim()).filter(Boolean);
   const words = query.match(/[A-Za-z_$][A-Za-z0-9_$.-]*/g) ?? [];
   const codeLike = words.filter((word) => /[A-Z].*[A-Z]|[a-z][A-Z]|[.$]/.test(word));
-  const significant = words.filter((word) => word.length >= 4 && !stop.has(word.toLowerCase()));
-  const ordered = [...new Set([...codeLike, ...significant, ...quoted])]
-    .sort((left, right) => candidatePriority(left, priority) - candidatePriority(right, priority));
-  return ordered.slice(0, limit).length > 0 ? ordered.slice(0, limit) : [query];
-}
-
-function candidatePriority(value: string, priority: Set<string>): number {
-  const normalized = value.toLowerCase();
-  if (/[A-Z].*[A-Z]|[a-z][A-Z]|[.$]/.test(value)) return 0;
-  if (priority.has(normalized)) return 1;
-  if (value.includes(" ")) return 2;
-  return 3;
+  const significant = purpose === "fallback"
+    ? words.filter((word) => word.length >= 4 && !stop.has(word.toLowerCase()))
+    : [];
+  const ordered = [...new Set([...explicit, ...codeLike, ...quoted, ...significant])];
+  const selected = ordered.slice(0, limit);
+  return selected.length > 0 ? selected : purpose === "fallback" ? [query] : [];
 }
 
 function shouldAugmentSearch(mode: CodeSearchMode, focus: ReturnType<typeof resolveCodeSearchFocus>): boolean {
@@ -833,6 +833,7 @@ function normalizeHit(options: {
         repositoryIds: query.repositoryIds,
         languages: query.languages,
         pathGlobs: query.pathGlobs,
+        literalHints: query.literalHints,
         focus: query.focus ?? "auto",
         includeTests: query.includeTests,
         includeGenerated: query.includeGenerated,

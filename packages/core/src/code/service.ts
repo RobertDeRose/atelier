@@ -26,13 +26,14 @@ export class CodeService {
     return state;
   }
 
-  async search(options: { workspace: CodeWorkspace; text: string; mode?: CodeSearchMode; focus?: CodeSearchFocus; repositoryIds?: string[]; limit?: number; provider?: string }): Promise<CodeSearchHit[]> {
+  async search(options: { workspace: CodeWorkspace; text: string; mode?: CodeSearchMode; focus?: CodeSearchFocus; literalHints?: string[]; repositoryIds?: string[]; limit?: number; provider?: string }): Promise<CodeSearchHit[]> {
     const selected = this.registry.get(options.provider);
     const results = await selected.search({
       workspace: options.workspace,
       text: options.text,
       mode: options.mode ?? "auto",
       focus: options.focus ?? "auto",
+      ...(options.literalHints === undefined ? {} : { literalHints: options.literalHints }),
       ...(options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds }),
       limit: Math.min(options.limit ?? this.limits.maxResults, this.limits.maxResults),
       includeTests: true,

@@ -118,7 +118,7 @@ checks.push({
 const evaluation = jsonFromPath(resolve(outputDirectory, "evaluation", "latest.json")) as {
   aggregate?: {
     baseline?: { meanWeightedRecall?: unknown };
-    codesearch?: { meanWeightedRecall?: unknown; fusionResultCount?: unknown };
+    codesearch?: { meanWeightedRecall?: unknown; fusionResultCount?: unknown; literalHintCount?: unknown };
   };
 } | undefined;
 const baselineRecall = numeric(evaluation?.aggregate?.baseline?.meanWeightedRecall);
@@ -138,6 +138,16 @@ if (fusionResultCount !== undefined) {
     detail: fusionResultCount > 0
       ? `${fusionResultCount} returned result(s) combined semantic and lexical evidence`
       : "focused automatic evaluation returned no semantic-plus-lexical fused result",
+  });
+}
+const literalHintCount = numeric(evaluation?.aggregate?.codesearch?.literalHintCount);
+if (literalHintCount !== undefined) {
+  checks.push({
+    name: "retrieval_hints",
+    status: literalHintCount > 0 ? "passed" : "warning",
+    detail: literalHintCount > 0
+      ? `${literalHintCount} exact identifier hint(s) were supplied across evaluated searches`
+      : "evaluation supplied no exact identifier hints",
   });
 }
 
