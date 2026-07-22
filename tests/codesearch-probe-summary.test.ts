@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -34,6 +34,8 @@ test("codesearch probe summary reports a ready conforming provider", () => {
       tools: ["status", "search", "find", "get_chunk", "explore", "find_impact"].map((name) => ({ name })),
       statusHistory: [{ state: "building" }, { state: "ready" }],
     }));
+    mkdirSync(join(root, "evaluation"), { recursive: true });
+    writeFileSync(join(root, "evaluation", "latest.json"), JSON.stringify({ aggregate: { baseline: { meanWeightedRecall: 0.9 }, codesearch: { meanWeightedRecall: 0.8 } } }));
 
     const result = spawnSync(process.execPath, [
       "--experimental-strip-types",
@@ -81,6 +83,8 @@ test("codesearch probe summary treats unavailable optional impact indexing as a 
       tools: ["status", "search", "find", "get_chunk", "explore", "find_impact"].map((name) => ({ name })),
       statusHistory: [{ state: "ready" }],
     }));
+    mkdirSync(join(root, "evaluation"), { recursive: true });
+    writeFileSync(join(root, "evaluation", "latest.json"), JSON.stringify({ aggregate: { baseline: { meanWeightedRecall: 0.9 }, codesearch: { meanWeightedRecall: 0.8 } } }));
 
     const result = spawnSync(process.execPath, [
       "--experimental-strip-types",

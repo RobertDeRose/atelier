@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.7 — 2026-07-22
+
+```text
+feat(code): focus provider retrieval on workflow evidence
+
+- add automatic and explicit source, tests, docs, and all search focus
+- overfetch a bounded compact provider candidate pool before final truncation
+- preserve provider rank and score through Atelier post-processing
+- prioritize workflow-relevant path classes while retaining provider order within each class
+- diversify files before returning duplicate chunks from the same path
+- apply the same focus policy to the ripgrep evaluation baseline
+- record provider order, resolved focus, and reranking in evaluation reports
+- warn in live conformance when implementation focus or weighted recall remains weak
+- commit the clean 2,138-chunk codesearch corpus as a portable regression fixture
+```
+
 ## 0.8.6 — 2026-07-22
 
 ```text

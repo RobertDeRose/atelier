@@ -4,9 +4,12 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.8.6 scope
+## v0.8.7 scope
 
-This release corrects the repository corpus used by codesearch. Captured provider responses remain committed for regression testing but are excluded through `.codesearchignore`. Atelier fingerprints repository ignore inputs and the codesearch version, then performs one full rebuild when that selection changes so stale fixture chunks are removed before semantic evaluation.
+This release improves workflow-oriented result selection after the v0.8.6 corpus cleanup.
+Codesearch remains the ranking and indexing provider. Atelier now requests a bounded compact
+candidate pool, infers or accepts a search focus, preserves provider rank, diversifies paths,
+and applies the final result budget only after source/test/docs selection.
 
 Atelier now owns:
 
@@ -88,6 +91,8 @@ atlr code index
 atlr code search "where is device authentication handled?"
 atlr code search --mode lexical CodesearchProvider
 atlr code search --mode semantic "where is authentication handled?"
+atlr code search --focus source "where is provider selection implemented?"
+atlr code search --focus tests "which tests verify normalization?"
 atlr code symbols AuthSession
 ```
 
@@ -97,7 +102,7 @@ Provider and repository filters are available where supported:
 atlr code search --provider codesearch --repo api,auth "token refresh"
 ```
 
-Search mode may be `auto`, `semantic`, `hybrid`, or `lexical`. `auto` is the normal workflow mode. If codesearch reports an operational failure from its semantic/vector path, Atelier performs a bounded literal fallback, marks every result as degraded, and preserves the original provider error in provenance. Explicit `--mode semantic` never hides that failure.
+Search mode may be `auto`, `semantic`, `hybrid`, or `lexical`. Search focus may be `auto`, `source`, `tests`, `docs`, or `all`. Automatic focus recognizes implementation-, test-, and documentation-oriented questions. Focused searches overfetch compact provider metadata, preserve `providerRank`, diversify files, and apply the user-visible retrieval limit afterward. If codesearch reports an operational failure from its semantic/vector path, Atelier performs a bounded literal fallback, marks every result as degraded, and preserves the original provider error in provenance. Explicit `--mode semantic` never hides that failure.
 
 Unsupported provider capabilities must be reported explicitly. Atelier does not silently discard filters or hide fallback-provider semantics.
 
@@ -227,7 +232,7 @@ Validation evidence remains qualified by repository snapshot and becomes stale a
 ## Current limitations
 
 - No Octocode adapter yet.
-- The weighted retrieval benchmark must be rerun after v0.8.6 rebuilds the fixture-free corpus before changing Atelier's default search-routing policy.
+- Focused retrieval still requires one live benchmark run before Atelier decides whether codesearch alone is sufficient or an Octocode comparison should begin.
 - No persistent daemon or JSON-RPC service boundary.
 - The codesearch adapter supports imports, dependents, and usage relationships; deeper provider-specific graph evaluation remains pending.
 - Jujutsu live conformance still requires a real supported `jj` binary.

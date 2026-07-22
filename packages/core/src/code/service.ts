@@ -1,6 +1,6 @@
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
 import type { CodeProviderRegistry } from "./registry.ts";
-import type { CodeChunk, CodeRelationship, CodeRelationshipQuery, CodeSearchHit, CodeSearchMode, CodeWorkspace } from "./types.ts";
+import type { CodeChunk, CodeRelationship, CodeRelationshipQuery, CodeSearchFocus, CodeSearchHit, CodeSearchMode, CodeWorkspace } from "./types.ts";
 
 export class CodeService {
   private readonly registry: CodeProviderRegistry;
@@ -26,12 +26,13 @@ export class CodeService {
     return state;
   }
 
-  async search(options: { workspace: CodeWorkspace; text: string; mode?: CodeSearchMode; repositoryIds?: string[]; limit?: number; provider?: string }): Promise<CodeSearchHit[]> {
+  async search(options: { workspace: CodeWorkspace; text: string; mode?: CodeSearchMode; focus?: CodeSearchFocus; repositoryIds?: string[]; limit?: number; provider?: string }): Promise<CodeSearchHit[]> {
     const selected = this.registry.get(options.provider);
     const results = await selected.search({
       workspace: options.workspace,
       text: options.text,
       mode: options.mode ?? "auto",
+      focus: options.focus ?? "auto",
       ...(options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds }),
       limit: Math.min(options.limit ?? this.limits.maxResults, this.limits.maxResults),
       includeTests: true,
@@ -39,7 +40,7 @@ export class CodeService {
     });
     const bounded = results.slice(0, this.limits.maxResults).map((hit) => ({ ...hit, ...(hit.preview === undefined ? {} : { preview: truncateUtf8(hit.preview, this.limits.maxPreviewBytes) }) }));
     const warnings = [...new Set(bounded.flatMap((hit) => hit.provenance.warnings ?? []))];
-    this.ledger.append({ kind: "code.search_completed", actor: "system", payload: { provider: selected.name, workspaceId: options.workspace.id, query: options.text, resultCount: bounded.length, truncated: results.length > bounded.length, degraded: bounded.some((hit) => hit.provenance.degraded === true), warnings } });
+    this.ledger.append({ kind: "code.search_completed", actor: "system", payload: { provider: selected.name, workspaceId: options.workspace.id, query: options.text, focus: options.focus ?? "auto", resultCount: bounded.length, truncated: results.length > bounded.length, degraded: bounded.some((hit) => hit.provenance.degraded === true), warnings } });
     return bounded;
   }
 

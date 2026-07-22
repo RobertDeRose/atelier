@@ -1,0 +1,452 @@
+{
+  "initialize": {
+    "protocolVersion": "2025-11-25",
+    "capabilities": {
+      "tools": {}
+    },
+    "serverInfo": {
+      "name": "codesearch",
+      "version": "1.1.30"
+    },
+    "instructions": "codesearch — semantic code search + symbol impact analysis.\n\nWHEN TO USE codesearch (prefer over grep/glob):\n  Good for: semantic or cross-file lookup, unknown file paths, symbol navigation,\n    \"where is X implemented\", \"find usages of Y\", \"how does Z flow through the code\"\n  Not for: a single known file (just read it), trivial one-line edits,\n    exact literal patterns where plain grep is faster\n\nSERVICE-MODE NOTES (codesearch serve, esp. on another host):\n  - Paths come from the SERVER's filesystem. Use get_chunk to read content;\n    don't try to open returned paths locally.\n  - Not every directory is indexed (e.g. .venv, node_modules, build/). If a\n    search returns nothing, the dir may be unindexed — ask, don't grep blindly.\n\nPICK THE RIGHT TOOL FOR THE TASK:\n  \"who calls X?\" / \"what breaks if I rename X?\"\n    → find_impact (C# via SCIP; other languages: use find kind=\"usages\")\n  \"find code about X\" / \"how does X work\" / \"show me X\"\n    → search(mode=\"semantic\") — concepts + synonyms + identifiers\n  exact syntax like Vec<T> / foo = null / a::b\n    → search(mode=\"literal\", regex=true) — patterns semantic can't match\n  \"where is X defined?\" / \"what does file X import?\"\n    → find(kind=\"definition\" | \"imports\")\n  \"show all symbols in file X\" / \"code like chunk Y\"\n    → explore(kind=\"outline\" | \"similar\")\n  read chunk content → get_chunk(chunk_id)\n  index health / repo list → status\n\nRULES:\n  - search(semantic) is the DEFAULT for code lookup. Don't skip it.\n  - find_impact for C# refactors; find(kind=\"usages\") for other languages.\n  - NEVER use literal as first search unless you need exact syntax.\n  - project or group is REQUIRED in multi-repo mode.\n\nMode: self-contained (stdio)\nProject: <REPOSITORY_ROOT>\nDatabase: <REPOSITORY_ROOT>/.codesearch.db (ready)\nModel: minilm-l6-q (384d)\n"
+  },
+  "tools": [
+    {
+      "name": "explore",
+      "description": "Unified code exploration. Set `kind` to choose the action:\n\n- `outline` (default): list all indexed top-level symbols in a file — kind, signature, and line range. Set `target` to a file path.\n- `similar`: find chunks semantically similar to a given chunk by its ID. Set `target` to the chunk_id (as string).\n\nIMPORTANT (multi-repo): always specify either `project` (single repo) or `group` (cross-repo). Omitting both in multi-repo mode returns a `scope_required` error with the list of available projects and groups. If the user has not indicated which repository to search, ask them to choose.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Unified exploration request — replaces `file_outline` and `similar_chunks`.",
+        "properties": {
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "What to explore: `\"outline\"` (default) | `\"similar\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Maximum number of results (default: 5 for similar, unlimited for outline).",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "description": "File path for outline mode, or chunk_id for similar mode.\nFor outline: a file path relative to project root or absolute.\nFor similar: a numeric chunk_id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "title": "ExploreRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "find",
+      "description": "Unified symbol navigation. Set `kind` to choose the action:\n\n- `definition` (default): locate where a symbol is defined (function, class, struct, etc.)\n- `usages`: find all call-sites and references to a symbol\n- `imports`: list all imports/dependencies declared in a file (set `symbol` to the file path)\n- `dependents`: find all files that import or depend on a module, file, or symbol\n\nFor `imports`, set `symbol` to a file path. For other kinds, `symbol` is the symbol name.\n\nIMPORTANT (multi-repo): always specify either `project` (single repo) or `group` (cross-repo). Omitting both in multi-repo mode returns a `scope_required` error with the list of available projects and groups. If the user has not indicated which repository to search, ask them to choose.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Unified symbol navigation request — replaces `find_definition`, `find_usages`,\n`find_imports`, and `find_dependents`.",
+        "properties": {
+          "definition_kind": {
+            "description": "Optional kind filter for definitions.\nAccepted: \"Function\" | \"Class\" | \"Method\" | \"Struct\" | \"Trait\" | \"Enum\" | \"TypeAlias\" | \"Interface\"",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "What to find: `\"definition\"` (default) | `\"usages\"` | `\"imports\"` | `\"dependents\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Maximum number of results (default: 20).",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "symbol": {
+            "description": "Symbol name (for definition/usages) or module path (for imports/dependents).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "FindRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "find_impact",
+      "description": "Symbol impact analysis — find all references to a symbol with IDE-class precision (SCIP).\n\nReturns transitive call-sites with file/line precision, enabling agents to plan refactors without missing a caller. More accurate than text-based `find kind=\"usages\"` because it understands the language semantics.\n\nInput variants:\n- By name: `{ \"symbol_name\": \"FieldDefinition.Validate\", \"project\": \"myrepo\" }`\n- By position: `{ \"file\": \"src/Validation/FieldDefinition.cs\", \"line\": 42, \"project\": \"myrepo\" }`\n\nLanguages: C# today (requires the `scip-csharp` helper, bundled in `-with-csharp` releases). For Rust/Python/Go/etc., use `find` with `kind=\"usages\"` as a text-based fallback until SCIP backends for those languages ship.\n\nIMPORTANT (multi-repo): always specify `project` (single repo). Omitting `project` in multi-repo mode returns a `scope_required` error.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Symbol impact analysis request — returns transitive call-sites of a symbol\nwith file/line precision, using language-specific semantic analysis (SCIP).\n\nInput variants:\n- By name: `{ \"symbol_name\": \"FieldDefinition.Validate\", \"project\": \"myrepo\" }`\n- By position: `{ \"file\": \"src/Validation/FieldDefinition.cs\", \"line\": 42, \"project\": \"myrepo\" }`",
+        "properties": {
+          "file": {
+            "description": "File path for position-based lookup (relative to project root or absolute).\nMust be combined with `line`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "language": {
+            "description": "Language filter (e.g. `\"csharp\"`). If omitted, auto-detects from file extension\nor searches all installed language adapters.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line": {
+            "description": "1-based line number for position-based lookup.\nMust be combined with `file`.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "symbol_name": {
+            "description": "Symbol name to look up (e.g. `\"FieldDefinition.Validate\"`).\nUsed when you know the name. Mutually exclusive with `file`+`line`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "FindImpactRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_chunk",
+      "description": "Retrieve the full content of a specific chunk by its ID, plus optional surrounding lines for context.\nUse this after search or explore to read the actual code without loading the whole file.\n\nUSE FOR: reading a specific function/class body after finding it via search.\nSet context_lines (default 0, max 20) to include lines before and after the chunk.\n\nIMPORTANT (multi-repo): chunk_ids are local to each repository and are NOT globally unique.\nWhen `project` is omitted in multi-repo mode, the tool scans all repositories for the chunk_id.\nIf found in exactly one repo, it is returned automatically. If found in multiple repos, an `ambiguous_chunk_id` error lists the candidates so you can retry with `project`.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Request to fetch a chunk by ID",
+        "properties": {
+          "chunk_id": {
+            "default": 0,
+            "description": "Local chunk id. Ignored when `chunk_ref` is set (federated fetch).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chunk_ref": {
+            "default": null,
+            "description": "Federated chunk reference `\"<peer>/<remote_alias>:<chunk_id>\"`\n(e.g. `\"cloud/inriver:12345\"`), as returned verbatim in a remote search\nresult's `chunk_ref`. The `<remote_alias>` segment scopes the fetch to a\nsingle remote project so the multi-repo peer can disambiguate the\nchunk_id. When set, the chunk is fetched from the named remote peer and\n`chunk_id`/`project`/`group` are ignored. (A legacy `\"<peer>:<chunk_id>\"`\nref without an alias is still accepted for backward compatibility.)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context_lines": {
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "group": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "GetChunkRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "search",
+      "description": "Unified code search. Set `mode` to choose the backend:\n\n- `semantic` (default): vector embeddings + BM25 FTS + exact-identifier boosting, fused with RRF. Best for conceptual queries, identifier lookups, and mixed natural-language + symbol queries.\n- `literal`: pure FTS, no embeddings. Fast and works without an embedding model. Sub-mode selection:\n  * Queries with operators, brackets, or punctuation (`foo = null`, `Vec<T>`, `return x;`, `a::b`) -> set `regex=true` and write the query as a regex. BM25 tokenizes on punctuation otherwise, producing noisy results.\n  * Multi-word exact phrases -> set `phrase=true`.\n  * Plain identifier lookups (`CodesearchService`) -> leave both false.\n\nFor semantic mode, optionally set `semantic_mode`: \"auto\" (default) | \"semantic\" | \"lexical\" | \"hybrid\".\nReturns metadata only by default (`compact=true`). Use `get_chunk` to read full code. Prefer `search(mode=\"literal\", regex=true)` over external grep/ripgrep for code patterns.\n\nIMPORTANT (multi-repo): always specify either `project` (single repo) or `group` (cross-repo). Omitting both in multi-repo mode returns a `scope_required` error with the list of available projects and groups. If the user has not indicated which repository to search, ask them to choose.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Unified search request — replaces `semantic_search` and `literal_search`.\n\nSet `mode` to choose the search backend:\n- `\"semantic\"` (default) — vector embeddings + BM25 FTS + exact-identifier boosting, fused with RRF.\n- `\"literal\"` — pure FTS, no embeddings. Supports regex, phrase, and exact-term matching.",
+        "properties": {
+          "compact": {
+            "description": "Return compact results (metadata only) to save tokens (default: true).\nOnly applies in semantic mode.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "file_glob": {
+            "description": "File glob filter (literal mode). e.g. \"src/mcp/**\", \"**/*.rs\"",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filter_path": {
+            "description": "Only return results from files under this path prefix (semantic mode).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "description": "Output format for literal mode: `\"json\"` (default) or `\"grep\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "language": {
+            "description": "Language filter (literal mode). e.g. \"Rust\", \"Python\"",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Maximum number of results (default: 10 for semantic, 20 for literal).",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mode": {
+            "description": "Search backend: `\"semantic\"` (default) or `\"literal\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phrase": {
+            "description": "Treat `query` as a phrase (literal mode only).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": {
+            "description": "The search query (natural language, code snippet, regex, or exact term).",
+            "type": "string"
+          },
+          "regex": {
+            "description": "Treat `query` as a regex pattern (literal mode only).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "semantic_mode": {
+            "description": "Override auto-detection of query intent (semantic mode only).\n`\"auto\"` (default) | `\"semantic\"` | `\"lexical\"` | `\"hybrid\"`",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SearchRequest",
+        "type": "object"
+      }
+    },
+    {
+      "name": "status",
+      "description": "Unified status/info tool. Set `kind` to choose the action:\n\n- `index` (default): get the status of the local search index (model info, chunk count, readiness)\n- `projects`: list all registered projects/repositories, groups, and their index status",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Unified status/info request — replaces `index_status` and `list_projects`.",
+        "properties": {
+          "group": {
+            "default": null,
+            "description": "Route to all projects in a group for aggregated index status (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "What status to return: `\"index\"` (default) | `\"projects\"`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project": {
+            "default": null,
+            "description": "Route to a specific project's index status (requires `codesearch serve`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "StatusRequest",
+        "type": "object"
+      }
+    }
+  ],
+  "statusHistory": [
+    {
+      "observedAt": "<TIMESTAMP>",
+      "state": "ready",
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"indexed\":true,\"status\":\"ready\",\"status_message\":\"Index is ready for searching.\",\"total_chunks\":2138,\"total_files\":97,\"model\":\"minilm-l6-q\",\"dimensions\":384,\"max_chunk_id\":2137,\"db_path\":\"<REPOSITORY_ROOT>/.codesearch.db\",\"project_path\":\"<REPOSITORY_ROOT>\",\"mode\":\"stdio\"}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  ],
+  "calls": {
+    "semantic": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"results\":[{\"chunk_id\":529,\"path\":\"<REPOSITORY_ROOT>/docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md\",\"start_line\":9,\"end_line\":17,\"kind\":\"Block\",\"score\":0.820999},{\"chunk_id\":485,\"path\":\"<REPOSITORY_ROOT>/docs/CODE_INTELLIGENCE.md\",\"start_line\":422,\"end_line\":439,\"kind\":\"Block\",\"score\":0.80361605},{\"chunk_id\":421,\"path\":\"<REPOSITORY_ROOT>/docs/ADR-0003-CODESEARCH-DEFAULT.md\",\"start_line\":9,\"end_line\":13,\"kind\":\"Block\",\"score\":0.7706342},{\"chunk_id\":472,\"path\":\"<REPOSITORY_ROOT>/docs/CODE_INTELLIGENCE.md\",\"start_line\":64,\"end_line\":66,\"kind\":\"Block\",\"score\":0.75994265},{\"chunk_id\":1482,\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/service.ts\",\"start_line\":22,\"end_line\":23,\"kind\":\"Function\",\"score\":0.7593432}]}"
+        }
+      ],
+      "isError": false
+    },
+    "hybrid": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"results\":[{\"chunk_id\":109,\"path\":\"<REPOSITORY_ROOT>/tests/codesearch-provider.test.ts\",\"start_line\":268,\"end_line\":276,\"kind\":\"Function\",\"score\":0.077030815},{\"chunk_id\":830,\"path\":\"<REPOSITORY_ROOT>/scripts/probe-codesearch-mcp.ts\",\"start_line\":28,\"end_line\":31,\"kind\":\"Function\",\"score\":0.066734076},{\"chunk_id\":529,\"path\":\"<REPOSITORY_ROOT>/docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md\",\"start_line\":9,\"end_line\":17,\"kind\":\"Block\",\"score\":0.04761905},{\"chunk_id\":485,\"path\":\"<REPOSITORY_ROOT>/docs/CODE_INTELLIGENCE.md\",\"start_line\":422,\"end_line\":439,\"kind\":\"Block\",\"score\":0.045454547}]}"
+        }
+      ],
+      "isError": false
+    },
+    "literal": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"results\":[{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":41,\"end_line\":41,\"snippet\":\"// [Part 1/6] class CodesearchProvider\",\"score\":9.78811,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"},{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":491,\"end_line\":491,\"snippet\":\"// [Part 6/6] class CodesearchProvider\",\"score\":9.392672,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"},{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":221,\"end_line\":221,\"snippet\":\"// [Part 3/6] class CodesearchProvider\",\"score\":9.122366,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"},{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":401,\"end_line\":401,\"snippet\":\"// [Part 5/6] class CodesearchProvider\",\"score\":9.122366,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"},{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":311,\"end_line\":311,\"snippet\":\"// [Part 4/6] class CodesearchProvider\",\"score\":8.950741,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"}]}"
+        }
+      ],
+      "isError": false
+    },
+    "symbols": {
+      "content": [
+        {
+          "type": "text",
+          "text": "[{\"chunk_id\":1501,\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"line\":41,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\",\"score\":9.78811},{\"chunk_id\":1506,\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"line\":491,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\",\"score\":9.392672},{\"chunk_id\":1503,\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"line\":221,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\",\"score\":9.122366},{\"chunk_id\":1505,\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"line\":401,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\",\"score\":9.122366},{\"chunk_id\":1504,\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"line\":311,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\",\"score\":8.950741}]"
+        }
+      ],
+      "isError": false
+    },
+    "fetch": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"chunk_id\":529,\"path\":\"<REPOSITORY_ROOT>/docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md\",\"start_line\":9,\"end_line\":17,\"kind\":\"Block\",\"signature\":null,\"content\":\"## Decision\\n\\nAtelier owns the provider contract, lifecycle, capability negotiation, normalized evidence, provenance, staleness policy, and Working State integration.\\n\\nGeneral-purpose indexing is delegated first to external providers. `codesearch` is the planned default proof-of-concept provider; Octocode is the planned second experimental provider.\\n\\nThe public CLI namespace is `code`.\\n\\n\"}"
+        }
+      ],
+      "isError": false
+    },
+    "outline": {
+      "content": [
+        {
+          "type": "text",
+          "text": "[{\"chunk_id\":1498,\"kind\":\"Block\",\"signature\":\"block (24 lines)\",\"start_line\":0,\"end_line\":24},{\"chunk_id\":1499,\"kind\":\"Interface\",\"signature\":null,\"start_line\":24,\"end_line\":33},{\"chunk_id\":1500,\"kind\":\"Interface\",\"signature\":null,\"start_line\":34,\"end_line\":40},{\"chunk_id\":1506,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\",\"start_line\":41,\"end_line\":141},{\"chunk_id\":1507,\"kind\":\"Method\",\"signature\":null,\"start_line\":64,\"end_line\":74},{\"chunk_id\":1508,\"kind\":\"Method\",\"signature\":null,\"start_line\":75,\"end_line\":118},{\"chunk_id\":1509,\"kind\":\"Function\",\"signature\":null,\"start_line\":77,\"end_line\":78},{\"chunk_id\":1510,\"kind\":\"Method\",\"signature\":null,\"start_line\":119,\"end_line\":170},{\"chunk_id\":1511,\"kind\":\"Function\",\"signature\":null,\"start_line\":121,\"end_line\":122},{\"chunk_id\":1512,\"kind\":\"Function\",\"signature\":null,\"start_line\":126,\"end_line\":127},{\"chunk_id\":1513,\"kind\":\"Function\",\"signature\":null,\"start_line\":133,\"end_line\":134},{\"chunk_id\":1514,\"kind\":\"Function\",\"signature\":null,\"start_line\":146,\"end_line\":147},{\"chunk_id\":1515,\"kind\":\"Function\",\"signature\":null,\"start_line\":147,\"end_line\":148},{\"chunk_id\":1516,\"kind\":\"Function\",\"signature\":null,\"start_line\":148,\"end_line\":149},{\"chunk_id\":1517,\"kind\":\"Function\",\"signature\":null,\"start_line\":150,\"end_line\":151},{\"chunk_id\":1518,\"kind\":\"Method\",\"signature\":null,\"start_line\":172,\"end_line\":185},{\"chunk_id\":1519,\"kind\":\"Function\",\"signature\":null,\"start_line\":173,\"end_line\":180},{\"chunk_id\":1520,\"kind\":\"Method\",\"signature\":null,\"start_line\":186,\"end_line\":208},{\"chunk_id\":1521,\"kind\":\"Function\",\"signature\":null,\"start_line\":187,\"end_line\":194},{\"chunk_id\":1522,\"kind\":\"Function\",\"signature\":null,\"start_line\":200,\"end_line\":201},{\"chunk_id\":1523,\"kind\":\"Function\",\"signature\":null,\"start_line\":202,\"end_line\":203},{\"chunk_id\":1524,\"kind\":\"Function\",\"signature\":null,\"start_line\":203,\"end_line\":204},{\"chunk_id\":1525,\"kind\":\"Method\",\"signature\":null,\"start_line\":209,\"end_line\":212},{\"chunk_id\":1526,\"kind\":\"Method\",\"signature\":null,\"start_line\":213,\"end_line\":264},{\"chunk_id\":1527,\"kind\":\"Function\",\"signature\":null,\"start_line\":217,\"end_line\":218},{\"chunk_id\":1528,\"kind\":\"Function\",\"signature\":null,\"start_line\":218,\"end_line\":219},{\"chunk_id\":1529,\"kind\":\"Function\",\"signature\":null,\"start_line\":219,\"end_line\":220},{\"chunk_id\":1530,\"kind\":\"Function\",\"signature\":null,\"start_line\":220,\"end_line\":221},{\"chunk_id\":1531,\"kind\":\"Function\",\"signature\":null,\"start_line\":223,\"end_line\":224},{\"chunk_id\":1532,\"kind\":\"Function\",\"signature\":null,\"start_line\":224,\"end_line\":225},{\"chunk_id\":1533,\"kind\":\"Function\",\"signature\":null,\"start_line\":225,\"end_line\":226},{\"chunk_id\":1534,\"kind\":\"Function\",\"signature\":null,\"start_line\":226,\"end_line\":227},{\"chunk_id\":1535,\"kind\":\"Function\",\"signature\":null,\"start_line\":227,\"end_line\":228},{\"chunk_id\":1536,\"kind\":\"Function\",\"signature\":null,\"start_line\":228,\"end_line\":229},{\"chunk_id\":1537,\"kind\":\"Function\",\"signature\":null,\"start_line\":235,\"end_line\":236},{\"chunk_id\":1538,\"kind\":\"Function\",\"signature\":null,\"start_line\":248,\"end_line\":249},{\"chunk_id\":1539,\"kind\":\"Method\",\"signature\":null,\"start_line\":265,\"end_line\":309},{\"chunk_id\":1540,\"kind\":\"Function\",\"signature\":null,\"start_line\":270,\"end_line\":271},{\"chunk_id\":1541,\"kind\":\"Function\",\"signature\":null,\"start_line\":271,\"end_line\":272},{\"chunk_id\":1542,\"kind\":\"Function\",\"signature\":null,\"start_line\":272,\"end_line\":273},{\"chunk_id\":1543,\"kind\":\"Function\",\"signature\":null,\"start_line\":273,\"end_line\":274},{\"chunk_id\":1544,\"kind\":\"Function\",\"signature\":null,\"start_line\":276,\"end_line\":285},{\"chunk_id\":1545,\"kind\":\"Function\",\"signature\":null,\"start_line\":285,\"end_line\":286},{\"chunk_id\":1546,\"kind\":\"Function\",\"signature\":null,\"start_line\":291,\"end_line\":292},{\"chunk_id\":1547,\"kind\":\"Function\",\"signature\":null,\"start_line\":293,\"end_line\":294},{\"chunk_id\":1548,\"kind\":\"Function\",\"signature\":null,\"start_line\":294,\"end_line\":295},{\"chunk_id\":1549,\"kind\":\"Function\",\"signature\":null,\"start_line\":295,\"end_line\":296},{\"chunk_id\":1550,\"kind\":\"Function\",\"signature\":null,\"start_line\":302,\"end_line\":306},{\"chunk_id\":1551,\"kind\":\"Method\",\"signature\":null,\"start_line\":310,\"end_line\":351},{\"chunk_id\":1552,\"kind\":\"Function\",\"signature\":null,\"start_line\":312,\"end_line\":313},{\"chunk_id\":1553,\"kind\":\"Function\",\"signature\":null,\"start_line\":313,\"end_line\":320},{\"chunk_id\":1554,\"kind\":\"Function\",\"signature\":null,\"start_line\":320,\"end_line\":321},{\"chunk_id\":1555,\"kind\":\"Function\",\"signature\":null,\"start_line\":321,\"end_line\":322},{\"chunk_id\":1556,\"kind\":\"Function\",\"signature\":null,\"start_line\":322,\"end_line\":323},{\"chunk_id\":1557,\"kind\":\"Function\",\"signature\":null,\"start_line\":324,\"end_line\":335},{\"chunk_id\":1558,\"kind\":\"Function\",\"signature\":null,\"start_line\":335,\"end_line\":336},{\"chunk_id\":1559,\"kind\":\"Function\",\"signature\":null,\"start_line\":336,\"end_line\":337},{\"chunk_id\":1560,\"kind\":\"Function\",\"signature\":null,\"start_line\":337,\"end_line\":338},{\"chunk_id\":1561,\"kind\":\"Function\",\"signature\":null,\"start_line\":338,\"end_line\":339},{\"chunk_id\":1562,\"kind\":\"Function\",\"signature\":null,\"start_line\":339,\"end_line\":340},{\"chunk_id\":1563,\"kind\":\"Method\",\"signature\":null,\"start_line\":352,\"end_line\":382},{\"chunk_id\":1564,\"kind\":\"Function\",\"signature\":null,\"start_line\":356,\"end_line\":357},{\"chunk_id\":1565,\"kind\":\"Function\",\"signature\":null,\"start_line\":357,\"end_line\":358},{\"chunk_id\":1566,\"kind\":\"Function\",\"signature\":null,\"start_line\":359,\"end_line\":360},{\"chunk_id\":1567,\"kind\":\"Function\",\"signature\":null,\"start_line\":360,\"end_line\":361},{\"chunk_id\":1568,\"kind\":\"Function\",\"signature\":null,\"start_line\":361,\"end_line\":370},{\"chunk_id\":1569,\"kind\":\"Method\",\"signature\":null,\"start_line\":383,\"end_line\":432},{\"chunk_id\":1570,\"kind\":\"Function\",\"signature\":null,\"start_line\":385,\"end_line\":386},{\"chunk_id\":1571,\"kind\":\"Function\",\"signature\":null,\"start_line\":389,\"end_line\":390},{\"chunk_id\":1572,\"kind\":\"Function\",\"signature\":null,\"start_line\":390,\"end_line\":391},{\"chunk_id\":1573,\"kind\":\"Function\",\"signature\":null,\"start_line\":392,\"end_line\":393},{\"chunk_id\":1574,\"kind\":\"Function\",\"signature\":null,\"start_line\":393,\"end_line\":394},{\"chunk_id\":1575,\"kind\":\"Function\",\"signature\":null,\"start_line\":394,\"end_line\":395},{\"chunk_id\":1576,\"kind\":\"Function\",\"signature\":null,\"start_line\":395,\"end_line\":396},{\"chunk_id\":1577,\"kind\":\"Function\",\"signature\":null,\"start_line\":396,\"end_line\":405},{\"chunk_id\":1578,\"kind\":\"Function\",\"signature\":null,\"start_line\":405,\"end_line\":406},{\"chunk_id\":1579,\"kind\":\"Function\",\"signature\":null,\"start_line\":406,\"end_line\":407},{\"chunk_id\":1580,\"kind\":\"Function\",\"signature\":null,\"start_line\":408,\"end_line\":409},{\"chunk_id\":1581,\"kind\":\"Function\",\"signature\":null,\"start_line\":409,\"end_line\":410},{\"chunk_id\":1582,\"kind\":\"Method\",\"signature\":null,\"start_line\":433,\"end_line\":437},{\"chunk_id\":1583,\"kind\":\"Method\",\"signature\":null,\"start_line\":438,\"end_line\":459},{\"chunk_id\":1584,\"kind\":\"Function\",\"signature\":null,\"start_line\":445,\"end_line\":446},{\"chunk_id\":1585,\"kind\":\"Method\",\"signature\":null,\"start_line\":460,\"end_line\":465},{\"chunk_id\":1586,\"kind\":\"Method\",\"signature\":null,\"start_line\":467,\"end_line\":472},{\"chunk_id\":1587,\"kind\":\"Function\",\"signature\":null,\"start_line\":468,\"end_line\":469},{\"chunk_id\":1588,\"kind\":\"Function\",\"signature\":null,\"start_line\":469,\"end_line\":470},{\"chunk_id\":1589,\"kind\":\"Method\",\"signature\":null,\"start_line\":473,\"end_line\":496},{\"chunk_id\":1590,\"kind\":\"Function\",\"signature\":null,\"start_line\":479,\"end_line\":480},{\"chunk_id\":1591,\"kind\":\"Function\",\"signature\":null,\"start_line\":480,\"end_line\":481},{\"chunk_id\":1592,\"kind\":\"Method\",\"signature\":null,\"start_line\":497,\"end_line\":509},{\"chunk_id\":1593,\"kind\":\"Function\",\"signature\":null,\"start_line\":499,\"end_line\":502},{\"chunk_id\":1594,\"kind\":\"Function\",\"signature\":null,\"start_line\":503,\"end_line\":504},{\"chunk_id\":1595,\"kind\":\"Method\",\"signature\":null,\"start_line\":510,\"end_line\":515},{\"chunk_id\":1596,\"kind\":\"Method\",\"signature\":null,\"start_line\":516,\"end_line\":520},{\"chunk_id\":1597,\"kind\":\"Method\",\"signature\":null,\"start_line\":521,\"end_line\":524},{\"chunk_id\":1598,\"kind\":\"Method\",\"signature\":null,\"start_line\":525,\"end_line\":535},{\"chunk_id\":1599,\"kind\":\"Function\",\"signature\":null,\"start_line\":526,\"end_line\":527},{\"chunk_id\":1600,\"kind\":\"Method\",\"signature\":null,\"start_line\":536,\"end_line\":549},{\"chunk_id\":1601,\"kind\":\"Function\",\"signature\":null,\"start_line\":537,\"end_line\":544},{\"chunk_id\":1602,\"kind\":\"Function\",\"signature\":null,\"start_line\":545,\"end_line\":546},{\"chunk_id\":1603,\"kind\":\"Function\",\"signature\":\"function mcpArgs(mode: \\\"auto\\\" | \\\"local\\\" | \\\"client\\\"): : string[]\",\"start_line\":551,\"end_line\":554},{\"chunk_id\":1604,\"kind\":\"Function\",\"signature\":\"function mapSearchMode(mode: CodeSearchMode): : CodeSearchMode\",\"start_line\":555,\"end_line\":558},{\"chunk_id\":1605,\"kind\":\"Function\",\"signature\":\"function semanticSearchMode(mode: CodeSearchMode): : \\\"auto\\\" | \\\"semantic\\\" | \\\"hybrid\\\"\",\"start_line\":559,\"end_line\":562},{\"chunk_id\":1606,\"kind\":\"Function\",\"signature\":\"function searchArguments(query: CodeSearchQuery, actualMode: CodeSearchMode, scope: Record<string, unknown>): : Record<string, unknown>\",\"start_line\":564,\"end_line\":581},{\"chunk_id\":1607,\"kind\":\"Function\",\"signature\":null,\"start_line\":565,\"end_line\":573},{\"chunk_id\":1608,\"kind\":\"Function\",\"signature\":null,\"start_line\":574,\"end_line\":575},{\"chunk_id\":1609,\"kind\":\"Function\",\"signature\":\"function toolResponseError(result: McpToolCallResult): : string | undefined\",\"start_line\":582,\"end_line\":589},{\"chunk_id\":1610,\"kind\":\"Function\",\"signature\":null,\"start_line\":583,\"end_line\":584},{\"chunk_id\":1611,\"kind\":\"Function\",\"signature\":\"function literalQueryCandidates(query: string): : string[]\",\"start_line\":590,\"end_line\":597},{\"chunk_id\":1612,\"kind\":\"Function\",\"signature\":null,\"start_line\":591,\"end_line\":592},{\"chunk_id\":1613,\"kind\":\"Function\",\"signature\":null,\"start_line\":592,\"end_line\":593},{\"chunk_id\":1614,\"kind\":\"Function\",\"signature\":null,\"start_line\":593,\"end_line\":594},{\"chunk_id\":1615,\"kind\":\"Function\",\"signature\":null,\"start_line\":594,\"end_line\":595},{\"chunk_id\":1616,\"kind\":\"Function\",\"signature\":\"function rowIdentity(row: Record<string, unknown>): : string\",\"start_line\":598,\"end_line\":601},{\"chunk_id\":1617,\"kind\":\"Function\",\"signature\":\"function prefixFromGlob(glob: string): : string\",\"start_line\":602,\"end_line\":605},{\"chunk_id\":1618,\"kind\":\"Function\",\"signature\":\"function enforcedSearchFilters(query: CodeSearchQuery, mode: CodeSearchMode): : string[]\",\"start_line\":606,\"end_line\":613},{\"chunk_id\":1619,\"kind\":\"Function\",\"signature\":null,\"start_line\":607,\"end_line\":608},{\"chunk_id\":1620,\"kind\":\"Function\",\"signature\":\"function extractData(result: McpToolCallResult): : unknown\",\"start_line\":614,\"end_line\":625},{\"chunk_id\":1621,\"kind\":\"Function\",\"signature\":null,\"start_line\":616,\"end_line\":617},{\"chunk_id\":1622,\"kind\":\"Function\",\"signature\":null,\"start_line\":619,\"end_line\":620},{\"chunk_id\":1623,\"kind\":\"Function\",\"signature\":\"function extractText(result: McpToolCallResult): : string\",\"start_line\":626,\"end_line\":629},{\"chunk_id\":1624,\"kind\":\"Function\",\"signature\":\"function extractRows(data: unknown): : Array<Record<string, unknown>>\",\"start_line\":630,\"end_line\":639},{\"chunk_id\":1625,\"kind\":\"Function\",\"signature\":null,\"start_line\":634,\"end_line\":635},{\"chunk_id\":1626,\"kind\":\"Function\",\"signature\":\"function firstRecord(data: unknown): : Record<string, unknown>\",\"start_line\":640,\"end_line\":647},{\"chunk_id\":1627,\"kind\":\"Function\",\"signature\":\"function normalizeHit(options: {\\n  row: Record<string, unknown>;\\n  rank: number;\\n  query: CodeSearchQuery;\\n  actualMode: CodeSearchMode;\\n  workspace: CodeWorkspace;\\n  identity: CodeProviderIdentity;\\n  indexState: CodeIndexState;\\n  enforcedFilters: string[];\\n  indexedSnapshots?: Record<string, string>;\\n  postProcessing?: string[];\\n  warnings?: string[];\\n}): : CodeSearchHit\",\"start_line\":648,\"end_line\":725},{\"chunk_id\":1628,\"kind\":\"Function\",\"signature\":null,\"start_line\":661,\"end_line\":662},{\"chunk_id\":1629,\"kind\":\"Function\",\"signature\":null,\"start_line\":662,\"end_line\":663},{\"chunk_id\":1630,\"kind\":\"Function\",\"signature\":null,\"start_line\":663,\"end_line\":664},{\"chunk_id\":1631,\"kind\":\"Function\",\"signature\":null,\"start_line\":664,\"end_line\":665},{\"chunk_id\":1632,\"kind\":\"Function\",\"signature\":null,\"start_line\":665,\"end_line\":666},{\"chunk_id\":1633,\"kind\":\"Function\",\"signature\":null,\"start_line\":666,\"end_line\":667},{\"chunk_id\":1634,\"kind\":\"Function\",\"signature\":null,\"start_line\":667,\"end_line\":668},{\"chunk_id\":1635,\"kind\":\"Function\",\"signature\":null,\"start_line\":668,\"end_line\":669},{\"chunk_id\":1636,\"kind\":\"Function\",\"signature\":null,\"start_line\":669,\"end_line\":670},{\"chunk_id\":1637,\"kind\":\"Function\",\"signature\":null,\"start_line\":670,\"end_line\":671},{\"chunk_id\":1638,\"kind\":\"Function\",\"signature\":null,\"start_line\":671,\"end_line\":683},{\"chunk_id\":1639,\"kind\":\"Function\",\"signature\":null,\"start_line\":683,\"end_line\":684},{\"chunk_id\":1640,\"kind\":\"Function\",\"signature\":null,\"start_line\":684,\"end_line\":685},{\"chunk_id\":1641,\"kind\":\"Function\",\"signature\":null,\"start_line\":685,\"end_line\":686},{\"chunk_id\":1642,\"kind\":\"Function\",\"signature\":null,\"start_line\":686,\"end_line\":687},{\"chunk_id\":1643,\"kind\":\"Function\",\"signature\":\"function referenceFromRow(row: Record<string, unknown>, workspace: CodeWorkspace, provider: string): : CodeReference\",\"start_line\":726,\"end_line\":749},{\"chunk_id\":1644,\"kind\":\"Function\",\"signature\":null,\"start_line\":727,\"end_line\":728},{\"chunk_id\":1645,\"kind\":\"Function\",\"signature\":null,\"start_line\":728,\"end_line\":729},{\"chunk_id\":1646,\"kind\":\"Function\",\"signature\":null,\"start_line\":729,\"end_line\":730},{\"chunk_id\":1647,\"kind\":\"Function\",\"signature\":null,\"start_line\":730,\"end_line\":731},{\"chunk_id\":1648,\"kind\":\"Function\",\"signature\":null,\"start_line\":731,\"end_line\":732},{\"chunk_id\":1649,\"kind\":\"Function\",\"signature\":null,\"start_line\":732,\"end_line\":733},{\"chunk_id\":1650,\"kind\":\"Function\",\"signature\":null,\"start_line\":733,\"end_line\":734},{\"chunk_id\":1651,\"kind\":\"Function\",\"signature\":null,\"start_line\":734,\"end_line\":735},{\"chunk_id\":1652,\"kind\":\"Function\",\"signature\":null,\"start_line\":735,\"end_line\":736},{\"chunk_id\":1653,\"kind\":\"Function\",\"signature\":\"function resolveRepository(workspace: CodeWorkspace, project?: string, path?: string)\",\"start_line\":750,\"end_line\":765},{\"chunk_id\":1654,\"kind\":\"Function\",\"signature\":null,\"start_line\":752,\"end_line\":753},{\"chunk_id\":1655,\"kind\":\"Function\",\"signature\":null,\"start_line\":756,\"end_line\":759},{\"chunk_id\":1656,\"kind\":\"Function\",\"signature\":null,\"start_line\":760,\"end_line\":761},{\"chunk_id\":1657,\"kind\":\"Function\",\"signature\":\"function normalizeRepositoryPath(repository: CodeWorkspace[\\\"repositories\\\"][number], path: string): : string\",\"start_line\":766,\"end_line\":777},{\"chunk_id\":1658,\"kind\":\"Function\",\"signature\":null,\"start_line\":767,\"end_line\":768},{\"chunk_id\":1659,\"kind\":\"Function\",\"signature\":null,\"start_line\":769,\"end_line\":770},{\"chunk_id\":1660,\"kind\":\"Function\",\"signature\":\"function pathWithinRoot(root: string, path: string): : boolean\",\"start_line\":778,\"end_line\":783},{\"chunk_id\":1661,\"kind\":\"Function\",\"signature\":null,\"start_line\":780,\"end_line\":781},{\"chunk_id\":1662,\"kind\":\"Function\",\"signature\":\"function repositoryAliases(repository: CodeWorkspace[\\\"repositories\\\"][number]): : string[]\",\"start_line\":784,\"end_line\":787},{\"chunk_id\":1663,\"kind\":\"Function\",\"signature\":\"function normalizeSlashes(value: string): : string\",\"start_line\":788,\"end_line\":791},{\"chunk_id\":1664,\"kind\":\"Function\",\"signature\":\"function provenanceFor(options: {\\n  identity: CodeProviderIdentity;\\n  workspaceId: string;\\n  repositoryId: string;\\n  requestedMode: CodeSearchMode;\\n  actualMode: CodeSearchMode;\\n  query: string;\\n  indexState: CodeIndexState;\\n  requestedFilters: Record<string, unknown>;\\n  enforcedFilters: string[];\\n  indexedSnapshot?: string;\\n  currentSnapshot?: string;\\n  postProcessing?: string[];\\n  warnings?: string[];\\n}): : CodeProvenance\",\"start_line\":792,\"end_line\":828},{\"chunk_id\":1665,\"kind\":\"Function\",\"signature\":\"function inferIndexState(data: unknown, fallback: CodeIndexState = \\\"unknown\\\"): : CodeIndexState\",\"start_line\":829,\"end_line\":841},{\"chunk_id\":1666,\"kind\":\"Function\",\"signature\":null,\"start_line\":830,\"end_line\":831},{\"chunk_id\":1667,\"kind\":\"Function\",\"signature\":null,\"start_line\":833,\"end_line\":834},{\"chunk_id\":1668,\"kind\":\"Function\",\"signature\":\"function findStateValue(data: unknown): : CodeIndexState | undefined\",\"start_line\":842,\"end_line\":865},{\"chunk_id\":1669,\"kind\":\"Function\",\"signature\":null,\"start_line\":845,\"end_line\":846},{\"chunk_id\":1670,\"kind\":\"Function\",\"signature\":null,\"start_line\":853,\"end_line\":854},{\"chunk_id\":1671,\"kind\":\"Function\",\"signature\":null,\"start_line\":855,\"end_line\":856},{\"chunk_id\":1672,\"kind\":\"Function\",\"signature\":null,\"start_line\":860,\"end_line\":861},{\"chunk_id\":1673,\"kind\":\"Function\",\"signature\":\"function normalizeIndexState(value: string): : CodeIndexState | undefined\",\"start_line\":866,\"end_line\":875},{\"chunk_id\":1674,\"kind\":\"Function\",\"signature\":null,\"start_line\":867,\"end_line\":868},{\"chunk_id\":1675,\"kind\":\"Function\",\"signature\":\"function collectStrings(data: unknown): : string[]\",\"start_line\":876,\"end_line\":882},{\"chunk_id\":1676,\"kind\":\"Function\",\"signature\":\"function inferRoutingMode(instructions: string, configured: \\\"auto\\\" | \\\"local\\\" | \\\"client\\\"): : \\\"unknown\\\" | \\\"local\\\" | \\\"client\\\"\",\"start_line\":883,\"end_line\":889},{\"chunk_id\":1677,\"kind\":\"Function\",\"signature\":null,\"start_line\":884,\"end_line\":885},{\"chunk_id\":1678,\"kind\":\"Function\",\"signature\":\"function delay(milliseconds: number): : Promise<void>\",\"start_line\":890,\"end_line\":893},{\"chunk_id\":1679,\"kind\":\"Function\",\"signature\":\"function snapshotIdentity(snapshot: CodeWorkspace[\\\"repositories\\\"][number][\\\"snapshot\\\"]): : string\",\"start_line\":894,\"end_line\":897},{\"chunk_id\":1680,\"kind\":\"Function\",\"signature\":\"function encodeReference(data: CodesearchReferenceData): : string\",\"start_line\":898,\"end_line\":901},{\"chunk_id\":1681,\"kind\":\"Function\",\"signature\":\"function decodeReference(value: string): : CodesearchReferenceData\",\"start_line\":902,\"end_line\":911},{\"chunk_id\":1682,\"kind\":\"Function\",\"signature\":null,\"start_line\":904,\"end_line\":905},{\"chunk_id\":1683,\"kind\":\"Function\",\"signature\":\"function numericOrString(value: string): : number | string\",\"start_line\":912,\"end_line\":916},{\"chunk_id\":1684,\"kind\":\"Function\",\"signature\":null,\"start_line\":913,\"end_line\":914},{\"chunk_id\":1685,\"kind\":\"Function\",\"signature\":\"function stringField(record: Record<string, unknown>, keys: string[]): : string | undefined\",\"start_line\":917,\"end_line\":921},{\"chunk_id\":1686,\"kind\":\"Function\",\"signature\":\"function numberField(record: Record<string, unknown>, keys: string[]): : number | undefined\",\"start_line\":922,\"end_line\":930},{\"chunk_id\":1687,\"kind\":\"Function\",\"signature\":null,\"start_line\":924,\"end_line\":925},{\"chunk_id\":1688,\"kind\":\"Function\",\"signature\":\"function isRecord(value: unknown): : value is Record<string, unknown>\",\"start_line\":931,\"end_line\":934},{\"chunk_id\":1689,\"kind\":\"Function\",\"signature\":\"function truncate(value: string, maximum: number): : string\",\"start_line\":935,\"end_line\":938},{\"chunk_id\":1690,\"kind\":\"Function\",\"signature\":\"function stripAnsi(value: string): : string\",\"start_line\":939,\"end_line\":942},{\"chunk_id\":1691,\"kind\":\"Function\",\"signature\":\"function errorMessage(error: unknown): : string\",\"start_line\":943,\"end_line\":946},{\"chunk_id\":1692,\"kind\":\"Interface\",\"signature\":null,\"start_line\":947,\"end_line\":951},{\"chunk_id\":1693,\"kind\":\"Function\",\"signature\":null,\"start_line\":952,\"end_line\":953},{\"chunk_id\":1694,\"kind\":\"Function\",\"signature\":\"function indexSelectionFingerprint(repositoryRoot: string, providerVersion: string): : string\",\"start_line\":954,\"end_line\":968},{\"chunk_id\":1695,\"kind\":\"Function\",\"signature\":null,\"start_line\":955,\"end_line\":956},{\"chunk_id\":1696,\"kind\":\"Function\",\"signature\":null,\"start_line\":960,\"end_line\":961},{\"chunk_id\":1697,\"kind\":\"Function\",\"signature\":\"function readIndexSelectionState(path: string): : IndexSelectionState\",\"start_line\":969,\"end_line\":979},{\"chunk_id\":1698,\"kind\":\"Function\",\"signature\":null,\"start_line\":972,\"end_line\":973},{\"chunk_id\":1699,\"kind\":\"Function\",\"signature\":\"function writeIndexSelectionState(path: string, state: IndexSelectionState): : void\",\"start_line\":980,\"end_line\":986},{\"chunk_id\":1700,\"kind\":\"Function\",\"signature\":null,\"start_line\":982,\"end_line\":983}]"
+        }
+      ],
+      "isError": false
+    },
+    "impact": {
+      "content": [
+        {
+          "type": "text",
+          "text": "No symbol indexers installed. Install the `scip-csharp` helper for C# support."
+        }
+      ],
+      "isError": false
+    }
+  }
+}

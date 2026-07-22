@@ -1,0 +1,765 @@
+{
+  "generatedAt": "<TIMESTAMP>",
+  "root": "<ROOT>",
+  "tasksPath": "<REPOSITORY_ROOT>/evaluation/tasks.json",
+  "coldStart": {
+    "status": 0,
+    "durationMs": 460,
+    "resultCount": 10,
+    "pathCount": 5,
+    "bytes": 13383,
+    "paths": [
+      "docs/CODE_INTELLIGENCE.md",
+      "docs/ARCHITECTURE.md",
+      "docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md",
+      "docs/IMPLEMENTATION_PLAN.md",
+      "README.md"
+    ],
+    "degradedResultCount": 0,
+    "warnings": []
+  },
+  "report": [
+    {
+      "task": {
+        "id": "locate-provider-selection",
+        "query": "How does Atelier choose and initialize the configured code intelligence provider?",
+        "literals": [
+          "createCodeProvider",
+          "CodeProviderRegistry",
+          "codeProvider"
+        ],
+        "expectedResults": [
+          {
+            "path": "packages/core/src/core.ts",
+            "relevance": 3,
+            "rationale": "Creates the configured provider and injects it into CodeService."
+          },
+          {
+            "path": "packages/core/src/code/registry.ts",
+            "relevance": 3,
+            "rationale": "Selects registered providers and exposes their status."
+          },
+          {
+            "path": "packages/core/src/code/service.ts",
+            "relevance": 1,
+            "rationale": "Consumes the selected provider through the provider-neutral service."
+          }
+        ]
+      },
+      "baseline": {
+        "method": "baseline",
+        "status": 0,
+        "durationMs": 38,
+        "resultCount": 31,
+        "paths": [
+          "evaluation/tasks.json",
+          "apps/cli/src/main.ts",
+          "tests/code-service.test.ts",
+          "tests/validation-service.test.ts",
+          "README.md",
+          "tests/code-budgets.test.ts",
+          "tests/core.integration.test.ts",
+          "docs/ARCHITECTURE.md",
+          "packages/core/src/core.ts",
+          "packages/core/src/code/service.ts",
+          "packages/core/src/code/registry.ts",
+          "packages/core/src/config/config.ts"
+        ],
+        "bytes": 14067,
+        "degradedResultCount": 0,
+        "warnings": []
+      },
+      "codesearch": {
+        "method": "codesearch",
+        "status": 0,
+        "durationMs": 465,
+        "resultCount": 10,
+        "paths": [
+          "docs/CODE_INTELLIGENCE.md",
+          "docs/ARCHITECTURE.md",
+          "docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "README.md"
+        ],
+        "bytes": 13383,
+        "degradedResultCount": 0,
+        "warnings": []
+      }
+    },
+    {
+      "task": {
+        "id": "trace-code-search",
+        "query": "Trace `atlr code search` from CLI argument handling through CodeService to the codesearch MCP search call.",
+        "literals": [
+          "code search",
+          "core.code.search",
+          "selected.search",
+          "call(\"search\""
+        ],
+        "expectedResults": [
+          {
+            "path": "apps/cli/src/main.ts",
+            "relevance": 3,
+            "rationale": "Parses and dispatches the CLI command."
+          },
+          {
+            "path": "packages/core/src/code/service.ts",
+            "relevance": 3,
+            "rationale": "Applies provider-neutral limits and invokes the selected provider."
+          },
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 2,
+            "rationale": "Maps the request to codesearch MCP arguments."
+          }
+        ]
+      },
+      "baseline": {
+        "method": "baseline",
+        "status": 0,
+        "durationMs": 31,
+        "resultCount": 20,
+        "paths": [
+          "README.md",
+          "apps/pi-extension/src/index.ts",
+          "apps/cli/src/main.ts",
+          "evaluation/tasks.json",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "scripts/probe-codesearch.sh",
+          "packages/core/src/code/codesearch-provider.ts",
+          "tests/code-service.test.ts",
+          "packages/core/src/code/service.ts"
+        ],
+        "bytes": 9622,
+        "degradedResultCount": 0,
+        "warnings": []
+      },
+      "codesearch": {
+        "method": "codesearch",
+        "status": 0,
+        "durationMs": 448,
+        "resultCount": 10,
+        "paths": [
+          "docs/CODE_INTELLIGENCE.md",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "README.md"
+        ],
+        "bytes": 13595,
+        "degradedResultCount": 0,
+        "warnings": []
+      }
+    },
+    {
+      "task": {
+        "id": "find-normalization-tests",
+        "query": "Where are codesearch search responses normalized, and which tests verify that normalization?",
+        "literals": [
+          "normalizeHit",
+          "normalizes search",
+          "codesearch adapter"
+        ],
+        "expectedResults": [
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 3,
+            "rationale": "Contains response extraction and normalized hit construction."
+          },
+          {
+            "path": "tests/codesearch-provider.test.ts",
+            "relevance": 3,
+            "rationale": "Verifies the adapter contract and normalized output."
+          },
+          {
+            "path": "tests/codesearch-real-fixture.test.ts",
+            "relevance": 1,
+            "rationale": "Verifies portable responses captured from a real provider."
+          }
+        ]
+      },
+      "baseline": {
+        "method": "baseline",
+        "status": 0,
+        "durationMs": 32,
+        "resultCount": 10,
+        "paths": [
+          "evaluation/tasks.json",
+          "tests/codesearch-provider.test.ts",
+          "README.md",
+          "docs/CODE_INTELLIGENCE.md",
+          "packages/core/src/code/codesearch-provider.ts"
+        ],
+        "bytes": 5595,
+        "degradedResultCount": 0,
+        "warnings": []
+      },
+      "codesearch": {
+        "method": "codesearch",
+        "status": 0,
+        "durationMs": 457,
+        "resultCount": 9,
+        "paths": [
+          "docs/CODESEARCH_EVALUATION.md",
+          "CHANGELOG.md",
+          "docs/ADR-0007-CODESEARCH-CORPUS-SELECTION.md",
+          "docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md",
+          "scripts/update-codesearch-fixtures.ts",
+          "packages/core/src/code/codesearch-provider.ts",
+          "docs/CODESEARCH_CORPUS_REPORT_2026-07-22.md",
+          "docs/CODE_INTELLIGENCE.md"
+        ],
+        "bytes": 12298,
+        "degradedResultCount": 0,
+        "warnings": []
+      }
+    },
+    {
+      "task": {
+        "id": "working-state-evidence",
+        "query": "How does retrieved code evidence enter Working State, and where is its freshness checked?",
+        "literals": [
+          "codeEvidence",
+          "WorkingStateBuilder",
+          "freshness",
+          "buildCodeEvidence"
+        ],
+        "expectedResults": [
+          {
+            "path": "packages/core/src/state/working-state-builder.ts",
+            "relevance": 3,
+            "rationale": "Builds the code-evidence section of Working State."
+          },
+          {
+            "path": "packages/core/src/core.ts",
+            "relevance": 2,
+            "rationale": "Constructs WorkingStateBuilder with CodeService and repository state."
+          },
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 2,
+            "rationale": "Qualifies returned evidence with indexed and current snapshots."
+          }
+        ]
+      },
+      "baseline": {
+        "method": "baseline",
+        "status": 0,
+        "durationMs": 30,
+        "resultCount": 29,
+        "paths": [
+          "evaluation/tasks.json",
+          "apps/cli/src/main.ts",
+          "packages/core/src/code/codesearch-provider.ts",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "packages/core/src/code/types.ts",
+          "packages/core/src/domain/types.ts",
+          "packages/core/src/core.ts",
+          "packages/core/src/state/working-state-builder.ts",
+          "tests/validation-service.test.ts",
+          "tests/reconciliation-state.test.ts",
+          "tests/codesearch-provider.test.ts",
+          "tests/code-service.test.ts"
+        ],
+        "bytes": 12812,
+        "degradedResultCount": 0,
+        "warnings": []
+      },
+      "codesearch": {
+        "method": "codesearch",
+        "status": 0,
+        "durationMs": 467,
+        "resultCount": 10,
+        "paths": [
+          "docs/ARCHITECTURE.md",
+          "CHANGELOG.md",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "docs/CODE_INTELLIGENCE.md",
+          "docs/CODESEARCH_EVALUATION.md",
+          "README.md",
+          "docs/CODESEARCH_MCP_LOCK_REPORT_2026-07-21.md"
+        ],
+        "bytes": 13422,
+        "degradedResultCount": 0,
+        "warnings": []
+      }
+    }
+  ],
+  "summary": [
+    {
+      "id": "locate-provider-selection",
+      "query": "How does Atelier choose and initialize the configured code intelligence provider?",
+      "expectedResults": [
+        {
+          "path": "packages/core/src/core.ts",
+          "relevance": 3,
+          "rationale": "Creates the configured provider and injects it into CodeService."
+        },
+        {
+          "path": "packages/core/src/code/registry.ts",
+          "relevance": 3,
+          "rationale": "Selects registered providers and exposes their status."
+        },
+        {
+          "path": "packages/core/src/code/service.ts",
+          "relevance": 1,
+          "rationale": "Consumes the selected provider through the provider-neutral service."
+        }
+      ],
+      "baseline": {
+        "status": 0,
+        "durationMs": 38,
+        "resultCount": 31,
+        "pathCount": 12,
+        "bytes": 14067,
+        "paths": [
+          "evaluation/tasks.json",
+          "apps/cli/src/main.ts",
+          "tests/code-service.test.ts",
+          "tests/validation-service.test.ts",
+          "README.md",
+          "tests/code-budgets.test.ts",
+          "tests/core.integration.test.ts",
+          "docs/ARCHITECTURE.md",
+          "packages/core/src/core.ts",
+          "packages/core/src/code/service.ts",
+          "packages/core/src/code/registry.ts",
+          "packages/core/src/config/config.ts"
+        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [
+          "packages/core/src/core.ts",
+          "packages/core/src/code/registry.ts",
+          "packages/core/src/code/service.ts"
+        ],
+        "expectedMissed": [],
+        "rankedExpected": [
+          {
+            "path": "packages/core/src/core.ts",
+            "relevance": 3,
+            "rationale": "Creates the configured provider and injects it into CodeService.",
+            "rank": 9
+          },
+          {
+            "path": "packages/core/src/code/registry.ts",
+            "relevance": 3,
+            "rationale": "Selects registered providers and exposes their status.",
+            "rank": 11
+          },
+          {
+            "path": "packages/core/src/code/service.ts",
+            "relevance": 1,
+            "rationale": "Consumes the selected provider through the provider-neutral service.",
+            "rank": 10
+          }
+        ],
+        "weightedRecall": 1,
+        "reciprocalRank": 0.1111,
+        "ndcgAt10": 0.2011
+      },
+      "codesearch": {
+        "status": 0,
+        "durationMs": 465,
+        "resultCount": 10,
+        "pathCount": 5,
+        "bytes": 13383,
+        "paths": [
+          "docs/CODE_INTELLIGENCE.md",
+          "docs/ARCHITECTURE.md",
+          "docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "README.md"
+        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [],
+        "expectedMissed": [
+          "packages/core/src/core.ts",
+          "packages/core/src/code/registry.ts",
+          "packages/core/src/code/service.ts"
+        ],
+        "rankedExpected": [
+          {
+            "path": "packages/core/src/core.ts",
+            "relevance": 3,
+            "rationale": "Creates the configured provider and injects it into CodeService."
+          },
+          {
+            "path": "packages/core/src/code/registry.ts",
+            "relevance": 3,
+            "rationale": "Selects registered providers and exposes their status."
+          },
+          {
+            "path": "packages/core/src/code/service.ts",
+            "relevance": 1,
+            "rationale": "Consumes the selected provider through the provider-neutral service."
+          }
+        ],
+        "weightedRecall": 0,
+        "reciprocalRank": 0,
+        "ndcgAt10": 0
+      }
+    },
+    {
+      "id": "trace-code-search",
+      "query": "Trace `atlr code search` from CLI argument handling through CodeService to the codesearch MCP search call.",
+      "expectedResults": [
+        {
+          "path": "apps/cli/src/main.ts",
+          "relevance": 3,
+          "rationale": "Parses and dispatches the CLI command."
+        },
+        {
+          "path": "packages/core/src/code/service.ts",
+          "relevance": 3,
+          "rationale": "Applies provider-neutral limits and invokes the selected provider."
+        },
+        {
+          "path": "packages/core/src/code/codesearch-provider.ts",
+          "relevance": 2,
+          "rationale": "Maps the request to codesearch MCP arguments."
+        }
+      ],
+      "baseline": {
+        "status": 0,
+        "durationMs": 31,
+        "resultCount": 20,
+        "pathCount": 9,
+        "bytes": 9622,
+        "paths": [
+          "README.md",
+          "apps/pi-extension/src/index.ts",
+          "apps/cli/src/main.ts",
+          "evaluation/tasks.json",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "scripts/probe-codesearch.sh",
+          "packages/core/src/code/codesearch-provider.ts",
+          "tests/code-service.test.ts",
+          "packages/core/src/code/service.ts"
+        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [
+          "apps/cli/src/main.ts",
+          "packages/core/src/code/service.ts",
+          "packages/core/src/code/codesearch-provider.ts"
+        ],
+        "expectedMissed": [],
+        "rankedExpected": [
+          {
+            "path": "apps/cli/src/main.ts",
+            "relevance": 3,
+            "rationale": "Parses and dispatches the CLI command.",
+            "rank": 3
+          },
+          {
+            "path": "packages/core/src/code/service.ts",
+            "relevance": 3,
+            "rationale": "Applies provider-neutral limits and invokes the selected provider.",
+            "rank": 9
+          },
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 2,
+            "rationale": "Maps the request to codesearch MCP arguments.",
+            "rank": 7
+          }
+        ],
+        "weightedRecall": 1,
+        "reciprocalRank": 0.3333,
+        "ndcgAt10": 0.5115
+      },
+      "codesearch": {
+        "status": 0,
+        "durationMs": 448,
+        "resultCount": 10,
+        "pathCount": 3,
+        "bytes": 13595,
+        "paths": [
+          "docs/CODE_INTELLIGENCE.md",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "README.md"
+        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [],
+        "expectedMissed": [
+          "apps/cli/src/main.ts",
+          "packages/core/src/code/service.ts",
+          "packages/core/src/code/codesearch-provider.ts"
+        ],
+        "rankedExpected": [
+          {
+            "path": "apps/cli/src/main.ts",
+            "relevance": 3,
+            "rationale": "Parses and dispatches the CLI command."
+          },
+          {
+            "path": "packages/core/src/code/service.ts",
+            "relevance": 3,
+            "rationale": "Applies provider-neutral limits and invokes the selected provider."
+          },
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 2,
+            "rationale": "Maps the request to codesearch MCP arguments."
+          }
+        ],
+        "weightedRecall": 0,
+        "reciprocalRank": 0,
+        "ndcgAt10": 0
+      }
+    },
+    {
+      "id": "find-normalization-tests",
+      "query": "Where are codesearch search responses normalized, and which tests verify that normalization?",
+      "expectedResults": [
+        {
+          "path": "packages/core/src/code/codesearch-provider.ts",
+          "relevance": 3,
+          "rationale": "Contains response extraction and normalized hit construction."
+        },
+        {
+          "path": "tests/codesearch-provider.test.ts",
+          "relevance": 3,
+          "rationale": "Verifies the adapter contract and normalized output."
+        },
+        {
+          "path": "tests/codesearch-real-fixture.test.ts",
+          "relevance": 1,
+          "rationale": "Verifies portable responses captured from a real provider."
+        }
+      ],
+      "baseline": {
+        "status": 0,
+        "durationMs": 32,
+        "resultCount": 10,
+        "pathCount": 5,
+        "bytes": 5595,
+        "paths": [
+          "evaluation/tasks.json",
+          "tests/codesearch-provider.test.ts",
+          "README.md",
+          "docs/CODE_INTELLIGENCE.md",
+          "packages/core/src/code/codesearch-provider.ts"
+        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [
+          "packages/core/src/code/codesearch-provider.ts",
+          "tests/codesearch-provider.test.ts"
+        ],
+        "expectedMissed": [
+          "tests/codesearch-real-fixture.test.ts"
+        ],
+        "rankedExpected": [
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 3,
+            "rationale": "Contains response extraction and normalized hit construction.",
+            "rank": 5
+          },
+          {
+            "path": "tests/codesearch-provider.test.ts",
+            "relevance": 3,
+            "rationale": "Verifies the adapter contract and normalized output.",
+            "rank": 2
+          },
+          {
+            "path": "tests/codesearch-real-fixture.test.ts",
+            "relevance": 1,
+            "rationale": "Verifies portable responses captured from a real provider."
+          }
+        ],
+        "weightedRecall": 0.8571,
+        "reciprocalRank": 0.5,
+        "ndcgAt10": 0.5979
+      },
+      "codesearch": {
+        "status": 0,
+        "durationMs": 457,
+        "resultCount": 9,
+        "pathCount": 8,
+        "bytes": 12298,
+        "paths": [
+          "docs/CODESEARCH_EVALUATION.md",
+          "CHANGELOG.md",
+          "docs/ADR-0007-CODESEARCH-CORPUS-SELECTION.md",
+          "docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md",
+          "scripts/update-codesearch-fixtures.ts",
+          "packages/core/src/code/codesearch-provider.ts",
+          "docs/CODESEARCH_CORPUS_REPORT_2026-07-22.md",
+          "docs/CODE_INTELLIGENCE.md"
+        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [
+          "packages/core/src/code/codesearch-provider.ts"
+        ],
+        "expectedMissed": [
+          "tests/codesearch-provider.test.ts",
+          "tests/codesearch-real-fixture.test.ts"
+        ],
+        "rankedExpected": [
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 3,
+            "rationale": "Contains response extraction and normalized hit construction.",
+            "rank": 6
+          },
+          {
+            "path": "tests/codesearch-provider.test.ts",
+            "relevance": 3,
+            "rationale": "Verifies the adapter contract and normalized output."
+          },
+          {
+            "path": "tests/codesearch-real-fixture.test.ts",
+            "relevance": 1,
+            "rationale": "Verifies portable responses captured from a real provider."
+          }
+        ],
+        "weightedRecall": 0.4286,
+        "reciprocalRank": 0.1667,
+        "ndcgAt10": 0.2092
+      }
+    },
+    {
+      "id": "working-state-evidence",
+      "query": "How does retrieved code evidence enter Working State, and where is its freshness checked?",
+      "expectedResults": [
+        {
+          "path": "packages/core/src/state/working-state-builder.ts",
+          "relevance": 3,
+          "rationale": "Builds the code-evidence section of Working State."
+        },
+        {
+          "path": "packages/core/src/core.ts",
+          "relevance": 2,
+          "rationale": "Constructs WorkingStateBuilder with CodeService and repository state."
+        },
+        {
+          "path": "packages/core/src/code/codesearch-provider.ts",
+          "relevance": 2,
+          "rationale": "Qualifies returned evidence with indexed and current snapshots."
+        }
+      ],
+      "baseline": {
+        "status": 0,
+        "durationMs": 30,
+        "resultCount": 29,
+        "pathCount": 12,
+        "bytes": 12812,
+        "paths": [
+          "evaluation/tasks.json",
+          "apps/cli/src/main.ts",
+          "packages/core/src/code/codesearch-provider.ts",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "packages/core/src/code/types.ts",
+          "packages/core/src/domain/types.ts",
+          "packages/core/src/core.ts",
+          "packages/core/src/state/working-state-builder.ts",
+          "tests/validation-service.test.ts",
+          "tests/reconciliation-state.test.ts",
+          "tests/codesearch-provider.test.ts",
+          "tests/code-service.test.ts"
+        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [
+          "packages/core/src/state/working-state-builder.ts",
+          "packages/core/src/core.ts",
+          "packages/core/src/code/codesearch-provider.ts"
+        ],
+        "expectedMissed": [],
+        "rankedExpected": [
+          {
+            "path": "packages/core/src/state/working-state-builder.ts",
+            "relevance": 3,
+            "rationale": "Builds the code-evidence section of Working State.",
+            "rank": 8
+          },
+          {
+            "path": "packages/core/src/core.ts",
+            "relevance": 2,
+            "rationale": "Constructs WorkingStateBuilder with CodeService and repository state.",
+            "rank": 7
+          },
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 2,
+            "rationale": "Qualifies returned evidence with indexed and current snapshots.",
+            "rank": 3
+          }
+        ],
+        "weightedRecall": 1,
+        "reciprocalRank": 0.3333,
+        "ndcgAt10": 0.453
+      },
+      "codesearch": {
+        "status": 0,
+        "durationMs": 467,
+        "resultCount": 10,
+        "pathCount": 7,
+        "bytes": 13422,
+        "paths": [
+          "docs/ARCHITECTURE.md",
+          "CHANGELOG.md",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "docs/CODE_INTELLIGENCE.md",
+          "docs/CODESEARCH_EVALUATION.md",
+          "README.md",
+          "docs/CODESEARCH_MCP_LOCK_REPORT_2026-07-21.md"
+        ],
+        "degradedResultCount": 0,
+        "warnings": [],
+        "expectedFound": [],
+        "expectedMissed": [
+          "packages/core/src/state/working-state-builder.ts",
+          "packages/core/src/core.ts",
+          "packages/core/src/code/codesearch-provider.ts"
+        ],
+        "rankedExpected": [
+          {
+            "path": "packages/core/src/state/working-state-builder.ts",
+            "relevance": 3,
+            "rationale": "Builds the code-evidence section of Working State."
+          },
+          {
+            "path": "packages/core/src/core.ts",
+            "relevance": 2,
+            "rationale": "Constructs WorkingStateBuilder with CodeService and repository state."
+          },
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 2,
+            "rationale": "Qualifies returned evidence with indexed and current snapshots."
+          }
+        ],
+        "weightedRecall": 0,
+        "reciprocalRank": 0,
+        "ndcgAt10": 0
+      }
+    }
+  ],
+  "aggregate": {
+    "baseline": {
+      "tasks": 4,
+      "durationMs": 131,
+      "bytes": 42096,
+      "degradedResultCount": 0,
+      "warnings": [],
+      "meanWeightedRecall": 0.9643,
+      "meanReciprocalRank": 0.3194,
+      "meanNdcgAt10": 0.4409
+    },
+    "codesearch": {
+      "tasks": 4,
+      "durationMs": 1837,
+      "bytes": 52698,
+      "degradedResultCount": 0,
+      "warnings": [],
+      "meanWeightedRecall": 0.1072,
+      "meanReciprocalRank": 0.0417,
+      "meanNdcgAt10": 0.0523
+    }
+  }
+}

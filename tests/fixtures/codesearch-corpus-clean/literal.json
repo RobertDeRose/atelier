@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"results\":[{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":41,\"end_line\":41,\"snippet\":\"// [Part 1/6] class CodesearchProvider\",\"score\":9.78811,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"},{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":491,\"end_line\":491,\"snippet\":\"// [Part 6/6] class CodesearchProvider\",\"score\":9.392672,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"},{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":221,\"end_line\":221,\"snippet\":\"// [Part 3/6] class CodesearchProvider\",\"score\":9.122366,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"},{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":401,\"end_line\":401,\"snippet\":\"// [Part 5/6] class CodesearchProvider\",\"score\":9.122366,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"},{\"path\":\"<REPOSITORY_ROOT>/packages/core/src/code/codesearch-provider.ts\",\"start_line\":311,\"end_line\":311,\"snippet\":\"// [Part 4/6] class CodesearchProvider\",\"score\":8.950741,\"kind\":\"Class\",\"signature\":\"class CodesearchProvider\"}]}"
+    }
+  ],
+  "isError": false
+}

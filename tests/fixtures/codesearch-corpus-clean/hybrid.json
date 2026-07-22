@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"results\":[{\"chunk_id\":109,\"path\":\"<REPOSITORY_ROOT>/tests/codesearch-provider.test.ts\",\"start_line\":268,\"end_line\":276,\"kind\":\"Function\",\"score\":0.077030815},{\"chunk_id\":830,\"path\":\"<REPOSITORY_ROOT>/scripts/probe-codesearch-mcp.ts\",\"start_line\":28,\"end_line\":31,\"kind\":\"Function\",\"score\":0.066734076},{\"chunk_id\":529,\"path\":\"<REPOSITORY_ROOT>/docs/ADR-0002-EXTERNAL-CODE-PROVIDERS.md\",\"start_line\":9,\"end_line\":17,\"kind\":\"Block\",\"score\":0.04761905},{\"chunk_id\":485,\"path\":\"<REPOSITORY_ROOT>/docs/CODE_INTELLIGENCE.md\",\"start_line\":422,\"end_line\":439,\"kind\":\"Block\",\"score\":0.045454547}]}"
+    }
+  ],
+  "isError": false
+}

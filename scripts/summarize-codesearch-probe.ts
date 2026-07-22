@@ -105,6 +105,32 @@ checks.push({
     : `provider returned ignored fixture paths: ${[...new Set(pollutedPaths)].slice(0, 5).join(", ")}`,
 });
 
+const focusedSearchPaths = normalizedResultPaths(json("search"));
+const firstProductSourceRank = focusedSearchPaths.findIndex((path) => isProductSourcePath(path));
+checks.push({
+  name: "implementation_focus",
+  status: firstProductSourceRank >= 0 && firstProductSourceRank < 3 ? "passed" : "warning",
+  detail: firstProductSourceRank >= 0
+    ? `first product source path ranked ${firstProductSourceRank + 1}: ${focusedSearchPaths[firstProductSourceRank]}`
+    : "implementation query returned no product source path",
+});
+
+const evaluation = jsonFromPath(resolve(outputDirectory, "evaluation", "latest.json")) as {
+  aggregate?: {
+    baseline?: { meanWeightedRecall?: unknown };
+    codesearch?: { meanWeightedRecall?: unknown };
+  };
+} | undefined;
+const baselineRecall = numeric(evaluation?.aggregate?.baseline?.meanWeightedRecall);
+const codesearchRecall = numeric(evaluation?.aggregate?.codesearch?.meanWeightedRecall);
+checks.push({
+  name: "retrieval_quality",
+  status: codesearchRecall !== undefined && codesearchRecall >= 0.5 ? "passed" : "warning",
+  detail: codesearchRecall === undefined
+    ? "evaluation did not report mean weighted recall"
+    : `codesearch mean weighted recall ${codesearchRecall.toFixed(4)}${baselineRecall === undefined ? "" : `; baseline ${baselineRecall.toFixed(4)}`}`,
+});
+
 const mcpContract = json("mcp_contract") as {
   tools?: Array<{ name?: unknown }>;
   statusHistory?: Array<{ state?: unknown }>;
@@ -215,6 +241,22 @@ checks.push({
 });
 
 
+
+function jsonFromPath(path: string): unknown {
+  if (!existsSync(path)) return undefined;
+  try { return JSON.parse(readFileSync(path, "utf8")) as unknown; } catch { return undefined; }
+}
+
+function numeric(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function isProductSourcePath(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/").replace(/^\.\//, "").toLowerCase();
+  if (/^(?:tests?|specs?|docs?|scripts?|tools?)\//.test(normalized)) return false;
+  if (/(?:^|\/)(?:readme|changelog|contributing|license)(?:\.[^/]*)?$/.test(normalized)) return false;
+  return /\.(?:c|cc|cpp|cs|ex|exs|go|h|hpp|java|js|jsx|kt|kts|lua|php|py|rb|rs|sh|swift|ts|tsx|vue|zig)$/.test(normalized);
+}
 
 function normalizedResultPaths(value: unknown): string[] {
   const rows = Array.isArray(value)

@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { nowIso } from "../util/ids.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
+import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus } from "./focus.ts";
 import type {
   CodeCapability,
   CodeChunk,
@@ -216,8 +217,11 @@ export class CodesearchProvider implements CodeProvider {
     await this.requireTool("search", "search.semantic");
     await this.waitForReady(query.workspace);
     const requestedActualMode = mapSearchMode(query.mode);
+    const resolvedFocus = resolveCodeSearchFocus(query.focus, query.text);
+    const providerLimit = focusedProviderLimit(query.limit, resolvedFocus, requestedActualMode);
+    const providerQuery = { ...query, limit: providerLimit };
     const scope = this.scopeArguments(query.workspace, query.repositoryIds);
-    const primaryArgs = searchArguments(query, requestedActualMode, scope);
+    const primaryArgs = searchArguments(providerQuery, requestedActualMode, scope);
     const primary = await this.call("search", primaryArgs);
     this.lastQueryAt = nowIso();
 
@@ -226,19 +230,21 @@ export class CodesearchProvider implements CodeProvider {
     let rows = extractRows(data);
     let actualMode = requestedActualMode;
     let warnings: string[] = [];
-    let postProcessing: string[] = [];
+    let postProcessing: string[] = providerLimit > query.limit
+      ? [`overfetched up to ${providerLimit} compact provider results for ${resolvedFocus} focus`]
+      : [];
 
     if (primaryError !== undefined) {
       if (query.mode === "semantic") {
         this.lastWarnings = [primaryError];
         throw new Error(`codesearch semantic search failed: ${primaryError}`);
       }
-      const fallback = await this.literalFallback(query, scope, primaryError);
+      const fallback = await this.literalFallback(providerQuery, scope, primaryError);
       data = fallback.data;
       rows = fallback.rows;
       actualMode = "lexical";
       warnings = [primaryError, ...fallback.warnings];
-      postProcessing = ["semantic search failed; merged bounded literal fallback results"];
+      postProcessing = [...postProcessing, "semantic search failed; merged bounded literal fallback results"];
       if (rows.length === 0) {
         this.lastWarnings = warnings;
         throw new Error(`codesearch semantic search failed and literal fallback returned no results: ${primaryError}`);
@@ -248,7 +254,7 @@ export class CodesearchProvider implements CodeProvider {
     this.lastWarnings = warnings;
     const indexState = inferIndexState(data, this.indexState);
     this.indexState = indexState;
-    return rows.slice(0, query.limit).map((row, index) => normalizeHit({
+    const normalized = rows.slice(0, providerLimit).map((row, index) => normalizeHit({
       row,
       rank: index + 1,
       query,
@@ -260,6 +266,21 @@ export class CodesearchProvider implements CodeProvider {
       indexedSnapshots: Object.fromEntries(this.indexedSnapshots),
       postProcessing,
       warnings,
+    }));
+    const focused = applyCodeSearchFocus(normalized, query.focus, query.text);
+    const focusProcessing = focused.focus === "all"
+      ? []
+      : [`reranked by ${focused.focus} focus with path diversification`];
+    return focused.hits.slice(0, query.limit).map((hit, index) => ({
+      ...hit,
+      rank: index + 1,
+      provenance: {
+        ...hit.provenance,
+        requestedFilters: { ...hit.provenance.requestedFilters, focus: query.focus ?? "auto", resolvedFocus: focused.focus },
+        enforcedFilters: [...new Set([...hit.provenance.enforcedFilters, ...(focused.focus === "all" ? [] : ["focus"])])],
+        postProcessing: [...hit.provenance.postProcessing, ...focusProcessing],
+        reranked: focused.reranked,
+      },
     }));
   }
 
@@ -526,7 +547,7 @@ export class CodesearchProvider implements CodeProvider {
   private capabilities(): CodeCapability[] {
     const capabilities: CodeCapability[] = ["index.repository", "index.incremental"];
     if (this.routingMode === "client" || (this.routingMode === "unknown" && this.mode !== "local")) capabilities.push("index.multi_repository");
-    if (this.hasTool("search")) capabilities.push("search.lexical", "search.semantic", "search.hybrid");
+    if (this.hasTool("search")) capabilities.push("search.lexical", "search.semantic", "search.hybrid", "result.rerank");
     if (this.hasTool("find")) capabilities.push("symbol.search", "symbol.definition", "symbol.references", "graph.relationships", "graph.imports", "graph.dependencies");
     if (this.hasTool("find_impact")) capabilities.push("graph.relationships", "graph.calls", "graph.impact");
     if (this.hasTool("explore")) capabilities.push("file.outline");
@@ -685,8 +706,10 @@ function normalizeHit(options: {
   const providerScore = numberField(row, ["score", "rrf_score", "similarity", "provider_score"]);
   const summary = stringField(row, ["summary"]);
   const preview = stringField(row, ["preview", "snippet", "summary", "text", "signature", "content"]);
+  const providerRank = numberField(row, ["rank"]) ?? options.rank;
   return {
-    rank: numberField(row, ["rank"]) ?? options.rank,
+    rank: providerRank,
+    providerRank,
     repositoryId: repository.id,
     repositoryName: repository.name,
     ...(repository.snapshot.headCommit ? { revision: repository.snapshot.headCommit } : {}),
@@ -712,6 +735,7 @@ function normalizeHit(options: {
         repositoryIds: query.repositoryIds,
         languages: query.languages,
         pathGlobs: query.pathGlobs,
+        focus: query.focus ?? "auto",
         includeTests: query.includeTests,
         includeGenerated: query.includeGenerated,
       },

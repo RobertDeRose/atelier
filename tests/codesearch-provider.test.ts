@@ -61,7 +61,10 @@ process.stdin.on('data', chunk => {
         result = { structuredContent: statusCalls <= buildingCalls ? { index_state: 'building' } : { index_state: 'ready', index_age_seconds: 3 } };
       }
       else if (name === 'search' && input.mode === 'semantic' && process.env.FAKE_SEMANTIC_ERROR === '1') result = { content: [{ type: 'text', text: 'Error searching vector store: Error opening database for read fallback' }], isError: false };
-      else if (name === 'search') result = { structuredContent: { index_state: 'ready', results: [{ chunk_id: 42, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', symbol: 'refreshToken', score: 0.91, preview: 'export function refreshToken()' }] } };
+      else if (name === 'search') {
+        const configured = process.env.FAKE_SEARCH_ROWS ? JSON.parse(process.env.FAKE_SEARCH_ROWS) : [{ chunk_id: 42, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', symbol: 'refreshToken', score: 0.91, preview: 'export function refreshToken()' }];
+        result = { structuredContent: { index_state: 'ready', results: configured.slice(0, Number(input.limit ?? 10)) } };
+      }
       else if (name === 'find') result = { structuredContent: { results: [{ chunk_id: 43, project: input.project ?? 'repo', path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, symbol: input.symbol, kind: input.kind }] } };
       else if (name === 'get_chunk') result = { structuredContent: { chunk: { chunk_id: input.chunk_id, project: input.project, path: process.env.FAKE_RESULT_PATH ?? 'src/auth.ts', start_line: 10, end_line: 14, language: 'typescript', content: 'export function refreshToken() { return token; }' } } };
       else if (name === 'explore') result = { structuredContent: { results: [{ chunk_id: 44, path: input.target, start_line: 1, end_line: 20, kind: 'Class', signature: 'class CodesearchProvider' }] } };
@@ -392,6 +395,62 @@ test("codesearch forces one local rebuild when repository selection inputs chang
     assert.equal(state.version, 1);
     assert.match(state.repositories?.[root]?.fingerprint ?? "", /^[a-f0-9]{64}$/);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("codesearch overfetches and reranks implementation searches toward diverse source paths", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-focus-"));
+  const fake = fakeCodesearch(root);
+  const rows = [
+    { chunk_id: 1, path: "docs/CODE_INTELLIGENCE.md", start_line: 1, end_line: 4, score: 0.99 },
+    { chunk_id: 2, path: "tests/codesearch-provider.test.ts", start_line: 1, end_line: 4, score: 0.98 },
+    { chunk_id: 3, path: "scripts/probe-codesearch-mcp.ts", start_line: 1, end_line: 4, score: 0.97 },
+    { chunk_id: 4, path: "packages/core/src/core.ts", start_line: 1, end_line: 4, score: 0.96 },
+    { chunk_id: 5, path: "packages/core/src/core.ts", start_line: 8, end_line: 12, score: 0.95 },
+    { chunk_id: 6, path: "packages/core/src/code/registry.ts", start_line: 1, end_line: 4, score: 0.94 },
+    { chunk_id: 7, path: "README.md", start_line: 1, end_line: 4, score: 0.93 },
+    { chunk_id: 8, path: "packages/core/src/code/service.ts", start_line: 1, end_line: 4, score: 0.92 },
+  ];
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_SEARCH_ROWS: JSON.stringify(rows) },
+  });
+  try {
+    const hits = await provider.search({
+      workspace: workspace(root),
+      text: "How does Atelier choose and initialize the configured code intelligence provider?",
+      mode: "auto",
+      focus: "auto",
+      limit: 3,
+      includeTests: true,
+      includeGenerated: false,
+    });
+    assert.deepEqual(hits.map((hit) => hit.path), [
+      "packages/core/src/core.ts",
+      "packages/core/src/code/registry.ts",
+      "packages/core/src/code/service.ts",
+    ]);
+    assert.deepEqual(hits.map((hit) => hit.providerRank), [4, 6, 8]);
+    assert.deepEqual(hits.map((hit) => hit.rank), [1, 2, 3]);
+    assert.equal(hits[0]?.provenance.reranked, true);
+    assert.equal(hits[0]?.provenance.requestedFilters.resolvedFocus, "source");
+    assert.ok(hits[0]?.provenance.postProcessing.some((item) => item.includes("source focus")));
+
+    const calls = readFileSync(fake.mcpLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { method: string; params?: { name?: string; arguments?: Record<string, unknown> } });
+    const searchCall = calls.find((call) => call.method === "tools/call" && call.params?.name === "search");
+    assert.equal(searchCall?.params?.arguments?.limit, 25);
+  } finally {
+    await provider.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

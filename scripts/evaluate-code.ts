@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { rankCodePathsByFocus, resolveCodeSearchFocus, type CodeSearchFocus } from "../packages/core/src/index.ts";
 
 type ExpectedResult = { path: string; relevance: number; rationale?: string };
 type Task = {
@@ -11,6 +12,7 @@ type Task = {
   expectedPaths?: string[];
   expectedResults?: ExpectedResult[];
   repos?: string[];
+  focus?: CodeSearchFocus;
 };
 type Run = {
   method: "baseline" | "codesearch";
@@ -18,6 +20,9 @@ type Run = {
   durationMs: number;
   resultCount: number;
   paths: string[];
+  providerPaths: string[];
+  focus: string;
+  reranked: boolean;
   bytes: number;
   stdout: string;
   stderr: string;
@@ -31,7 +36,11 @@ const out = resolve(process.argv[4] ?? ".atelier/evaluation");
 mkdirSync(out, { recursive: true });
 const tasks = JSON.parse(readFileSync(tasksPath, "utf8")) as Task[];
 const coldStart = tasks[0] === undefined ? undefined : runCodesearch(tasks[0]);
-const report = tasks.map((task) => ({ task, baseline: runBaseline(task), codesearch: runCodesearch(task) }));
+const report = tasks.map((task) => ({
+  task: { ...task, resolvedFocus: resolveCodeSearchFocus(task.focus, task.query) },
+  baseline: runBaseline(task),
+  codesearch: runCodesearch(task),
+}));
 const summary = report.map(({ task, baseline, codesearch }) => ({
   id: task.id,
   query: task.query,
@@ -83,12 +92,16 @@ function runBaseline(task: Task): Run {
       }
     } catch { /* retain raw output */ }
   }
+  const focused = rankCodePathsByFocus(paths, task.focus, task.query);
   return {
     method: "baseline",
     status: result.status,
     durationMs: Date.now() - started,
     resultCount: count,
-    paths,
+    paths: focused.paths,
+    providerPaths: paths,
+    focus: focused.focus,
+    reranked: focused.reranked,
     bytes: Buffer.byteLength(result.stdout),
     stdout: result.stdout,
     stderr: result.stderr,
@@ -99,21 +112,37 @@ function runBaseline(task: Task): Run {
 
 function runCodesearch(task: Task): Run {
   const started = Date.now();
-  const args = ["--experimental-strip-types", "apps/cli/src/main.ts", "--root", root, "code", "search", task.query, "--mode", "auto", "--json", ...(task.repos?.length ? ["--repo", task.repos.join(",")] : [])];
+  const args = [
+    "--experimental-strip-types", "apps/cli/src/main.ts", "--root", root, "code", "search", task.query,
+    "--mode", "auto", "--focus", task.focus ?? "auto", "--json",
+    ...(task.repos?.length ? ["--repo", task.repos.join(",")] : []),
+  ];
   const result = spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
-  let rows: Array<{ path?: string; provenance?: { degraded?: boolean; warnings?: string[] } }> = [];
+  let rows: Array<{
+    path?: string;
+    providerRank?: number;
+    provenance?: { degraded?: boolean; warnings?: string[]; reranked?: boolean; requestedFilters?: Record<string, unknown> };
+  }> = [];
   try {
     const value = JSON.parse(result.stdout) as unknown;
-    rows = Array.isArray(value) ? value as Array<{ path?: string; provenance?: { degraded?: boolean; warnings?: string[] } }> : [];
+    rows = Array.isArray(value) ? value as typeof rows : [];
   } catch { /* retain raw output */ }
   const paths: string[] = [];
   for (const row of rows) if (typeof row.path === "string") pushUnique(paths, normalizePath(row.path));
+  const providerPaths: string[] = [];
+  for (const row of [...rows].sort((left, right) => (left.providerRank ?? Number.MAX_SAFE_INTEGER) - (right.providerRank ?? Number.MAX_SAFE_INTEGER))) {
+    if (typeof row.path === "string") pushUnique(providerPaths, normalizePath(row.path));
+  }
+  const resolvedFocus = rows.map((row) => row.provenance?.requestedFilters?.resolvedFocus).find((value): value is string => typeof value === "string") ?? resolveCodeSearchFocus(task.focus, task.query);
   return {
     method: "codesearch",
     status: result.status,
     durationMs: Date.now() - started,
     resultCount: rows.length,
     paths,
+    providerPaths,
+    focus: resolvedFocus,
+    reranked: rows.some((row) => row.provenance?.reranked === true),
     bytes: Buffer.byteLength(result.stdout),
     stdout: result.stdout,
     stderr: result.stderr,
@@ -152,12 +181,13 @@ function score(run: Run, task: Task) {
 }
 
 function aggregate(scores: Array<ReturnType<typeof score>>) {
-  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, degradedResultCount: 0, warnings: [], meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
+  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, degradedResultCount: 0, rerankedTasks: 0, warnings: [], meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
   return {
     tasks: scores.length,
     durationMs: scores.reduce((sum, item) => sum + item.durationMs, 0),
     bytes: scores.reduce((sum, item) => sum + item.bytes, 0),
     degradedResultCount: scores.reduce((sum, item) => sum + item.degradedResultCount, 0),
+    rerankedTasks: scores.filter((item) => item.reranked).length,
     warnings: [...new Set(scores.flatMap((item) => item.warnings))],
     meanWeightedRecall: round(scores.reduce((sum, item) => sum + item.weightedRecall, 0) / scores.length),
     meanReciprocalRank: round(scores.reduce((sum, item) => sum + item.reciprocalRank, 0) / scores.length),
@@ -178,6 +208,9 @@ function summarizeRun(run: Run) {
     pathCount: run.paths.length,
     bytes: run.bytes,
     paths: run.paths,
+    providerPaths: run.providerPaths,
+    focus: run.focus,
+    reranked: run.reranked,
     degradedResultCount: run.degradedResultCount,
     warnings: run.warnings,
   };

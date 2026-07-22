@@ -2,7 +2,7 @@
 
 ## Status
 
-Atelier v0.8.5 provides a repeatable live conformance workflow and a ranked comparative
+Atelier v0.8.7 provides a repeatable live conformance workflow and a ranked comparative
 retrieval benchmark for codesearch.
 
 The first evidence report is in
@@ -58,6 +58,22 @@ This is a retrieval comparison, not yet a full autonomous-agent correctness benc
 later stage can execute identical implementation tasks with fixed model and tool budgets
 and human scoring.
 
+
+## Workflow focus
+
+Each evaluation task may declare `focus: source|tests|docs|all`; otherwise Atelier resolves
+focus from the query. Both retrieval paths use the same path-class preference so the
+comparison measures provider discovery rather than giving only one side workflow context.
+
+Codesearch results preserve two orders:
+
+- `providerPaths` and `providerRank`: the provider's original compact candidate ranking.
+- `paths` and `rank`: Atelier's focused, path-diverse final evidence order.
+
+The provider adapter may request up to 50 compact candidates, while the final result and
+Working State budgets remain unchanged. Reports record whether a task was reranked and how
+many tasks used reranking.
+
 ## Machine-side knowledge collection
 
 Run:
@@ -85,8 +101,8 @@ development session.
 The live collection now records `codesearch stats` before and after `atlr code index`. Conformance requires a non-empty vector store with `Indexed: Yes`; MCP `ready` alone is insufficient. A transition from unbuilt to built is recorded as `vector_index_repaired`.
 
 
-## v0.8.5 rerun requirement
+## v0.8.7 rerun requirement
 
-The next authoritative benchmark must be collected after local HNSW repair succeeds.
-Results produced while the vector index is unbuilt are retained as degradation evidence,
-not as a measurement of semantic retrieval quality.
+The next authoritative benchmark must be collected with focused retrieval enabled. The
+live conformance summary now reports the rank of the first product-source path for the
+implementation probe and warns when codesearch mean weighted recall remains below 0.5.

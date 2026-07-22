@@ -2,7 +2,11 @@
   {
     "id": "locate-provider-selection",
     "query": "How does Atelier choose and initialize the configured code intelligence provider?",
-    "literals": ["createCodeProvider", "CodeProviderRegistry", "codeProvider"],
+    "literals": [
+      "createCodeProvider",
+      "CodeProviderRegistry",
+      "codeProvider"
+    ],
     "expectedResults": [
       {
         "path": "packages/core/src/core.ts",
@@ -19,12 +23,18 @@
         "relevance": 1,
         "rationale": "Consumes the selected provider through the provider-neutral service."
       }
-    ]
+    ],
+    "focus": "source"
   },
   {
     "id": "trace-code-search",
     "query": "Trace `atlr code search` from CLI argument handling through CodeService to the codesearch MCP search call.",
-    "literals": ["code search", "core.code.search", "selected.search", "call(\"search\""],
+    "literals": [
+      "code search",
+      "core.code.search",
+      "selected.search",
+      "call(\"search\""
+    ],
     "expectedResults": [
       {
         "path": "apps/cli/src/main.ts",
@@ -41,12 +51,17 @@
         "relevance": 2,
         "rationale": "Maps the request to codesearch MCP arguments."
       }
-    ]
+    ],
+    "focus": "source"
   },
   {
     "id": "find-normalization-tests",
     "query": "Where are codesearch search responses normalized, and which tests verify that normalization?",
-    "literals": ["normalizeHit", "normalizes search", "codesearch adapter"],
+    "literals": [
+      "normalizeHit",
+      "normalizes search",
+      "codesearch adapter"
+    ],
     "expectedResults": [
       {
         "path": "packages/core/src/code/codesearch-provider.ts",
@@ -63,12 +78,18 @@
         "relevance": 1,
         "rationale": "Verifies portable responses captured from a real provider."
       }
-    ]
+    ],
+    "focus": "tests"
   },
   {
     "id": "working-state-evidence",
     "query": "How does retrieved code evidence enter Working State, and where is its freshness checked?",
-    "literals": ["codeEvidence", "WorkingStateBuilder", "freshness", "buildCodeEvidence"],
+    "literals": [
+      "codeEvidence",
+      "WorkingStateBuilder",
+      "freshness",
+      "buildCodeEvidence"
+    ],
     "expectedResults": [
       {
         "path": "packages/core/src/state/working-state-builder.ts",
@@ -85,6 +106,7 @@
         "relevance": 2,
         "rationale": "Qualifies returned evidence with indexed and current snapshots."
       }
-    ]
+    ],
+    "focus": "source"
   }
 ]

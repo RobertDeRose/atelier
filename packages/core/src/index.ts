@@ -26,6 +26,7 @@ export * from "./validation/validation-service.ts";
 
 
 export * from "./code/types.ts";
+export * from "./code/focus.ts";
 export * from "./code/provider.ts";
 export * from "./code/registry.ts";
 export * from "./code/service.ts";

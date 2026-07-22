@@ -23,6 +23,7 @@ export const CODE_CAPABILITIES = [
 
 export type CodeCapability = (typeof CODE_CAPABILITIES)[number];
 export type CodeSearchMode = "auto" | "lexical" | "semantic" | "hybrid";
+export type CodeSearchFocus = "auto" | "source" | "tests" | "docs" | "all";
 export type CodeIndexState = "missing" | "building" | "ready" | "stale" | "failed" | "unknown";
 export type CodeFreshness = "current" | "possibly_stale" | "known_stale" | "unknown";
 
@@ -65,6 +66,7 @@ export interface CodeSearchQuery {
   workspace: CodeWorkspace;
   text: string;
   mode: CodeSearchMode;
+  focus?: CodeSearchFocus;
   repositoryIds?: string[];
   languages?: string[];
   pathGlobs?: string[];
@@ -104,6 +106,7 @@ export interface CodeProvenance {
 
 export interface CodeSearchHit {
   rank: number;
+  providerRank?: number;
   repositoryId: string;
   repositoryName: string;
   revision?: string;

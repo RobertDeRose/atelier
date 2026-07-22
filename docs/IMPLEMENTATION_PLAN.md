@@ -1,3 +1,5 @@
+> **v0.8.7 retrieval policy:** The external provider remains authoritative for indexing and semantic ranking. Atelier now owns a bounded workflow-focus layer that preserves provider rank, overfetches compact candidates, diversifies paths, and selects source, tests, or documentation evidence before final context truncation. See ADR-0008.
+
 > **v0.5.0 architectural correction:** Atelier no longer owns a native source, FTS5, Tree-sitter, embedding, vector, or code-graph implementation by default. The accepted design is external provider integration behind the Atelier-owned CodeProvider contract. `codesearch` is the first planned provider and Octocode the second experimental provider. See `CODE_INTELLIGENCE.md` and ADR-0002.
 
 # Atelier — Agentic Development Environment Implementation Plan
@@ -2706,3 +2708,26 @@ Exit evidence required from the next live run:
 - no search result beneath `tests/fixtures/codesearch-*`;
 - semantic and hybrid health remain operational;
 - weighted retrieval metrics rerun against the corrected corpus.
+
+
+## v0.8.7 workflow-focused retrieval
+
+Implemented:
+
+- add provider-neutral `auto`, `source`, `tests`, `docs`, and `all` search focus;
+- infer focus deterministically from workflow-oriented queries;
+- overfetch a bounded compact provider candidate pool before final truncation;
+- preserve original provider rank and score in normalized results;
+- prioritize workflow-relevant path classes while retaining provider order within classes;
+- diversify paths before returning duplicate chunks from the same file;
+- apply the same focus policy to baseline evaluation;
+- capture provider order, final order, resolved focus, and reranking in reports;
+- commit the clean 2,138-chunk corpus run as a portable ranking regression fixture.
+
+Exit evidence required from the next live run:
+
+- an implementation query ranks product source within the first three results;
+- codesearch mean weighted recall improves materially from 0.1072;
+- no provider fixture paths re-enter the selected corpus;
+- semantic and hybrid retrieval remain non-degraded;
+- provider rank remains available for audit beside Atelier's final rank.

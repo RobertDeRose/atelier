@@ -287,6 +287,7 @@ pub struct SearchQuery {
     pub workspace: WorkspaceIdentity,
     pub text: String,
     pub mode: SearchMode,
+    pub focus: SearchFocus,
     pub scopes: Vec<SearchScope>,
     pub languages: Vec<String>,
     pub path_filters: Vec<PathFilter>,
@@ -300,6 +301,14 @@ pub enum SearchMode {
     Lexical,
     Semantic,
     Hybrid,
+}
+
+pub enum SearchFocus {
+    Auto,
+    Source,
+    Tests,
+    Documentation,
+    All,
 }
 ```
 

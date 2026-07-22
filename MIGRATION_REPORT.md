@@ -1,12 +1,19 @@
-# Atelier v0.8.6 Migration Report
+# Atelier v0.8.7 Migration Report
 
-No manual configuration migration is required.
+No configuration migration is required.
 
-The repository now includes `.codesearchignore`. On the first `atlr code index` after
-updating, Atelier detects that the corpus-selection fingerprint changed and runs a full
-codesearch rebuild. This is expected and removes previously indexed regression fixtures.
-Later runs return to incremental indexing until an ignore file or provider version
-changes.
+`atlr code search` accepts a new optional focus:
+
+```bash
+atlr code search --focus source "where is provider selection implemented?"
+atlr code search --focus tests "which tests verify normalization?"
+atlr code search --focus docs "why was codesearch selected?"
+```
+
+The default remains `--focus auto`. Neutral queries preserve provider order. Focused
+queries may return different top results because the final limit is now applied after
+bounded overfetch, workflow path preference, and path diversification. Original provider
+rank remains available as `providerRank` in JSON output.
 
 Run after updating:
 
@@ -16,7 +23,3 @@ mise run install
 mise run check
 mise run collect:codesearch
 ```
-
-The next collection should pass `fixture_pollution`, show a substantially smaller vector
-corpus, and report benchmark results that no longer contain paths beneath
-`tests/fixtures/codesearch-*`.

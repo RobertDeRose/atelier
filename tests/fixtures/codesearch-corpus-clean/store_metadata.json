@@ -1,0 +1,224 @@
+{
+  "root": "<ROOT>",
+  "store": "<REPOSITORY_ROOT>/.codesearch.db",
+  "exists": true,
+  "entries": [
+    {
+      "path": ".codesearch.db",
+      "type": "directory",
+      "size": 288,
+      "mode": "0755",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/.writer.lock",
+      "type": "file",
+      "size": 0,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/data.mdb",
+      "type": "file",
+      "size": 11567104,
+      "mode": "0600",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/file_meta.json",
+      "type": "file",
+      "size": 55576,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts",
+      "type": "directory",
+      "size": 768,
+      "mode": "0755",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/.managed.json",
+      "type": "file",
+      "size": 746,
+      "mode": "0600",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/.tantivy-meta.lock",
+      "type": "file",
+      "size": 0,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/.tantivy-writer.lock",
+      "type": "file",
+      "size": 0,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/00ae4f6d26e04299946ebd86c563575b.fast",
+      "type": "file",
+      "size": 146,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/00ae4f6d26e04299946ebd86c563575b.fieldnorm",
+      "type": "file",
+      "size": 2878,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/00ae4f6d26e04299946ebd86c563575b.idx",
+      "type": "file",
+      "size": 34447,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/00ae4f6d26e04299946ebd86c563575b.pos",
+      "type": "file",
+      "size": 29261,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/00ae4f6d26e04299946ebd86c563575b.store",
+      "type": "file",
+      "size": 9197,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/00ae4f6d26e04299946ebd86c563575b.term",
+      "type": "file",
+      "size": 39707,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/04d15b7b81bd404dbaab3945a42d723d.fast",
+      "type": "file",
+      "size": 145,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/04d15b7b81bd404dbaab3945a42d723d.fieldnorm",
+      "type": "file",
+      "size": 3614,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/04d15b7b81bd404dbaab3945a42d723d.idx",
+      "type": "file",
+      "size": 43957,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/04d15b7b81bd404dbaab3945a42d723d.pos",
+      "type": "file",
+      "size": 34878,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/04d15b7b81bd404dbaab3945a42d723d.store",
+      "type": "file",
+      "size": 12426,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/04d15b7b81bd404dbaab3945a42d723d.term",
+      "type": "file",
+      "size": 42683,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/5e83e4eb6fd3412f8c0603bb1a740916.fast",
+      "type": "file",
+      "size": 145,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/5e83e4eb6fd3412f8c0603bb1a740916.fieldnorm",
+      "type": "file",
+      "size": 2438,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/5e83e4eb6fd3412f8c0603bb1a740916.idx",
+      "type": "file",
+      "size": 34308,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/5e83e4eb6fd3412f8c0603bb1a740916.pos",
+      "type": "file",
+      "size": 31788,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/5e83e4eb6fd3412f8c0603bb1a740916.store",
+      "type": "file",
+      "size": 8438,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/5e83e4eb6fd3412f8c0603bb1a740916.term",
+      "type": "file",
+      "size": 40706,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/fts/meta.json",
+      "type": "file",
+      "size": 1720,
+      "mode": "0600",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/lock.mdb",
+      "type": "file",
+      "size": 8192,
+      "mode": "0600",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/logs",
+      "type": "directory",
+      "size": 96,
+      "mode": "0755",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/logs/codesearch.log.2026-07-22",
+      "type": "file",
+      "size": 0,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    },
+    {
+      "path": ".codesearch.db/metadata.json",
+      "type": "file",
+      "size": 270,
+      "mode": "0644",
+      "modifiedAt": "<TIMESTAMP>"
+    }
+  ]
+}
