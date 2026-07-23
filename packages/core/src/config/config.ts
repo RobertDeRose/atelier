@@ -19,6 +19,7 @@ export interface AtelierConfig {
   codeProvider: "disabled" | "mock" | "codesearch" | "octocode";
   codeCommand: string;
   octocodeCommand: string;
+  octocodeConfigPath: string;
   codeMode: "auto" | "local" | "client";
   codeTimeoutMs: number;
   codeIndexTimeoutMs: number;
@@ -43,6 +44,7 @@ interface PartialAtelierConfig {
   codeProvider?: AtelierConfig["codeProvider"];
   codeCommand?: string;
   octocodeCommand?: string;
+  octocodeConfigPath?: string;
   codeMode?: AtelierConfig["codeMode"];
   codeTimeoutMs?: number;
   codeIndexTimeoutMs?: number;
@@ -93,6 +95,7 @@ export function loadConfig(repositoryRoot: string): AtelierConfig {
     codeProvider: merged.codeProvider ?? "codesearch",
     codeCommand: merged.codeCommand ?? "codesearch",
     octocodeCommand: merged.octocodeCommand ?? "octocode",
+    octocodeConfigPath: resolveFromRoot(root, merged.octocodeConfigPath ?? join(stateDirectory, "octocode-config.toml")),
     codeMode: merged.codeMode ?? "auto",
     codeTimeoutMs: merged.codeTimeoutMs ?? 60_000,
     codeIndexTimeoutMs: merged.codeIndexTimeoutMs ?? 300_000,

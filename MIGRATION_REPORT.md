@@ -1,7 +1,3 @@
-# Migration report
+# Migration Report — v0.9.4
 
-## 0.9.2 to 0.9.3
-
-No configuration migration is required. Octocode now refuses to spend time indexing when its configured cloud embedding API key is absent, and it verifies that an indexing run produced searchable blocks.
-
-The live collector captures configuration and key-presence booleans without recording secret values.
+`mise run install` now creates a project-local Octocode configuration under `.atelier`. It selects local FastEmbed models and enables GraphRAG without LLM processing, so development and conformance do not require `VOYAGE_API_KEY`. Existing user-wide Octocode configuration is not modified. The first index run uses `--force` when the existing project database contains zero searchable blocks.

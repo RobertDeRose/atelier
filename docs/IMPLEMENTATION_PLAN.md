@@ -2828,3 +2828,5 @@ The adapter therefore now:
 - treats absent GraphRAG as a capability gap rather than an adapter failure.
 
 The live collector captures `config --show`, model discovery, redacted key presence, tool schemas, and all partial results before returning the retained conformance status.
+
+- [x] Isolate Octocode development configuration and use local FastEmbed models.

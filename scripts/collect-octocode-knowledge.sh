@@ -4,6 +4,7 @@ ROOT="${1:-$PWD}"
 OUT="${2:-$ROOT/.atelier/octocode-probe}"
 ARCHIVE="${3:-$ROOT/atelier-octocode-knowledge.tar.xz}"
 mkdir -p "$OUT"
+export OCTOCODE_CONFIG_PATH="${OCTOCODE_CONFIG_PATH:-$ROOT/.atelier/octocode-config.toml}"
 run() {
   local name="$1"; shift
   echo "== $name =="
@@ -27,6 +28,7 @@ TXT
   echo "Octocode knowledge archive ready at: $ARCHIVE"
   exit 1
 fi
+run setup_config node --no-warnings --experimental-strip-types scripts/setup-octocode-development.ts "$ROOT"
 run version octocode --version
 run help octocode --help
 run mcp_help octocode mcp --help
@@ -36,7 +38,12 @@ run models_list octocode models list
 run stats_before octocode stats
 run embedding_environment node --no-warnings --experimental-strip-types scripts/inspect-octocode-environment.ts "$OUT/config_show.stdout" "$OUT/stats_before.stdout"
 if [ "$(cat "$OUT/embedding_environment.status")" = "0" ]; then
-  run index octocode index
+  total_blocks=$(awk '/(Code|Text|Document|Commit) blocks:/ { value=$NF; gsub(/,/, "", value); total += value } END { print total + 0 }' "$OUT/stats_before.stdout")
+  if [ "$total_blocks" -eq 0 ]; then
+    run index octocode index --force
+  else
+    run index octocode index
+  fi
 else
   skip index "Embedding provider prerequisites are missing; indexing was skipped to avoid a long unsuccessful run."
 fi
@@ -60,6 +67,7 @@ printf '%s\n' "$conformance_status" >"$OUT/conformance.status"
 cat >"$OUT/SUMMARY.md" <<TXT
 # Octocode Probe
 
+- Setup config exit: $(cat "$OUT/setup_config.status")
 - Version exit: $(cat "$OUT/version.status")
 - Embedding preflight exit: $(cat "$OUT/embedding_environment.status")
 - Index exit: $(cat "$OUT/index.status")

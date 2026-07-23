@@ -295,3 +295,6 @@ mise run collect:octocode
 ```
 
 The development bootstrap installs Octocode 0.14.0 through mise. Configure an embedding provider when required by the installed platform build, then run the live collector.
+
+
+Octocode development uses a project-local `.atelier/octocode-config.toml` with local FastEmbed models and non-LLM GraphRAG. `mise run install` creates it without changing the user-wide Octocode configuration.

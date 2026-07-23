@@ -28,8 +28,11 @@ test("Octocode collector diagnoses a missing development binary before invoking 
 
 test("Octocode collector preflights embeddings, preserves the contract, and gates GraphRAG", () => {
   const script = readFileSync(resolve("scripts/collect-octocode-knowledge.sh"), "utf8");
+  assert.match(script, /export OCTOCODE_CONFIG_PATH=/);
+  assert.match(script, /run setup_config node .*setup-octocode-development\.ts/);
   assert.match(script, /run config_show octocode config --show/);
   assert.match(script, /run embedding_environment node .*inspect-octocode-environment\.ts/);
+  assert.match(script, /octocode index --force/);
   assert.match(script, /indexing was skipped to avoid a long unsuccessful run/);
   assert.match(script, /code search "Where is code provider selection implemented\?" --provider octocode --mode semantic --focus source --json=true/);
   assert.match(script, /code symbols "OctocodeProvider" --provider octocode --json=true/);

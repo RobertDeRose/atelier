@@ -343,6 +343,7 @@ function createCodeProviders(config: AtelierConfig): { providers: CodeProvider[]
     command: config.octocodeCommand,
     cwd: config.repositoryRoot,
     timeoutMs: config.codeTimeoutMs,
+    environment: { OCTOCODE_CONFIG_PATH: config.octocodeConfigPath },
   });
   return {
     providers: [codesearch, octocode],

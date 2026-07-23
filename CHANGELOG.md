@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.4 — 2026-07-23
+
+```text
+fix(code): configure project-local Octocode embeddings
+
+- create an isolated Atelier Octocode configuration under .atelier
+- use local FastEmbed code and text models without cloud API keys
+- enable non-LLM GraphRAG for structural relationships
+- pass OCTOCODE_CONFIG_PATH to every Octocode subprocess
+- force the first rebuild when an existing index contains no blocks
+```
+
 ## 0.9.3
 
 ```text
@@ -232,3 +244,4 @@ feat(code): prove multi-repository provider workflows
 - extend code diagnostics with workspace mappings and provider state
 - keep native parsing, embeddings, ranking, and graph ownership out of Atelier
 ```
+

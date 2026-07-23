@@ -1,0 +1,37 @@
+=== Octocode Configuration ===
+
+📄 Configuration file: <HOME>/.local/share/octocode/config.toml
+   Status: ✅ Found
+
+🤖 LLM Configuration:
+   Model: openrouter:openai/gpt-4o-mini
+   Temperature: 0.7
+   Max Tokens: 4000
+   Timeout: 120s
+🔍 Embedding Configuration:
+   Active provider: Ok(Voyage) (auto-detected)
+   Code model: voyage:voyage-code-3
+   Text model: voyage:voyage-3.5-lite
+   Voyage API key: ❌ Not set
+
+📚 Indexing Configuration:
+   Chunk size: 2000 characters
+   Chunk overlap: 100 characters
+   Batch size: 16 texts
+   GraphRAG: ❌ Disabled
+   LLM processing: ❌ Disabled
+
+🔎 Search Configuration:
+   Max results: 20
+   Similarity threshold: 0.65
+   Output format: markdown
+   Max files: 10
+   Context lines: 3
+   Block max chars: 400
+
+💾 Storage Locations:
+   System storage: <HOME>/.local/share/octocode
+   FastEmbed cache: <HOME>/.local/share/octocode/fastembed/
+   SentenceTransformer cache: <HOME>/.local/share/octocode/sentencetransformer/
+   Project database: <HOME>/.local/share/octocode/a145708934785fbb/storage
+   Database status: ✅ Found

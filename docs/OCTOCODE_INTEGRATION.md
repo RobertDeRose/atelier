@@ -46,3 +46,8 @@ octocode config \
 ```
 
 Local embedding models are supported only by Octocode builds compiled with the relevant feature. Atelier does not silently rewrite the user-level Octocode configuration. The collector records model names and API-key presence booleans, never secret values, and preserves all stdout, stderr, exit statuses, MCP tool schemas, and an attachable `atelier-octocode-knowledge.tar.xz` archive.
+
+
+## Development configuration
+
+Atelier uses `OCTOCODE_CONFIG_PATH=.atelier/octocode-config.toml` and creates that file with local FastEmbed models during `mise run install`. This avoids mutating the user-wide Octocode configuration or requiring cloud embedding credentials.

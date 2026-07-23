@@ -114,7 +114,8 @@ export class OctocodeProvider implements CodeProvider {
       if (configurationIssue) {
         throw new Error(`Octocode cannot index or search ${repository.root}: ${configurationIssue}`);
       }
-      const result = spawnSync(this.command, ["index"], {
+      const indexArgs = before.totalBlocks <= 0 ? ["index", "--force"] : ["index"];
+      const result = spawnSync(this.command, indexArgs, {
         cwd: repository.root,
         env: { ...process.env, ...this.environment },
         encoding: "utf8",

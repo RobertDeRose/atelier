@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 test("Octocode conformance accepts required tools and warns when GraphRAG is absent", () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-octocode-conformance-"));
   try {
-    for (const name of ["version", "help", "mcp_help", "config_show", "stats_before", "embedding_environment", "index", "stats_after", "adapter_index", "providers", "status", "search", "symbols", "mcp_contract", "related"]) {
+    for (const name of ["setup_config", "version", "help", "mcp_help", "config_show", "stats_before", "embedding_environment", "index", "stats_after", "adapter_index", "providers", "status", "search", "symbols", "mcp_contract", "related"]) {
       writeFileSync(join(root, `${name}.status`), "0\n");
     }
     writeFileSync(join(root, "embedding_environment.stdout"), JSON.stringify({ configured: true, guidance: "Embedding provider prerequisites are available." }));

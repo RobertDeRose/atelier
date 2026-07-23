@@ -1,0 +1,16 @@
+{
+  "codeModel": "voyage:voyage-code-3",
+  "textModel": "voyage:voyage-3.5-lite",
+  "provider": "voyage",
+  "requiredKey": "VOYAGE_API_KEY",
+  "configured": false,
+  "keyPresence": {
+    "VOYAGE_API_KEY": false,
+    "JINA_API_KEY": false,
+    "GOOGLE_API_KEY": false,
+    "OPENAI_API_KEY": false,
+    "OCTOHUB_API_KEY": false,
+    "TOGETHER_API_KEY": false
+  },
+  "guidance": "VOYAGE_API_KEY is required by voyage:voyage-code-3. Set it before indexing/searching, or use a build configured with a local embedding provider."
+}

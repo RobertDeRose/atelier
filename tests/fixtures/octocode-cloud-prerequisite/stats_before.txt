@@ -1,0 +1,18 @@
+Index Status
+  Files indexed:        0
+  Code blocks:          0
+  Text blocks:          0
+  Document blocks:      0
+  Commit blocks:        0
+
+  Last indexed commit:  f1182a9
+  Current HEAD:         57dd500
+  Status:               Stale -- 1 commit behind
+
+Configuration
+  Code model:           voyage:voyage-code-3
+  Text model:           voyage:voyage-3.5-lite
+  Threshold:            0.65
+  Reranker:             disabled
+  Contextual:           disabled
+  GraphRAG LLM:         disabled

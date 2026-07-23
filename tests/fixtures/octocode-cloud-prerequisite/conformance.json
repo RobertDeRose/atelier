@@ -1,0 +1,146 @@
+{
+  "provider": "octocode",
+  "version": "0.14.0",
+  "toolNames": [
+    "semantic_search",
+    "structural_search",
+    "view_signatures"
+  ],
+  "totals": {
+    "passed": 17,
+    "warnings": 2,
+    "failed": 7
+  },
+  "checks": [
+    {
+      "name": "version",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "mcp_help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "config_show",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "stats_before",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "embedding_environment",
+      "status": "failed",
+      "detail": "exit 1"
+    },
+    {
+      "name": "index",
+      "status": "failed",
+      "detail": "Embedding provider prerequisites are missing; indexing was skipped to avoid a long unsuccessful run."
+    },
+    {
+      "name": "stats_after",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "adapter_index",
+      "status": "failed",
+      "detail": "atlr: Octocode cannot index or search <REPO>: VOYAGE_API_KEY is not set for configured code embedding model voyage:voyage-code-3. Set the key, or install/configure an Octocode build with a local embedding provider."
+    },
+    {
+      "name": "providers",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "status",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "search",
+      "status": "failed",
+      "detail": "atlr: Octocode semantic search is unavailable for <REPO>: VOYAGE_API_KEY is not set for configured code embedding model voyage:voyage-code-3. Set the key, or install/configure an Octocode build with a local embedding provider."
+    },
+    {
+      "name": "symbols",
+      "status": "failed",
+      "detail": "atlr: Octocode semantic search is unavailable for <REPO>: VOYAGE_API_KEY is not set for configured code embedding model voyage:voyage-code-3. Set the key, or install/configure an Octocode build with a local embedding provider."
+    },
+    {
+      "name": "mcp_contract",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "models_help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "models_list",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "related",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "tool:semantic_search",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "call:semantic_search",
+      "status": "failed",
+      "detail": "Search operation failed: VOYAGE_API_KEY environment variable not set (semantic_search)"
+    },
+    {
+      "name": "tool:view_signatures",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "call:view_signatures",
+      "status": "passed",
+      "detail": "completed"
+    },
+    {
+      "name": "tool:structural_search",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "call:structural_search",
+      "status": "passed",
+      "detail": "completed"
+    },
+    {
+      "name": "tool:graphrag",
+      "status": "warning",
+      "detail": "graphrag was not advertised by this Octocode installation"
+    },
+    {
+      "name": "embedding:configured",
+      "status": "failed",
+      "detail": "VOYAGE_API_KEY is required by voyage:voyage-code-3. Set it before indexing/searching, or use a build configured with a local embedding provider."
+    },
+    {
+      "name": "related:capability",
+      "status": "warning",
+      "detail": "graphrag was not advertised by Octocode"
+    }
+  ]
+}

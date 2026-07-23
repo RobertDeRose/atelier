@@ -127,3 +127,31 @@ test("Octocode rejects cloud embedding configuration without the required API ke
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test("Octocode forces a rebuild when an existing project has zero searchable blocks", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-octocode-empty-"));
+  const repo = join(root, "repo");
+  mkdirSync(repo, { recursive: true });
+  const command = join(root, "octocode-empty");
+  const log = join(root, "calls-empty.jsonl");
+  writeFileSync(command, String.raw`#!/usr/bin/env node
+import fs from 'node:fs';
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args }) + '\n');
+if (args[0] === '--version') { console.log('octocode 0.14.0'); process.exit(0); }
+if (args[0] === 'stats') { const indexed = fs.existsSync(${JSON.stringify(join(root, 'indexed'))}); console.log('Code blocks: ' + (indexed ? '5' : '0') + '\nText blocks: 0\nDocument blocks: 0\nCommit blocks: 0\nCode model: fastembed:jinaai/jina-embeddings-v2-base-code\nText model: fastembed:nomic-ai/nomic-embed-text-v1.5'); process.exit(0); }
+if (args[0] === 'index') { fs.writeFileSync(${JSON.stringify(join(root, 'indexed'))}, 'yes'); process.exit(0); }
+if (args[0] === 'mcp') { let b=''; process.stdin.setEncoding('utf8'); process.stdin.on('data', c => { b+=c; while(b.includes('\n')) { const i=b.indexOf('\n'); const l=b.slice(0,i); b=b.slice(i+1); if(!l.trim()) continue; const r=JSON.parse(l); if(!('id' in r)) continue; const result=r.method==='initialize'?{protocolVersion:r.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'octocode',version:'0.14.0'}}:r.method==='tools/list'?{tools:[]}:{}; process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result})+'\n'); }}); }
+`, "utf8");
+  chmodSync(command, 0o755);
+  const provider = new OctocodeProvider({ command, cwd: root, timeoutMs: 2_000 });
+  try {
+    assert.equal(await provider.ensureIndex(workspace([{ id: "repo", root: repo }])), "ready");
+    const calls = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[] });
+    assert.ok(calls.some((call) => call.args[0] === "index" && call.args.includes("--force")));
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

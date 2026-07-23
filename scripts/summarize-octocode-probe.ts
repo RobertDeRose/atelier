@@ -17,7 +17,7 @@ function addProcess(name: string, required = true): void {
   const code = status(name);
   checks.push({ name, status: code === 0 ? "passed" : required ? "failed" : "warning", detail: code === 0 ? "exit 0" : stderr(name) || `exit ${code}` });
 }
-for (const name of ["version", "help", "mcp_help", "config_show", "stats_before", "embedding_environment", "index", "stats_after", "adapter_index", "providers", "status", "search", "symbols", "mcp_contract"]) addProcess(name);
+for (const name of ["setup_config", "version", "help", "mcp_help", "config_show", "stats_before", "embedding_environment", "index", "stats_after", "adapter_index", "providers", "status", "search", "symbols", "mcp_contract"]) addProcess(name);
 for (const name of ["models_help", "models_list", "related"]) addProcess(name, false);
 
 let contract: {
