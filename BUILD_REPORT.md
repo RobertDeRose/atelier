@@ -1,9 +1,12 @@
-# Atelier v0.9.1 Build Report
+# Build report
 
-- Strict TypeScript check: passed.
-- Automated tests: 54 passed, 0 failed.
-- CLI smoke test: passed.
-- Octocode 0.14.0: declared in the mise development toolchain.
-- Octocode multi-repository process test: canonicalizes macOS temporary-directory paths.
-- Octocode collector preflight: verifies the executable before running probe commands.
-- Live Octocode conformance: pending rerun after mise installation.
+Atelier v0.9.2 aligns the experimental Octocode adapter and collector with the live Octocode 0.14.0 MCP contract captured on macOS ARM.
+
+Validation:
+
+- strict TypeScript check: passed
+- automated tests: 57 passed, 0 failed
+- CLI smoke test: passed
+- line coverage: 83.96%
+- branch coverage: 66.60%
+- function coverage: 82.47%

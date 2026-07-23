@@ -1,0 +1,23 @@
+{
+  "provider": "octocode",
+  "version": "0.14.0",
+  "toolNames": [
+    "semantic_search",
+    "structural_search",
+    "view_signatures"
+  ],
+  "statuses": {
+    "version": 0,
+    "index": 0,
+    "providers": 0,
+    "status": 0,
+    "search": 1,
+    "related": 1,
+    "mcp_contract": 0
+  },
+  "observations": [
+    "The 0.14.0 MCP server advertises semantic_search, structural_search, and view_signatures.",
+    "GraphRAG was not advertised by this installation and must remain capability-gated.",
+    "The initial collector search and relationship commands failed before provider invocation because --json consumed the trailing positional argument."
+  ]
+}

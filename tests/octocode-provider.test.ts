@@ -28,13 +28,14 @@ process.stdin.on('data', chunk => {
     let result = {};
     if (request.method === 'initialize') result = { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'octocode', version: '0.14.0' } };
     else if (request.method === 'tools/list') result = { tools: [
-      { name: 'semantic_search', inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' }, mode: { type: 'string' } } } },
+      { name: 'semantic_search', inputSchema: { type: 'object', properties: { query: { description: 'String or array of strings. Array preferred.' }, max_results: { type: 'number' }, mode: { type: 'string' }, detail_level: { type: 'string' } } } },
       { name: 'view_signatures', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
       { name: 'graphrag', inputSchema: { type: 'object', properties: { action: { type: 'string', enum: ['get-relationships'] }, node_id: { type: 'string' }, limit: { type: 'number' }, depth: { type: 'number' } } } },
       { name: 'structural_search', inputSchema: { type: 'object', properties: { pattern: { type: 'string' } } } }
     ] };
     else if (request.method === 'tools/call') {
       const { name, arguments: input } = request.params;
+      fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), tool: name, input }) + '\\n');
       if (name === 'semantic_search') result = { structuredContent: { results: [{ path: 'src/auth.ts', start_line: 2, end_line: 4, score: 0.91, signature: 'function refreshToken', content: 'export function refreshToken() {}' }] } };
       else if (name === 'graphrag') result = { structuredContent: { relationships: [{ type: 'imports', target_path: 'src/token.ts', description: 'token validation' }] } };
       else result = { structuredContent: {} };
@@ -91,10 +92,15 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
     assert.equal(relationships[0]?.kind, "imports");
     assert.equal(relationships[0]?.target.path, "src/token.ts");
 
-    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { cwd: string; args: string[] });
-    assert.equal(calls.filter((call) => call.args[0] === "index").length, 2);
-    assert.ok(calls.some((call) => call.args[0] === "mcp" && realpathSync(call.cwd) === realpathSync(a)));
-    assert.ok(calls.some((call) => call.args[0] === "mcp" && realpathSync(call.cwd) === realpathSync(b)));
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { cwd: string; args: string[]; tool?: string; input?: Record<string, unknown> });
+    assert.equal(calls.filter((call) => call.args?.[0] === "index").length, 2);
+    assert.ok(calls.some((call) => call.args?.[0] === "mcp" && realpathSync(call.cwd) === realpathSync(a)));
+    assert.ok(calls.some((call) => call.args?.[0] === "mcp" && realpathSync(call.cwd) === realpathSync(b)));
+    const searchCall = calls.find((call) => call.tool === "semantic_search") as { input?: Record<string, unknown> } | undefined;
+    assert.deepEqual(searchCall?.input?.query, ["refresh token"]);
+    assert.equal(searchCall?.input?.max_results, 10);
+    assert.equal(searchCall?.input?.mode, "all");
+    assert.equal(searchCall?.input?.detail_level, "partial");
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.2
+
+```text
+fix(code): align Octocode adapter with live MCP contract
+
+- fix collector positional argument ordering
+- call semantic search, signatures, and structural tools directly
+- gate GraphRAG relationships on advertised capabilities
+- send query arrays and the documented max_results/detail_level fields
+- map source and documentation focus to Octocode content modes
+- allow long-running first-time Octocode indexing
+- ignore generated Octocode indexes and probe artifacts
+- preserve the verified Octocode 0.14.0 MCP contract as a regression fixture
+```
+
 ## 0.9.1
 
 ```text

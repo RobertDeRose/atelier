@@ -1,9 +1,15 @@
 # Atelier runtime state and provider databases
 .atelier/
 .codesearch.db/
+.octocode/
+.octocode.db
+.octocode.db-*
+.octocode.db/
 
 # Captured real-provider responses are regression fixtures, not source context.
 tests/fixtures/codesearch-*/
+tests/fixtures/octocode-*/
 
 # Locally generated transfer archives
 atelier-codesearch-knowledge.tar.xz
+atelier-octocode-knowledge.tar.xz

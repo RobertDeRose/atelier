@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
+import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus, type ResolvedCodeSearchFocus } from "./focus.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
 import type {
   CodeCapability,
@@ -36,6 +37,7 @@ export class OctocodeProvider implements CodeProvider {
   private readonly command: string;
   private readonly cwd: string;
   private readonly timeoutMs: number;
+  private readonly indexTimeoutMs: number;
   private readonly environment: Record<string, string>;
   private readonly clients = new Map<string, OctocodeClientState>();
   private identity: CodeProviderIdentity = { name: "octocode", instanceId: "octocode:experimental" };
@@ -43,10 +45,11 @@ export class OctocodeProvider implements CodeProvider {
   private lastIndexedAt: string | undefined;
   private lastQueryAt: string | undefined;
 
-  constructor(options: { command?: string; cwd: string; timeoutMs?: number; environment?: Record<string, string> }) {
+  constructor(options: { command?: string; cwd: string; timeoutMs?: number; indexTimeoutMs?: number; environment?: Record<string, string> }) {
     this.command = options.command ?? "octocode";
     this.cwd = resolve(options.cwd);
     this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.indexTimeoutMs = options.indexTimeoutMs ?? Math.max(this.timeoutMs, 30 * 60_000);
     this.environment = options.environment ?? {};
   }
 
@@ -94,7 +97,7 @@ export class OctocodeProvider implements CodeProvider {
         cwd: repository.root,
         env: { ...process.env, ...this.environment },
         encoding: "utf8",
-        timeout: this.timeoutMs,
+        timeout: this.indexTimeoutMs,
         shell: false,
       });
       if (result.error || result.status !== 0) {
@@ -109,17 +112,39 @@ export class OctocodeProvider implements CodeProvider {
 
   async search(query: CodeSearchQuery): Promise<CodeSearchHit[]> {
     const repositories = selectedRepositories(query.workspace, query.repositoryIds);
+    const resolvedFocus = resolveCodeSearchFocus(query.focus, query.text);
+    const providerLimit = focusedProviderLimit(query.limit, resolvedFocus, query.mode);
     const all: CodeSearchHit[] = [];
     for (const repository of repositories) {
       const state = await this.clientFor(repository.id, repository.root);
       const tool = state.tools.get("semantic_search");
       if (!tool) throw new UnsupportedCodeCapabilityError("search.semantic", this.name);
-      const input = buildSearchInput(tool, query.text, query.limit, query.languages);
+      const input = buildSearchInput(tool, query, providerLimit, resolvedFocus);
       const result = await state.client.callTool("semantic_search", input);
+      const error = toolResponseError(result);
+      if (error) throw new Error(`Octocode semantic search failed: ${error}`);
       all.push(...normalizeHits(result, query, repository.id, repository.name, repository.root, this.identity));
     }
     this.lastQueryAt = new Date().toISOString();
-    return all.sort((a, b) => (b.providerScore ?? 0) - (a.providerScore ?? 0)).slice(0, query.limit).map((hit, index) => ({ ...hit, rank: index + 1 }));
+    const providerRanked = all
+      .sort((a, b) => (b.providerScore ?? 0) - (a.providerScore ?? 0))
+      .map((hit, index) => ({ ...hit, rank: index + 1, providerRank: index + 1 }));
+    const focused = applyCodeSearchFocus(providerRanked, query.focus, query.text);
+    return focused.hits.slice(0, query.limit).map((hit, index) => ({
+      ...hit,
+      rank: index + 1,
+      provenance: {
+        ...hit.provenance,
+        requestedFilters: { ...hit.provenance.requestedFilters, focus: query.focus ?? "auto", resolvedFocus: focused.focus },
+        enforcedFilters: [...new Set([...hit.provenance.enforcedFilters, "content mode", ...(focused.focus === "all" ? [] : ["focus"])])],
+        postProcessing: [
+          ...hit.provenance.postProcessing,
+          ...(providerLimit > query.limit ? [`overfetched up to ${providerLimit} Octocode results for ${focused.focus} focus`] : []),
+          ...(focused.reranked ? [`reranked by ${focused.focus} focus with path diversification`] : []),
+        ],
+        reranked: focused.reranked,
+      },
+    }));
   }
 
   async read(reference: CodeReference): Promise<CodeChunk> {
@@ -146,6 +171,7 @@ export class OctocodeProvider implements CodeProvider {
       text: query.text,
       mode: "semantic",
       focus: "source",
+      literalHints: [query.text],
       ...(query.repositoryIds ? { repositoryIds: query.repositoryIds } : {}),
       limit: query.limit,
       includeTests: true,
@@ -198,8 +224,8 @@ export class OctocodeProvider implements CodeProvider {
 function capabilitiesFor(names: string[]): CodeCapability[] {
   const set = new Set(names);
   const capabilities: CodeCapability[] = ["index.repository", "index.multi_repository", "index.incremental", "result.fetch_on_demand"];
-  if (set.has("semantic_search")) capabilities.push("search.semantic", "search.hybrid");
-  if (set.has("view_signatures")) capabilities.push("symbol.search", "symbol.definition", "file.outline");
+  if (set.has("semantic_search")) capabilities.push("search.semantic", "search.hybrid", "symbol.search");
+  if (set.has("view_signatures")) capabilities.push("file.outline");
   if (set.has("graphrag")) capabilities.push("graph.relationships", "graph.imports", "graph.calls", "graph.dependencies", "symbol.references");
   return capabilities;
 }
@@ -215,19 +241,34 @@ function schemaProperties(tool: McpToolDefinition): Record<string, Record<string
   return properties && typeof properties === "object" ? properties as Record<string, Record<string, unknown>> : {};
 }
 
-function buildSearchInput(tool: McpToolDefinition, text: string, limit: number, languages?: string[]): Record<string, unknown> {
+function buildSearchInput(tool: McpToolDefinition, query: CodeSearchQuery, limit: number, focus: ResolvedCodeSearchFocus): Record<string, unknown> {
   const properties = schemaProperties(tool);
   const input: Record<string, unknown> = {};
   const queryKey = ["query", "text", "prompt", "queries"].find((key) => key in properties) ?? "query";
-  input[queryKey] = queryKey === "queries" ? [text] : text;
-  const limitKey = ["limit", "top_k", "max_results", "count"].find((key) => key in properties);
+  const terms = [...new Set([query.text, ...(query.literalHints ?? [])].map((value) => value.trim()).filter(Boolean))];
+  const querySchema = properties[queryKey];
+  const description = typeof querySchema?.description === "string" ? querySchema.description : "";
+  const declaredType = querySchema?.type;
+  const acceptsArray = queryKey === "queries"
+    || declaredType === "array"
+    || (Array.isArray(declaredType) && declaredType.includes("array"))
+    || /array (?:of|string)|array preferred/i.test(description);
+  input[queryKey] = acceptsArray ? terms : terms.join(" ");
+  const limitKey = ["max_results", "limit", "top_k", "count"].find((key) => key in properties);
   if (limitKey) input[limitKey] = limit;
-  if ("mode" in properties) input.mode = "code";
-  if (languages?.length) {
+  if ("mode" in properties) input.mode = octocodeContentMode(focus);
+  if ("detail_level" in properties) input.detail_level = "partial";
+  if (query.languages?.length) {
     const languageKey = ["language", "lang", "languages"].find((key) => key in properties);
-    if (languageKey) input[languageKey] = languageKey === "languages" ? languages : languages[0];
+    if (languageKey) input[languageKey] = languageKey === "languages" ? query.languages : query.languages[0];
   }
   return input;
+}
+
+function octocodeContentMode(focus: ResolvedCodeSearchFocus): "code" | "docs" | "all" {
+  if (focus === "docs") return "docs";
+  if (focus === "source" || focus === "tests" || focus === "mixed") return "code";
+  return "all";
 }
 
 function buildRelationshipInput(tool: McpToolDefinition, path: string, limit: number, depth: number): Record<string, unknown> {
@@ -251,6 +292,13 @@ function payload(result: McpToolCallResult): unknown {
   if (result.structuredContent !== undefined) return result.structuredContent;
   const text = result.content?.map((item) => item.text).filter((value): value is string => typeof value === "string").join("\n") ?? "";
   try { return JSON.parse(text); } catch { return { text }; }
+}
+
+function toolResponseError(result: McpToolCallResult): string | undefined {
+  const text = result.content?.map((item) => item.text).filter((value): value is string => typeof value === "string").join("\n").trim() ?? "";
+  if (result.isError === true) return text || "provider returned isError";
+  if (/^(?:error|failed)\b/i.test(text)) return text;
+  return undefined;
 }
 
 function candidateObjects(value: unknown): Record<string, unknown>[] {

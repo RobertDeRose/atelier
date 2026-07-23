@@ -2,15 +2,21 @@
 .atelier/*.db
 .atelier/*.db-*
 .atelier/codesearch-probe/
+.atelier/octocode-probe/
 .atelier/evaluation/
 .atelier/probe-staleness.txt
 .atelier/codesearch-index-state.json
 
 # Generated provider evidence archives
 atelier-codesearch-knowledge.tar.xz
+atelier-octocode-knowledge.tar.xz
 
 # External provider indexes
 .codesearch.db/
+.octocode/
+.octocode.db
+.octocode.db-*
+.octocode.db/
 
 # JavaScript dependencies and generated output
 node_modules/

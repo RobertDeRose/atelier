@@ -2786,3 +2786,28 @@ Exit evidence required from the next live run:
 - Octocode adapter: implemented as experimental.
 - Octocode live contract: pending machine-side `mise run collect:octocode`.
 - Comparative graph evaluation: pending real provider fixtures.
+
+## v0.9.2 Octocode live-contract correction
+
+The first Octocode 0.14.0 machine run successfully installed and indexed the
+Atelier repository, but the initial collector failed before retrieval because
+boolean flags consumed the trailing positional query. The live MCP contract
+advertised `semantic_search`, `structural_search`, and `view_signatures`, but no
+`graphrag` tool.
+
+The corrected stage:
+
+- treats runtime tool discovery as authoritative;
+- gates relationship support on `graphrag`;
+- sends array-preferred semantic queries with `max_results`, content `mode`, and
+  `detail_level` matching the advertised schema;
+- maps repository search focus to Octocode's `code`, `docs`, and `all` modes;
+- applies Atelier's bounded focus overfetch and path-diverse reranking;
+- separates the long-running index timeout from MCP query timeouts;
+- directly probes semantic search, signatures, and structural search;
+- captures non-advertised GraphRAG as a conformance warning;
+- ignores Octocode indexes, probe output, archives, and captured fixtures from
+  repository retrieval.
+
+The next machine run of `mise run collect:octocode` will determine the exact
+result payload shapes and whether additional normalization work is required.

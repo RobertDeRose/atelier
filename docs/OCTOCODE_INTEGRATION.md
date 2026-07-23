@@ -9,7 +9,7 @@ octocode index
 octocode mcp --path <repository>
 ```
 
-The adapter discovers MCP schemas at runtime and maps the advertised `semantic_search`, `view_signatures`, `graphrag`, and `structural_search` tools onto Atelier capabilities. Only operations whose tools are actually advertised are enabled.
+The adapter discovers MCP schemas at runtime. Octocode 0.14.0 on the tested macOS ARM installation advertised `semantic_search`, `view_signatures`, and `structural_search`; it did not advertise `graphrag`. Atelier therefore enables semantic retrieval and file-outline capabilities while keeping relationships capability-gated.
 
 Configure Octocode as the default provider in `.atelier/config.json`:
 
@@ -23,8 +23,9 @@ Configure Octocode as the default provider in `.atelier/config.json`:
 Or select it explicitly:
 
 ```bash
-atlr code search --provider octocode "where is authentication handled?"
-atlr code related --provider octocode --path src/auth.ts src/auth.ts
+atlr code search "where is authentication handled?" --provider octocode
+atlr code symbols "OctocodeProvider" --provider octocode
+# `code related` becomes available only when the MCP server advertises `graphrag`.
 ```
 
 Run the machine-side probe with:

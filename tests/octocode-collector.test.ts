@@ -24,3 +24,14 @@ test("Octocode collector diagnoses a missing development binary before invoking 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test("Octocode collector keeps positionals before boolean flags and gates GraphRAG", () => {
+  const script = readFileSync(resolve("scripts/collect-octocode-knowledge.sh"), "utf8");
+  assert.match(script, /code search "Where is code provider selection implemented\?" --provider octocode --mode semantic --focus source --json/);
+  assert.match(script, /code symbols "OctocodeProvider" --provider octocode --json/);
+  assert.match(script, /code index --provider octocode --json/);
+  assert.match(script, /run stats octocode stats/);
+  assert.match(script, /grep -q '\"name\": \"graphrag\"'/);
+  assert.match(script, /graphrag was not advertised by Octocode/);
+});

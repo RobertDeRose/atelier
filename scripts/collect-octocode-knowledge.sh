@@ -24,22 +24,43 @@ run version octocode --version
 run help octocode --help
 run mcp_help octocode mcp --help
 run index octocode index
+run stats octocode stats
+run adapter_index node --no-warnings --experimental-strip-types apps/cli/src/main.ts code index --provider octocode --json
+run mcp_contract node --no-warnings --experimental-strip-types scripts/probe-octocode-mcp.ts "$ROOT"
 run providers node --no-warnings --experimental-strip-types apps/cli/src/main.ts code providers --json
 run status node --no-warnings --experimental-strip-types apps/cli/src/main.ts code status --provider octocode --json
-run search node --no-warnings --experimental-strip-types apps/cli/src/main.ts code search --provider octocode --mode semantic --json "Where is code provider selection implemented?"
-run related node --no-warnings --experimental-strip-types apps/cli/src/main.ts code related --provider octocode --path packages/core/src/core.ts --kind imports,dependencies,references --depth 1 --limit 20 --json packages/core/src/core.ts
-node --no-warnings --experimental-strip-types scripts/probe-octocode-mcp.ts "$ROOT" >"$OUT/mcp_contract.stdout" 2>"$OUT/mcp_contract.stderr"
-printf '%s\n' "$?" >"$OUT/mcp_contract.status"
+run search node --no-warnings --experimental-strip-types apps/cli/src/main.ts code search "Where is code provider selection implemented?" --provider octocode --mode semantic --focus source --json
+run symbols node --no-warnings --experimental-strip-types apps/cli/src/main.ts code symbols "OctocodeProvider" --provider octocode --json
+if grep -q '"name": "graphrag"' "$OUT/mcp_contract.stdout"; then
+  run related node --no-warnings --experimental-strip-types apps/cli/src/main.ts code related packages/core/src/core.ts --provider octocode --path packages/core/src/core.ts --kind imports,dependencies,references --depth 1 --limit 20 --json
+else
+  printf '%s\n' '{"skipped":true,"reason":"graphrag was not advertised by Octocode"}' >"$OUT/related.stdout"
+  : >"$OUT/related.stderr"
+  printf '0\n' >"$OUT/related.status"
+fi
+node --no-warnings --experimental-strip-types scripts/summarize-octocode-probe.ts "$OUT" >"$OUT/conformance.stdout" 2>"$OUT/conformance.stderr"
+conformance_status=$?
+printf '%s\n' "$conformance_status" >"$OUT/conformance.status"
 cat >"$OUT/SUMMARY.md" <<TXT
 # Octocode Probe
 
 - Version exit: $(cat "$OUT/version.status")
 - Index exit: $(cat "$OUT/index.status")
+- Stats exit: $(cat "$OUT/stats.status")
+- Adapter index exit: $(cat "$OUT/adapter_index.status")
 - Provider status exit: $(cat "$OUT/status.status")
 - Search exit: $(cat "$OUT/search.status")
+- Symbols exit: $(cat "$OUT/symbols.status")
 - Relationships exit: $(cat "$OUT/related.status")
 - MCP contract exit: $(cat "$OUT/mcp_contract.status")
+- Conformance exit: $conformance_status
 TXT
 if command -v shasum >/dev/null 2>&1; then (cd "$OUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS); fi
 tar -cJf "$ARCHIVE" -C "$(dirname "$OUT")" "$(basename "$OUT")"
 echo "Octocode knowledge archive ready at: $ARCHIVE"
+if [ -f "$OUT/CONFORMANCE.md" ]; then
+  echo
+  echo "Conformance summary:"
+  sed -n '1,12p' "$OUT/CONFORMANCE.md"
+fi
+exit "$conformance_status"
