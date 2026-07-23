@@ -32,6 +32,13 @@ interface OctocodeClientState {
   tools: Map<string, McpToolDefinition>;
 }
 
+interface OctocodeStats {
+  totalBlocks: number;
+  codeModel?: string;
+  textModel?: string;
+  raw: string;
+}
+
 export class OctocodeProvider implements CodeProvider {
   readonly name = "octocode";
   private readonly command: string;
@@ -70,15 +77,24 @@ export class OctocodeProvider implements CodeProvider {
       return { identity: this.identity, available: true, healthy: true, capabilities: [], indexState: "unknown", detail: "Experimental provider; workspace capability discovery has not run." };
     }
     try {
+      const stats = workspace.repositories.map((repository) => ({ repository, stats: this.inspectStats(repository.root) }));
+      const configurationWarnings = stats.flatMap(({ repository, stats: value }) => {
+        const issue = this.embeddingConfigurationIssue(value);
+        return issue ? [`${repository.name}: ${issue}`] : [];
+      });
       const states = await Promise.all(workspace.repositories.map((repository) => this.clientFor(repository.id, repository.root)));
       const capabilities = capabilitiesFor(states.flatMap((state) => [...state.tools.keys()]));
+      const indexed = stats.every(({ stats: value }) => value.totalBlocks > 0);
       return {
         identity: this.identity,
         available: true,
-        healthy: true,
+        healthy: configurationWarnings.length === 0,
         capabilities,
-        indexState: this.lastIndexedAt ? "ready" : "unknown",
-        detail: `Octocode MCP available for ${states.length} repository process(es).`,
+        indexState: indexed ? "ready" : "missing",
+        detail: indexed
+          ? `Octocode MCP available for ${states.length} repository process(es); searchable blocks verified.`
+          : `Octocode MCP available for ${states.length} repository process(es), but one or more repositories have no searchable blocks.`,
+        ...(configurationWarnings.length ? { degraded: true, warnings: configurationWarnings } : {}),
         ...(this.lastIndexedAt ? { lastIndexedAt: this.lastIndexedAt } : {}),
         ...(this.lastQueryAt ? { lastQueryAt: this.lastQueryAt } : {}),
         ...(Object.keys(this.indexedRevisions).length ? { indexedRevisions: this.indexedRevisions } : {}),
@@ -93,6 +109,11 @@ export class OctocodeProvider implements CodeProvider {
     if (version === undefined) throw new Error(`octocode executable not found: ${this.command}`);
     await this.close();
     for (const repository of workspace.repositories) {
+      const before = this.inspectStats(repository.root);
+      const configurationIssue = this.embeddingConfigurationIssue(before);
+      if (configurationIssue) {
+        throw new Error(`Octocode cannot index or search ${repository.root}: ${configurationIssue}`);
+      }
       const result = spawnSync(this.command, ["index"], {
         cwd: repository.root,
         env: { ...process.env, ...this.environment },
@@ -103,6 +124,10 @@ export class OctocodeProvider implements CodeProvider {
       if (result.error || result.status !== 0) {
         throw new Error(`octocode index failed for ${repository.root}: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`);
       }
+      const after = this.inspectStats(repository.root);
+      if (after.totalBlocks <= 0) {
+        throw new Error(`Octocode index completed for ${repository.root} but produced no searchable blocks. ${this.embeddingConfigurationIssue(after) ?? "Run octocode config --show and verify the configured embedding provider."}`);
+      }
       await this.clientFor(repository.id, repository.root);
     }
     this.indexedRevisions = Object.fromEntries(workspace.repositories.map((repository) => [repository.id, repository.snapshot.headCommit]));
@@ -112,6 +137,12 @@ export class OctocodeProvider implements CodeProvider {
 
   async search(query: CodeSearchQuery): Promise<CodeSearchHit[]> {
     const repositories = selectedRepositories(query.workspace, query.repositoryIds);
+    for (const repository of repositories) {
+      const stats = this.inspectStats(repository.root);
+      const issue = this.embeddingConfigurationIssue(stats);
+      if (issue) throw new Error(`Octocode semantic search is unavailable for ${repository.root}: ${issue}`);
+      if (stats.totalBlocks <= 0) throw new Error(`Octocode has no searchable blocks for ${repository.root}. Run atlr code index --provider octocode after configuring an embedding provider.`);
+    }
     const resolvedFocus = resolveCodeSearchFocus(query.focus, query.text);
     const providerLimit = focusedProviderLimit(query.limit, resolvedFocus, query.mode);
     const all: CodeSearchHit[] = [];
@@ -214,6 +245,42 @@ export class OctocodeProvider implements CodeProvider {
 
   private repositoryRoot(repositoryId: string): string | undefined { return this.roots.get(repositoryId); }
 
+  private inspectStats(root: string): OctocodeStats {
+    const result = spawnSync(this.command, ["stats"], {
+      cwd: root,
+      env: { ...process.env, ...this.environment },
+      encoding: "utf8",
+      timeout: Math.min(this.timeoutMs, 30_000),
+      shell: false,
+    });
+    if (result.error || result.status !== 0) {
+      throw new Error(`octocode stats failed for ${root}: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`);
+    }
+    const raw = `${result.stdout}${result.stderr}`;
+    const counts = ["Code blocks", "Text blocks", "Document blocks", "Commit blocks"]
+      .map((label) => Number(raw.match(new RegExp(`${label}:\\s*([0-9,]+)`, "i"))?.[1]?.replaceAll(",", "") ?? "0"));
+    const codeModel = raw.match(/Code model:\s*(\S+)/i)?.[1];
+    const textModel = raw.match(/Text model:\s*(\S+)/i)?.[1];
+    return { totalBlocks: counts.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0), ...(codeModel ? { codeModel } : {}), ...(textModel ? { textModel } : {}), raw };
+  }
+
+  private embeddingConfigurationIssue(stats: OctocodeStats): string | undefined {
+    const model = stats.codeModel;
+    if (!model) return undefined;
+    const provider = model.split(":", 1)[0]?.toLowerCase();
+    const required = provider === "voyage" ? "VOYAGE_API_KEY"
+      : provider === "jina" ? "JINA_API_KEY"
+      : provider === "google" ? "GOOGLE_API_KEY"
+      : provider === "openai" ? "OPENAI_API_KEY"
+      : provider === "octohub" ? "OCTOHUB_API_KEY"
+      : provider === "together" ? "TOGETHER_API_KEY"
+      : undefined;
+    if (!required) return undefined;
+    const environment = { ...process.env, ...this.environment };
+    if (environment[required]?.trim()) return undefined;
+    return `${required} is not set for configured code embedding model ${model}. Set the key, or install/configure an Octocode build with a local embedding provider.`;
+  }
+
   private detectVersion(): string | undefined {
     const result = spawnSync(this.command, ["--version"], { cwd: this.cwd, env: { ...process.env, ...this.environment }, encoding: "utf8", timeout: Math.min(this.timeoutMs, 10_000), shell: false });
     if (result.error || result.status !== 0) return undefined;
@@ -255,7 +322,10 @@ function buildSearchInput(tool: McpToolDefinition, query: CodeSearchQuery, limit
     || /array (?:of|string)|array preferred/i.test(description);
   input[queryKey] = acceptsArray ? terms : terms.join(" ");
   const limitKey = ["max_results", "limit", "top_k", "count"].find((key) => key in properties);
-  if (limitKey) input[limitKey] = limit;
+  if (limitKey) {
+    const maximum = typeof properties[limitKey]?.maximum === "number" ? properties[limitKey]!.maximum as number : undefined;
+    input[limitKey] = Math.max(1, Math.min(limit, maximum ?? limit));
+  }
   if ("mode" in properties) input.mode = octocodeContentMode(focus);
   if ("detail_level" in properties) input.detail_level = "partial";
   if (query.languages?.length) {

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.3
+
+```text
+fix(code): harden Octocode embedding preflight and live collection
+
+- clamp semantic search requests to the provider-advertised maximum
+- reject missing cloud embedding credentials before long indexing runs
+- verify indexing produced searchable blocks before reporting ready
+- preserve MCP tool discovery when individual tool calls fail
+- capture configuration, model support, and redacted key presence
+- treat absent GraphRAG as a capability warning
+- preserve the verified Octocode 0.14.0 MCP schema as a regression fixture
+```
+
 ## 0.9.2
 
 ```text

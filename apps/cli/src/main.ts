@@ -55,7 +55,8 @@ function flagString(args: ParsedArgs, key: string): string | undefined {
 }
 
 function flagBoolean(args: ParsedArgs, key: string): boolean {
-  return args.flags.get(key) === true;
+  const value = args.flags.get(key);
+  return value === true || value === "true";
 }
 
 function asJson(value: unknown): void {

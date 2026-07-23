@@ -2811,3 +2811,20 @@ The corrected stage:
 
 The next machine run of `mise run collect:octocode` will determine the exact
 result payload shapes and whether additional normalization work is required.
+
+
+## v0.9.3 Octocode embedding and index verification
+
+The second live Octocode 0.14.0 run established that the default release configuration uses Voyage cloud embeddings. Without `VOYAGE_API_KEY`, `octocode index` can exit successfully while `octocode stats` still reports zero searchable blocks, and MCP semantic search fails when it attempts to embed the query.
+
+The adapter therefore now:
+
+- inspects `octocode stats` before indexing and searching;
+- maps cloud embedding providers to their required environment variable;
+- rejects missing credentials before a long indexing attempt;
+- verifies non-zero searchable blocks after indexing;
+- clamps semantic requests to the tool schema maximum;
+- preserves MCP tool discovery and structural/signature calls when semantic search fails;
+- treats absent GraphRAG as a capability gap rather than an adapter failure.
+
+The live collector captures `config --show`, model discovery, redacted key presence, tool schemas, and all partial results before returning the retained conformance status.

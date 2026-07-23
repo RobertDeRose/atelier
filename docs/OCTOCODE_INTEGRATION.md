@@ -34,4 +34,15 @@ Run the machine-side probe with:
 mise run collect:octocode
 ```
 
-The development bootstrap pins Octocode 0.14.0 through mise. Octocode may still require an embedding-provider configuration depending on the platform build. The collector preserves all stdout, stderr, exit statuses, MCP tool schemas, and an attachable `atelier-octocode-knowledge.tar.xz` archive.
+The development bootstrap pins Octocode 0.14.0 through mise. The release binary currently defaults to `voyage:voyage-code-3`, which requires `VOYAGE_API_KEY`. Atelier checks the configured code embedding model and refuses a long indexing run when its required key is absent. It also verifies that `octocode stats` reports at least one searchable code, text, document, or commit block before accepting the index as ready.
+
+Example cloud setup:
+
+```bash
+export VOYAGE_API_KEY="..."
+octocode config \
+  --code-embedding-model "voyage:voyage-code-3" \
+  --text-embedding-model "voyage:voyage-3.5-lite"
+```
+
+Local embedding models are supported only by Octocode builds compiled with the relevant feature. Atelier does not silently rewrite the user-level Octocode configuration. The collector records model names and API-key presence booleans, never secret values, and preserves all stdout, stderr, exit statuses, MCP tool schemas, and an attachable `atelier-octocode-knowledge.tar.xz` archive.

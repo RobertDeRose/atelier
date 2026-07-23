@@ -1,7 +1,7 @@
 # Migration report
 
-## v0.9.1 to v0.9.2
+## 0.9.2 to 0.9.3
 
-No configuration migration is required.
+No configuration migration is required. Octocode now refuses to spend time indexing when its configured cloud embedding API key is absent, and it verifies that an indexing run produced searchable blocks.
 
-The Octocode collector now invokes positional queries before boolean flags, captures direct MCP tool calls, and skips relationship collection when `graphrag` is not advertised. Generated Octocode indexes and probe archives are ignored. The first `octocode index` can run for many minutes; Atelier now permits a bounded 30-minute indexing operation while retaining shorter MCP query timeouts.
+The live collector captures configuration and key-presence booleans without recording secret values.

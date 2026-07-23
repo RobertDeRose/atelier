@@ -10,6 +10,13 @@ run() {
   "$@" >"$OUT/$name.stdout" 2>"$OUT/$name.stderr"
   printf '%s\n' "$?" >"$OUT/$name.status"
 }
+skip() {
+  local name="$1" reason="$2"
+  echo "== $name =="
+  printf '%s\n' "$reason" >"$OUT/$name.stderr"
+  : >"$OUT/$name.stdout"
+  printf '78\n' >"$OUT/$name.status"
+}
 if ! command -v octocode >/dev/null 2>&1; then
   cat >"$OUT/SUMMARY.md" <<'TXT'
 # Octocode Probe
@@ -23,16 +30,25 @@ fi
 run version octocode --version
 run help octocode --help
 run mcp_help octocode mcp --help
-run index octocode index
-run stats octocode stats
-run adapter_index node --no-warnings --experimental-strip-types apps/cli/src/main.ts code index --provider octocode --json
+run config_show octocode config --show
+run models_help octocode models --help
+run models_list octocode models list
+run stats_before octocode stats
+run embedding_environment node --no-warnings --experimental-strip-types scripts/inspect-octocode-environment.ts "$OUT/config_show.stdout" "$OUT/stats_before.stdout"
+if [ "$(cat "$OUT/embedding_environment.status")" = "0" ]; then
+  run index octocode index
+else
+  skip index "Embedding provider prerequisites are missing; indexing was skipped to avoid a long unsuccessful run."
+fi
+run stats_after octocode stats
+run adapter_index node --no-warnings --experimental-strip-types apps/cli/src/main.ts code index --provider octocode --json=true
 run mcp_contract node --no-warnings --experimental-strip-types scripts/probe-octocode-mcp.ts "$ROOT"
-run providers node --no-warnings --experimental-strip-types apps/cli/src/main.ts code providers --json
-run status node --no-warnings --experimental-strip-types apps/cli/src/main.ts code status --provider octocode --json
-run search node --no-warnings --experimental-strip-types apps/cli/src/main.ts code search "Where is code provider selection implemented?" --provider octocode --mode semantic --focus source --json
-run symbols node --no-warnings --experimental-strip-types apps/cli/src/main.ts code symbols "OctocodeProvider" --provider octocode --json
+run providers node --no-warnings --experimental-strip-types apps/cli/src/main.ts code providers --json=true
+run status node --no-warnings --experimental-strip-types apps/cli/src/main.ts code status --provider octocode --json=true
+run search node --no-warnings --experimental-strip-types apps/cli/src/main.ts code search "Where is code provider selection implemented?" --provider octocode --mode semantic --focus source --json=true
+run symbols node --no-warnings --experimental-strip-types apps/cli/src/main.ts code symbols "OctocodeProvider" --provider octocode --json=true
 if grep -q '"name": "graphrag"' "$OUT/mcp_contract.stdout"; then
-  run related node --no-warnings --experimental-strip-types apps/cli/src/main.ts code related packages/core/src/core.ts --provider octocode --path packages/core/src/core.ts --kind imports,dependencies,references --depth 1 --limit 20 --json
+  run related node --no-warnings --experimental-strip-types apps/cli/src/main.ts code related packages/core/src/core.ts --provider octocode --path packages/core/src/core.ts --kind imports,dependencies,references --depth 1 --limit 20 --json=true
 else
   printf '%s\n' '{"skipped":true,"reason":"graphrag was not advertised by Octocode"}' >"$OUT/related.stdout"
   : >"$OUT/related.stderr"
@@ -45,8 +61,9 @@ cat >"$OUT/SUMMARY.md" <<TXT
 # Octocode Probe
 
 - Version exit: $(cat "$OUT/version.status")
+- Embedding preflight exit: $(cat "$OUT/embedding_environment.status")
 - Index exit: $(cat "$OUT/index.status")
-- Stats exit: $(cat "$OUT/stats.status")
+- Stats exit: $(cat "$OUT/stats_after.status")
 - Adapter index exit: $(cat "$OUT/adapter_index.status")
 - Provider status exit: $(cat "$OUT/status.status")
 - Search exit: $(cat "$OUT/search.status")

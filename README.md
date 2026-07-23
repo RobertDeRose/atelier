@@ -24,7 +24,7 @@ Atelier now owns:
 
 External providers own general-purpose code indexing, parsing, embeddings, ranking, and graphs. Native FTS5 and Tree-sitter code indexes from v0.4.0 were removed.
 
-Atelier now includes a verified `codesearch` adapter based on the documented `codesearch mcp`, bare `codesearch index <path>` repair command, serve registration through `codesearch index add`, and `search`, `find`, `get_chunk`, and `status` MCP operations. Octocode remains a later experimental provider after codesearch semantic health and multi-repository behavior are fully evaluated.
+Atelier includes a verified `codesearch` default provider and an experimental Octocode adapter. Codesearch owns the primary local semantic, lexical, symbol, and relationship path. Octocode is evaluated behind the same provider-neutral contract for structural search, signatures, and optional GraphRAG capabilities.
 
 ## Requirements
 
@@ -155,7 +155,7 @@ CodeService
         +-- Working State projection
         |
         +-- codesearch adapter      [implemented]
-        +-- Octocode adapter        [next experiment]
+        +-- Octocode adapter        [experimental]
         +-- mock provider           [implemented]
         +-- disabled provider       [implemented]
 ```
@@ -232,9 +232,9 @@ Validation evidence remains qualified by repository snapshot and becomes stale a
 
 ## Current limitations
 
-- No Octocode adapter yet.
-- Focused retrieval still requires one live benchmark run before Atelier decides whether codesearch alone is sufficient or an Octocode comparison should begin.
-- No persistent daemon or JSON-RPC service boundary.
+- Octocode 0.14.0 defaults to cloud embedding models and requires the matching API key unless the installed build supports and is configured for a local embedding provider.
+- Octocode GraphRAG remains unavailable when its MCP server does not advertise `graphrag`.
+- No persistent Atelier daemon or JSON-RPC service boundary.
 - The codesearch adapter supports imports, dependents, and usage relationships; deeper provider-specific graph evaluation remains pending.
 - Jujutsu live conformance still requires a real supported `jj` binary.
 

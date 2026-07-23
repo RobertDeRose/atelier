@@ -14,6 +14,7 @@ import path from 'node:path';
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), args }) + '\\n');
 if (args[0] === '--version') { console.log('octocode 0.14.0'); process.exit(0); }
+if (args[0] === 'stats') { console.log(['Index Status', '  Files indexed: 3', '  Code blocks: 12', '  Text blocks: 0', '  Document blocks: 0', '  Commit blocks: 0', '', 'Configuration', '  Code model: voyage:voyage-code-3', '  Text model: voyage:voyage-3.5-lite'].join('\\n')); process.exit(0); }
 if (args[0] === 'index') { console.log('Indexed 12 blocks'); process.exit(0); }
 if (args[0] !== 'mcp') process.exit(2);
 let buffer = '';
@@ -28,7 +29,7 @@ process.stdin.on('data', chunk => {
     let result = {};
     if (request.method === 'initialize') result = { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'octocode', version: '0.14.0' } };
     else if (request.method === 'tools/list') result = { tools: [
-      { name: 'semantic_search', inputSchema: { type: 'object', properties: { query: { description: 'String or array of strings. Array preferred.' }, max_results: { type: 'number' }, mode: { type: 'string' }, detail_level: { type: 'string' } } } },
+      { name: 'semantic_search', inputSchema: { type: 'object', properties: { query: { description: 'String or array of strings. Array preferred.' }, max_results: { type: 'number', maximum: 20 }, mode: { type: 'string' }, detail_level: { type: 'string' } } } },
       { name: 'view_signatures', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
       { name: 'graphrag', inputSchema: { type: 'object', properties: { action: { type: 'string', enum: ['get-relationships'] }, node_id: { type: 'string' }, limit: { type: 'number' }, depth: { type: 'number' } } } },
       { name: 'structural_search', inputSchema: { type: 'object', properties: { pattern: { type: 'string' } } } }
@@ -70,7 +71,7 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
   writeFileSync(join(a, "src", "token.ts"), "export const token = true;\n", "utf8");
   writeFileSync(join(b, "src", "auth.ts"), "export function refreshToken() {}\n", "utf8");
   const fake = fakeOctocode(root);
-  const provider = new OctocodeProvider({ command: fake.command, cwd: root, timeoutMs: 2_000 });
+  const provider = new OctocodeProvider({ command: fake.command, cwd: root, timeoutMs: 2_000, environment: { VOYAGE_API_KEY: "test-key" } });
   const work = workspace([{ id: "a", root: a }, { id: "b", root: b }]);
   try {
     assert.equal(await provider.ensureIndex(work), "ready");
@@ -80,7 +81,7 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
     assert.ok(status.capabilities.includes("graph.relationships"));
     assert.ok(status.capabilities.includes("index.multi_repository"));
 
-    const hits = await provider.search({ workspace: work, text: "refresh token", mode: "auto", limit: 10, includeTests: true, includeGenerated: false });
+    const hits = await provider.search({ workspace: work, text: "refresh token", mode: "auto", focus: "source", limit: 10, includeTests: true, includeGenerated: false });
     assert.equal(hits.length, 2);
     assert.deepEqual(new Set(hits.map((hit) => hit.repositoryId)), new Set(["a", "b"]));
     assert.equal(hits[0]?.provenance.provider.name, "octocode");
@@ -98,9 +99,29 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
     assert.ok(calls.some((call) => call.args?.[0] === "mcp" && realpathSync(call.cwd) === realpathSync(b)));
     const searchCall = calls.find((call) => call.tool === "semantic_search") as { input?: Record<string, unknown> } | undefined;
     assert.deepEqual(searchCall?.input?.query, ["refresh token"]);
-    assert.equal(searchCall?.input?.max_results, 10);
-    assert.equal(searchCall?.input?.mode, "all");
+    assert.equal(searchCall?.input?.max_results, 20);
+    assert.equal(searchCall?.input?.mode, "code");
     assert.equal(searchCall?.input?.detail_level, "partial");
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("Octocode rejects cloud embedding configuration without the required API key before indexing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-octocode-key-"));
+  const repo = join(root, "repo");
+  mkdirSync(repo, { recursive: true });
+  const fake = fakeOctocode(root);
+  const provider = new OctocodeProvider({ command: fake.command, cwd: root, timeoutMs: 2_000, environment: { VOYAGE_API_KEY: "" } });
+  try {
+    await assert.rejects(
+      provider.ensureIndex(workspace([{ id: "repo", root: repo }])),
+      /VOYAGE_API_KEY is not set/,
+    );
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args?: string[] });
+    assert.equal(calls.some((call) => call.args?.[0] === "index"), false);
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });
