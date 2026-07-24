@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 test("Octocode conformance accepts required tools and warns when GraphRAG is absent", () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-octocode-conformance-"));
   try {
-    for (const name of ["setup_config", "version", "help", "mcp_help", "config_show", "stats_before", "embedding_environment", "index", "stats_after", "adapter_index", "providers", "status", "search", "symbols", "mcp_contract", "related"]) {
+    for (const name of ["setup_config", "version", "help", "mcp_help", "config_show", "stats_before", "embedding_environment", "index", "stats_after", "adapter_index", "codesearch_index", "providers", "status", "search", "symbols", "mcp_contract", "related", "evaluation"]) {
       writeFileSync(join(root, `${name}.status`), "0\n");
     }
     writeFileSync(join(root, "setup_config.stdout"), JSON.stringify({ configPath: "/tmp/repo/.atelier/octocode-config.toml", codeModel: "fastembed:jinaai/jina-embeddings-v2-base-code", textModel: "fastembed:nomic-ai/nomic-embed-text-v1.5", graphRagEnabled: true }));
@@ -16,6 +16,8 @@ test("Octocode conformance accepts required tools and warns when GraphRAG is abs
     writeFileSync(join(root, "search.stdout"), JSON.stringify([{ path: "packages/core/src/core.ts" }]));
     writeFileSync(join(root, "symbols.stdout"), JSON.stringify([{ path: "packages/core/src/code/octocode-provider.ts" }]));
     writeFileSync(join(root, "related.stdout"), JSON.stringify({ skipped: true, reason: "graphrag was not advertised" }));
+    mkdirSync(join(root, "evaluation"), { recursive: true });
+    writeFileSync(join(root, "evaluation", "latest.json"), JSON.stringify({ aggregate: { baseline: { tasks: 4, meanWeightedRecall: 0.9 }, codesearch: { tasks: 4, meanWeightedRecall: 0.9 }, octocode: { tasks: 4, meanWeightedRecall: 0.8, meanReciprocalRank: 0.5, meanNdcgAt10: 0.6 } } }));
     writeFileSync(join(root, "mcp_contract.stdout"), JSON.stringify({
       tools: [
         { name: "semantic_search" },

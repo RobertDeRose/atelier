@@ -1,7 +1,7 @@
-# Migration Report — v0.9.6
+# Migration Report — v0.9.7
 
-Octocode 0.14.0 returns successful MCP search, signature, and GraphRAG results as formatted text rather than structured JSON. Earlier Atelier adapters preserved the raw calls but normalized them to empty result arrays.
+No runtime configuration migration is required.
 
-Atelier now parses Octocode's `CODE RESULTS`, `SIGNATURES`, and relationship text formats into provider-neutral evidence. Symbol lookup uses signature detail with a zero similarity threshold, and the raw GraphRAG probe now sends the advertised `operation = "get-relationships"` field.
+The code-intelligence evaluator now accepts `--providers` with a comma-separated list. Its previous default remains `codesearch`, and existing reports retain direct `codesearch` fields. New reports also include provider-keyed `providers`, `coldStarts`, and aggregate sections.
 
-No configuration migration is required. Rerun `mise run collect:octocode` to verify that search and symbol results are now retained.
+`mise run collect:octocode` now refreshes both codesearch and Octocode indexes and runs the comparative benchmark. The next collection may therefore take longer than the prior conformance-only run.

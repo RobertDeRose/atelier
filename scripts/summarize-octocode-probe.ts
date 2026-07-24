@@ -17,7 +17,7 @@ function addProcess(name: string, required = true): void {
   const code = status(name);
   checks.push({ name, status: code === 0 ? "passed" : required ? "failed" : "warning", detail: code === 0 ? "exit 0" : stderr(name) || `exit ${code}` });
 }
-for (const name of ["setup_config", "version", "help", "mcp_help", "config_show", "stats_before", "embedding_environment", "index", "stats_after", "adapter_index", "providers", "status", "search", "symbols", "mcp_contract"]) addProcess(name);
+for (const name of ["setup_config", "version", "help", "mcp_help", "config_show", "stats_before", "embedding_environment", "index", "stats_after", "adapter_index", "codesearch_index", "providers", "status", "search", "symbols", "mcp_contract", "evaluation"]) addProcess(name);
 for (const name of ["models_help", "models_list", "related"]) addProcess(name, false);
 
 try {
@@ -95,6 +95,38 @@ try {
   const related = JSON.parse(readFileSync(join(directory, "related.stdout"), "utf8")) as { skipped?: boolean; reason?: string };
   if (related.skipped === true) checks.push({ name: "related:capability", status: "warning", detail: related.reason ?? "skipped" });
 } catch {}
+try {
+  const evaluation = JSON.parse(readFileSync(join(directory, "evaluation", "latest.json"), "utf8")) as {
+    aggregate?: {
+      baseline?: { tasks?: number; meanWeightedRecall?: number; meanReciprocalRank?: number; meanNdcgAt10?: number };
+      codesearch?: { tasks?: number; meanWeightedRecall?: number; meanReciprocalRank?: number; meanNdcgAt10?: number };
+      octocode?: { tasks?: number; meanWeightedRecall?: number; meanReciprocalRank?: number; meanNdcgAt10?: number };
+      providers?: Record<string, { tasks?: number; meanWeightedRecall?: number; meanReciprocalRank?: number; meanNdcgAt10?: number }>;
+    };
+  };
+  const baseline = evaluation.aggregate?.baseline;
+  const codesearch = evaluation.aggregate?.codesearch ?? evaluation.aggregate?.providers?.codesearch;
+  const octocode = evaluation.aggregate?.octocode ?? evaluation.aggregate?.providers?.octocode;
+  const complete = (baseline?.tasks ?? 0) > 0 && baseline?.tasks === codesearch?.tasks && baseline?.tasks === octocode?.tasks;
+  checks.push({
+    name: "evaluation:complete",
+    status: complete ? "passed" : "failed",
+    detail: complete ? `${baseline?.tasks} task(s) compared across baseline, codesearch, and octocode` : "comparative provider metrics were incomplete",
+  });
+  if (complete) {
+    const octocodeRecall = octocode?.meanWeightedRecall ?? 0;
+    const baselineRecall = baseline?.meanWeightedRecall ?? 0;
+    const codesearchRecall = codesearch?.meanWeightedRecall ?? 0;
+    checks.push({
+      name: "evaluation:octocode_quality",
+      status: octocodeRecall >= baselineRecall ? "passed" : "warning",
+      detail: `weighted recall baseline=${baselineRecall}, codesearch=${codesearchRecall}, octocode=${octocodeRecall}; MRR octocode=${octocode?.meanReciprocalRank ?? 0}; nDCG@10 octocode=${octocode?.meanNdcgAt10 ?? 0}`,
+    });
+  }
+} catch (error) {
+  checks.push({ name: "evaluation:json", status: "failed", detail: error instanceof Error ? error.message : String(error) });
+}
+
 const totals = { passed: checks.filter((check) => check.status === "passed").length, warnings: checks.filter((check) => check.status === "warning").length, failed: checks.filter((check) => check.status === "failed").length };
 const report = { provider: "octocode", version: "0.14.0", toolNames, totals, checks };
 writeFileSync(join(directory, "conformance.json"), `${JSON.stringify(report, null, 2)}\n`);

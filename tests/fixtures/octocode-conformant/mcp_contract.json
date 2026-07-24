@@ -1,0 +1,295 @@
+{
+  "initialize": {
+    "protocolVersion": "2025-06-18",
+    "capabilities": {
+      "tools": {}
+    },
+    "serverInfo": {
+      "name": "octocode-mcp",
+      "version": "0.14.0",
+      "description": "Semantic code search server with vector embeddings and optional GraphRAG support"
+    },
+    "instructions": "This server provides modular AI tools: semantic code search, view signatures, and GraphRAG (if available). Use 'semantic_search' for code/documentation searches and 'graphrag' (if enabled) for relationship queries."
+  },
+  "tools": [
+    {
+      "name": "graphrag",
+      "description": "Knowledge graph operations over the indexed codebase. Use for architectural queries: component relationships, dependency chains, data flows. For simple code lookup use semantic_search instead.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "format": {
+            "default": "text",
+            "description": "Output format (default: 'text')",
+            "enum": [
+              "text",
+              "json",
+              "markdown"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_depth": {
+            "default": 3,
+            "description": "Max path depth for 'find-path' (default: 3)",
+            "format": "uint",
+            "maximum": 10,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "node_id": {
+            "description": "Node ID for 'get-node'/'get-relationships' (format: 'path/to/file' or 'path/to/file/symbol')",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operation": {
+            "description": "'search' (semantic node search), 'get-node' (node details), 'get-relationships' (node connections), 'find-path' (path between two nodes), 'overview' (graph stats)",
+            "enum": [
+              "search",
+              "get-node",
+              "get-relationships",
+              "find-path",
+              "overview"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "description": "Search query for 'search' operation",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_id": {
+            "description": "Source node ID for 'find-path'",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_id": {
+            "description": "Target node ID for 'find-path'",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "operation"
+        ],
+        "title": "GraphRagParams",
+        "type": "object"
+      }
+    },
+    {
+      "name": "semantic_search",
+      "description": "Search codebase by meaning. Finds code by what it does, not exact symbol names. Prefer an array of related terms over a single query for broader coverage.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "detail_level": {
+            "default": "partial",
+            "description": "Result verbosity: 'signatures' (declarations only), 'partial' (truncated, default), 'full' (complete bodies)",
+            "enum": [
+              "signatures",
+              "partial",
+              "full"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "language": {
+            "description": "Filter code results by language (rust, python, typescript, go, etc.)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_results": {
+            "default": 3,
+            "description": "Max results to return (default: 3)",
+            "format": "uint",
+            "maximum": 20,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mode": {
+            "default": "all",
+            "description": "Content type filter: 'code' (functions/classes), 'text' (plain text), 'docs' (markdown/README), 'commits' (git commit history), 'all' (default, excludes commits)",
+            "enum": [
+              "code",
+              "text",
+              "docs",
+              "commits",
+              "all"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": {
+            "description": "String or array of strings describing functionality to find. Array preferred for comprehensive results."
+          },
+          "threshold": {
+            "description": "Similarity cutoff 0.0-1.0 (higher = stricter match)",
+            "format": "float",
+            "maximum": 1,
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SemanticSearchParams",
+        "type": "object"
+      }
+    },
+    {
+      "name": "structural_search",
+      "description": "Search or rewrite code by AST structure using ast-grep pattern syntax. Finds code matching structural patterns like '$FUNC.unwrap()', 'if let Some($X) = $Y { $$$ }'. Optionally rewrite matches using a template with metavariable substitution. Complements semantic_search: use this for structural/syntactic patterns, semantic_search for meaning-based queries.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "context": {
+            "description": "Number of context lines around matches",
+            "format": "uint",
+            "maximum": 10,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "language": {
+            "description": "Language to search (required: rust, javascript, typescript, python, go, java, cpp, php, ruby, lua, bash, css, json)",
+            "type": "string"
+          },
+          "max_results": {
+            "default": 50,
+            "description": "Max results to return (default: 50)",
+            "format": "uint",
+            "maximum": 200,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "paths": {
+            "description": "File paths or glob patterns to search (default: current directory)",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "pattern": {
+            "description": "AST pattern using ast-grep syntax (e.g. '$FUNC.unwrap()', 'if err != nil { $$$ }')",
+            "type": "string"
+          },
+          "rewrite": {
+            "description": "Rewrite template with metavariable substitution (e.g. '$VAR.expect(\"reason\")'). When provided, matched code is rewritten.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "update_all": {
+            "description": "Apply rewrites to files in-place. When false or absent, returns a diff preview. Requires rewrite parameter.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "pattern",
+          "language"
+        ],
+        "title": "StructuralSearchParams",
+        "type": "object"
+      }
+    },
+    {
+      "name": "view_signatures",
+      "description": "Extract function signatures, class definitions, and declarations from files without implementation bodies. Supports Rust, JS/TS, Python, Go, C++, PHP, Ruby, Bash, JSON, CSS, Svelte, Markdown.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "files": {
+            "description": "File paths or glob patterns (e.g. 'src/main.rs', '**/*.py', 'src/**/*.ts')",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "ViewSignaturesParams",
+        "type": "object"
+      }
+    }
+  ],
+  "calls": {
+    "semantic_search": {
+      "content": [
+        {
+          "type": "text",
+          "text": "CODE RESULTS (1)\n1. scripts/probe-octocode-mcp.ts\n | Similarity 0.660\n22: () => client.callTool(\"semantic_search\", {\n23:       query: [\"code provider selection\", \"provider registry\"],\n24:       mode: \"code\",\n25:       detail_level: \"partial\",\n26:       max_results: 20,\n27:     })\n\n"
+        }
+      ],
+      "isError": false
+    },
+    "view_signatures": {
+      "content": [
+        {
+          "type": "text",
+          "text": "SIGNATURES (2 files)\n\nFILE: packages/core/src/core.ts\nLanguage: typescript\n0: import { existsSync, mkdirSync, readFileSync, writeFileSync } from \"node:fs\";\n\n1: import { relative, resolve } from \"node:path\";\n\n2: import { loadConfig, type AtelierConfig } from \"./config/config.ts\";\n\n3: import { WorkingStateBuilder } from \"./state/working-state-builder.ts\";\n\n4: import type {\n5:   ActionRequest,\n// ... 6 more lines\n12:   WorkflowMode,\n13: } from \"./domain/types.ts\";\n\n14: import { SqliteLedger } from \"./ledger/sqlite-ledger.ts\";\n\n15: import { ensurePlanDocument } from \"./planning/plan-document.ts\";\n\n16: import { parsePlanFile, parsePlanText } from \"./planning/plan-parser.ts\";\n\n17: import { PlanReconciler } from \"./planning/plan-reconciler.ts\";\n\n18: import { PolicyEngine } from \"./policy/policy-engine.ts\";\n\n19: import { createRepositoryProvider } from \"./repository/repository-factory.ts\";\n\n20: import type { RepositoryProvider } from \"./repository/repository-provider.ts\";\n\n21: import { ValidationService } from \"./validation/validation-service.ts\";\n\n22: import type { CodeProvider } from \"./code/provider.ts\";\n\n23: import { DisabledCodeProvider } from \"./code/disabled-provider.ts\";\n\n24: import { MockCodeProvider } from \"./code/mock-provider.ts\";\n\n25: import { CodesearchProvider } from \"./code/codesearch-provider.ts\";\n\n26: import { OctocodeProvider } from \"./code/octocode-provider.ts\";\n\n27: import { CodeProviderRegistry } from \"./code/registry.ts\";\n\n28: import { CodeService } from \"./code/service.ts\";\n\n29: import type { CodeWorkspace } from \"./code/types.ts\";\n\n30: import { loadCodeWorkspace, validateCodeWorkspace } from \"./code/workspace.ts\";\n\n31: import { BeadsCliTaskProvider } from \"./tasks/beads-cli-provider.ts\";\n\n32: import { InMemoryTaskProvider } from \"./tasks/in-memory-task-provider.ts\";\n\n33: import { NoopTaskProvider } from \"./tasks/noop-task-provider.ts\";\n\n34: import type { TaskProvider } from \"./tasks/task-provider.ts\";\n\n35: import { hashFile } from \"./util/hash.ts\";\n\n36: import { newId, nowIso } from \"./util/ids.ts\";\n\n38: export interface AtelierStatus {\n39:   repositoryRoot: string;\n// ... 8 more lines\n48:   activePermissions: PermissionGrant[];\n49: }\n\n51: export class AtelierCore {\n52:   readonly config: AtelierConfig;\n// ... 268 more lines\n321:   }\n322: }\n\n61: private constructor(config: AtelierConfig, ledger: SqliteLedger, taskProvider: TaskProvider, codeProvider?: CodeProvider) {\n62:     this.config = config;\n// ... 6 more lines\n69:     this.workingStateBuilder = new WorkingStateBuilder(taskProvider, ledger, this.code, this.validation);\n70:   }\n\n72: static open(repositoryRoot = process.cwd(), options: { taskProvider?: \"beads\" | \"memory\" | \"none\"; codeProvider?: CodeProvider } = {}): AtelierCore {\n73:     const config = loadConfig(repositoryRoot);\n// ... 9 more lines\n83:     return new AtelierCore(config, ledger, taskProvider, options.codeProvider);\n84:   }\n\n86: initialize(options: { createPlan?: boolean } = {}): { createdPlan: boolean } {\n87:     mkdirSync(this.config.stateDirectory, { recursive: true });\n// ... 40 more lines\n128:     return { createdPlan };\n129:   }\n\n135: setMode(mode: WorkflowMode, actor: \"user\" | \"system\" = \"user\"): void {\n136:     const previous = this.mode();\n137:     this.ledger.setState(\"workflowMode\", mode);\n138:     this.ledger.append({ kind: \"workflow.mode_changed\", actor, payload: { previous, mode } });\n139:   }\n\n141: evaluate(request: ActionRequest): PolicyDecision {\n142:     const decision = this.policy.evaluate(request, {\n// ... 12 more lines\n155:     return decision;\n156:   }\n\n158: grant(options: {\n159:     permission: Permission;\n// ... 21 more lines\n181:     return grant;\n182:   }\n\n184: revoke(grantId: string): boolean {\n185:     const revoked = this.ledger.revokeGrant(grantId);\n186:     if (revoked) this.ledger.append({ kind: \"permission.revoked\", actor: \"user\", payload: { grantId } });\n187:     return revoked;\n188:   }\n\n195: recordPlanReview(beforeText: string, afterText: string): { beforeHash: string; afterHash: string; changed: boolean } {\n196:     const before = parsePlanText(beforeText, this.config.planPath);\n// ... 15 more lines\n212:     return { beforeHash: before.hash, afterHash: after.hash, changed };\n213:   }\n\n215: approvePlan(): string {\n216:     const plan = this.parsePlan();\n// ... 15 more lines\n232:     return plan.hash;\n233:   }\n\n235: async reconcilePlan(apply = false): Promise<TaskReconciliation> {\n236:     const plan = this.parsePlan();\n// ... 10 more lines\n247:     return reconciler.apply(plan, preview);\n248:   }\n\n250: codeWorkspace(): CodeWorkspace {\n251:     const snapshot = this.repository.snapshot();\n252:     return loadCodeWorkspace(this.config.repositoryRoot, snapshot);\n253:   }\n\n255: validateConfiguration(): string[] {\n256:     const issues = validateCodeWorkspace(this.codeWorkspace());\n// ... 4 more lines\n261:     return issues;\n262:   }\n\n264: async buildWorkingState(explicitTaskId?: string): Promise<WorkingState> {\n265:     const plan = existsSync(this.config.planPath) ? this.parsePlan() : undefined;\n// ... 20 more lines\n286:     return state;\n287:   }\n\n289: async status(): Promise<AtelierStatus> {\n290:     const planExists = existsSync(this.config.planPath);\n// ... 24 more lines\n315:     };\n316:   }\n\n324: function createCodeProviders(config: AtelierConfig): { providers: CodeProvider[]; defaultProvider: string } {\n325:   if (config.codeProvider === \"mock\") {\n// ... 24 more lines\n350:   };\n351: }\n\n353: function structuralPlanDiff(\n354:   before: Array<{ id: string; title: string; dependencies: string[] }>,\n// ... 12 more lines\n367:   return { added, removed, changed };\n368: }\n\n366: ([id]) => id\n\n\nFILE: packages/core/src/code/octocode-provider.ts\nLanguage: typescript\n0: import { spawnSync } from \"node:child_process\";\n\n1: import { existsSync, readFileSync } from \"node:fs\";\n\n2: import { isAbsolute, relative, resolve, sep } from \"node:path\";\n\n3: import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from \"./mcp-stdio-client.ts\";\n\n4: import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus, type ResolvedCodeSearchFocus } from \"./focus.ts\";\n\n5: import { UnsupportedCodeCapabilityError, type CodeProvider } from \"./provider.ts\";\n\n6: import type {\n7:   CodeCapability,\n// ... 10 more lines\n18:   CodeWorkspace,\n19: } from \"./types.ts\";\n\n41: export class OctocodeProvider implements CodeProvider {\n42:   readonly name = \"octocode\";\n// ... 271 more lines\n314:   }\n315: }\n\n62: async status(workspace?: CodeWorkspace): Promise<CodeProviderStatus> {\n63:     const version = this.detectVersion();\n// ... 39 more lines\n103:     }\n104:   }\n\n106: async ensureIndex(workspace: CodeWorkspace): Promise<CodeIndexState> {\n107:     const version = this.detectVersion();\n// ... 27 more lines\n135:     return \"ready\";\n136:   }\n\n138: async search(query: CodeSearchQuery): Promise<CodeSearchHit[]> {\n139:     const repositories = selectedRepositories(query.workspace, query.repositoryIds);\n// ... 38 more lines\n178:     }));\n179:   }\n\n181: async read(reference: CodeReference): Promise<CodeChunk> {\n182:     const data = decodeReference(reference.opaqueId);\n// ... 13 more lines\n196:     };\n197:   }\n\n199: async symbols(query: CodeSymbolQuery): Promise<CodeSearchHit[]> {\n200:     const repositories = selectedRepositories(query.workspace, query.repositoryIds);\n// ... 35 more lines\n236:     return ranked.map((hit, index) => ({ ...hit, rank: index + 1, providerRank: hit.providerRank ?? index + 1 }));\n237:   }\n\n239: async relationships(query: CodeRelationshipQuery): Promise<CodeRelationship[]> {\n240:     const repository = query.workspace.repositories.find((candidate) => candidate.id === query.reference.repositoryId);\n// ... 6 more lines\n247:     return normalizeRelationships(result, query, repository.root, this.identity);\n248:   }\n\n250: async close(): Promise<void> {\n251:     const states = [...this.clients.values()];\n252:     this.clients.clear();\n253:     await Promise.all(states.map((state) => state.client.close()));\n254:   }\n\n258: private async clientFor(repositoryId: string, root: string): Promise<OctocodeClientState> {\n259:     const existing = this.clients.get(repositoryId);\n// ... 9 more lines\n269:     return state;\n270:   }\n\n274: private inspectStats(root: string): OctocodeStats {\n275:     const result = spawnSync(this.command, [\"stats\"], {\n// ... 14 more lines\n290:     return { totalBlocks: counts.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0), ...(codeModel ? { codeModel } : {}), ...(textModel ? { textModel } : {}), raw };\n291:   }\n\n293: private embeddingConfigurationIssue(stats: OctocodeStats): string | undefined {\n294:     const model = stats.codeModel;\n// ... 12 more lines\n307:     return `${required} is not set for configured code embedding model ${model}. Set the key, or install/configure an Octocode build with a local embedding provider.`;\n308:   }\n\n310: private detectVersion(): string | undefined {\n311:     const result = spawnSync(this.command, [\"--version\"], { cwd: this.cwd, env: { ...process.env, ...this.environment }, encoding: \"utf8\", timeout: Math.min(this.timeoutMs, 10_000), shell: false });\n312:     if (result.error || result.status !== 0) return undefined;\n313:     return `${result.stdout}${result.stderr}`.trim().match(/\\d+\\.\\d+\\.\\d+(?:[-+][\\w.-]+)?/)?.[0];\n314:   }\n\n317: function capabilitiesFor(names: string[]): CodeCapability[] {\n318:   const set = new Set(names);\n// ... 4 more lines\n323:   return capabilities;\n324: }\n\n326: function selectedRepositories(workspace: CodeWorkspace, ids?: string[]) {\n327:   if (!ids?.length) return workspace.repositories;\n328:   const selected = new Set(ids);\n329:   return workspace.repositories.filter((repository) => selected.has(repository.id));\n330: }\n\n332: function schemaProperties(tool: McpToolDefinition): Record<string, Record<string, unknown>> {\n333:   const properties = tool.inputSchema?.properties;\n334:   return properties && typeof properties === \"object\" ? properties as Record<string, Record<string, unknown>> : {};\n335: }\n\n337: function buildSearchInput(\n338:   tool: McpToolDefinition,\n// ... 29 more lines\n368:   return input;\n369: }\n\n371: function octocodeContentMode(focus: ResolvedCodeSearchFocus): \"code\" | \"docs\" | \"all\" {\n372:   if (focus === \"docs\") return \"docs\";\n373:   if (focus === \"source\" || focus === \"tests\" || focus === \"mixed\") return \"code\";\n374:   return \"all\";\n375: }\n\n377: function buildRelationshipInput(tool: McpToolDefinition, path: string, limit: number, depth: number): Record<string, unknown> {\n378:   const properties = schemaProperties(tool);\n// ... 7 more lines\n386:   return input;\n387: }\n\n389: function enumChoice(schema: Record<string, unknown> | undefined, preferred: string[]): string {\n390:   const values = Array.isArray(schema?.enum) ? schema.enum.filter((value): value is string => typeof value === \"string\") : [];\n391:   return preferred.find((value) => values.includes(value)) ?? values[0] ?? preferred[0]!;\n392: }\n\n394: function responseText(result: McpToolCallResult): string {\n395:   return result.content?.map((item) => item.text).filter((value): value is string => typeof value === \"string\").join(\"\\n\") ?? \"\";\n396: }\n\n398: function payload(result: McpToolCallResult): unknown {\n399:   if (result.structuredContent !== undefined) return result.structuredContent;\n400:   const text = responseText(result);\n401:   try { return JSON.parse(text); } catch { return { text }; }\n402: }\n\n404: function toolResponseError(result: McpToolCallResult): string | undefined {\n405:   const text = result.content?.map((item) => item.text).filter((value): value is string => typeof value === \"string\").join(\"\\n\").trim() ?? \"\";\n// ... 2 more lines\n408:   return undefined;\n409: }\n\n411: function candidateObjects(value: unknown): Record<string, unknown>[] {\n412:   if (Array.isArray(value)) return value.flatMap(candidateObjects);\n// ... 6 more lines\n419:   return direct;\n420: }\n\n422: function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, repositoryId: string, repositoryName: string, root: string, identity: CodeProviderIdentity): CodeSearchHit[] {\n423:   const seen = new Set<string>();\n// ... 31 more lines\n455:   return hits;\n456: }\n\n458: function normalizeRelationships(result: McpToolCallResult, query: CodeRelationshipQuery, root: string, identity: CodeProviderIdentity): CodeRelationship[] {\n459:   const relationships: CodeRelationship[] = [];\n// ... 11 more lines\n471:   return relationships;\n472: }\n\n475: function parseOctocodeHitText(text: string, query: string): Record<string, unknown>[] {\n476:   if (!text.trim()) return [];\n// ... 2 more lines\n479:   return parseSignatureResultText(text, query);\n480: }\n\n482: function parseSemanticResultText(text: string): Record<string, unknown>[] {\n483:   if (!/(?:CODE|DOC|TEXT|COMMIT) RESULTS \\(\\d+\\)/i.test(text)) return [];\n// ... 35 more lines\n519:   return results;\n520: }\n\n486: (): void => {\n487:     if (!current) return;\n// ... 7 more lines\n495:     current = undefined;\n496:   }\n\n522: function parseSignatureResultText(text: string, query: string): Record<string, unknown>[] {\n523:   if (!/^SIGNATURES \\(/m.test(text)) return [];\n// ... 16 more lines\n540:   });\n541: }\n\n543: function parseOctocodeRelationshipText(text: string): Record<string, unknown>[] {\n544:   if (!text.trim()) return [];\n// ... 8 more lines\n553:   return results;\n554: }\n\n556: function relationshipKind(value?: string): CodeRelationship[\"kind\"] {\n557:   const normalized = value?.toLowerCase() ?? \"references\";\n// ... 3 more lines\n561:   return \"references\";\n562: }\n\n564: function provenance(identity: CodeProviderIdentity, repositoryId: string, query: string, mode: \"auto\" | \"lexical\" | \"semantic\" | \"hybrid\", revision?: string) {\n565:   return {\n// ... 13 more lines\n579:   };\n580: }\n\n582: function stringValue(record: Record<string, unknown>, keys: string[]): string | undefined {\n583:   for (const key of keys) if (typeof record[key] === \"string\" && record[key]) return record[key] as string;\n584:   return undefined;\n585: }\n\n586: function numberValue(record: Record<string, unknown>, keys: string[]): number | undefined {\n587:   for (const key of keys) if (typeof record[key] === \"number\") return record[key] as number;\n588:   return undefined;\n589: }\n\n590: function encodeReference(data: OctocodeReferenceData): string { return Buffer.from(JSON.stringify(data), \"utf8\").toString(\"base64url\"); }\n\n591: function decodeReference(value: string): OctocodeReferenceData { return JSON.parse(Buffer.from(value, \"base64url\").toString(\"utf8\")) as OctocodeReferenceData; }\n\n592: function safePath(root: string, path: string): string {\n593:   const resolved = resolve(root, path);\n// ... 3 more lines\n597:   return resolved;\n598: }\n\n599: function readRange(path: string, startLine?: number, endLine?: number): string {\n600:   const content = readFileSync(path, \"utf8\");\n// ... 2 more lines\n603:   return lines.slice(Math.max(0, startLine - 1), endLine ?? startLine).join(\"\\n\");\n604: }\n\n\n"
+        }
+      ],
+      "isError": false
+    },
+    "structural_search": {
+      "content": [
+        {
+          "type": "text",
+          "text": "No matches found."
+        }
+      ],
+      "isError": false
+    },
+    "graphrag": {
+      "content": [
+        {
+          "type": "text",
+          "text": "[\n  {\n    \"source\": \"apps/cli/src/main.ts\",\n    \"target\": \"packages/core/src/core.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports existsSync from packages/core/src/core.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/config/config.ts\",\n    \"target\": \"packages/core/src/core.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports existsSync from packages/core/src/core.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"apps/cli/src/main.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports existsSync from apps/cli/src/main.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"packages/core/src/config/config.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports existsSync from packages/core/src/config/config.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"scripts/inspect-octocode-environment.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports existsSync from scripts/inspect-octocode-environment.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"scripts/setup-octocode-development.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports existsSync from scripts/setup-octocode-development.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"tests/octocode-cloud-prerequisite-fixture.test.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports readFileSync from tests/octocode-cloud-prerequisite-fixture.test.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"tests/octocode-conformance.test.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports readFileSync from tests/octocode-conformance.test.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"tests/octocode-index-flag-fixture.test.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports readFileSync from tests/octocode-index-flag-fixture.test.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"tests/octocode-provider.test.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports mkdirSync from tests/octocode-provider.test.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"tests/octocode-real-contract.test.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports readFileSync from tests/octocode-real-contract.test.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"packages/core/src/core.ts\",\n    \"target\": \"tests/octocode-setup.test.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports existsSync from tests/octocode-setup.test.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  },\n  {\n    \"source\": \"scripts/inspect-octocode-environment.ts\",\n    \"target\": \"packages/core/src/core.ts\",\n    \"relation_type\": \"imports\",\n    \"description\": \"Imports existsSync from packages/core/src/core.ts\",\n    \"confidence\": 0.9,\n    \"weight\": 1.0\n  }\n]"
+        }
+      ],
+      "isError": false
+    }
+  }
+}

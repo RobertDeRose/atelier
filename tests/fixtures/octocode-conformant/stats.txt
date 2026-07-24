@@ -1,0 +1,20 @@
+Index Status
+  Files indexed:        42
+  Code blocks:          127
+  Text blocks:          5
+  Document blocks:      154
+  Commit blocks:        19
+  GraphRAG nodes:       30
+  GraphRAG relations:   363
+
+  Last indexed commit:  69c2870
+  Current HEAD:         69c2870
+  Status:               Up to date
+
+Configuration
+  Code model:           fastembed:jinaai/jina-embeddings-v2-base-code
+  Text model:           fastembed:nomic-ai/nomic-embed-text-v1.5
+  Threshold:            0.65
+  Reranker:             disabled
+  Contextual:           disabled
+  GraphRAG LLM:         disabled

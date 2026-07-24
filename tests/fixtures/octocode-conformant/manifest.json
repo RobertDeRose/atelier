@@ -1,0 +1,13 @@
+{
+  "provider": "octocode",
+  "version": "0.14.0",
+  "source": "successful project-local FastEmbed and GraphRAG conformance run",
+  "fixtures": {
+    "conformance": "conformance.json",
+    "mcpContract": "mcp_contract.json",
+    "search": "search.json",
+    "symbols": "symbols.json",
+    "related": "related.json",
+    "stats": "stats.txt"
+  }
+}

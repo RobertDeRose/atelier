@@ -1,0 +1,482 @@
+[
+  {
+    "rank": 1,
+    "providerRank": 1,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "packages/core/src/code/octocode-provider.ts",
+    "startLine": 42,
+    "endLine": 42,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.733,
+    "preview": "export class OctocodeProvider implements CodeProvider {",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InBhY2thZ2VzL2NvcmUvc3JjL2NvZGUvb2N0b2NvZGUtcHJvdmlkZXIudHMiLCJzdGFydExpbmUiOjQyLCJlbmRMaW5lIjo0MiwiY29udGVudCI6ImV4cG9ydCBjbGFzcyBPY3RvY29kZVByb3ZpZGVyIGltcGxlbWVudHMgQ29kZVByb3ZpZGVyIHsifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/octocode-provider.ts",
+      "startLine": 42,
+      "endLine": 42
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  },
+  {
+    "rank": 2,
+    "providerRank": 2,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "packages/core/src/code/octocode-provider.ts",
+    "startLine": 565,
+    "endLine": 565,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.731,
+    "preview": "function provenance(identity: CodeProviderIdentity, repositoryId: string, query: string, mode: \"auto\" | \"lexical\" | \"semantic\" | \"hybrid\", revision?: string) {",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InBhY2thZ2VzL2NvcmUvc3JjL2NvZGUvb2N0b2NvZGUtcHJvdmlkZXIudHMiLCJzdGFydExpbmUiOjU2NSwiZW5kTGluZSI6NTY1LCJjb250ZW50IjoiZnVuY3Rpb24gcHJvdmVuYW5jZShpZGVudGl0eTogQ29kZVByb3ZpZGVySWRlbnRpdHksIHJlcG9zaXRvcnlJZDogc3RyaW5nLCBxdWVyeTogc3RyaW5nLCBtb2RlOiBcImF1dG9cIiB8IFwibGV4aWNhbFwiIHwgXCJzZW1hbnRpY1wiIHwgXCJoeWJyaWRcIiwgcmV2aXNpb24_OiBzdHJpbmcpIHsifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/octocode-provider.ts",
+      "startLine": 565,
+      "endLine": 565
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  },
+  {
+    "rank": 3,
+    "providerRank": 3,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "packages/core/src/code/octocode-provider.ts",
+    "startLine": 338,
+    "endLine": 338,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.723,
+    "preview": "function buildSearchInput(",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InBhY2thZ2VzL2NvcmUvc3JjL2NvZGUvb2N0b2NvZGUtcHJvdmlkZXIudHMiLCJzdGFydExpbmUiOjMzOCwiZW5kTGluZSI6MzM4LCJjb250ZW50IjoiZnVuY3Rpb24gYnVpbGRTZWFyY2hJbnB1dCgifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/octocode-provider.ts",
+      "startLine": 338,
+      "endLine": 338
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  },
+  {
+    "rank": 4,
+    "providerRank": 4,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "packages/core/src/core.ts",
+    "startLine": 326,
+    "endLine": 326,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.701,
+    "preview": "function createCodeProviders(config: AtelierConfig): { providers: CodeProvider[]; defaultProvider: string } {",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InBhY2thZ2VzL2NvcmUvc3JjL2NvcmUudHMiLCJzdGFydExpbmUiOjMyNiwiZW5kTGluZSI6MzI2LCJjb250ZW50IjoiZnVuY3Rpb24gY3JlYXRlQ29kZVByb3ZpZGVycyhjb25maWc6IEF0ZWxpZXJDb25maWcpOiB7IHByb3ZpZGVyczogQ29kZVByb3ZpZGVyW107IGRlZmF1bHRQcm92aWRlcjogc3RyaW5nIH0geyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts",
+      "startLine": 326,
+      "endLine": 326
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  },
+  {
+    "rank": 5,
+    "providerRank": 5,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "packages/core/src/code/octocode-provider.ts",
+    "startLine": 476,
+    "endLine": 476,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.687,
+    "preview": "function parseOctocodeHitText(text: string, query: string): Record<string, unknown>[] {",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InBhY2thZ2VzL2NvcmUvc3JjL2NvZGUvb2N0b2NvZGUtcHJvdmlkZXIudHMiLCJzdGFydExpbmUiOjQ3NiwiZW5kTGluZSI6NDc2LCJjb250ZW50IjoiZnVuY3Rpb24gcGFyc2VPY3RvY29kZUhpdFRleHQodGV4dDogc3RyaW5nLCBxdWVyeTogc3RyaW5nKTogUmVjb3JkPHN0cmluZywgdW5rbm93bj5bXSB7In0",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/octocode-provider.ts",
+      "startLine": 476,
+      "endLine": 476
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  },
+  {
+    "rank": 6,
+    "providerRank": 6,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "packages/core/src/code/octocode-provider.ts",
+    "startLine": 592,
+    "endLine": 592,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.683,
+    "preview": "// Merged function declarations (2 declarations)",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InBhY2thZ2VzL2NvcmUvc3JjL2NvZGUvb2N0b2NvZGUtcHJvdmlkZXIudHMiLCJzdGFydExpbmUiOjU5MiwiZW5kTGluZSI6NTkyLCJjb250ZW50IjoiLy8gTWVyZ2VkIGZ1bmN0aW9uIGRlY2xhcmF0aW9ucyAoMiBkZWNsYXJhdGlvbnMpIn0",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/octocode-provider.ts",
+      "startLine": 592,
+      "endLine": 592
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  },
+  {
+    "rank": 7,
+    "providerRank": 7,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "scripts/probe-octocode-mcp.ts",
+    "startLine": 23,
+    "endLine": 23,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.683,
+    "preview": "() => client.callTool(\"semantic_search\", {",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InNjcmlwdHMvcHJvYmUtb2N0b2NvZGUtbWNwLnRzIiwic3RhcnRMaW5lIjoyMywiZW5kTGluZSI6MjMsImNvbnRlbnQiOiIoKSA9PiBjbGllbnQuY2FsbFRvb2woXCJzZW1hbnRpY19zZWFyY2hcIiwgeyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "scripts/probe-octocode-mcp.ts",
+      "startLine": 23,
+      "endLine": 23
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  },
+  {
+    "rank": 8,
+    "providerRank": 8,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "packages/core/src/code/octocode-provider.ts",
+    "startLine": 423,
+    "endLine": 423,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.681,
+    "preview": "function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, repositoryId: string, repositoryName: string, root: string, identity: CodeProviderIdentity): CodeSearchHit[] {",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InBhY2thZ2VzL2NvcmUvc3JjL2NvZGUvb2N0b2NvZGUtcHJvdmlkZXIudHMiLCJzdGFydExpbmUiOjQyMywiZW5kTGluZSI6NDIzLCJjb250ZW50IjoiZnVuY3Rpb24gbm9ybWFsaXplSGl0cyhyZXN1bHQ6IE1jcFRvb2xDYWxsUmVzdWx0LCBxdWVyeTogQ29kZVNlYXJjaFF1ZXJ5LCByZXBvc2l0b3J5SWQ6IHN0cmluZywgcmVwb3NpdG9yeU5hbWU6IHN0cmluZywgcm9vdDogc3RyaW5nLCBpZGVudGl0eTogQ29kZVByb3ZpZGVySWRlbnRpdHkpOiBDb2RlU2VhcmNoSGl0W10geyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/octocode-provider.ts",
+      "startLine": 423,
+      "endLine": 423
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  },
+  {
+    "rank": 9,
+    "providerRank": 9,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "packages/core/src/code/octocode-provider.ts",
+    "startLine": 412,
+    "endLine": 412,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.675,
+    "preview": "function candidateObjects(value: unknown): Record<string, unknown>[] {",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InBhY2thZ2VzL2NvcmUvc3JjL2NvZGUvb2N0b2NvZGUtcHJvdmlkZXIudHMiLCJzdGFydExpbmUiOjQxMiwiZW5kTGluZSI6NDEyLCJjb250ZW50IjoiZnVuY3Rpb24gY2FuZGlkYXRlT2JqZWN0cyh2YWx1ZTogdW5rbm93bik6IFJlY29yZDxzdHJpbmcsIHVua25vd24-W10geyJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/octocode-provider.ts",
+      "startLine": 412,
+      "endLine": 412
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  },
+  {
+    "rank": 10,
+    "providerRank": 10,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "packages/core/src/code/octocode-provider.ts",
+    "startLine": 8,
+    "endLine": 8,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.674,
+    "preview": "import type {",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InBhY2thZ2VzL2NvcmUvc3JjL2NvZGUvb2N0b2NvZGUtcHJvdmlkZXIudHMiLCJzdGFydExpbmUiOjgsImVuZExpbmUiOjgsImNvbnRlbnQiOiJpbXBvcnQgdHlwZSB7In0",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/code/octocode-provider.ts",
+      "startLine": 8,
+      "endLine": 8
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "OctocodeProvider",
+      "retrievedAt": "2026-07-24T01:17:15.486Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  }
+]

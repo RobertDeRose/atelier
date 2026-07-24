@@ -1,0 +1,56 @@
+[
+  {
+    "rank": 1,
+    "providerRank": 1,
+    "repositoryId": "git:53cf955b6d94b518e653fbc3",
+    "repositoryName": "atelier",
+    "revision": "69c287010cf696445c3032382930745b1c7c7bcd",
+    "path": "scripts/probe-octocode-mcp.ts",
+    "startLine": 22,
+    "endLine": 27,
+    "retrievalMethods": [
+      "semantic"
+    ],
+    "providerScore": 0.659,
+    "preview": "() => client.callTool(\"semantic_search\", {\n      query: [\"code provider selection\", \"provider registry\"],\n      mode: \"code\",\n      detail_level: \"partial\",\n      max_results: 20,\n    })",
+    "reference": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InNjcmlwdHMvcHJvYmUtb2N0b2NvZGUtbWNwLnRzIiwic3RhcnRMaW5lIjoyMiwiZW5kTGluZSI6MjcsImNvbnRlbnQiOiIoKSA9PiBjbGllbnQuY2FsbFRvb2woXCJzZW1hbnRpY19zZWFyY2hcIiwge1xuICAgICAgcXVlcnk6IFtcImNvZGUgcHJvdmlkZXIgc2VsZWN0aW9uXCIsIFwicHJvdmlkZXIgcmVnaXN0cnlcIl0sXG4gICAgICBtb2RlOiBcImNvZGVcIixcbiAgICAgIGRldGFpbF9sZXZlbDogXCJwYXJ0aWFsXCIsXG4gICAgICBtYXhfcmVzdWx0czogMjAsXG4gICAgfSkifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "scripts/probe-octocode-mcp.ts",
+      "startLine": 22,
+      "endLine": 27
+    },
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "Where is code provider selection implemented?",
+      "retrievedAt": "2026-07-24T01:17:11.380Z",
+      "indexState": "ready",
+      "requestedFilters": {
+        "focus": "source",
+        "resolvedFocus": "source"
+      },
+      "enforcedFilters": [
+        "repository process",
+        "content mode",
+        "focus"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter",
+        "overfetched up to 40 Octocode results for source focus"
+      ],
+      "reranked": false,
+      "freshness": "current",
+      "indexedRevision": "69c287010cf696445c3032382930745b1c7c7bcd",
+      "currentRevision": "69c287010cf696445c3032382930745b1c7c7bcd"
+    }
+  }
+]

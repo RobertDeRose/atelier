@@ -1,6 +1,6 @@
 {
   "name": "atelier-prototype",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "Runnable initial TypeScript implementation of Atelier, an Agentic Development Environment",
   "type": "module",
   "private": true,
@@ -25,7 +25,9 @@
     "collect:codesearch": "bash ./scripts/collect-codesearch-knowledge.sh",
     "test:octocode:live": "bash ./scripts/collect-octocode-knowledge.sh",
     "collect:octocode": "bash ./scripts/collect-octocode-knowledge.sh",
-    "setup:octocode": "node --no-warnings --experimental-strip-types scripts/setup-octocode-development.ts"
+    "setup:octocode": "node --no-warnings --experimental-strip-types scripts/setup-octocode-development.ts",
+    "evaluate:code:octocode": "node --no-warnings --experimental-strip-types scripts/evaluate-code.ts --providers octocode",
+    "evaluate:code:all": "node --no-warnings --experimental-strip-types scripts/evaluate-code.ts --providers codesearch,octocode"
   },
   "pi": {
     "extensions": [

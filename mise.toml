@@ -57,3 +57,11 @@ run = "aubr test:octocode:live"
 [tasks."collect:octocode"]
 description = "Collect Octocode provider knowledge on this machine"
 run = "aubr collect:octocode"
+
+[tasks."evaluate:code:octocode"]
+description = "Run the code-intelligence evaluation with Octocode"
+run = "aubr evaluate:code:octocode"
+
+[tasks."evaluate:code:all"]
+description = "Compare baseline, codesearch, and Octocode"
+run = "aubr evaluate:code:all"

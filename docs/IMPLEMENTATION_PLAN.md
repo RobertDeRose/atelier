@@ -2850,3 +2850,25 @@ Exit evidence required from the next live run:
 - `atlr code symbols --provider octocode` returns at least one normalized hit;
 - GraphRAG direct probing completes without a parameter-schema error;
 - conformance reports zero required failures.
+
+
+## v0.9.7 Octocode comparative evaluation
+
+The project-local FastEmbed run completed the Octocode 0.14.0 conformance gate with 30 passed checks, no warnings, and no failures. Semantic search returned normalized source evidence, signature lookup returned ten normalized hits, and GraphRAG returned normalized import relationships.
+
+Implemented:
+
+- preserve the complete successful live contract as a portable regression fixture;
+- generalize the retrieval evaluator from one hard-coded provider to a bounded provider list;
+- retain backward-compatible direct `codesearch` fields while adding provider-keyed reports;
+- compare baseline, codesearch, and Octocode through the same public CLI query path;
+- refresh both provider indexes before the Octocode comparison run;
+- add comparative completeness and Octocode quality checks to conformance;
+- retain sub-baseline Octocode quality as a warning rather than a contract failure.
+
+Exit evidence required from the next live run:
+
+- comparative evaluation completes for all configured tasks;
+- baseline, codesearch, and Octocode aggregate metrics are present;
+- no provider result is degraded or stale;
+- Octocode weighted recall, reciprocal rank, and nDCG@10 are sufficient to decide whether it remains experimental, becomes an optional graph provider, or should be rejected for default retrieval.

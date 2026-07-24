@@ -49,6 +49,7 @@ else
 fi
 run stats_after octocode stats
 run adapter_index node --no-warnings --experimental-strip-types apps/cli/src/main.ts code index --provider octocode --json=true
+run codesearch_index node --no-warnings --experimental-strip-types apps/cli/src/main.ts code index --provider codesearch --json=true
 run mcp_contract node --no-warnings --experimental-strip-types scripts/probe-octocode-mcp.ts "$ROOT"
 run providers node --no-warnings --experimental-strip-types apps/cli/src/main.ts code providers --json=true
 run status node --no-warnings --experimental-strip-types apps/cli/src/main.ts code status --provider octocode --json=true
@@ -61,6 +62,7 @@ else
   : >"$OUT/related.stderr"
   printf '0\n' >"$OUT/related.status"
 fi
+run evaluation node --no-warnings --experimental-strip-types scripts/evaluate-code.ts "$ROOT" "$ROOT/evaluation/tasks.json" "$OUT/evaluation" --providers codesearch,octocode
 node --no-warnings --experimental-strip-types scripts/summarize-octocode-probe.ts "$OUT" >"$OUT/conformance.stdout" 2>"$OUT/conformance.stderr"
 conformance_status=$?
 printf '%s\n' "$conformance_status" >"$OUT/conformance.status"
@@ -73,11 +75,13 @@ cat >"$OUT/SUMMARY.md" <<TXT
 - Index exit: $(cat "$OUT/index.status")
 - Stats exit: $(cat "$OUT/stats_after.status")
 - Adapter index exit: $(cat "$OUT/adapter_index.status")
+- Codesearch comparison index exit: $(cat "$OUT/codesearch_index.status")
 - Provider status exit: $(cat "$OUT/status.status")
 - Search exit: $(cat "$OUT/search.status")
 - Symbols exit: $(cat "$OUT/symbols.status")
 - Relationships exit: $(cat "$OUT/related.status")
 - MCP contract exit: $(cat "$OUT/mcp_contract.status")
+- Comparative evaluation exit: $(cat "$OUT/evaluation.status")
 - Conformance exit: $conformance_status
 TXT
 if command -v shasum >/dev/null 2>&1; then (cd "$OUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS); fi

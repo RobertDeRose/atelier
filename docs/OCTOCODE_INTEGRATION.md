@@ -9,7 +9,7 @@ octocode index
 octocode mcp --path <repository>
 ```
 
-The adapter discovers MCP schemas at runtime. With Atelier's project-local FastEmbed and non-LLM GraphRAG configuration, Octocode 0.14.0 advertised `semantic_search`, `view_signatures`, `structural_search`, and `graphrag`. Atelier enables only the capabilities advertised by each repository process.
+The adapter discovers MCP schemas at runtime. With Atelier's project-local FastEmbed and non-LLM GraphRAG configuration, Octocode 0.14.0 advertised and successfully executed `semantic_search`, `view_signatures`, `structural_search`, and `graphrag`. Atelier enables only the capabilities advertised by each repository process.
 
 Configure Octocode as the default provider in `.atelier/config.json`:
 
@@ -28,11 +28,15 @@ atlr code symbols "OctocodeProvider" --provider octocode
 # `code related` becomes available only when the MCP server advertises `graphrag`.
 ```
 
-Run the machine-side probe with:
+Run the machine-side probe and comparative evaluation with:
 
 ```bash
+mise run evaluate:code:octocode
+mise run evaluate:code:all
 mise run collect:octocode
 ```
+
+The collector refreshes both provider indexes and evaluates baseline, codesearch, and Octocode through the same `atlr code search` contract. Contract failures remain fatal; retrieval quality below the baseline is retained as a warning until the provider decision gate is reached.
 
 The development bootstrap pins Octocode 0.14.0 through mise and writes `.atelier/octocode-config.toml` with local FastEmbed code and text models. Atelier passes that file through `OCTOCODE_CONFIG_PATH`, checks the configured embedding model before indexing, and verifies that `octocode stats` reports at least one searchable code, text, document, or commit block before accepting the index as ready.
 

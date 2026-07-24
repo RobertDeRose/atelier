@@ -4,12 +4,14 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.8.9 scope
+## v0.9.7 scope
 
-This release refines semantic-plus-literal retrieval after the first fused live run raised
-codesearch mean weighted recall to 0.8571. Codesearch remains the indexing and retrieval
-provider. Atelier now augments healthy semantic retrieval only with exact identifier hints or
-code-shaped query tokens, and balances source/test evidence for questions that request both.
+The project-local Octocode 0.14.0 integration now satisfies the complete live contract:
+semantic search, signatures, structural search, and GraphRAG all return normalized Atelier
+evidence. This release moves the experimental provider from contract repair to comparative
+evaluation. The benchmark can run baseline, codesearch, and Octocode through the same public
+`atlr code search` path while preserving provider rank, focus, provenance, latency, and quality
+metrics.
 
 Atelier now owns:
 
@@ -45,7 +47,7 @@ mise run install
 mise run check
 ```
 
-`mise install` provisions the versions pinned in `mise.toml` and `mise.lock`: Node, Aube, Jujutsu, jjui, and codesearch. `mise run install` performs a frozen Aube install from the committed `package-lock.json`. Use `aubr <script>` for direct package-script execution.
+`mise install` provisions the versions pinned in `mise.toml` and `mise.lock`: Node, Aube, Jujutsu, jjui, codesearch, and Octocode. `mise run install` performs a frozen Aube install from the committed `package-lock.json`. Use `aubr <script>` for direct package-script execution.
 
 Run the CLI directly:
 
@@ -235,7 +237,7 @@ Validation evidence remains qualified by repository snapshot and becomes stale a
 - Atelier development uses a project-local Octocode FastEmbed configuration; other installations may require cloud embedding credentials or their own local model configuration.
 - Octocode relationship support remains capability-gated and is available only when its MCP server advertises `graphrag`.
 - No persistent Atelier daemon or JSON-RPC service boundary.
-- The codesearch adapter supports imports, dependents, and usage relationships; deeper provider-specific graph evaluation remains pending.
+- Codesearch remains the accepted default; Octocode promotion depends on the comparative retrieval and graph evaluation captured by the next live collector run.
 - Jujutsu live conformance still requires a real supported `jj` binary.
 
 Configure the provider in `.atelier/config.json`:
@@ -294,7 +296,12 @@ atlr code search --provider octocode "where is provider selection implemented?"
 mise run collect:octocode
 ```
 
-The development bootstrap installs Octocode 0.14.0 through mise. Configure an embedding provider when required by the installed platform build, then run the live collector.
+The development bootstrap installs Octocode 0.14.0 through mise and configures project-local FastEmbed models. The live collector now verifies the full MCP contract, refreshes both provider indexes, and runs the same benchmark against baseline, codesearch, and Octocode.
 
+```bash
+mise run evaluate:code:octocode
+mise run evaluate:code:all
+mise run collect:octocode
+```
 
-Octocode development uses a project-local `.atelier/octocode-config.toml` with local FastEmbed models and non-LLM GraphRAG. `mise run install` creates it without changing the user-wide Octocode configuration. Atelier writes and verifies the managed TOML directly because Octocode 0.14.0 does not consistently honor `OCTOCODE_CONFIG_PATH` in its `config` command. Indexing uses the supported bare `octocode index` command.
+Octocode development uses a project-local `.atelier/octocode-config.toml` with local FastEmbed models and non-LLM GraphRAG. `mise run install` creates it without changing the user-wide Octocode configuration. Atelier writes and verifies the managed TOML directly because Octocode 0.14.0 does not consistently honor `OCTOCODE_CONFIG_PATH` in its `config` command. Indexing uses the supported bare `octocode index` command. See `docs/OCTOCODE_INTEGRATION.md` and `docs/OCTOCODE_EVALUATION.md` for the contract and decision gate.

@@ -14,8 +14,9 @@ type Task = {
   repos?: string[];
   focus?: CodeSearchFocus;
 };
+type ProviderName = "codesearch" | "octocode";
 type Run = {
-  method: "baseline" | "codesearch";
+  method: "baseline" | ProviderName;
   status: number | null;
   durationMs: number;
   resultCount: number;
@@ -32,41 +33,94 @@ type Run = {
   warnings: string[];
 };
 
-const root = resolve(process.argv[2] ?? process.cwd());
-const tasksPath = resolve(process.argv[3] ?? "evaluation/tasks.json");
-const out = resolve(process.argv[4] ?? ".atelier/evaluation");
+const parsed = parseArguments(process.argv.slice(2));
+const root = resolve(parsed.positionals[0] ?? process.cwd());
+const tasksPath = resolve(parsed.positionals[1] ?? "evaluation/tasks.json");
+const out = resolve(parsed.positionals[2] ?? ".atelier/evaluation");
+const providers = parseProviders(parsed.options.providers ?? process.env.ATELIER_EVALUATION_PROVIDERS ?? "codesearch");
 mkdirSync(out, { recursive: true });
 const tasks = JSON.parse(readFileSync(tasksPath, "utf8")) as Task[];
-const coldStart = tasks[0] === undefined ? undefined : runCodesearch(tasks[0]);
-const report = tasks.map((task) => ({
-  task: { ...task, resolvedFocus: resolveCodeSearchFocus(task.focus, task.query) },
-  baseline: runBaseline(task),
-  codesearch: runCodesearch(task),
-}));
-const summary = report.map(({ task, baseline, codesearch }) => ({
-  id: task.id,
-  query: task.query,
-  expectedResults: expectedResults(task),
-  baseline: score(baseline, task),
-  codesearch: score(codesearch, task),
-}));
+const coldStartRuns = Object.fromEntries(providers.map((provider) => [provider, tasks[0] === undefined ? undefined : runProvider(tasks[0], provider)])) as Partial<Record<ProviderName, Run | undefined>>;
+const report = tasks.map((task) => {
+  const providerRuns = Object.fromEntries(providers.map((provider) => [provider, runProvider(task, provider)])) as Record<ProviderName, Run>;
+  return {
+    task: { ...task, resolvedFocus: resolveCodeSearchFocus(task.focus, task.query) },
+    baseline: runBaseline(task),
+    providers: providerRuns,
+    ...providerRuns,
+  };
+});
+const summary = report.map(({ task, baseline, providers: providerRuns }) => {
+  const providerScores = Object.fromEntries(providers.map((provider) => [provider, score(providerRuns[provider], task)])) as Record<ProviderName, ReturnType<typeof score>>;
+  return {
+    id: task.id,
+    query: task.query,
+    expectedResults: expectedResults(task),
+    baseline: score(baseline, task),
+    providers: providerScores,
+    ...providerScores,
+  };
+});
 const generatedAt = new Date().toISOString();
+const providerAggregates = Object.fromEntries(providers.map((provider) => [provider, aggregate(summary.map((item) => item.providers[provider]))])) as Record<ProviderName, ReturnType<typeof aggregate>>;
+const coldStarts = Object.fromEntries(providers.flatMap((provider) => {
+  const run = coldStartRuns[provider];
+  return run === undefined ? [] : [[provider, summarizeRun(run)]];
+})) as Partial<Record<ProviderName, ReturnType<typeof summarizeRun>>>;
+const firstColdStart = coldStarts[providers[0]];
 const payload = {
   generatedAt,
   root,
   tasksPath,
-  coldStart: coldStart === undefined ? undefined : summarizeRun(coldStart),
+  providers,
+  ...(firstColdStart === undefined ? {} : { coldStart: firstColdStart }),
+  coldStarts,
   report,
   summary,
   aggregate: {
     baseline: aggregate(summary.map((item) => item.baseline)),
-    codesearch: aggregate(summary.map((item) => item.codesearch)),
+    providers: providerAggregates,
+    ...providerAggregates,
   },
 };
 const path = resolve(out, `comparison-${Date.now()}.json`);
 writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`);
 writeFileSync(resolve(out, "latest.json"), `${JSON.stringify(payload, null, 2)}\n`);
-process.stdout.write(`${JSON.stringify({ generatedAt, path, coldStart: payload.coldStart, aggregate: payload.aggregate, summary }, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify({ generatedAt, path, providers, coldStarts, aggregate: payload.aggregate, summary }, null, 2)}\n`);
+
+function parseArguments(args: string[]): { positionals: string[]; options: { providers?: string } } {
+  const positionals: string[] = [];
+  const options: { providers?: string } = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index]!;
+    if (value === "--providers" || value === "--provider") {
+      const next = args[index + 1];
+      if (!next) throw new Error(`${value} requires a comma-separated provider list`);
+      options.providers = next;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--providers=")) {
+      options.providers = value.slice("--providers=".length);
+      continue;
+    }
+    if (value.startsWith("--provider=")) {
+      options.providers = value.slice("--provider=".length);
+      continue;
+    }
+    positionals.push(value);
+  }
+  return { positionals, options };
+}
+
+function parseProviders(value: string): ProviderName[] {
+  const providers = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  if (providers.length === 0) throw new Error("At least one evaluation provider is required");
+  for (const provider of providers) {
+    if (provider !== "codesearch" && provider !== "octocode") throw new Error(`Unsupported evaluation provider: ${provider}`);
+  }
+  return providers as ProviderName[];
+}
 
 function runBaseline(task: Task): Run {
   const terms = task.literals?.length ? task.literals : task.query.split(/\s+/).filter((word) => word.length >= 4).slice(0, 4);
@@ -114,15 +168,20 @@ function runBaseline(task: Task): Run {
   };
 }
 
-function runCodesearch(task: Task): Run {
+function runProvider(task: Task, provider: ProviderName): Run {
   const started = Date.now();
   const args = [
     "--experimental-strip-types", "apps/cli/src/main.ts", "--root", root, "code", "search", task.query,
-    "--mode", "auto", "--focus", task.focus ?? "auto", "--json",
+    "--provider", provider, "--mode", "auto", "--focus", task.focus ?? "auto", "--json",
     ...(task.literals?.length ? ["--hint", task.literals.join(",")] : []),
     ...(task.repos?.length ? ["--repo", task.repos.join(",")] : []),
   ];
-  const result = spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
+  const result = spawnSync(process.execPath, args, {
+    cwd: root,
+    env: { ...process.env },
+    encoding: "utf8",
+    maxBuffer: 4 * 1024 * 1024,
+  });
   let rows: Array<{
     path?: string;
     providerRank?: number;
@@ -141,7 +200,7 @@ function runCodesearch(task: Task): Run {
   }
   const resolvedFocus = rows.map((row) => row.provenance?.requestedFilters?.resolvedFocus).find((value): value is string => typeof value === "string") ?? resolveCodeSearchFocus(task.focus, task.query);
   return {
-    method: "codesearch",
+    method: provider,
     status: result.status,
     durationMs: Date.now() - started,
     resultCount: rows.length,
@@ -215,6 +274,7 @@ function expectedResults(task: Task): ExpectedResult[] {
 
 function summarizeRun(run: Run) {
   return {
+    method: run.method,
     status: run.status,
     durationMs: run.durationMs,
     resultCount: run.resultCount,

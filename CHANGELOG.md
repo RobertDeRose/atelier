@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.7
+
+```text
+feat(code): compare Octocode with accepted retrieval paths
+
+- preserve the fully conforming Octocode 0.14.0 live run
+- generalize evaluation across baseline, codesearch, and Octocode
+- retain provider-native and final ranking evidence per result
+- refresh both indexes before comparative live evaluation
+- report incomplete comparisons as failures and weak quality as warnings
+- add dedicated Octocode and all-provider evaluation tasks
+```
+
 ## 0.9.6
 
 ```text

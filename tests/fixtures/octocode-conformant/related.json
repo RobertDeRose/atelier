@@ -1,0 +1,509 @@
+[
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Im1haW4gKGFwcHMvY2xpL3NyYy9tYWluLnRzKSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "main (apps/cli/src/main.ts)"
+    },
+    "label": "Imports existsSync from apps/cli/src/main.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6ImNvbmZpZyAocGFja2FnZXMvY29yZS9zcmMvY29uZmlnL2NvbmZpZy50cykifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "config (packages/core/src/config/config.ts)"
+    },
+    "label": "Imports existsSync from packages/core/src/config/config.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Imluc3BlY3Qtb2N0b2NvZGUtZW52aXJvbm1lbnQgKHNjcmlwdHMvaW5zcGVjdC1vY3RvY29kZS1lbnZpcm9ubWVudC50cykifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "inspect-octocode-environment (scripts/inspect-octocode-environment.ts)"
+    },
+    "label": "Imports existsSync from scripts/inspect-octocode-environment.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6InNldHVwLW9jdG9jb2RlLWRldmVsb3BtZW50IChzY3JpcHRzL3NldHVwLW9jdG9jb2RlLWRldmVsb3BtZW50LnRzKSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "setup-octocode-development (scripts/setup-octocode-development.ts)"
+    },
+    "label": "Imports existsSync from scripts/setup-octocode-development.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Im9jdG9jb2RlLWNsb3VkLXByZXJlcXVpc2l0ZS1maXh0dXJlLnRlc3QgKHRlc3RzL29jdG9jb2RlLWNsb3VkLXByZXJlcXVpc2l0ZS1maXh0dXJlLnRlc3QudHMpIn0",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "octocode-cloud-prerequisite-fixture.test (tests/octocode-cloud-prerequisite-fixture.test.ts)"
+    },
+    "label": "Imports readFileSync from tests/octocode-cloud-prerequisite-fixture.test.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Im9jdG9jb2RlLWNvbmZvcm1hbmNlLnRlc3QgKHRlc3RzL29jdG9jb2RlLWNvbmZvcm1hbmNlLnRlc3QudHMpIn0",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "octocode-conformance.test (tests/octocode-conformance.test.ts)"
+    },
+    "label": "Imports readFileSync from tests/octocode-conformance.test.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Im9jdG9jb2RlLWluZGV4LWZsYWctZml4dHVyZS50ZXN0ICh0ZXN0cy9vY3RvY29kZS1pbmRleC1mbGFnLWZpeHR1cmUudGVzdC50cykifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "octocode-index-flag-fixture.test (tests/octocode-index-flag-fixture.test.ts)"
+    },
+    "label": "Imports readFileSync from tests/octocode-index-flag-fixture.test.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Im9jdG9jb2RlLXByb3ZpZGVyLnRlc3QgKHRlc3RzL29jdG9jb2RlLXByb3ZpZGVyLnRlc3QudHMpIn0",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "octocode-provider.test (tests/octocode-provider.test.ts)"
+    },
+    "label": "Imports mkdirSync from tests/octocode-provider.test.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Im9jdG9jb2RlLXJlYWwtY29udHJhY3QudGVzdCAodGVzdHMvb2N0b2NvZGUtcmVhbC1jb250cmFjdC50ZXN0LnRzKSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "octocode-real-contract.test (tests/octocode-real-contract.test.ts)"
+    },
+    "label": "Imports readFileSync from tests/octocode-real-contract.test.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Im9jdG9jb2RlLXNldHVwLnRlc3QgKHRlc3RzL29jdG9jb2RlLXNldHVwLnRlc3QudHMpIn0",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "octocode-setup.test (tests/octocode-setup.test.ts)"
+    },
+    "label": "Imports existsSync from tests/octocode-setup.test.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Im1haW4gKGFwcHMvY2xpL3NyYy9tYWluLnRzKSJ9",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "main (apps/cli/src/main.ts)"
+    },
+    "label": "Imports existsSync from packages/core/src/core.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6ImNvbmZpZyAocGFja2FnZXMvY29yZS9zcmMvY29uZmlnL2NvbmZpZy50cykifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "config (packages/core/src/config/config.ts)"
+    },
+    "label": "Imports existsSync from packages/core/src/core.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  },
+  {
+    "kind": "imports",
+    "source": {
+      "provider": "octocode",
+      "opaqueId": "packages/core/src/core.ts",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "packages/core/src/core.ts"
+    },
+    "target": {
+      "provider": "octocode",
+      "opaqueId": "eyJyZXBvc2l0b3J5SWQiOiJnaXQ6NTNjZjk1NWI2ZDk0YjUxOGU2NTNmYmMzIiwicGF0aCI6Imluc3BlY3Qtb2N0b2NvZGUtZW52aXJvbm1lbnQgKHNjcmlwdHMvaW5zcGVjdC1vY3RvY29kZS1lbnZpcm9ubWVudC50cykifQ",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "path": "inspect-octocode-environment (scripts/inspect-octocode-environment.ts)"
+    },
+    "label": "Imports existsSync from packages/core/src/core.ts",
+    "provenance": {
+      "provider": {
+        "name": "octocode",
+        "instanceId": "octocode:experimental",
+        "version": "0.14.0"
+      },
+      "workspaceId": "octocode",
+      "repositoryId": "git:53cf955b6d94b518e653fbc3",
+      "requestedMode": "semantic",
+      "actualMode": "semantic",
+      "query": "packages/core/src/core.ts",
+      "retrievedAt": "2026-07-24T01:17:18.410Z",
+      "indexState": "ready",
+      "requestedFilters": {},
+      "enforcedFilters": [
+        "repository process"
+      ],
+      "postProcessing": [
+        "normalized by Atelier Octocode adapter"
+      ],
+      "reranked": false,
+      "freshness": "unknown"
+    }
+  }
+]

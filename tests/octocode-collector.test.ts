@@ -38,7 +38,9 @@ test("Octocode collector preflights embeddings, preserves the contract, and gate
   assert.match(script, /code search "Where is code provider selection implemented\?" --provider octocode --mode semantic --focus source --json=true/);
   assert.match(script, /code symbols "OctocodeProvider" --provider octocode --json=true/);
   assert.match(script, /code index --provider octocode --json=true/);
+  assert.match(script, /run codesearch_index node .*code index --provider codesearch --json=true/);
   assert.match(script, /grep -q '"name": "graphrag"'/);
+  assert.match(script, /run evaluation node .*evaluate-code\.ts .*--providers codesearch,octocode/);
   assert.match(script, /graphrag was not advertised by Octocode/);
   const probe = readFileSync(resolve("scripts/probe-octocode-mcp.ts"), "utf8");
   assert.match(probe, /operation: "get-relationships"/);
