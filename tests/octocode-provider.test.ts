@@ -129,7 +129,7 @@ test("Octocode rejects cloud embedding configuration without the required API ke
 });
 
 
-test("Octocode forces a rebuild when an existing project has zero searchable blocks", async () => {
+test("Octocode retries a zero-block project with the supported bare index command", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-octocode-empty-"));
   const repo = join(root, "repo");
   mkdirSync(repo, { recursive: true });
@@ -149,7 +149,8 @@ if (args[0] === 'mcp') { let b=''; process.stdin.setEncoding('utf8'); process.st
   try {
     assert.equal(await provider.ensureIndex(workspace([{ id: "repo", root: repo }])), "ready");
     const calls = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[] });
-    assert.ok(calls.some((call) => call.args[0] === "index" && call.args.includes("--force")));
+    assert.ok(calls.some((call) => call.args[0] === "index" && call.args.length === 1));
+    assert.equal(calls.some((call) => call.args.includes("--force")), false);
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });

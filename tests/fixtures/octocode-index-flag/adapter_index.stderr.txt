@@ -1,0 +1,6 @@
+atlr: octocode index failed for <REPOSITORY_ROOT>: error: unexpected argument '--force' found
+
+Usage: octocode index [OPTIONS]
+
+For more information, try '--help'.
+

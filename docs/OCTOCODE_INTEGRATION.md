@@ -50,4 +50,6 @@ Local embedding models are supported only by Octocode builds compiled with the r
 
 ## Development configuration
 
-Atelier uses `OCTOCODE_CONFIG_PATH=.atelier/octocode-config.toml` and creates that file with local FastEmbed models during `mise run install`. This avoids mutating the user-wide Octocode configuration or requiring cloud embedding credentials.
+Atelier uses `OCTOCODE_CONFIG_PATH=.atelier/octocode-config.toml` and writes that managed file directly with local FastEmbed models during `mise run install`. This avoids the observed Octocode 0.14.0 `config` command path inconsistency, does not mutate the user-wide configuration, and requires no cloud embedding credentials. Existing unmanaged project-local configuration is preserved.
+
+Octocode 0.14.0 indexing is invoked as `octocode index`; it does not support a `--force` argument. Atelier verifies block counts after the command and reports an actionable error if the existing index remains unusable.

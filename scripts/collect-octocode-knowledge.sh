@@ -40,7 +40,7 @@ run embedding_environment node --no-warnings --experimental-strip-types scripts/
 if [ "$(cat "$OUT/embedding_environment.status")" = "0" ]; then
   total_blocks=$(awk '/(Code|Text|Document|Commit) blocks:/ { value=$NF; gsub(/,/, "", value); total += value } END { print total + 0 }' "$OUT/stats_before.stdout")
   if [ "$total_blocks" -eq 0 ]; then
-    run index octocode index --force
+    run index octocode index
   else
     run index octocode index
   fi

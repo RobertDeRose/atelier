@@ -114,7 +114,7 @@ export class OctocodeProvider implements CodeProvider {
       if (configurationIssue) {
         throw new Error(`Octocode cannot index or search ${repository.root}: ${configurationIssue}`);
       }
-      const indexArgs = before.totalBlocks <= 0 ? ["index", "--force"] : ["index"];
+      const indexArgs = ["index"];
       const result = spawnSync(this.command, indexArgs, {
         cwd: repository.root,
         env: { ...process.env, ...this.environment },
@@ -127,7 +127,7 @@ export class OctocodeProvider implements CodeProvider {
       }
       const after = this.inspectStats(repository.root);
       if (after.totalBlocks <= 0) {
-        throw new Error(`Octocode index completed for ${repository.root} but produced no searchable blocks. ${this.embeddingConfigurationIssue(after) ?? "Run octocode config --show and verify the configured embedding provider."}`);
+        throw new Error(`Octocode index completed for ${repository.root} but produced no searchable blocks. ${this.embeddingConfigurationIssue(after) ?? "Run octocode stats and octocode clear before retrying if the existing index is unrecoverable."}`);
       }
       await this.clientFor(repository.id, repository.root);
     }

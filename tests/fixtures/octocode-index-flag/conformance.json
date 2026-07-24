@@ -1,0 +1,147 @@
+{
+  "provider": "octocode",
+  "version": "0.14.0",
+  "toolNames": [
+    "graphrag",
+    "semantic_search",
+    "structural_search",
+    "view_signatures"
+  ],
+  "totals": {
+    "passed": 21,
+    "warnings": 1,
+    "failed": 4
+  },
+  "checks": [
+    {
+      "name": "setup_config",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "version",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "mcp_help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "config_show",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "stats_before",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "embedding_environment",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "index",
+      "status": "failed",
+      "detail": "error: unexpected argument '--force' found\n\nUsage: octocode index [OPTIONS]\n\nFor more information, try '--help'."
+    },
+    {
+      "name": "stats_after",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "adapter_index",
+      "status": "failed",
+      "detail": "atlr: octocode index failed for <REPOSITORY_ROOT>: error: unexpected argument '--force' found\n\nUsage: octocode index [OPTIONS]\n\nFor more information, try '--help'."
+    },
+    {
+      "name": "providers",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "status",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "search",
+      "status": "failed",
+      "detail": "atlr: Octocode has no searchable blocks for <REPOSITORY_ROOT>. Run atlr code index --provider octocode after configuring an embedding provider."
+    },
+    {
+      "name": "symbols",
+      "status": "failed",
+      "detail": "atlr: Octocode has no searchable blocks for <REPOSITORY_ROOT>. Run atlr code index --provider octocode after configuring an embedding provider."
+    },
+    {
+      "name": "mcp_contract",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "models_help",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "models_list",
+      "status": "passed",
+      "detail": "exit 0"
+    },
+    {
+      "name": "related",
+      "status": "warning",
+      "detail": "atlr: GraphRAG operation failed: GraphRAG knowledge graph is empty. Run 'octocode index' to build the knowledge graph. (graphrag)"
+    },
+    {
+      "name": "tool:semantic_search",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "call:semantic_search",
+      "status": "passed",
+      "detail": "completed"
+    },
+    {
+      "name": "tool:view_signatures",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "call:view_signatures",
+      "status": "passed",
+      "detail": "completed"
+    },
+    {
+      "name": "tool:structural_search",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "call:structural_search",
+      "status": "passed",
+      "detail": "completed"
+    },
+    {
+      "name": "tool:graphrag",
+      "status": "passed",
+      "detail": "advertised"
+    },
+    {
+      "name": "embedding:configured",
+      "status": "passed",
+      "detail": "Embedding provider prerequisites are available."
+    }
+  ]
+}

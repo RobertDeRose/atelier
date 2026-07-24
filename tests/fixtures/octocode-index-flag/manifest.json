@@ -1,0 +1,6 @@
+{
+  "provider": "octocode",
+  "version": "0.14.0",
+  "observation": "project-local FastEmbed preflight passed, but the unsupported --force flag prevented direct and adapter indexing",
+  "source": "live user collection"
+}

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.5 — 2026-07-23
+
+```text
+fix(code): use the supported Octocode index lifecycle
+
+- remove the unsupported Octocode index --force argument
+- write and verify the project-local FastEmbed configuration directly
+- preserve unmanaged project-local Octocode configuration
+- retry zero-block indexes through the documented bare index command
+- capture the failed force-based live run as a portable regression fixture
+```
+
 ## 0.9.4 — 2026-07-23
 
 ```text

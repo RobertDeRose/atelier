@@ -20,6 +20,24 @@ function addProcess(name: string, required = true): void {
 for (const name of ["setup_config", "version", "help", "mcp_help", "config_show", "stats_before", "embedding_environment", "index", "stats_after", "adapter_index", "providers", "status", "search", "symbols", "mcp_contract"]) addProcess(name);
 for (const name of ["models_help", "models_list", "related"]) addProcess(name, false);
 
+try {
+  const setup = JSON.parse(readFileSync(join(directory, "setup_config.stdout"), "utf8")) as { configPath?: string; codeModel?: string | null; textModel?: string | null; graphRagEnabled?: boolean };
+  const configured = typeof setup.configPath === "string"
+    && setup.configPath.endsWith(".atelier/octocode-config.toml")
+    && typeof setup.codeModel === "string"
+    && setup.codeModel.startsWith("fastembed:")
+    && typeof setup.textModel === "string"
+    && setup.textModel.startsWith("fastembed:")
+    && setup.graphRagEnabled === true;
+  checks.push({
+    name: "setup:project_config",
+    status: configured ? "passed" : "failed",
+    detail: configured ? `${setup.codeModel} / ${setup.textModel}` : "project-local FastEmbed configuration was not verified",
+  });
+} catch (error) {
+  checks.push({ name: "setup:project_config", status: "failed", detail: error instanceof Error ? error.message : String(error) });
+}
+
 let contract: {
   tools?: Array<{ name?: string }>;
   calls?: Record<string, { isError?: boolean; skipped?: boolean; reason?: string; error?: string; content?: Array<{ text?: string }> }>;

@@ -1,0 +1,16 @@
+{
+  "codeModel": "fastembed:jinaai/jina-embeddings-v2-base-code",
+  "textModel": "fastembed:nomic-ai/nomic-embed-text-v1.5",
+  "provider": "fastembed",
+  "requiredKey": null,
+  "configured": true,
+  "keyPresence": {
+    "VOYAGE_API_KEY": false,
+    "JINA_API_KEY": false,
+    "GOOGLE_API_KEY": false,
+    "OPENAI_API_KEY": false,
+    "OCTOHUB_API_KEY": false,
+    "TOGETHER_API_KEY": false
+  },
+  "guidance": "Embedding provider prerequisites are available."
+}

@@ -1,0 +1,18 @@
+Index Status
+  Files indexed:        0
+  Code blocks:          0
+  Text blocks:          0
+  Document blocks:      0
+  Commit blocks:        0
+
+  Last indexed commit:  f1182a9
+  Current HEAD:         07332ae
+  Status:               Stale -- 2 commits behind
+
+Configuration
+  Code model:           fastembed:jinaai/jina-embeddings-v2-base-code
+  Text model:           fastembed:nomic-ai/nomic-embed-text-v1.5
+  Threshold:            0.65
+  Reranker:             disabled
+  Contextual:           disabled
+  GraphRAG LLM:         disabled

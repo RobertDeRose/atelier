@@ -1,0 +1,8 @@
+{
+  "configPath": "<REPOSITORY_ROOT>/.atelier/octocode-config.toml",
+  "managed": true,
+  "created": true,
+  "codeModel": null,
+  "textModel": null,
+  "graphRagEnabled": false
+}

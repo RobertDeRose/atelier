@@ -16,7 +16,7 @@ async function capture(name: string, operation: () => Promise<unknown>): Promise
 }
 
 try {
-  const initialize = await client.initialize({ clientVersion: "0.9.4" });
+  const initialize = await client.initialize({ clientVersion: "0.9.5" });
   const tools = await client.listTools();
   if (has(tools, "semantic_search")) {
     await capture("semantic_search", () => client.callTool("semantic_search", {
