@@ -221,6 +221,7 @@ async function main(): Promise<void> {
             `Repository: ${status.repositoryRoot}`,
             `Mode: ${status.mode}`,
             `Plan: ${status.planPath} (${status.planExists ? "present" : "missing"})`,
+            `Plan objective: ${status.planObjective ?? "none"}`,
             `Plan approval: ${status.approvedPlanHash === status.currentPlanHash ? "approved" : "not approved"}`,
             `Task provider: ${status.taskProvider.provider} (${status.taskProvider.available ? "available" : "unavailable"}, ${status.taskProvider.initialized ? "initialized" : "not initialized"})`,
             `Current task: ${status.currentTaskId ?? "none"}`,
@@ -254,15 +255,8 @@ async function main(): Promise<void> {
           await handlePlan(core, subcommand, parsed);
           return;
         }
-        ensurePlanDocument(core.config.planPath);
-        core.setMode("plan");
         const objective = [subcommand, ...rest].filter((value): value is string => value !== undefined).join(" ").trim();
-        core.ledger.append({
-          kind: "plan.requested",
-          actor: "user",
-          repositorySnapshot: core.repository.snapshot(),
-          payload: { objective, path: core.config.planPath },
-        });
+        core.beginPlan(objective);
         process.stdout.write(`Plan mode active. Review ${core.config.planPath} with: atlr review\n`);
         return;
       }

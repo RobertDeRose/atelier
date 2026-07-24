@@ -51,3 +51,36 @@ test("Working State consumes normalized provider evidence without owning an inde
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("planning mode retrieves code from the durable objective before a task exists", async () => {
+  const root = createTemporaryRepository("atlr-plan-code-");
+  const provider = new MockCodeProvider([
+    {
+      repositoryId: "repo",
+      repositoryName: "repo",
+      root,
+      path: "packages/core/src/state/working-state-builder.ts",
+      language: "typescript",
+      symbol: "WorkingStateBuilder",
+      content: "export class WorkingStateBuilder { build() { return durablePlanningObjective; } }",
+    },
+  ]);
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: provider });
+  try {
+    core.initialize();
+    await provider.ensureIndex(core.codeWorkspace());
+    core.beginPlan("Update `WorkingStateBuilder` to use durablePlanningObjective");
+
+    const state = await core.buildWorkingState();
+
+    assert.equal(state.mode, "plan");
+    assert.equal(state.planObjective, "Update `WorkingStateBuilder` to use durablePlanningObjective");
+    assert.equal(state.activeTask, undefined);
+    assert.equal(state.retrievalQueries[0]?.purpose, "plan_objective");
+    assert.equal(state.codeEvidence[0]?.queryPurpose, "plan_objective");
+    assert.equal(state.codeEvidence[0]?.path, "packages/core/src/state/working-state-builder.ts");
+  } finally {
+    core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

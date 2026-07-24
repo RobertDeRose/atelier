@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0 — 2026-07-23
+
+```text
+feat(state): integrate retrieval into task-backed Working State
+
+- persist the planning objective as durable Atelier state
+- retrieve code evidence during planning before a provider task exists
+- add a deterministic repository-state planner with bounded exact identifier hints
+- scope ready-task selection to the approved plan and record selection rationale
+- reconstruct direct dependencies, blockers, corrections, findings, and Manual Edits
+- preserve durable current-task state across transient provider failures
+- record retrieval queries, degradation, warnings, and result counts in Working State
+- commit the missing Octocode 0.14.0 mise lock entry
+```
+
 ## 0.9.8 — 2026-07-23
 
 ```text

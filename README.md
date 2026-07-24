@@ -4,19 +4,24 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.9.8 scope
+## v0.10.0 scope
 
-The provider comparison gate is complete. On the four accepted retrieval tasks, baseline and
-codesearch both reached 1.0 mean weighted recall, while codesearch improved mean reciprocal
-rank to 1.0 and nDCG@10 to 0.9082. Octocode 0.14.0 reached 0.2009 weighted recall, 0.375 MRR,
-and 0.2323 nDCG@10, while taking 17.4 seconds across the task set versus 2.3 seconds for
-codesearch.
+Atelier now builds repository evidence from durable workflow state rather than waiting for an
+active provider task. `atlr plan` and `/plan` persist the normalized planning objective, and the
+Working State repository planner uses that objective immediately to retrieve bounded code
+evidence through the accepted codesearch provider. After approval, retrieval is rebuilt from the
+selected task and reviewed plan scope.
 
-Codesearch therefore remains Atelier's accepted general-purpose retrieval provider. Octocode
-is not accepted for the default search path. Its adapter remains available explicitly for
-signature lookup, structural search, and GraphRAG experiments, where its distinct capabilities
-may still provide value. No additional Octocode search-ranking heuristics are planned without a
-new benchmark showing a concrete structural workflow benefit.
+Task continuation is also stricter and more complete. Ready work is filtered to the approved plan,
+selection follows explicit task, resumable current task, priority, plan order, and stable ID, and the
+selection rationale is recorded in the ledger. Working State now includes direct dependencies,
+blockers, durable corrections and findings, recent Manual Edits, validation evidence, retrieval
+queries, warnings, and provider provenance. A transient task-provider failure does not erase the
+durable current-task pointer.
+
+The v0.9.8 provider decision remains unchanged: codesearch is the accepted general retrieval
+provider. Octocode remains explicit and experimental for signatures, structural search, and
+GraphRAG. The missing Octocode 0.14.0 entry is now committed in `mise.lock`.
 
 Atelier now owns:
 

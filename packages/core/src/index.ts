@@ -1,5 +1,6 @@
 export * from "./config/config.ts";
 export * from "./state/working-state-builder.ts";
+export * from "./state/repository-state-planner.ts";
 export * from "./core.ts";
 export * from "./domain/errors.ts";
 export * from "./domain/types.ts";

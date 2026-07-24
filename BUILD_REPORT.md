@@ -1,15 +1,20 @@
 # Build report
 
-Atelier v0.9.8 completes the second-provider decision gate.
+Atelier v0.10.0 completes the first task-backed repository retrieval vertical slice.
 
-The retained machine-side comparison passed 33 conformance checks, recorded one retrieval-quality warning, and had no required failures. Baseline and codesearch both reached 1.0 mean weighted recall; codesearch reached 1.0 MRR and 0.9082 nDCG@10. Octocode reached 0.2009 weighted recall, 0.375 MRR, and 0.2323 nDCG@10.
+The release persists planning objectives, retrieves code evidence in plan mode before a task exists,
+filters ready work to the approved plan, records deterministic task-selection rationale, and
+reconstructs dependencies, blockers, corrections, findings, Manual Edits, and validation evidence in
+Working State. Retrieval queries preserve focus, literal hints, result counts, degradation, warnings,
+and normalized provider provenance.
 
 Validation:
 
 - strict TypeScript check: passed
-- automated tests: 69 passed, 0 failed
+- automated tests: 74 passed, 0 failed
 - CLI smoke test: passed
-- line coverage: 85.39%
-- branch coverage: 65.93%
-- function coverage: 84.74%
-- portable Octocode comparison fixture: passed
+- line coverage: 86.55%
+- branch coverage: 66.85%
+- function coverage: 85.73%
+- approved-plan task filtering and provider-outage persistence regressions: passed
+- planning-mode repository retrieval regression: passed

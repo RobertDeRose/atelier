@@ -16,7 +16,7 @@ test("review, approval, reconciliation, and Working State form a runnable vertic
     assert.throws(() => core.approvePlan(), /reviewed/);
 
     const planText = readFileSync(join(root, ".atelier", "PLAN.md"), "utf8");
-    core.setMode("plan");
+    core.beginPlan("Build the guarded core from durable state");
     const review = core.recordPlanReview(planText, planText);
     assert.equal(review.changed, false);
     const approvedHash = core.approvePlan();
@@ -31,11 +31,13 @@ test("review, approval, reconciliation, and Working State form a runnable vertic
     core.setMode("act");
     const state = await core.buildWorkingState();
     assert.equal(state.approvedPlanHash, approvedHash);
+    assert.equal(state.planObjective, "Build the guarded core from durable state");
     assert.equal(state.planTask?.id, "ATLR-001");
     assert.equal(state.activeTask?.status, "open");
 
     const status = await core.status();
     assert.equal(status.mode, "act");
+    assert.equal(status.planObjective, "Build the guarded core from durable state");
     assert.equal(status.taskProvider.provider, "memory");
   } finally {
     core.close();

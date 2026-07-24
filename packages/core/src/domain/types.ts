@@ -214,15 +214,32 @@ export interface WorkingState {
   generatedAt: string;
   snapshot: RepositorySnapshot;
   mode: WorkflowMode;
+  planObjective?: string;
   activeTask?: TaskRecord;
+  taskSelection: {
+    source: "explicit" | "resumed" | "ready" | "none";
+    rationale: string;
+  };
   readyTasks: TaskRecord[];
+  taskDependencies: TaskRecord[];
+  taskBlockers: TaskRecord[];
   approvedPlanHash?: string;
   planTask?: PlanTask;
   permissions: PermissionGrant[];
   corrections: LedgerEvent[];
   findings: LedgerEvent[];
+  manualEdits: LedgerEvent[];
   recentEvents: LedgerEvent[];
   omissions: string[];
+  retrievalQueries: Array<{
+    purpose: "plan_objective" | "reviewed_plan" | "active_task" | "task_scope";
+    text: string;
+    focus: "source" | "tests" | "docs" | "all" | "mixed";
+    literalHints: string[];
+    resultCount: number;
+    degraded: boolean;
+    warnings: string[];
+  }>;
   codeEvidence: Array<{
     provider: string;
     repositoryId: string;
@@ -230,7 +247,12 @@ export interface WorkingState {
     language?: string;
     symbol?: string;
     startLine?: number;
+    endLine?: number;
     preview?: string;
+    queryPurpose: "plan_objective" | "reviewed_plan" | "active_task" | "task_scope";
+    retrievalMethods: Array<"auto" | "lexical" | "semantic" | "hybrid">;
+    degraded: boolean;
+    warnings: string[];
     indexState: "missing" | "building" | "ready" | "stale" | "failed" | "unknown";
   }>;
   validationEvidence: Array<{ id: string; name: string; status: "passed" | "failed" | "interrupted"; durationMs: number }>;

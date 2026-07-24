@@ -43,6 +43,7 @@ export interface AtelierStatus {
   planExists: boolean;
   approvedPlanHash?: string;
   currentPlanHash?: string;
+  planObjective?: string;
   currentTaskId?: string;
   taskProvider: TaskProviderStatus;
   snapshot: ReturnType<RepositoryProvider["snapshot"]>;
@@ -137,6 +138,24 @@ export class AtelierCore {
     const previous = this.mode();
     this.ledger.setState("workflowMode", mode);
     this.ledger.append({ kind: "workflow.mode_changed", actor, payload: { previous, mode } });
+  }
+
+  beginPlan(objective: string, options: { actor?: "user" | "system"; metadata?: Record<string, unknown> } = {}): string {
+    ensurePlanDocument(this.config.planPath);
+    const normalized = objective.replace(/\s+/g, " ").trim();
+    this.setMode("plan", options.actor ?? "user");
+    this.ledger.setState("planObjective", normalized);
+    this.ledger.append({
+      kind: "plan.requested",
+      actor: options.actor ?? "user",
+      repositorySnapshot: this.repository.snapshot(),
+      payload: {
+        objective: normalized,
+        path: this.config.planPath,
+        ...(options.metadata ?? {}),
+      },
+    });
+    return normalized;
   }
 
   evaluate(request: ActionRequest): PolicyDecision {
@@ -281,6 +300,14 @@ export class AtelierCore {
         stateId: state.stateId,
         ...(state.activeTask === undefined ? {} : { activeTaskId: state.activeTask.id }),
         readyTaskCount: state.readyTasks.length,
+        taskSelection: state.taskSelection,
+        retrievalQueries: state.retrievalQueries.map((query) => ({
+          purpose: query.purpose,
+          focus: query.focus,
+          resultCount: query.resultCount,
+          degraded: query.degraded,
+        })),
+        codeEvidenceCount: state.codeEvidence.length,
         omissions: state.omissions,
       },
     });
@@ -290,6 +317,7 @@ export class AtelierCore {
   async status(): Promise<AtelierStatus> {
     const planExists = existsSync(this.config.planPath);
     const approvedPlanHash = this.ledger.getState<string>("approvedPlanHash");
+    const planObjective = this.ledger.getState<string>("planObjective");
     const currentTaskId = this.ledger.getState<string>("currentTaskId");
     let taskProvider: TaskProviderStatus;
     try {
@@ -309,6 +337,7 @@ export class AtelierCore {
       planExists,
       ...(approvedPlanHash === undefined ? {} : { approvedPlanHash }),
       ...(planExists ? { currentPlanHash: hashFile(this.config.planPath) } : {}),
+      ...(planObjective === undefined || planObjective === "" ? {} : { planObjective }),
       ...(currentTaskId === undefined ? {} : { currentTaskId }),
       taskProvider,
       snapshot: this.repository.snapshot(),

@@ -2892,3 +2892,25 @@ Decision:
 Next code-intelligence work should integrate retrieval into real planning/review workflows and
 evaluate structural or impact tasks separately, rather than continue provider repair or ranking
 work on the completed proof of concept.
+
+## v0.10.0 — Task-backed repository retrieval
+
+The first post-provider-decision vertical slice integrates code retrieval into the real planning and
+execution workflows.
+
+Implemented:
+
+- persist the normalized `/plan` and `atlr plan` objective as durable state;
+- derive bounded repository queries from the planning objective, reviewed plan, active task, and task scope;
+- extract only quoted or code-shaped exact identifier hints;
+- retrieve and deduplicate normalized provider evidence before a task exists;
+- filter provider-ready work to the approved plan;
+- select work by explicit selection, resumable state, priority, plan order, and stable ID;
+- record task-selection rationale in the ledger;
+- include direct dependencies, blockers, corrections, findings, Manual Edits, and validation evidence;
+- preserve the durable current task during provider outages;
+- expose retrieval purpose, focus, hints, counts, warnings, and degradation in Working State.
+
+This advances ATLR-0510 and ATLR-0512. The next state-focused work should add indexed ledger
+retrieval by stable ID/path/symbol and a bounded recent-conversation tail, then measure exploratory
+tool-call reduction in live planning and implementation sessions.

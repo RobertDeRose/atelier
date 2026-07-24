@@ -132,12 +132,21 @@ export class SqliteLedger {
     return event;
   }
 
-  listEvents(options: { kind?: string; taskId?: string; limit?: number } = {}): LedgerEvent[] {
+  listEvents(options: { kind?: string; kinds?: string[]; taskId?: string; limit?: number } = {}): LedgerEvent[] {
     const clauses: string[] = [];
     const params: Array<string | number> = [];
+    if (options.kind !== undefined && options.kinds !== undefined) {
+      throw new Error("Specify either kind or kinds when reading ledger events, not both.");
+    }
     if (options.kind !== undefined) {
       clauses.push("kind = ?");
       params.push(options.kind);
+    }
+    if (options.kinds !== undefined) {
+      const kinds = [...new Set(options.kinds)].filter(Boolean);
+      if (kinds.length === 0) return [];
+      clauses.push(`kind IN (${kinds.map(() => "?").join(", ")})`);
+      params.push(...kinds);
     }
     if (options.taskId !== undefined) {
       clauses.push("task_id = ?");
@@ -146,7 +155,7 @@ export class SqliteLedger {
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     params.push(options.limit ?? 100);
     const rows = this.database
-      .prepare(`SELECT * FROM ledger_events ${where} ORDER BY occurred_at DESC LIMIT ?`)
+      .prepare(`SELECT * FROM ledger_events ${where} ORDER BY occurred_at DESC, id DESC LIMIT ?`)
       .all(...params) as unknown as EventRow[];
     return rows.map((row) => this.eventFromRow(row));
   }

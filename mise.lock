@@ -40,6 +40,10 @@ url = "https://github.com/jdx/aube/releases/download/v1.29.1/aube-v1.29.1-x86_64
 url_api = "https://api.github.com/repos/jdx/aube/releases/assets/479769257"
 provenance = "github-attestations"
 
+[[tools."github:Muvon/octocode"]]
+version = "0.14.0"
+backend = "github:Muvon/octocode"
+
 [[tools."github:flupkede/codesearch"]]
 version = "1.1.30"
 backend = "github:flupkede/codesearch"

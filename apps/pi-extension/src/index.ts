@@ -439,16 +439,10 @@ export default function atelierExtension(pi: ExtensionAPI): void {
       await ctx.waitForIdle();
       const core = coreFor(ctx);
       ensurePlanDocument(core.config.planPath);
-      core.setMode("plan");
       const baseline = hashFile(core.config.planPath);
       core.ledger.setState("planAutoReviewBaselineHash", baseline);
       core.ledger.setState("planAutoReviewPending", true);
-      core.ledger.append({
-        kind: "plan.requested",
-        actor: "user",
-        repositorySnapshot: core.repository.snapshot(),
-        payload: { objective: args.trim(), path: core.config.planPath, baseline },
-      });
+      core.beginPlan(args.trim(), { metadata: { baseline } });
       await updateStatus(ctx, core);
       pi.sendUserMessage(planInstruction(core, args.trim()));
     },
