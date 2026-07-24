@@ -1,55 +1,42 @@
-# Octocode comparative evaluation
+# Octocode evaluation report
 
-## Purpose
+## Decision
 
-Octocode passed Atelier's provider conformance gate with project-local FastEmbed embeddings and non-LLM GraphRAG. The remaining question is not whether the adapter works, but whether Octocode improves agentic retrieval enough to justify an ongoing integration.
+Octocode 0.14.0 is not accepted for Atelier's default repository retrieval path. The adapter is
+retained as an experimental structural provider.
 
-## Comparison boundary
+## Environment
 
-The evaluator sends every task through the same public interface:
+- Repository: Atelier
+- Provider: Octocode 0.14.0
+- Embeddings: project-local FastEmbed
+- Code model: `fastembed:jinaai/jina-embeddings-v2-base-code`
+- Text model: `fastembed:nomic-ai/nomic-embed-text-v1.5`
+- GraphRAG: enabled without LLM enrichment
+- Required MCP contract: fully conforming
+- Retrieval tasks: four accepted source, CLI, and normalization queries
 
-```text
-atlr code search <query> --provider <provider> --mode auto --focus <focus>
-```
+## Aggregate results
 
-The comparison includes:
+| Path | Weighted recall | MRR | nDCG@10 | Duration | Bytes |
+|---|---:|---:|---:|---:|---:|
+| Baseline | 1.0000 | 0.5833 | 0.7093 | 169 ms | 67,036 |
+| codesearch | 1.0000 | 1.0000 | 0.9082 | 2,276 ms | 77,624 |
+| Octocode | 0.2009 | 0.3750 | 0.2323 | 17,434 ms | 25,360 |
 
-- a direct ripgrep baseline using the same repository exclusion manifest;
-- the accepted codesearch provider;
-- the experimental Octocode provider.
+Octocode returned valid evidence and no degraded results, but its candidate set was too narrow
+and frequently centered on the Octocode adapter, probe scripts, or captured provider fixtures.
+It missed expected companion source and test files that baseline and codesearch found.
 
-All methods use the same task definitions, expected paths, relevance weights, repository selection, and workflow focus. Provider-specific output is normalized before scoring.
+## Interpretation
 
-## Metrics
+The provider contract is viable, but conformance is not sufficient for default adoption.
+Codesearch produced complete recall and substantially better first-hit and ranked relevance.
+Octocode's structural capabilities are distinct and remain worth retaining for explicit
+relationship, signature, and AST-pattern workflows.
 
-Each task records:
+## Promotion gate
 
-- weighted recall;
-- reciprocal rank;
-- nDCG@10;
-- final and provider-native path order;
-- duration and output bytes;
-- degraded-result and warning counts;
-- focus and reranking provenance.
-
-The aggregate report retains provider-keyed metrics and backward-compatible direct `codesearch` and `octocode` fields.
-
-## Commands
-
-```bash
-mise run evaluate:code:octocode
-mise run evaluate:code:all
-mise run collect:octocode
-```
-
-`collect:octocode` refreshes both indexes, captures the complete MCP contract, runs the three-way evaluation, writes `.atelier/octocode-probe/evaluation/latest.json`, and packages all evidence in `atelier-octocode-knowledge.tar.xz`.
-
-## Decision gate
-
-Contract or evaluation completeness failures fail conformance. Octocode retrieval below the baseline is recorded as a warning while evidence is gathered. The next live report will determine whether Octocode should:
-
-1. remain an experimental provider;
-2. become an optional structural/graph companion to codesearch; or
-3. be rejected as an integration target.
-
-Codesearch remains the default until that decision is recorded explicitly.
+Octocode may be reconsidered only after a dedicated structural benchmark demonstrates a
+material advantage on impact analysis, architecture navigation, or cross-file relationship
+reasoning. General semantic retrieval tuning alone is not a promotion criterion.

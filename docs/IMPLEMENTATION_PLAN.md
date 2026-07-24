@@ -2872,3 +2872,23 @@ Exit evidence required from the next live run:
 - baseline, codesearch, and Octocode aggregate metrics are present;
 - no provider result is degraded or stale;
 - Octocode weighted recall, reciprocal rank, and nDCG@10 are sufficient to decide whether it remains experimental, becomes an optional graph provider, or should be rejected for default retrieval.
+
+
+## v0.9.8 Octocode provider decision
+
+The comparative run completed with full provider conformance and no degraded results. Baseline
+and codesearch both reached 1.0 mean weighted recall; codesearch reached 1.0 MRR and 0.9082
+nDCG@10. Octocode reached 0.2009 weighted recall, 0.375 MRR, and 0.2323 nDCG@10 while taking
+17.4 seconds across the four tasks.
+
+Decision:
+
+- keep codesearch as the accepted default general retrieval provider;
+- reject Octocode for default repository retrieval;
+- retain Octocode explicitly for signatures, structural search, and GraphRAG experiments;
+- stop adding Octocode semantic-ranking heuristics without a dedicated structural benchmark;
+- preserve the complete comparative run as portable regression evidence.
+
+Next code-intelligence work should integrate retrieval into real planning/review workflows and
+evaluate structural or impact tasks separately, rather than continue provider repair or ranking
+work on the completed proof of concept.

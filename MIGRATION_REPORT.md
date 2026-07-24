@@ -1,7 +1,5 @@
-# Migration Report — v0.9.7
+# Migration Report — v0.9.8
 
 No runtime configuration migration is required.
 
-The code-intelligence evaluator now accepts `--providers` with a comma-separated list. Its previous default remains `codesearch`, and existing reports retain direct `codesearch` fields. New reports also include provider-keyed `providers`, `coldStarts`, and aggregate sections.
-
-`mise run collect:octocode` now refreshes both codesearch and Octocode indexes and runs the comparative benchmark. The next collection may therefore take longer than the prior conformance-only run.
+Codesearch remains the default provider. Existing explicit Octocode configuration continues to work, but it is now documented as an experimental structural integration rather than a recommended general retrieval provider. The Octocode binary and project-local FastEmbed setup remain in the development toolchain for signatures, structural search, GraphRAG, and future impact-analysis evaluation.

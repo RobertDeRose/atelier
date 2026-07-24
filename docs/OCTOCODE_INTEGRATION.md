@@ -1,6 +1,32 @@
-# Octocode experimental provider
+# Octocode experimental structural provider
 
 Atelier includes an experimental adapter for Muvon Octocode. It launches one local MCP process per repository, allowing an Atelier multi-repository workspace to remain provider-neutral even though each Octocode MCP process is rooted at one project.
+
+
+## Evaluation decision
+
+The v0.9.7 comparative run completed four retrieval tasks through the same public `atlr code
+search` contract:
+
+| Path | Weighted recall | MRR | nDCG@10 | Total task time |
+|---|---:|---:|---:|---:|
+| Baseline | 1.0000 | 0.5833 | 0.7093 | 169 ms |
+| codesearch | 1.0000 | 1.0000 | 0.9082 | 2,276 ms |
+| Octocode | 0.2009 | 0.3750 | 0.2323 | 17,434 ms |
+
+Octocode is rejected for Atelier's default general retrieval path. The provider returned valid,
+non-degraded evidence and passed its full MCP contract, but it missed most expected source and
+test files and was substantially slower than codesearch on this corpus.
+
+The adapter remains supported as an explicit experimental structural provider for:
+
+- signature and outline inspection;
+- AST structural search;
+- GraphRAG relationship exploration;
+- future impact-analysis experiments with dedicated structural benchmarks.
+
+Do not add more Octocode semantic-ranking heuristics to the shared retrieval path without a new
+benchmark demonstrating that a specific structural workflow improves over codesearch.
 
 Verified public entry points used by the adapter:
 
@@ -11,7 +37,7 @@ octocode mcp --path <repository>
 
 The adapter discovers MCP schemas at runtime. With Atelier's project-local FastEmbed and non-LLM GraphRAG configuration, Octocode 0.14.0 advertised and successfully executed `semantic_search`, `view_signatures`, `structural_search`, and `graphrag`. Atelier enables only the capabilities advertised by each repository process.
 
-Configure Octocode as the default provider in `.atelier/config.json`:
+Octocode can still be selected explicitly for experiments. Configuring it as the default is supported but not recommended:
 
 ```json
 {
@@ -36,7 +62,7 @@ mise run evaluate:code:all
 mise run collect:octocode
 ```
 
-The collector refreshes both provider indexes and evaluates baseline, codesearch, and Octocode through the same `atlr code search` contract. Contract failures remain fatal; retrieval quality below the baseline is retained as a warning until the provider decision gate is reached.
+The collector refreshes both provider indexes and evaluates baseline, codesearch, and Octocode through the same `atlr code search` contract. Contract failures remain fatal. Retrieval below the accepted baseline remains visible as a warning and regression signal; it no longer blocks the experimental structural adapter.
 
 The development bootstrap pins Octocode 0.14.0 through mise and writes `.atelier/octocode-config.toml` with local FastEmbed code and text models. Atelier passes that file through `OCTOCODE_CONFIG_PATH`, checks the configured embedding model before indexing, and verifies that `octocode stats` reports at least one searchable code, text, document, or commit block before accepting the index as ready.
 

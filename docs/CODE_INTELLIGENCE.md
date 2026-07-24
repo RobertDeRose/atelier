@@ -2,7 +2,7 @@
 
 ## Status
 
-Codesearch adapter implemented in Atelier v0.6.0 and hardened against live codesearch 1.1.30 behavior in v0.7.1; Octocode integration and comparative evaluation remain proposed.
+Codesearch is accepted as Atelier's default general retrieval provider. Octocode 0.14.0 passed the provider contract but was rejected for default retrieval after comparative evaluation; its adapter remains experimental for structural search, signatures, and GraphRAG.
 
 ## Purpose
 
@@ -19,12 +19,12 @@ Both should be treated as external, replaceable integration points behind an Atl
 
 ## Decision
 
-Implement support for both providers, sequentially:
+The provider proof of concept is complete:
 
-1. Integrate `codesearch` as the first and default proof-of-concept provider.
-2. Add `Octocode` as a second experimental provider through the same Atlr abstraction.
-3. Evaluate both against a baseline using repeatable agent tasks.
-4. Build native Atlr indexing components only when evaluation identifies concrete requirements that neither provider can satisfy.
+1. `codesearch` is accepted as the default general retrieval provider.
+2. Octocode is rejected for default retrieval on the current benchmark.
+3. Octocode remains available explicitly for structural search, signatures, and GraphRAG experiments.
+4. Native Atelier indexing remains out of scope until a concrete workflow requirement cannot be satisfied by the accepted external integrations.
 
 Atlr must not directly expose either provider's internal storage model or make either provider's MCP tool names part of its core domain model.
 
@@ -68,7 +68,7 @@ The proof of concept should instead validate whether Atlr can:
 
 Use `codesearch` as the first provider because it appears to offer the smaller and more direct integration surface for a local agent workflow.
 
-Expected strengths:
+Observed or expected strengths:
 
 - Local and offline operation
 - CPU-oriented deployment
@@ -92,7 +92,7 @@ The first integration should prioritize proving the basic Atlr workflow:
 
 ### Octocode
 
-Use Octocode as the second provider to test richer structural retrieval.
+Octocode was evaluated as the second provider for richer structural retrieval.
 
 Expected strengths:
 
@@ -106,9 +106,7 @@ Expected strengths:
 - MCP interface
 - Broader code-intelligence and GraphRAG concepts
 
-The Octocode integration should answer a different question from the first provider:
-
-> Do graph and relationship-aware results materially improve an agent's ability to understand impact, architecture, and cross-file behavior?
+The Octocode comparison answered the general retrieval question negatively: it reached 0.2009 weighted recall versus 1.0 for baseline and codesearch, with lower ranked relevance and materially higher latency. This does not reject its structural capabilities. Those remain opt-in and must be evaluated with dedicated impact or architecture tasks before broader adoption.
 
 Do not force Octocode's advanced capabilities into the minimum common interface. Expose them through optional capability discovery.
 

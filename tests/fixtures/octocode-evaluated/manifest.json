@@ -1,0 +1,16 @@
+{
+  "provider": "octocode",
+  "providerVersion": "0.14.0",
+  "source": "project-local FastEmbed comparative evaluation",
+  "decision": "rejected_for_default_retrieval_retained_experimental_structural",
+  "files": {
+    "conformance.json": {
+      "sha256": "77420c80a31817f8ae32615d073b91918e67bd7a1bdfc69e4e6511860bcd1c6d",
+      "bytes": 3815
+    },
+    "evaluation.json": {
+      "sha256": "a91806778ec27fd2784a7a1234ce134d3635c0b4d7b57e1bc79d51139b909628",
+      "bytes": 30984
+    }
+  }
+}

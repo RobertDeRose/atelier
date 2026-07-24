@@ -1,0 +1,897 @@
+{
+  "generatedAt": "2026-07-24T01:53:26.566Z",
+  "providers": [
+    "codesearch",
+    "octocode"
+  ],
+  "aggregate": {
+    "baseline": {
+      "tasks": 4,
+      "durationMs": 169,
+      "bytes": 67036,
+      "degradedResultCount": 0,
+      "fusionResultCount": 0,
+      "literalHintCount": 14,
+      "rerankedTasks": 4,
+      "warnings": [],
+      "meanWeightedRecall": 1,
+      "meanReciprocalRank": 0.5833,
+      "meanNdcgAt10": 0.7093
+    },
+    "providers": {
+      "codesearch": {
+        "tasks": 4,
+        "durationMs": 2276,
+        "bytes": 77624,
+        "degradedResultCount": 0,
+        "fusionResultCount": 6,
+        "literalHintCount": 14,
+        "rerankedTasks": 4,
+        "warnings": [],
+        "meanWeightedRecall": 1,
+        "meanReciprocalRank": 1,
+        "meanNdcgAt10": 0.9082
+      },
+      "octocode": {
+        "tasks": 4,
+        "durationMs": 17434,
+        "bytes": 25360,
+        "degradedResultCount": 0,
+        "fusionResultCount": 0,
+        "literalHintCount": 0,
+        "rerankedTasks": 3,
+        "warnings": [],
+        "meanWeightedRecall": 0.2009,
+        "meanReciprocalRank": 0.375,
+        "meanNdcgAt10": 0.2323
+      }
+    },
+    "codesearch": {
+      "tasks": 4,
+      "durationMs": 2276,
+      "bytes": 77624,
+      "degradedResultCount": 0,
+      "fusionResultCount": 6,
+      "literalHintCount": 14,
+      "rerankedTasks": 4,
+      "warnings": [],
+      "meanWeightedRecall": 1,
+      "meanReciprocalRank": 1,
+      "meanNdcgAt10": 0.9082
+    },
+    "octocode": {
+      "tasks": 4,
+      "durationMs": 17434,
+      "bytes": 25360,
+      "degradedResultCount": 0,
+      "fusionResultCount": 0,
+      "literalHintCount": 0,
+      "rerankedTasks": 3,
+      "warnings": [],
+      "meanWeightedRecall": 0.2009,
+      "meanReciprocalRank": 0.375,
+      "meanNdcgAt10": 0.2323
+    }
+  },
+  "coldStarts": {
+    "codesearch": {
+      "method": "codesearch",
+      "status": 0,
+      "durationMs": 677,
+      "resultCount": 10,
+      "pathCount": 10,
+      "bytes": 19951,
+      "paths": [
+        "packages/core/src/core.ts",
+        "packages/core/src/code/registry.ts",
+        "packages/core/src/code/service.ts",
+        "packages/core/src/config/config.ts",
+        "evaluation/tasks.json",
+        "scripts/probe-codesearch.sh",
+        "tests/codesearch-provider.test.ts",
+        "tests/code-service.test.ts",
+        "tests/code-budgets.test.ts",
+        "tests/validation-service.test.ts"
+      ],
+      "providerPaths": [
+        "tests/codesearch-provider.test.ts",
+        "packages/core/src/core.ts",
+        "packages/core/src/code/registry.ts",
+        "packages/core/src/code/service.ts",
+        "tests/code-service.test.ts",
+        "tests/code-budgets.test.ts",
+        "tests/validation-service.test.ts",
+        "evaluation/tasks.json",
+        "scripts/probe-codesearch.sh",
+        "packages/core/src/config/config.ts"
+      ],
+      "focus": "source",
+      "reranked": true,
+      "degradedResultCount": 0,
+      "fusionResultCount": 1,
+      "literalHintCount": 3,
+      "warnings": []
+    },
+    "octocode": {
+      "method": "octocode",
+      "status": 0,
+      "durationMs": 4677,
+      "resultCount": 4,
+      "pathCount": 4,
+      "bytes": 8954,
+      "paths": [
+        "packages/core/src/core.ts",
+        "scripts/evaluate-code.ts",
+        "scripts/probe-octocode-mcp.ts",
+        "tests/fixtures/octocode-conformant/search.json"
+      ],
+      "providerPaths": [
+        "scripts/evaluate-code.ts",
+        "packages/core/src/core.ts",
+        "scripts/probe-octocode-mcp.ts",
+        "tests/fixtures/octocode-conformant/search.json"
+      ],
+      "focus": "source",
+      "reranked": true,
+      "degradedResultCount": 0,
+      "fusionResultCount": 0,
+      "literalHintCount": 0,
+      "warnings": []
+    }
+  },
+  "summary": [
+    {
+      "id": "locate-provider-selection",
+      "query": "How does Atelier choose and initialize the configured code intelligence provider?",
+      "expectedResults": [
+        {
+          "path": "packages/core/src/core.ts",
+          "relevance": 3,
+          "rationale": "Creates the configured provider and injects it into CodeService."
+        },
+        {
+          "path": "packages/core/src/code/registry.ts",
+          "relevance": 3,
+          "rationale": "Selects registered providers and exposes their status."
+        },
+        {
+          "path": "packages/core/src/code/service.ts",
+          "relevance": 1,
+          "rationale": "Consumes the selected provider through the provider-neutral service."
+        }
+      ],
+      "baseline": {
+        "paths": [
+          "apps/cli/src/main.ts",
+          "packages/core/src/code/service.ts",
+          "packages/core/src/core.ts",
+          "packages/core/src/code/registry.ts",
+          "packages/core/src/code/octocode-provider.ts",
+          "packages/core/src/config/config.ts",
+          "evaluation/tasks.json",
+          "scripts/collect-octocode-knowledge.sh",
+          "scripts/probe-codesearch.sh",
+          "tests/octocode-provider.test.ts",
+          "tests/core.integration.test.ts",
+          "tests/codesearch-provider.test.ts",
+          "tests/octocode-collector.test.ts",
+          "tests/code-budgets.test.ts",
+          "tests/validation-service.test.ts",
+          "tests/octocode-text-response.test.ts",
+          "tests/code-service.test.ts",
+          "README.md",
+          "docs/OCTOCODE_INTEGRATION.md",
+          "docs/ARCHITECTURE.md"
+        ],
+        "providerPaths": [
+          "apps/cli/src/main.ts",
+          "evaluation/tasks.json",
+          "README.md",
+          "packages/core/src/code/service.ts",
+          "packages/core/src/core.ts",
+          "packages/core/src/code/registry.ts",
+          "docs/OCTOCODE_INTEGRATION.md",
+          "docs/ARCHITECTURE.md",
+          "packages/core/src/code/octocode-provider.ts",
+          "tests/octocode-provider.test.ts",
+          "packages/core/src/config/config.ts",
+          "tests/core.integration.test.ts",
+          "tests/codesearch-provider.test.ts",
+          "tests/octocode-collector.test.ts",
+          "tests/code-budgets.test.ts",
+          "tests/validation-service.test.ts",
+          "tests/octocode-text-response.test.ts",
+          "scripts/collect-octocode-knowledge.sh",
+          "tests/code-service.test.ts",
+          "scripts/probe-codesearch.sh"
+        ],
+        "expectedFound": [
+          "packages/core/src/core.ts",
+          "packages/core/src/code/registry.ts",
+          "packages/core/src/code/service.ts"
+        ],
+        "expectedMissed": [],
+        "rankedExpected": [
+          {
+            "path": "packages/core/src/core.ts",
+            "relevance": 3,
+            "rationale": "Creates the configured provider and injects it into CodeService.",
+            "rank": 3
+          },
+          {
+            "path": "packages/core/src/code/registry.ts",
+            "relevance": 3,
+            "rationale": "Selects registered providers and exposes their status.",
+            "rank": 4
+          },
+          {
+            "path": "packages/core/src/code/service.ts",
+            "relevance": 1,
+            "rationale": "Consumes the selected provider through the provider-neutral service.",
+            "rank": 2
+          }
+        ],
+        "weightedRecall": 1,
+        "reciprocalRank": 0.5,
+        "ndcgAt10": 0.5996,
+        "durationMs": 46,
+        "bytes": 26977,
+        "focus": "source",
+        "reranked": true
+      },
+      "providers": {
+        "codesearch": {
+          "paths": [
+            "packages/core/src/core.ts",
+            "packages/core/src/code/registry.ts",
+            "packages/core/src/code/service.ts",
+            "packages/core/src/config/config.ts",
+            "evaluation/tasks.json",
+            "scripts/probe-codesearch.sh",
+            "tests/codesearch-provider.test.ts",
+            "tests/code-service.test.ts",
+            "tests/code-budgets.test.ts",
+            "tests/validation-service.test.ts"
+          ],
+          "providerPaths": [
+            "tests/codesearch-provider.test.ts",
+            "packages/core/src/core.ts",
+            "packages/core/src/code/registry.ts",
+            "packages/core/src/code/service.ts",
+            "tests/code-service.test.ts",
+            "tests/code-budgets.test.ts",
+            "tests/validation-service.test.ts",
+            "evaluation/tasks.json",
+            "scripts/probe-codesearch.sh",
+            "packages/core/src/config/config.ts"
+          ],
+          "expectedFound": [
+            "packages/core/src/core.ts",
+            "packages/core/src/code/registry.ts",
+            "packages/core/src/code/service.ts"
+          ],
+          "expectedMissed": [],
+          "rankedExpected": [
+            {
+              "path": "packages/core/src/core.ts",
+              "relevance": 3,
+              "rationale": "Creates the configured provider and injects it into CodeService.",
+              "rank": 1
+            },
+            {
+              "path": "packages/core/src/code/registry.ts",
+              "relevance": 3,
+              "rationale": "Selects registered providers and exposes their status.",
+              "rank": 2
+            },
+            {
+              "path": "packages/core/src/code/service.ts",
+              "relevance": 1,
+              "rationale": "Consumes the selected provider through the provider-neutral service.",
+              "rank": 3
+            }
+          ],
+          "weightedRecall": 1,
+          "reciprocalRank": 1,
+          "ndcgAt10": 1,
+          "durationMs": 628,
+          "bytes": 19951,
+          "focus": "source",
+          "reranked": true,
+          "degradedResultCount": 0,
+          "warnings": []
+        },
+        "octocode": {
+          "paths": [
+            "packages/core/src/core.ts",
+            "scripts/evaluate-code.ts",
+            "scripts/probe-octocode-mcp.ts",
+            "tests/fixtures/octocode-conformant/search.json"
+          ],
+          "providerPaths": [
+            "scripts/evaluate-code.ts",
+            "packages/core/src/core.ts",
+            "scripts/probe-octocode-mcp.ts",
+            "tests/fixtures/octocode-conformant/search.json"
+          ],
+          "expectedFound": [
+            "packages/core/src/core.ts"
+          ],
+          "expectedMissed": [
+            "packages/core/src/code/registry.ts",
+            "packages/core/src/code/service.ts"
+          ],
+          "rankedExpected": [
+            {
+              "path": "packages/core/src/core.ts",
+              "relevance": 3,
+              "rationale": "Creates the configured provider and injects it into CodeService.",
+              "rank": 1
+            },
+            {
+              "path": "packages/core/src/code/registry.ts",
+              "relevance": 3,
+              "rationale": "Selects registered providers and exposes their status."
+            },
+            {
+              "path": "packages/core/src/code/service.ts",
+              "relevance": 1,
+              "rationale": "Consumes the selected provider through the provider-neutral service."
+            }
+          ],
+          "weightedRecall": 0.4286,
+          "reciprocalRank": 1,
+          "ndcgAt10": 0.5874,
+          "durationMs": 4382,
+          "bytes": 8954,
+          "focus": "source",
+          "reranked": true,
+          "degradedResultCount": 0,
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "trace-code-search",
+      "query": "Trace `atlr code search` from CLI argument handling through CodeService to the codesearch MCP search call.",
+      "expectedResults": [
+        {
+          "path": "apps/cli/src/main.ts",
+          "relevance": 3,
+          "rationale": "Parses and dispatches the CLI command."
+        },
+        {
+          "path": "packages/core/src/code/service.ts",
+          "relevance": 3,
+          "rationale": "Applies provider-neutral limits and invokes the selected provider."
+        },
+        {
+          "path": "packages/core/src/code/codesearch-provider.ts",
+          "relevance": 2,
+          "rationale": "Maps the request to codesearch MCP arguments."
+        }
+      ],
+      "baseline": {
+        "paths": [
+          "apps/pi-extension/src/index.ts",
+          "apps/cli/src/main.ts",
+          "packages/core/src/code/codesearch-provider.ts",
+          "packages/core/src/code/service.ts",
+          "evaluation/tasks.json",
+          "scripts/probe-codesearch.sh",
+          "scripts/collect-octocode-knowledge.sh",
+          "tests/code-search-focus.test.ts",
+          "tests/code-service.test.ts",
+          "tests/octocode-collector.test.ts",
+          "README.md",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "docs/OCTOCODE_INTEGRATION.md",
+          "docs/ADR-0010-EXACT-IDENTIFIER-RETRIEVAL-HINTS.md",
+          "docs/OCTOCODE_EVALUATION.md"
+        ],
+        "providerPaths": [
+          "evaluation/tasks.json",
+          "apps/pi-extension/src/index.ts",
+          "tests/code-search-focus.test.ts",
+          "README.md",
+          "apps/cli/src/main.ts",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "tests/code-service.test.ts",
+          "tests/octocode-collector.test.ts",
+          "docs/OCTOCODE_INTEGRATION.md",
+          "docs/ADR-0010-EXACT-IDENTIFIER-RETRIEVAL-HINTS.md",
+          "docs/OCTOCODE_EVALUATION.md",
+          "scripts/probe-codesearch.sh",
+          "packages/core/src/code/codesearch-provider.ts",
+          "scripts/collect-octocode-knowledge.sh",
+          "packages/core/src/code/service.ts"
+        ],
+        "expectedFound": [
+          "apps/cli/src/main.ts",
+          "packages/core/src/code/service.ts",
+          "packages/core/src/code/codesearch-provider.ts"
+        ],
+        "expectedMissed": [],
+        "rankedExpected": [
+          {
+            "path": "apps/cli/src/main.ts",
+            "relevance": 3,
+            "rationale": "Parses and dispatches the CLI command.",
+            "rank": 2
+          },
+          {
+            "path": "packages/core/src/code/service.ts",
+            "relevance": 3,
+            "rationale": "Applies provider-neutral limits and invokes the selected provider.",
+            "rank": 4
+          },
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 2,
+            "rationale": "Maps the request to codesearch MCP arguments.",
+            "rank": 3
+          }
+        ],
+        "weightedRecall": 1,
+        "reciprocalRank": 0.5,
+        "ndcgAt10": 0.6915,
+        "durationMs": 40,
+        "bytes": 17188,
+        "focus": "source",
+        "reranked": true
+      },
+      "providers": {
+        "codesearch": {
+          "paths": [
+            "packages/core/src/code/codesearch-provider.ts",
+            "packages/core/src/code/service.ts",
+            "apps/pi-extension/src/index.ts",
+            "apps/cli/src/main.ts",
+            "packages/core/src/state/working-state-builder.ts",
+            "packages/core/src/core.ts",
+            "packages/core/src/code/types.ts",
+            "scripts/probe-codesearch-mcp.ts",
+            "evaluation/tasks.json",
+            "scripts/probe-codesearch.sh"
+          ],
+          "providerPaths": [
+            "evaluation/tasks.json",
+            "packages/core/src/code/service.ts",
+            "apps/pi-extension/src/index.ts",
+            "apps/cli/src/main.ts",
+            "packages/core/src/state/working-state-builder.ts",
+            "scripts/probe-codesearch.sh",
+            "packages/core/src/core.ts",
+            "packages/core/src/code/types.ts",
+            "scripts/probe-codesearch-mcp.ts",
+            "packages/core/src/code/codesearch-provider.ts"
+          ],
+          "expectedFound": [
+            "apps/cli/src/main.ts",
+            "packages/core/src/code/service.ts",
+            "packages/core/src/code/codesearch-provider.ts"
+          ],
+          "expectedMissed": [],
+          "rankedExpected": [
+            {
+              "path": "apps/cli/src/main.ts",
+              "relevance": 3,
+              "rationale": "Parses and dispatches the CLI command.",
+              "rank": 4
+            },
+            {
+              "path": "packages/core/src/code/service.ts",
+              "relevance": 3,
+              "rationale": "Applies provider-neutral limits and invokes the selected provider.",
+              "rank": 2
+            },
+            {
+              "path": "packages/core/src/code/codesearch-provider.ts",
+              "relevance": 2,
+              "rationale": "Maps the request to codesearch MCP arguments.",
+              "rank": 1
+            }
+          ],
+          "weightedRecall": 1,
+          "reciprocalRank": 1,
+          "ndcgAt10": 0.8076,
+          "durationMs": 547,
+          "bytes": 20348,
+          "focus": "source",
+          "reranked": true,
+          "degradedResultCount": 0,
+          "warnings": []
+        },
+        "octocode": {
+          "paths": [
+            "packages/core/src/code/octocode-provider.ts",
+            "apps/cli/src/main.ts",
+            "scripts/probe-octocode-mcp.ts",
+            "tests/fixtures/octocode-conformant/search.json"
+          ],
+          "providerPaths": [
+            "scripts/probe-octocode-mcp.ts",
+            "packages/core/src/code/octocode-provider.ts",
+            "apps/cli/src/main.ts",
+            "tests/fixtures/octocode-conformant/search.json"
+          ],
+          "expectedFound": [
+            "apps/cli/src/main.ts"
+          ],
+          "expectedMissed": [
+            "packages/core/src/code/service.ts",
+            "packages/core/src/code/codesearch-provider.ts"
+          ],
+          "rankedExpected": [
+            {
+              "path": "apps/cli/src/main.ts",
+              "relevance": 3,
+              "rationale": "Parses and dispatches the CLI command.",
+              "rank": 2
+            },
+            {
+              "path": "packages/core/src/code/service.ts",
+              "relevance": 3,
+              "rationale": "Applies provider-neutral limits and invokes the selected provider."
+            },
+            {
+              "path": "packages/core/src/code/codesearch-provider.ts",
+              "relevance": 2,
+              "rationale": "Maps the request to codesearch MCP arguments."
+            }
+          ],
+          "weightedRecall": 0.375,
+          "reciprocalRank": 0.5,
+          "ndcgAt10": 0.3419,
+          "durationMs": 4335,
+          "bytes": 11859,
+          "focus": "source",
+          "reranked": true,
+          "degradedResultCount": 0,
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "find-normalization-tests",
+      "query": "Where are codesearch search responses normalized, and which tests verify that normalization?",
+      "expectedResults": [
+        {
+          "path": "packages/core/src/code/codesearch-provider.ts",
+          "relevance": 3,
+          "rationale": "Contains response extraction and normalized hit construction."
+        },
+        {
+          "path": "tests/codesearch-provider.test.ts",
+          "relevance": 3,
+          "rationale": "Verifies the adapter contract and normalized output."
+        }
+      ],
+      "baseline": {
+        "paths": [
+          "packages/core/src/code/codesearch-provider.ts",
+          "tests/codesearch-provider.test.ts",
+          "packages/core/src/code/octocode-provider.ts",
+          "evaluation/tasks.json",
+          "README.md",
+          "docs/CODE_INTELLIGENCE.md"
+        ],
+        "providerPaths": [
+          "README.md",
+          "evaluation/tasks.json",
+          "packages/core/src/code/codesearch-provider.ts",
+          "packages/core/src/code/octocode-provider.ts",
+          "tests/codesearch-provider.test.ts",
+          "docs/CODE_INTELLIGENCE.md"
+        ],
+        "expectedFound": [
+          "packages/core/src/code/codesearch-provider.ts",
+          "tests/codesearch-provider.test.ts"
+        ],
+        "expectedMissed": [],
+        "rankedExpected": [
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 3,
+            "rationale": "Contains response extraction and normalized hit construction.",
+            "rank": 1
+          },
+          {
+            "path": "tests/codesearch-provider.test.ts",
+            "relevance": 3,
+            "rationale": "Verifies the adapter contract and normalized output.",
+            "rank": 2
+          }
+        ],
+        "weightedRecall": 1,
+        "reciprocalRank": 1,
+        "ndcgAt10": 1,
+        "durationMs": 43,
+        "bytes": 7017,
+        "focus": "mixed",
+        "reranked": true
+      },
+      "providers": {
+        "codesearch": {
+          "paths": [
+            "packages/core/src/code/codesearch-provider.ts",
+            "tests/codesearch-provider.test.ts",
+            "packages/core/src/code/octocode-provider.ts",
+            "tests/codesearch-probe-summary.test.ts",
+            "scripts/update-codesearch-fixtures.ts",
+            "scripts/probe-codesearch-mcp.ts",
+            "scripts/summarize-codesearch-probe.ts",
+            "docs/CODESEARCH_EVALUATION.md",
+            "CHANGELOG.md",
+            "docs/ADR-0007-CODESEARCH-CORPUS-SELECTION.md"
+          ],
+          "providerPaths": [
+            "packages/core/src/code/codesearch-provider.ts",
+            "docs/CODESEARCH_EVALUATION.md",
+            "CHANGELOG.md",
+            "docs/ADR-0007-CODESEARCH-CORPUS-SELECTION.md",
+            "scripts/update-codesearch-fixtures.ts",
+            "tests/codesearch-provider.test.ts",
+            "scripts/probe-codesearch-mcp.ts",
+            "scripts/summarize-codesearch-probe.ts",
+            "packages/core/src/code/octocode-provider.ts",
+            "tests/codesearch-probe-summary.test.ts"
+          ],
+          "expectedFound": [
+            "packages/core/src/code/codesearch-provider.ts",
+            "tests/codesearch-provider.test.ts"
+          ],
+          "expectedMissed": [],
+          "rankedExpected": [
+            {
+              "path": "packages/core/src/code/codesearch-provider.ts",
+              "relevance": 3,
+              "rationale": "Contains response extraction and normalized hit construction.",
+              "rank": 1
+            },
+            {
+              "path": "tests/codesearch-provider.test.ts",
+              "relevance": 3,
+              "rationale": "Verifies the adapter contract and normalized output.",
+              "rank": 2
+            }
+          ],
+          "weightedRecall": 1,
+          "reciprocalRank": 1,
+          "ndcgAt10": 1,
+          "durationMs": 514,
+          "bytes": 17425,
+          "focus": "mixed",
+          "reranked": true,
+          "degradedResultCount": 0,
+          "warnings": []
+        },
+        "octocode": {
+          "paths": [
+            "packages/core/src/code/octocode-provider.ts",
+            "scripts/probe-octocode-mcp.ts"
+          ],
+          "providerPaths": [
+            "scripts/probe-octocode-mcp.ts",
+            "packages/core/src/code/octocode-provider.ts"
+          ],
+          "expectedFound": [],
+          "expectedMissed": [
+            "packages/core/src/code/codesearch-provider.ts",
+            "tests/codesearch-provider.test.ts"
+          ],
+          "rankedExpected": [
+            {
+              "path": "packages/core/src/code/codesearch-provider.ts",
+              "relevance": 3,
+              "rationale": "Contains response extraction and normalized hit construction."
+            },
+            {
+              "path": "tests/codesearch-provider.test.ts",
+              "relevance": 3,
+              "rationale": "Verifies the adapter contract and normalized output."
+            }
+          ],
+          "weightedRecall": 0,
+          "reciprocalRank": 0,
+          "ndcgAt10": 0,
+          "durationMs": 4333,
+          "bytes": 4544,
+          "focus": "mixed",
+          "reranked": true,
+          "degradedResultCount": 0,
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "working-state-evidence",
+      "query": "How does retrieved code evidence enter Working State, and where is its freshness checked?",
+      "expectedResults": [
+        {
+          "path": "packages/core/src/state/working-state-builder.ts",
+          "relevance": 3,
+          "rationale": "Builds the code-evidence section of Working State."
+        },
+        {
+          "path": "packages/core/src/core.ts",
+          "relevance": 2,
+          "rationale": "Constructs WorkingStateBuilder with CodeService and repository state."
+        },
+        {
+          "path": "packages/core/src/code/codesearch-provider.ts",
+          "relevance": 2,
+          "rationale": "Qualifies returned evidence with indexed and current snapshots."
+        }
+      ],
+      "baseline": {
+        "paths": [
+          "apps/cli/src/main.ts",
+          "packages/core/src/domain/types.ts",
+          "packages/core/src/core.ts",
+          "packages/core/src/state/working-state-builder.ts",
+          "packages/core/src/code/codesearch-provider.ts",
+          "packages/core/src/code/octocode-provider.ts",
+          "packages/core/src/code/types.ts",
+          "packages/core/src/code/focus.ts",
+          "evaluation/tasks.json",
+          "tests/reconciliation-state.test.ts",
+          "tests/octocode-conformant-fixture.test.ts",
+          "tests/codesearch-provider.test.ts",
+          "tests/validation-service.test.ts",
+          "tests/code-service.test.ts",
+          "docs/IMPLEMENTATION_PLAN.md"
+        ],
+        "providerPaths": [
+          "evaluation/tasks.json",
+          "tests/reconciliation-state.test.ts",
+          "apps/cli/src/main.ts",
+          "tests/octocode-conformant-fixture.test.ts",
+          "tests/codesearch-provider.test.ts",
+          "packages/core/src/domain/types.ts",
+          "tests/validation-service.test.ts",
+          "tests/code-service.test.ts",
+          "docs/IMPLEMENTATION_PLAN.md",
+          "packages/core/src/core.ts",
+          "packages/core/src/state/working-state-builder.ts",
+          "packages/core/src/code/codesearch-provider.ts",
+          "packages/core/src/code/octocode-provider.ts",
+          "packages/core/src/code/types.ts",
+          "packages/core/src/code/focus.ts"
+        ],
+        "expectedFound": [
+          "packages/core/src/state/working-state-builder.ts",
+          "packages/core/src/core.ts",
+          "packages/core/src/code/codesearch-provider.ts"
+        ],
+        "expectedMissed": [],
+        "rankedExpected": [
+          {
+            "path": "packages/core/src/state/working-state-builder.ts",
+            "relevance": 3,
+            "rationale": "Builds the code-evidence section of Working State.",
+            "rank": 4
+          },
+          {
+            "path": "packages/core/src/core.ts",
+            "relevance": 2,
+            "rationale": "Constructs WorkingStateBuilder with CodeService and repository state.",
+            "rank": 3
+          },
+          {
+            "path": "packages/core/src/code/codesearch-provider.ts",
+            "relevance": 2,
+            "rationale": "Qualifies returned evidence with indexed and current snapshots.",
+            "rank": 5
+          }
+        ],
+        "weightedRecall": 1,
+        "reciprocalRank": 0.3333,
+        "ndcgAt10": 0.5461,
+        "durationMs": 40,
+        "bytes": 15854,
+        "focus": "source",
+        "reranked": true
+      },
+      "providers": {
+        "codesearch": {
+          "paths": [
+            "packages/core/src/code/codesearch-provider.ts",
+            "packages/core/src/state/working-state-builder.ts",
+            "packages/core/src/code/types.ts",
+            "apps/pi-extension/src/index.ts",
+            "packages/core/src/core.ts",
+            "packages/core/src/code/octocode-provider.ts",
+            "packages/core/src/domain/types.ts",
+            "packages/core/src/code/focus.ts",
+            "scripts/probe-codesearch-mcp.ts",
+            "evaluation/tasks.json"
+          ],
+          "providerPaths": [
+            "evaluation/tasks.json",
+            "apps/pi-extension/src/index.ts",
+            "packages/core/src/core.ts",
+            "packages/core/src/code/octocode-provider.ts",
+            "packages/core/src/domain/types.ts",
+            "packages/core/src/code/focus.ts",
+            "packages/core/src/code/types.ts",
+            "packages/core/src/code/codesearch-provider.ts",
+            "packages/core/src/state/working-state-builder.ts",
+            "scripts/probe-codesearch-mcp.ts"
+          ],
+          "expectedFound": [
+            "packages/core/src/state/working-state-builder.ts",
+            "packages/core/src/core.ts",
+            "packages/core/src/code/codesearch-provider.ts"
+          ],
+          "expectedMissed": [],
+          "rankedExpected": [
+            {
+              "path": "packages/core/src/state/working-state-builder.ts",
+              "relevance": 3,
+              "rationale": "Builds the code-evidence section of Working State.",
+              "rank": 2
+            },
+            {
+              "path": "packages/core/src/core.ts",
+              "relevance": 2,
+              "rationale": "Constructs WorkingStateBuilder with CodeService and repository state.",
+              "rank": 5
+            },
+            {
+              "path": "packages/core/src/code/codesearch-provider.ts",
+              "relevance": 2,
+              "rationale": "Qualifies returned evidence with indexed and current snapshots.",
+              "rank": 1
+            }
+          ],
+          "weightedRecall": 1,
+          "reciprocalRank": 1,
+          "ndcgAt10": 0.8253,
+          "durationMs": 587,
+          "bytes": 19900,
+          "focus": "source",
+          "reranked": true,
+          "degradedResultCount": 0,
+          "warnings": []
+        },
+        "octocode": {
+          "paths": [],
+          "providerPaths": [],
+          "expectedFound": [],
+          "expectedMissed": [
+            "packages/core/src/state/working-state-builder.ts",
+            "packages/core/src/core.ts",
+            "packages/core/src/code/codesearch-provider.ts"
+          ],
+          "rankedExpected": [
+            {
+              "path": "packages/core/src/state/working-state-builder.ts",
+              "relevance": 3,
+              "rationale": "Builds the code-evidence section of Working State."
+            },
+            {
+              "path": "packages/core/src/core.ts",
+              "relevance": 2,
+              "rationale": "Constructs WorkingStateBuilder with CodeService and repository state."
+            },
+            {
+              "path": "packages/core/src/code/codesearch-provider.ts",
+              "relevance": 2,
+              "rationale": "Qualifies returned evidence with indexed and current snapshots."
+            }
+          ],
+          "weightedRecall": 0,
+          "reciprocalRank": 0,
+          "ndcgAt10": 0,
+          "durationMs": 4384,
+          "bytes": 3,
+          "focus": "source",
+          "reranked": false,
+          "degradedResultCount": 0,
+          "warnings": []
+        }
+      }
+    }
+  ]
+}

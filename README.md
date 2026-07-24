@@ -4,14 +4,19 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.9.7 scope
+## v0.9.8 scope
 
-The project-local Octocode 0.14.0 integration now satisfies the complete live contract:
-semantic search, signatures, structural search, and GraphRAG all return normalized Atelier
-evidence. This release moves the experimental provider from contract repair to comparative
-evaluation. The benchmark can run baseline, codesearch, and Octocode through the same public
-`atlr code search` path while preserving provider rank, focus, provenance, latency, and quality
-metrics.
+The provider comparison gate is complete. On the four accepted retrieval tasks, baseline and
+codesearch both reached 1.0 mean weighted recall, while codesearch improved mean reciprocal
+rank to 1.0 and nDCG@10 to 0.9082. Octocode 0.14.0 reached 0.2009 weighted recall, 0.375 MRR,
+and 0.2323 nDCG@10, while taking 17.4 seconds across the task set versus 2.3 seconds for
+codesearch.
+
+Codesearch therefore remains Atelier's accepted general-purpose retrieval provider. Octocode
+is not accepted for the default search path. Its adapter remains available explicitly for
+signature lookup, structural search, and GraphRAG experiments, where its distinct capabilities
+may still provide value. No additional Octocode search-ranking heuristics are planned without a
+new benchmark showing a concrete structural workflow benefit.
 
 Atelier now owns:
 
@@ -26,7 +31,7 @@ Atelier now owns:
 
 External providers own general-purpose code indexing, parsing, embeddings, ranking, and graphs. Native FTS5 and Tree-sitter code indexes from v0.4.0 were removed.
 
-Atelier includes a verified `codesearch` default provider and an experimental Octocode adapter. Codesearch owns the primary local semantic, lexical, symbol, and relationship path. Octocode is evaluated behind the same provider-neutral contract for structural search, signatures, and optional GraphRAG capabilities.
+Atelier includes a verified `codesearch` default provider and an experimental Octocode structural adapter. Codesearch owns the primary local semantic, lexical, symbol, and relationship path. Octocode remains opt-in for signatures, structural search, and GraphRAG; it is not accepted for default repository retrieval.
 
 ## Requirements
 
@@ -157,7 +162,7 @@ CodeService
         +-- Working State projection
         |
         +-- codesearch adapter      [implemented]
-        +-- Octocode adapter        [experimental]
+        +-- Octocode adapter        [experimental structural only]
         +-- mock provider           [implemented]
         +-- disabled provider       [implemented]
 ```

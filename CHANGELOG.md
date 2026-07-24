@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.8 — 2026-07-23
+
+```text
+docs(code): decide the Octocode provider role
+
+- preserve the complete baseline/codesearch/Octocode comparison fixture
+- accept codesearch as the continuing default retrieval provider
+- reject Octocode for default semantic repository retrieval
+- retain Octocode for explicit signatures, structural search, and GraphRAG experiments
+- record the provider decision and structural promotion gate in ADR-0012
+- stop the Octocode ranking-repair loop without new workflow evidence
+```
+
 ## 0.9.7
 
 ```text
