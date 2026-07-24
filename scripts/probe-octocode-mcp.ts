@@ -41,7 +41,7 @@ try {
     }));
   }
   calls.graphrag = has(tools, "graphrag")
-    ? await client.callTool("graphrag", { action: "get-relationships", node_id: "packages/core/src/core.ts", limit: 20, depth: 1 }).catch((error) => ({ error: message(error) }))
+    ? await client.callTool("graphrag", { operation: "get-relationships", node_id: "packages/core/src/core.ts", max_depth: 1, format: "json" }).catch((error) => ({ error: message(error) }))
     : { skipped: true, reason: "graphrag was not advertised by this Octocode installation" };
   process.stdout.write(`${JSON.stringify({ initialize, tools, calls }, null, 2)}\n`);
 } finally {

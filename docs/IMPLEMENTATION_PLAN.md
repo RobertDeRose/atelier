@@ -2830,3 +2830,23 @@ The adapter therefore now:
 The live collector captures `config --show`, model discovery, redacted key presence, tool schemas, and all partial results before returning the retained conformance status.
 
 - [x] Isolate Octocode development configuration and use local FastEmbed models.
+
+
+## v0.9.6 Octocode text-result normalization
+
+The project-local FastEmbed run produced a healthy Octocode index with 289 searchable blocks and 192 GraphRAG relationships. Raw MCP calls returned valid `CODE RESULTS` and `SIGNATURES` text, while the adapter returned empty arrays because it expected structured JSON.
+
+Implemented:
+
+- parse Octocode semantic result text into normalized code hits;
+- parse signature sections and GraphRAG relationship text;
+- run symbol lookup with signature detail and a zero similarity threshold;
+- use the advertised GraphRAG `operation` field in the raw contract probe;
+- preserve the successful local-model fixture as regression evidence.
+
+Exit evidence required from the next live run:
+
+- `atlr code search --provider octocode` returns at least one normalized hit;
+- `atlr code symbols --provider octocode` returns at least one normalized hit;
+- GraphRAG direct probing completes without a parameter-schema error;
+- conformance reports zero required failures.

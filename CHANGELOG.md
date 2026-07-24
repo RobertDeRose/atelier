@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.6
+
+```text
+fix(code): normalize Octocode text MCP responses
+
+- parse semantic search text into normalized repository hits
+- retry symbol lookup with signature detail and a zero similarity threshold
+- parse signature and GraphRAG text into provider-neutral evidence
+- call GraphRAG with the advertised operation schema
+- preserve the successful local FastEmbed run as a regression fixture
+```
+
 ## 0.9.5 — 2026-07-23
 
 ```text

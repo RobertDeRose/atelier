@@ -61,11 +61,20 @@ for (const name of ["semantic_search", "view_signatures", "structural_search"]) 
   });
 }
 const graphCall = contract.calls?.graphrag;
+const graphAdvertised = toolNames.includes("graphrag");
 checks.push({
   name: "tool:graphrag",
-  status: toolNames.includes("graphrag") ? "passed" : "warning",
-  detail: toolNames.includes("graphrag") ? "advertised" : graphCall?.reason ?? "not advertised; relationships remain unsupported",
+  status: graphAdvertised ? "passed" : "warning",
+  detail: graphAdvertised ? "advertised" : graphCall?.reason ?? "not advertised; relationships remain unsupported",
 });
+if (graphAdvertised) {
+  const graphText = graphCall?.content?.map((item) => item.text).filter(Boolean).join("\n") ?? "";
+  checks.push({
+    name: "call:graphrag",
+    status: graphCall !== undefined && graphCall.isError !== true && !graphCall.error ? "passed" : "warning",
+    detail: graphCall === undefined ? "not captured" : graphCall.error ?? (graphCall.isError === true ? graphText || "provider returned isError" : "completed"),
+  });
+}
 
 for (const name of ["search", "symbols"]) {
   if (status(name) !== 0) continue;

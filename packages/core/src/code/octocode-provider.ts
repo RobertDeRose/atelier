@@ -198,17 +198,43 @@ export class OctocodeProvider implements CodeProvider {
   }
 
   async symbols(query: CodeSymbolQuery): Promise<CodeSearchHit[]> {
-    return this.search({
-      workspace: query.workspace,
-      text: query.text,
-      mode: "semantic",
-      focus: "source",
-      literalHints: [query.text],
-      ...(query.repositoryIds ? { repositoryIds: query.repositoryIds } : {}),
-      limit: query.limit,
-      includeTests: true,
-      includeGenerated: false,
-    });
+    const repositories = selectedRepositories(query.workspace, query.repositoryIds);
+    const all: CodeSearchHit[] = [];
+    for (const repository of repositories) {
+      const stats = this.inspectStats(repository.root);
+      const issue = this.embeddingConfigurationIssue(stats);
+      if (issue) throw new Error(`Octocode symbol search is unavailable for ${repository.root}: ${issue}`);
+      if (stats.totalBlocks <= 0) throw new Error(`Octocode has no searchable blocks for ${repository.root}. Run atlr code index --provider octocode.`);
+      const state = await this.clientFor(repository.id, repository.root);
+      const tool = state.tools.get("semantic_search");
+      if (!tool) throw new UnsupportedCodeCapabilityError("symbol.search", this.name);
+      const searchQuery: CodeSearchQuery = {
+        workspace: query.workspace,
+        text: query.text,
+        mode: "semantic",
+        focus: "source",
+        literalHints: [`${query.text} symbol`, `${query.text} definition`],
+        ...(query.repositoryIds ? { repositoryIds: query.repositoryIds } : {}),
+        limit: Math.max(query.limit, 20),
+        includeTests: true,
+        includeGenerated: false,
+      };
+      const input = buildSearchInput(tool, searchQuery, Math.max(query.limit, 20), "source", { detailLevel: "signatures", threshold: 0 });
+      const result = await state.client.callTool("semantic_search", input);
+      const error = toolResponseError(result);
+      if (error) throw new Error(`Octocode symbol search failed: ${error}`);
+      all.push(...normalizeHits(result, searchQuery, repository.id, repository.name, repository.root, this.identity));
+    }
+    this.lastQueryAt = new Date().toISOString();
+    const needle = query.text.toLowerCase();
+    const ranked = all
+      .sort((a, b) => {
+        const aExact = `${a.symbol ?? ""} ${a.preview ?? ""} ${a.path}`.toLowerCase().includes(needle) ? 1 : 0;
+        const bExact = `${b.symbol ?? ""} ${b.preview ?? ""} ${b.path}`.toLowerCase().includes(needle) ? 1 : 0;
+        return bExact - aExact || (b.providerScore ?? 0) - (a.providerScore ?? 0);
+      })
+      .slice(0, query.limit);
+    return ranked.map((hit, index) => ({ ...hit, rank: index + 1, providerRank: hit.providerRank ?? index + 1 }));
   }
 
   async relationships(query: CodeRelationshipQuery): Promise<CodeRelationship[]> {
@@ -309,7 +335,13 @@ function schemaProperties(tool: McpToolDefinition): Record<string, Record<string
   return properties && typeof properties === "object" ? properties as Record<string, Record<string, unknown>> : {};
 }
 
-function buildSearchInput(tool: McpToolDefinition, query: CodeSearchQuery, limit: number, focus: ResolvedCodeSearchFocus): Record<string, unknown> {
+function buildSearchInput(
+  tool: McpToolDefinition,
+  query: CodeSearchQuery,
+  limit: number,
+  focus: ResolvedCodeSearchFocus,
+  options: { detailLevel?: "signatures" | "partial" | "full"; threshold?: number } = {},
+): Record<string, unknown> {
   const properties = schemaProperties(tool);
   const input: Record<string, unknown> = {};
   const queryKey = ["query", "text", "prompt", "queries"].find((key) => key in properties) ?? "query";
@@ -328,7 +360,8 @@ function buildSearchInput(tool: McpToolDefinition, query: CodeSearchQuery, limit
     input[limitKey] = Math.max(1, Math.min(limit, maximum ?? limit));
   }
   if ("mode" in properties) input.mode = octocodeContentMode(focus);
-  if ("detail_level" in properties) input.detail_level = "partial";
+  if ("detail_level" in properties) input.detail_level = options.detailLevel ?? "partial";
+  if ("threshold" in properties && options.threshold !== undefined) input.threshold = options.threshold;
   if (query.languages?.length) {
     const languageKey = ["language", "lang", "languages"].find((key) => key in properties);
     if (languageKey) input[languageKey] = languageKey === "languages" ? query.languages : query.languages[0];
@@ -359,9 +392,13 @@ function enumChoice(schema: Record<string, unknown> | undefined, preferred: stri
   return preferred.find((value) => values.includes(value)) ?? values[0] ?? preferred[0]!;
 }
 
+function responseText(result: McpToolCallResult): string {
+  return result.content?.map((item) => item.text).filter((value): value is string => typeof value === "string").join("\n") ?? "";
+}
+
 function payload(result: McpToolCallResult): unknown {
   if (result.structuredContent !== undefined) return result.structuredContent;
-  const text = result.content?.map((item) => item.text).filter((value): value is string => typeof value === "string").join("\n") ?? "";
+  const text = responseText(result);
   try { return JSON.parse(text); } catch { return { text }; }
 }
 
@@ -386,7 +423,9 @@ function candidateObjects(value: unknown): Record<string, unknown>[] {
 function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, repositoryId: string, repositoryName: string, root: string, identity: CodeProviderIdentity): CodeSearchHit[] {
   const seen = new Set<string>();
   const hits: CodeSearchHit[] = [];
-  for (const item of candidateObjects(payload(result))) {
+  const candidates = candidateObjects(payload(result));
+  candidates.push(...parseOctocodeHitText(responseText(result), query.text));
+  for (const item of candidates) {
     const rawPath = stringValue(item, ["path", "file_path", "file", "filename", "source"]);
     if (!rawPath) continue;
     const path = isAbsolute(rawPath) ? relative(root, rawPath) : rawPath;
@@ -419,7 +458,9 @@ function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, reposi
 
 function normalizeRelationships(result: McpToolCallResult, query: CodeRelationshipQuery, root: string, identity: CodeProviderIdentity): CodeRelationship[] {
   const relationships: CodeRelationship[] = [];
-  for (const item of candidateObjects(payload(result))) {
+  const candidates = candidateObjects(payload(result));
+  candidates.push(...parseOctocodeRelationshipText(responseText(result)));
+  for (const item of candidates) {
     const rawPath = stringValue(item, ["target_path", "path", "file", "target", "to"]);
     if (!rawPath || rawPath === query.reference.path) continue;
     const path = isAbsolute(rawPath) ? relative(root, rawPath) : rawPath;
@@ -429,6 +470,88 @@ function normalizeRelationships(result: McpToolCallResult, query: CodeRelationsh
     if (relationships.length >= query.limit) break;
   }
   return relationships;
+}
+
+
+function parseOctocodeHitText(text: string, query: string): Record<string, unknown>[] {
+  if (!text.trim()) return [];
+  const semantic = parseSemanticResultText(text);
+  if (semantic.length > 0) return semantic;
+  return parseSignatureResultText(text, query);
+}
+
+function parseSemanticResultText(text: string): Record<string, unknown>[] {
+  if (!/(?:CODE|DOC|TEXT|COMMIT) RESULTS \(\d+\)/i.test(text)) return [];
+  const results: Record<string, unknown>[] = [];
+  let current: { path: string; score?: number; startLine?: number; endLine?: number; lines: string[] } | undefined;
+  const flush = (): void => {
+    if (!current) return;
+    results.push({
+      path: current.path,
+      ...(current.score === undefined ? {} : { score: current.score }),
+      ...(current.startLine === undefined ? {} : { start_line: current.startLine }),
+      ...(current.endLine === undefined ? {} : { end_line: current.endLine }),
+      ...(current.lines.length ? { content: current.lines.join("\n") } : {}),
+    });
+    current = undefined;
+  };
+  for (const line of text.split(/\r?\n/)) {
+    const item = line.match(/^\s*\d+\.\s+(.+?)\s*$/);
+    if (item) {
+      flush();
+      current = { path: item[1]!, lines: [] };
+      continue;
+    }
+    if (!current) continue;
+    const similarity = line.match(/Similarity\s+([0-9.]+)/i);
+    if (similarity) {
+      current.score = Number(similarity[1]);
+      continue;
+    }
+    const source = line.match(/^\s*(\d+):\s?(.*)$/);
+    if (source) {
+      const lineNumber = Number(source[1]);
+      current.startLine ??= lineNumber;
+      current.endLine = lineNumber;
+      current.lines.push(source[2] ?? "");
+    }
+  }
+  flush();
+  return results;
+}
+
+function parseSignatureResultText(text: string, query: string): Record<string, unknown>[] {
+  if (!/^SIGNATURES \(/m.test(text)) return [];
+  const sections = text.split(/(?=^FILE:\s+)/m).filter((section) => /^FILE:\s+/m.test(section));
+  const needle = query.toLowerCase();
+  return sections.flatMap((section) => {
+    const path = section.match(/^FILE:\s+(.+)$/m)?.[1]?.trim();
+    if (!path) return [];
+    const sourceLines = [...section.matchAll(/^\s*(\d+):\s?(.*)$/gm)].map((match) => ({ line: Number(match[1]), text: match[2] ?? "" }));
+    const matching = sourceLines.filter((item) => item.text.toLowerCase().includes(needle));
+    const selected = matching.length ? matching : sourceLines.slice(0, 12);
+    if (!selected.length) return [{ path }];
+    return [{
+      path,
+      start_line: selected[0]!.line,
+      end_line: selected.at(-1)!.line,
+      content: selected.map((item) => item.text).join("\n"),
+      ...(matching[0]?.text ? { signature: matching[0].text.trim() } : {}),
+    }];
+  });
+}
+
+function parseOctocodeRelationshipText(text: string): Record<string, unknown>[] {
+  if (!text.trim()) return [];
+  const results: Record<string, unknown>[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^\s*[-*]?\s*(imports?|calls?|uses?|depends(?:_on)?|dependencies|references?)\s*(?:→|->|:|←)\s*([^:]+?)(?:\s*:\s*(.+))?$/i);
+    if (!match) continue;
+    const rawPath = match[2]!.trim().replace(/^['"`]|['"`]$/g, "");
+    if (!/[/.]/.test(rawPath)) continue;
+    results.push({ type: match[1], target_path: rawPath, ...(match[3] ? { description: match[3].trim() } : {}) });
+  }
+  return results;
 }
 
 function relationshipKind(value?: string): CodeRelationship["kind"] {

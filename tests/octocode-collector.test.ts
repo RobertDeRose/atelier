@@ -40,4 +40,7 @@ test("Octocode collector preflights embeddings, preserves the contract, and gate
   assert.match(script, /code index --provider octocode --json=true/);
   assert.match(script, /grep -q '"name": "graphrag"'/);
   assert.match(script, /graphrag was not advertised by Octocode/);
+  const probe = readFileSync(resolve("scripts/probe-octocode-mcp.ts"), "utf8");
+  assert.match(probe, /operation: "get-relationships"/);
+  assert.doesNotMatch(probe, /action: "get-relationships"/);
 });

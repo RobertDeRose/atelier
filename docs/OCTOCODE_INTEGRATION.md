@@ -9,7 +9,7 @@ octocode index
 octocode mcp --path <repository>
 ```
 
-The adapter discovers MCP schemas at runtime. Octocode 0.14.0 on the tested macOS ARM installation advertised `semantic_search`, `view_signatures`, and `structural_search`; it did not advertise `graphrag`. Atelier therefore enables semantic retrieval and file-outline capabilities while keeping relationships capability-gated.
+The adapter discovers MCP schemas at runtime. With Atelier's project-local FastEmbed and non-LLM GraphRAG configuration, Octocode 0.14.0 advertised `semantic_search`, `view_signatures`, `structural_search`, and `graphrag`. Atelier enables only the capabilities advertised by each repository process.
 
 Configure Octocode as the default provider in `.atelier/config.json`:
 
@@ -34,9 +34,9 @@ Run the machine-side probe with:
 mise run collect:octocode
 ```
 
-The development bootstrap pins Octocode 0.14.0 through mise. The release binary currently defaults to `voyage:voyage-code-3`, which requires `VOYAGE_API_KEY`. Atelier checks the configured code embedding model and refuses a long indexing run when its required key is absent. It also verifies that `octocode stats` reports at least one searchable code, text, document, or commit block before accepting the index as ready.
+The development bootstrap pins Octocode 0.14.0 through mise and writes `.atelier/octocode-config.toml` with local FastEmbed code and text models. Atelier passes that file through `OCTOCODE_CONFIG_PATH`, checks the configured embedding model before indexing, and verifies that `octocode stats` reports at least one searchable code, text, document, or commit block before accepting the index as ready.
 
-Example cloud setup:
+An installation that intentionally uses cloud embeddings can configure them explicitly:
 
 ```bash
 export VOYAGE_API_KEY="..."
@@ -45,7 +45,7 @@ octocode config \
   --text-embedding-model "voyage:voyage-3.5-lite"
 ```
 
-Local embedding models are supported only by Octocode builds compiled with the relevant feature. Atelier does not silently rewrite the user-level Octocode configuration. The collector records model names and API-key presence booleans, never secret values, and preserves all stdout, stderr, exit statuses, MCP tool schemas, and an attachable `atelier-octocode-knowledge.tar.xz` archive.
+Atelier does not rewrite the user-level Octocode configuration. The collector records model names and API-key presence booleans, never secret values, and preserves all stdout, stderr, exit statuses, MCP tool schemas, and an attachable `atelier-octocode-knowledge.tar.xz` archive. Octocode 0.14.0 returns its MCP evidence as formatted text; the adapter normalizes semantic result blocks, signature sections, and GraphRAG relationship lines into Atelier domain records.
 
 
 ## Development configuration

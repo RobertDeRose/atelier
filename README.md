@@ -232,8 +232,8 @@ Validation evidence remains qualified by repository snapshot and becomes stale a
 
 ## Current limitations
 
-- Octocode 0.14.0 defaults to cloud embedding models and requires the matching API key unless the installed build supports and is configured for a local embedding provider.
-- Octocode GraphRAG remains unavailable when its MCP server does not advertise `graphrag`.
+- Atelier development uses a project-local Octocode FastEmbed configuration; other installations may require cloud embedding credentials or their own local model configuration.
+- Octocode relationship support remains capability-gated and is available only when its MCP server advertises `graphrag`.
 - No persistent Atelier daemon or JSON-RPC service boundary.
 - The codesearch adapter supports imports, dependents, and usage relationships; deeper provider-specific graph evaluation remains pending.
 - Jujutsu live conformance still requires a real supported `jj` binary.
