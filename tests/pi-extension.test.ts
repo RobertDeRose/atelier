@@ -1,14 +1,60 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import atelierExtension from "../apps/pi-extension/src/index.ts";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import { createTemporaryRepository } from "./fixtures.ts";
 
-test("Pi extension registers policy, Working State, compaction, plan, and task hooks", () => {
-  const events = new Set<string>();
-  const commands = new Set<string>();
+interface RegisteredTool {
+  name: string;
+  promptSnippet?: string;
+  promptGuidelines?: string[];
+  execute(
+    toolCallId: string,
+    params: any,
+    signal: AbortSignal,
+    onUpdate: ((update: unknown) => void) | undefined,
+    ctx: ExtensionContext,
+  ): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown }>;
+}
+
+interface RegisteredCommand {
+  handler(args: string, ctx: ExtensionCommandContext): Promise<void>;
+}
+
+function fakeContext(cwd: string, confirms: { count: number }): ExtensionCommandContext {
+  return {
+    cwd,
+    mode: "tui",
+    hasUI: true,
+    isIdle: () => true,
+    isProjectTrusted: () => true,
+    waitForIdle: async () => {},
+    ui: {
+      confirm: async () => { confirms.count += 1; return true; },
+      select: async () => undefined,
+      notify: () => {},
+      setStatus: () => {},
+      custom: async () => ({ exitCode: 0 }),
+    },
+  } as unknown as ExtensionCommandContext;
+}
+
+test("Pi extension enforces provider-first plan discovery without approving read-only commands", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const commands = new Map<string, RegisteredCommand>();
+  const tools = new Map<string, RegisteredTool>();
   const fakePi = {
-    on(name: string): void { events.add(name); },
-    registerCommand(name: string): void { commands.add(name); },
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void {
+      events.set(name, handler);
+    },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(tool: RegisteredTool): void { tools.set(tool.name, tool); },
     sendUserMessage(): void {},
   } as unknown as ExtensionAPI;
 
@@ -27,4 +73,53 @@ test("Pi extension registers policy, Working State, compaction, plan, and task h
   for (const command of ["status", "plan", "review", "approve", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence"]) {
     assert.ok(commands.has(command), `missing command ${command}`);
   }
+  for (const tool of ["atlr_code_status", "atlr_code_search", "atlr_code_symbols"]) {
+    assert.ok(tools.has(tool), `missing agent tool ${tool}`);
+  }
+  assert.match(tools.get("atlr_code_search")?.promptGuidelines?.join(" ") ?? "", /MUST use.*before broad grep, find, rg/i);
+
+  const root = createTemporaryRepository("atlr-pi-code-tool-");
+  mkdirSync(join(root, ".atelier"), { recursive: true });
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "none",
+    repositoryProvider: "git",
+    codeProvider: "mock",
+  }));
+  const confirms = { count: 0 };
+  const context = fakeContext(root, confirms);
+  await commands.get("plan")!.handler("investigate planning policy", context);
+  await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
+
+  const readOnlyCompound = await events.get("tool_call")!({
+    toolName: "bash",
+    input: { command: "git log -3 --oneline && printf 'status\\n' && git status --short" },
+  }, context);
+  assert.equal(readOnlyCompound, undefined);
+  assert.equal(confirms.count, 0, "read-only plan commands must not request approval");
+
+  const blockedRawScan = await events.get("tool_call")!({
+    toolName: "bash",
+    input: { command: "find examples -type f 2>/dev/null; rg -n 'policy' packages | head -20" },
+  }, context);
+  assert.equal(blockedRawScan?.block, true);
+  assert.match(blockedRawScan?.reason ?? "", /provider-first discovery/i);
+  assert.equal(confirms.count, 0, "routing denial must not become an approval prompt");
+
+  const search = await tools.get("atlr_code_search")!.execute(
+    "tool-1",
+    { query: "planning policy" },
+    new AbortController().signal,
+    undefined,
+    context,
+  );
+  assert.match(search.content[0]?.text ?? "", /No Atelier code matches/);
+
+  const allowedFallback = await events.get("tool_call")!({
+    toolName: "bash",
+    input: { command: "find examples -type f 2>/dev/null; rg -n 'policy' packages | head -20" },
+  }, context);
+  assert.equal(allowedFallback, undefined);
+  assert.equal(confirms.count, 0);
+
+  await events.get("session_shutdown")!({}, context);
 });

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.4 — 2026-07-25
+
+```text
+fix(plan): allow reads and enforce provider-first discovery
+
+- classify compound shell commands segment by segment
+- allow read-only pipelines, command chains, and safe /dev/null sinks without approval
+- preserve mutation gates for redirection, find write actions, and nested mutating execution
+- expose Atelier code status, search, and symbol lookup as agent-callable Pi tools
+- require provider-first repository discovery in plan mode
+- allow raw grep/find/rg/ls fallback only after unavailable, degraded, failed, or empty provider evidence
+- add regressions derived from the failing live planning session
+```
+
 ## 0.10.3 — 2026-07-25
 
 ```text

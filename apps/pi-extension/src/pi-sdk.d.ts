@@ -47,6 +47,24 @@ declare module "@earendil-works/pi-coding-agent" {
         handler(args: string, ctx: ExtensionCommandContext): Promise<void>;
       },
     ): void;
+    registerTool(definition: {
+      name: string;
+      label: string;
+      description: string;
+      promptSnippet?: string;
+      promptGuidelines?: string[];
+      parameters: unknown;
+      execute(
+        toolCallId: string,
+        params: any,
+        signal: AbortSignal,
+        onUpdate: ((update: unknown) => void) | undefined,
+        ctx: ExtensionContext,
+      ): Promise<{
+        content: Array<{ type: "text"; text: string }>;
+        details?: unknown;
+      }>;
+    }): void;
     sendUserMessage(
       content: string,
       options?: { deliverAs?: "steer" | "followUp" },

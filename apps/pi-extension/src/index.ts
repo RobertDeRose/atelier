@@ -23,9 +23,71 @@ const EMPTY_COMPONENT = {
   invalidate: (): void => {},
 };
 
+const TYPEBOX_KIND = Symbol.for("TypeBox.Kind");
+
+type ToolSchema = Record<string | symbol, unknown>;
+
+function stringSchema(description: string, values?: readonly string[]): ToolSchema {
+  return {
+    [TYPEBOX_KIND]: "String",
+    type: "string",
+    description,
+    ...(values === undefined ? {} : { enum: [...values] }),
+  };
+}
+
+function integerSchema(description: string, minimum: number, maximum: number): ToolSchema {
+  return {
+    [TYPEBOX_KIND]: "Integer",
+    type: "integer",
+    description,
+    minimum,
+    maximum,
+  };
+}
+
+function objectSchema(properties: Record<string, ToolSchema>, required: string[] = []): ToolSchema {
+  return {
+    [TYPEBOX_KIND]: "Object",
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  };
+}
+
+function codeHitText(hit: Awaited<ReturnType<AtelierCore["code"]["search"]>>[number]): string {
+  const location = `${hit.repositoryName}:${hit.path}${hit.startLine === undefined ? "" : `:${hit.startLine}`}`;
+  const symbol = hit.symbol === undefined ? "" : ` · ${hit.symbol}`;
+  const score = hit.providerScore === undefined ? "" : ` · score ${hit.providerScore.toFixed(3)}`;
+  const preview = hit.preview?.trim();
+  return `${hit.rank}. ${location}${symbol}${score}${preview ? `\n${preview}` : ""}`;
+}
+
+function codeToolError(error: unknown): { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> } {
+  const message = errorMessage(error);
+  return {
+    content: [{ type: "text", text: `Atelier code intelligence failed: ${message}` }],
+    details: { error: message },
+  };
+}
+
 let activeCore: AtelierCore | undefined;
 let activeRoot: string | undefined;
 let reviewInProgress = false;
+let providerDiscoveryAttempted = false;
+let rawDiscoveryFallbackAllowed = false;
+
+function resetDiscoveryRouting(): void {
+  providerDiscoveryAttempted = false;
+  rawDiscoveryFallbackAllowed = false;
+}
+
+function isBroadRawDiscovery(event: any): boolean {
+  if (["grep", "find", "ls"].includes(event.toolName)) return true;
+  if (event.toolName !== "bash" || typeof event.input?.command !== "string") return false;
+  return /(^|[;&|\n]\s*)(?:rg|grep|find|fd|tree|ls)(?:\s|$)/.test(event.input.command.trim());
+}
 
 function coreFor(ctx: ExtensionContext): AtelierCore {
   const root = resolve(ctx.cwd);
@@ -33,6 +95,7 @@ function coreFor(ctx: ExtensionContext): AtelierCore {
   activeCore?.close();
   activeCore = AtelierCore.open(root);
   activeRoot = root;
+  resetDiscoveryRouting();
   return activeCore;
 }
 
@@ -55,7 +118,15 @@ function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): A
     repositorySnapshot: snapshot,
   };
 
-  if (["read", "grep", "find", "ls"].includes(event.toolName)) {
+  if ([
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "atlr_code_status",
+    "atlr_code_search",
+    "atlr_code_symbols",
+  ].includes(event.toolName)) {
     return {
       ...base,
       action: "read.repository",
@@ -355,7 +426,154 @@ async function approveAndReconcile(
 }
 
 export default function atelierExtension(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "atlr_code_status",
+    label: "Atelier Code Status",
+    description: "Inspect the configured Atelier code-intelligence provider, capabilities, and index state without modifying the repository.",
+    promptSnippet: "Inspect Atelier code-provider health before falling back to raw repository scanning",
+    promptGuidelines: [
+      "Use atlr_code_status when atlr_code_search fails or reports unavailable, unhealthy, stale, or degraded provider state.",
+    ],
+    parameters: objectSchema({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      try {
+        const core = coreFor(ctx);
+        const workspace = core.codeWorkspace();
+        const status = await core.code.status(undefined, workspace);
+        const text = [
+          `Provider: ${status.identity.name}${status.identity.version ? ` ${status.identity.version}` : ""}`,
+          `Available: ${status.available}`,
+          `Healthy: ${status.healthy}`,
+          `Index: ${status.indexState}`,
+          `Capabilities: ${status.capabilities.join(", ") || "none"}`,
+          ...(status.warnings?.map((warning) => `Warning: ${warning}`) ?? []),
+          ...(status.detail === undefined ? [] : [`Detail: ${status.detail}`]),
+        ].join("\n");
+        return { content: [{ type: "text", text }], details: { status, workspaceId: workspace.id } };
+      } catch (error) {
+        rawDiscoveryFallbackAllowed = true;
+        return codeToolError(error);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "atlr_code_search",
+    label: "Atelier Code Search",
+    description: "Search the configured Atelier workspace through the accepted code-intelligence provider with bounded results and provenance.",
+    promptSnippet: "Search repository implementation, tests, and documentation through Atelier code intelligence",
+    promptGuidelines: [
+      "You MUST use atlr_code_search as the first repository-discovery step before broad grep, find, rg, ls, or directory-wide reads.",
+      "Use built-in read after atlr_code_search identifies an exact file or range; use raw grep/find only when Atelier explicitly reports unavailable, degraded, or no usable evidence.",
+    ],
+    parameters: objectSchema({
+      query: stringSchema("Natural-language or identifier-oriented code search query."),
+      focus: stringSchema("Preferred evidence class.", ["auto", "source", "tests", "docs", "all"]),
+      mode: stringSchema("Retrieval mode.", ["auto", "lexical", "semantic", "hybrid"]),
+      limit: integerSchema("Maximum results to return.", 1, 20),
+    }, ["query"]),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        const input = params as { query: string; focus?: "auto" | "source" | "tests" | "docs" | "all"; mode?: "auto" | "lexical" | "semantic" | "hybrid"; limit?: number };
+        const core = coreFor(ctx);
+        const workspace = core.codeWorkspace();
+        providerDiscoveryAttempted = true;
+        const results = await core.code.search({
+          workspace,
+          text: input.query,
+          ...(input.focus === undefined ? {} : { focus: input.focus }),
+          ...(input.mode === undefined ? {} : { mode: input.mode }),
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+        });
+        const status = await core.code.status(undefined, workspace);
+        rawDiscoveryFallbackAllowed = results.length === 0 || status.available === false || status.healthy === false ||
+          status.degraded === true || results.some((hit) => hit.provenance.degraded === true);
+        const text = results.length === 0
+          ? `No Atelier code matches for: ${input.query}\nProvider: ${status.identity.name} · index ${status.indexState}`
+          : [
+              `Atelier code search: ${input.query}`,
+              `Provider: ${status.identity.name} · index ${status.indexState} · ${results.length} result(s)`,
+              "",
+              ...results.map(codeHitText),
+            ].join("\n");
+        return {
+          content: [{ type: "text", text }],
+          details: {
+            query: input.query,
+            provider: status.identity,
+            indexState: status.indexState,
+            results: results.map((hit) => ({
+              rank: hit.rank,
+              repositoryId: hit.repositoryId,
+              repositoryName: hit.repositoryName,
+              path: hit.path,
+              startLine: hit.startLine,
+              endLine: hit.endLine,
+              symbol: hit.symbol,
+              reference: hit.reference,
+              provenance: hit.provenance,
+            })),
+          },
+        };
+      } catch (error) {
+        rawDiscoveryFallbackAllowed = true;
+        return codeToolError(error);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "atlr_code_symbols",
+    label: "Atelier Symbol Search",
+    description: "Find symbol definitions and references through the configured Atelier code-intelligence provider.",
+    promptSnippet: "Find code symbols through Atelier instead of broad text scanning",
+    promptGuidelines: [
+      "Use atlr_code_symbols for function, class, type, command, and module discovery before raw symbol grep.",
+    ],
+    parameters: objectSchema({
+      query: stringSchema("Symbol name or identifier fragment."),
+      limit: integerSchema("Maximum symbol results to return.", 1, 20),
+    }, ["query"]),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        const input = params as { query: string; limit?: number };
+        const core = coreFor(ctx);
+        const workspace = core.codeWorkspace();
+        providerDiscoveryAttempted = true;
+        const results = await core.code.symbols({
+          workspace,
+          text: input.query,
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+        });
+        rawDiscoveryFallbackAllowed = results.length === 0;
+        const text = results.length === 0
+          ? `No Atelier symbols matched: ${input.query}`
+          : results.map(codeHitText).join("\n\n");
+        return {
+          content: [{ type: "text", text }],
+          details: {
+            query: input.query,
+            results: results.map((hit) => ({
+              rank: hit.rank,
+              repositoryId: hit.repositoryId,
+              repositoryName: hit.repositoryName,
+              path: hit.path,
+              startLine: hit.startLine,
+              endLine: hit.endLine,
+              symbol: hit.symbol,
+              reference: hit.reference,
+              provenance: hit.provenance,
+            })),
+          },
+        };
+      } catch (error) {
+        rawDiscoveryFallbackAllowed = true;
+        return codeToolError(error);
+      }
+    },
+  });
   pi.on("session_start", async (_event, ctx) => {
+    resetDiscoveryRouting();
     const core = coreFor(ctx);
     await updateStatus(ctx, core);
   });
@@ -366,10 +584,24 @@ export default function atelierExtension(pi: ExtensionAPI): void {
     activeCore = undefined;
     activeRoot = undefined;
     reviewInProgress = false;
+    resetDiscoveryRouting();
   });
 
   pi.on("tool_call", async (event, ctx) => {
     const core = coreFor(ctx);
+    if (
+      core.mode() === "plan" &&
+      core.config.codeProvider !== "disabled" &&
+      isBroadRawDiscovery(event) &&
+      (!providerDiscoveryAttempted || !rawDiscoveryFallbackAllowed)
+    ) {
+      return {
+        block: true,
+        reason: providerDiscoveryAttempted
+          ? "Atelier code intelligence returned usable evidence. Read the exact returned paths instead of broad grep/find scanning."
+          : "Plan mode requires provider-first discovery. Call atlr_code_search or atlr_code_symbols before broad grep/find/rg/ls scanning.",
+      };
+    }
     const request = requestForTool(event, ctx, core);
     const result = await authorizeTool(request, ctx, core);
     await updateStatus(ctx, core);
@@ -377,11 +609,15 @@ export default function atelierExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
+    resetDiscoveryRouting();
     const core = coreFor(ctx);
     const state = await core.buildWorkingState();
     const activeContext = core.workingStateBuilder.toMarkdown(state);
+    const retrievalInstruction = core.config.codeProvider === "disabled"
+      ? "Atelier code intelligence is disabled; use exact built-in read/grep/find operations as needed."
+      : "Provider-first retrieval is enforced: you MUST call atlr_code_search before broad repository discovery and atlr_code_symbols before broad identifier scans. Read exact returned files afterward. Broad grep/find/rg/ls is allowed only after Atelier reports unavailable, degraded, or no usable evidence.";
     const modeInstruction = state.mode === "plan"
-      ? `Only ${core.config.planPath} may be modified. Task-provider and source mutations are prohibited until approval.`
+      ? `Only ${core.config.planPath} may be modified. Task-provider and source mutations are prohibited until approval. Read-only repository investigation never requires approval. ${retrievalInstruction}`
       : state.mode === "investigate"
         ? "Investigate only. Any mutation requires a distinct Atelier approval."
         : "Implement only the selected task and approved scope. Every mutation remains independently permission-gated.";

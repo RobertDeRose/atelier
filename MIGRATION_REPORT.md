@@ -1,24 +1,20 @@
-# Migration Report — v0.10.3
+# Migration Report — v0.10.4
 
-No database migration is required. Atelier continues to use `.atelier/atelier.db` with the existing
-schema and WAL settings.
+No database, configuration, task, or provider-index migration is required.
 
-The runtime boundary now guarantees one missing-row contract:
-
-- Pi/Bun: native `null` from `Statement.get()` is normalized to `undefined`;
-- CLI/Node: native `undefined` is preserved.
-
-Existing databases and the partially created database from the failed v0.10.2 launch are valid and
-should not be removed.
-
-Use the supported interactive launcher after updating:
+After updating, launch Atelier normally:
 
 ```bash
 mise run launch
 ```
 
-Additional Pi arguments are forwarded after `--`:
+Behavior changes in plan mode:
 
-```bash
-mise run launch -- --model <model-pattern>
-```
+- read-only shell pipelines and command chains no longer request approval;
+- safe diagnostic output to `/dev/null` remains read-only;
+- broad raw repository discovery is redirected to the agent-callable Atelier code tools first;
+- raw `rg`, `grep`, `find`, `fd`, `tree`, and `ls` discovery becomes available after the provider
+  reports unavailable, degraded, failed, or empty evidence;
+- mutations remain independently permission-gated.
+
+No existing `.atelier/atelier.db`, reviewed plan, or code-provider index should be removed.

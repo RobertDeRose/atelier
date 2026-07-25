@@ -25,12 +25,14 @@ const READ_ONLY_COMMANDS = new Set([
   "head",
   "jq",
   "ls",
+  "printf",
   "pwd",
   "rg",
   "sed",
   "sort",
   "stat",
   "tail",
+  "test",
   "tree",
   "uniq",
   "wc",
@@ -125,6 +127,7 @@ function classifyGit(args: string[], rationale: string[]): CommandClassification
     "diff",
     "grep",
     "log",
+    "ls-files",
     "rev-parse",
     "show",
     "status",
@@ -241,12 +244,117 @@ function mutation(
   };
 }
 
-export function classifyShellCommand(command: string): CommandClassification {
+function stripSafeSinkRedirections(command: string): string {
+  return command
+    .replace(/(^|\s)\d*>>?\s*(?:\/dev\/null|&\d+)(?=\s|[;&|]|$)/g, "$1")
+    .replace(/(^|\s)&>>?\s*\/dev\/null(?=\s|[;&|]|$)/g, "$1");
+}
+
+function splitCompoundCommands(command: string): string[] | undefined {
+  const parts: string[] = [];
+  let current = "";
+  let single = false;
+  let double = false;
+  let escaped = false;
+
+  const push = (): void => {
+    const value = current.trim();
+    if (value) parts.push(value);
+    current = "";
+  };
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index]!;
+    const next = command[index + 1];
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && !single) {
+      current += character;
+      escaped = true;
+      continue;
+    }
+    if (character === "'" && !double) {
+      single = !single;
+      current += character;
+      continue;
+    }
+    if (character === '"' && !single) {
+      double = !double;
+      current += character;
+      continue;
+    }
+    if (single || double) {
+      current += character;
+      continue;
+    }
+    if (character === "`" || (character === "$" && next === "(")) return undefined;
+    if (character === "&") {
+      if (next !== "&") return undefined;
+      push();
+      index += 1;
+      continue;
+    }
+    if (character === "|") {
+      push();
+      if (next === "|") index += 1;
+      continue;
+    }
+    if (character === ";" || character === "\n") {
+      push();
+      continue;
+    }
+    current += character;
+  }
+  if (single || double || escaped) return undefined;
+  push();
+  return parts;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function classifyFind(args: string[], command: string, rationale: string[]): CommandClassification {
+  const mutatingFlags = new Set(["-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
+  const mutatingFlag = args.find((arg) => mutatingFlags.has(arg));
+  if (mutatingFlag !== undefined) {
+    rationale.push(`find ${mutatingFlag} modifies filesystem state`);
+    return mutation("write.file", "file.write", rationale, false, false, command);
+  }
+  const execFlags = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
+  for (let index = 1; index < args.length; index += 1) {
+    if (!execFlags.has(args[index] ?? "")) continue;
+    const invoked: string[] = [];
+    index += 1;
+    while (index < args.length && ![";", "+"].includes(args[index] ?? "")) {
+      invoked.push(args[index]!);
+      index += 1;
+    }
+    if (invoked.length === 0 || index >= args.length) {
+      return mutation("command.execute", "command.execute", ["find execution clause could not be bounded safely"], false, false, command, "low");
+    }
+    const nested = classifyShellCommand(invoked.map(shellQuote).join(" "));
+    if (nested.action !== "read.repository") {
+      return {
+        ...nested,
+        command,
+        rationale: [`find ${args[index] === "+" ? "batch execution" : "execution"} invokes ${invoked[0]}`, ...nested.rationale],
+      };
+    }
+    rationale.push(`find execution invokes read-only ${invoked[0]}`);
+  }
+  rationale.push("find traversal is read-only");
+  return readonly(command, rationale);
+}
+
+function classifySimpleCommand(command: string): CommandClassification {
   const rationale: string[] = [];
   if (!command.trim()) {
     return mutation("command.execute", "command.execute", ["empty command is not executable"], false, false, command, "low");
   }
-
   if (containsRedirection(command)) {
     rationale.push("shell output redirection can modify files");
     return mutation("write.file", "file.write", rationale, false, false, command);
@@ -258,21 +366,14 @@ export function classifyShellCommand(command: string): CommandClassification {
   } catch {
     return mutation("command.execute", "command.execute", ["command could not be parsed safely"], false, false, command, "low");
   }
-
   const executable = (args[0] ?? "").split("/").at(-1)?.toLowerCase() ?? "";
-  if (!executable) {
-    return mutation("command.execute", "command.execute", ["missing executable"], false, false, command, "low");
-  }
-
-  if (/[;&`]|\$\(/.test(command)) {
-    rationale.push("compound command or command substitution requires explicit approval");
-    return mutation("command.execute", "command.execute", rationale, LONG_RUNNING_EXECUTABLES.has(executable), NETWORK_EXECUTABLES.has(executable), command, "medium");
-  }
+  if (!executable) return mutation("command.execute", "command.execute", ["missing executable"], false, false, command, "low");
 
   if (executable === "git") return classifyGit(args, rationale);
   if (executable === "jj") return classifyJj(args, rationale);
   if (executable === "bd") return classifyBeads(args, rationale);
   if (["npm", "aube", "aubr", "aubx", "pnpm", "yarn"].includes(executable)) return classifyPackageManager(executable, args, rationale);
+  if (executable === "find") return classifyFind(args, command, rationale);
 
   if (executable === "sed" && args.some((arg) => arg === "-i" || arg.startsWith("-i"))) {
     rationale.push("sed -i modifies files in place");
@@ -298,7 +399,43 @@ export function classifyShellCommand(command: string): CommandClassification {
     rationale.push(`${executable} may access the network`);
     return mutation("network.access", "network.access", rationale, false, true, command, "medium");
   }
-
   rationale.push("command is not proven read-only");
   return mutation("command.execute", "command.execute", rationale, LONG_RUNNING_EXECUTABLES.has(executable), false, command, "low");
+}
+
+export function classifyShellCommand(command: string): CommandClassification {
+  const sanitized = stripSafeSinkRedirections(command);
+  const parts = splitCompoundCommands(sanitized);
+  if (parts === undefined) {
+    return mutation(
+      "command.execute",
+      "command.execute",
+      ["background execution, command substitution, or malformed shell syntax requires explicit approval"],
+      false,
+      false,
+      command,
+      "medium",
+    );
+  }
+  if (parts.length <= 1) {
+    const classification = classifySimpleCommand(parts[0] ?? sanitized);
+    return { ...classification, command };
+  }
+
+  const classifications = parts.map(classifySimpleCommand);
+  const nonReadOnly = classifications.find((classification) => classification.action !== "read.repository");
+  if (nonReadOnly !== undefined) {
+    return {
+      ...nonReadOnly,
+      command,
+      rationale: [
+        `compound command contains a non-read-only segment: ${nonReadOnly.command}`,
+        ...nonReadOnly.rationale,
+      ],
+    };
+  }
+  return readonly(command, [
+    `all ${classifications.length} shell segments are independently read-only`,
+    ...classifications.flatMap((classification) => classification.rationale),
+  ]);
 }

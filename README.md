@@ -4,13 +4,17 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.10.3 scope
+## v0.10.4 scope
 
-Atelier now normalizes the final SQLite semantic difference between Pi's Bun runtime and the Node
-CLI: a statement lookup with no matching row becomes `undefined` in both runtimes. Bun natively
-returns `null`, which previously caused a fresh `mise run launch` to fail while reading empty durable
-state. The normalization lives at the runtime boundary, so every ledger lookup receives the same
-contract without changing the database file, schema, or stored data.
+Plan mode now treats repository reads as reads rather than approval-worthy execution. Read-only shell
+pipelines and command chains are decomposed and permitted when every segment is read-only, including
+safe diagnostic sinks such as `2>/dev/null`. File redirection, mutating `find` actions, and mixed
+read/write compounds remain permission-gated.
+
+The Pi extension also exposes first-class agent tools for code-provider status, search, and symbol
+lookup. When code intelligence is enabled, planning uses `atlr_code_search` or `atlr_code_symbols`
+before broad `rg`, `grep`, `find`, `fd`, `tree`, or `ls` discovery. Raw scanning is available only as a
+fallback after unavailable, unhealthy, degraded, failed, or empty provider evidence.
 
 The supported interactive entry point remains:
 
@@ -136,7 +140,19 @@ Code commands use the `code-` namespace because Pi slash commands cannot express
 /code-symbols <query>
 ```
 
-Each command has a command-palette description.
+The agent receives the corresponding read-only tools directly:
+
+```text
+atlr_code_status
+atlr_code_search
+atlr_code_symbols
+```
+
+In plan mode, provider-first discovery is enforced. The agent reads exact paths returned by Atelier and
+uses broad raw scanning only after the provider reports no usable evidence or an explicit degraded or
+unavailable condition. Read-only commands never require an approval prompt.
+
+Each slash command has a command-palette description.
 
 Launch the extension through Atelier during development:
 

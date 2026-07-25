@@ -1,27 +1,33 @@
 # Build report
 
-Atelier v0.10.3 completes the SQLite compatibility boundary required by the Pi shell.
+Atelier v0.10.4 corrects plan-mode investigation and makes the accepted code provider available to the
+agent itself.
 
-The v0.10.2 runtime selector correctly loaded `bun:sqlite`, but a real launch exposed one remaining
-behavioral difference: Bun returns `null` when `Statement.get()` finds no row, while Node's
-`DatabaseSync` returns `undefined`. A new repository has no durable state rows yet, so the Pi extension
-failed immediately while reading `row.value_json`.
+A live session exposed two related gaps. A shell command made entirely of `find`, `wc`, `rg`, and
+`head` requested approval because `2>/dev/null` was treated as a file write and compound commands were
+classified as arbitrary execution. The agent also used broad `find` and `rg` discovery because code
+intelligence existed only as user-facing slash commands.
 
-Atelier now wraps Bun statements and normalizes missing rows to `undefined` before they reach the
-ledger. The ledger's state and task-mapping lookups also accept either nullish value defensively. The
-SQLite path, schema, WAL behavior, migrations, and persisted values are unchanged.
+Atelier now parses command chains and pipelines outside quotes, classifies each segment independently,
+and grants the compound read-only status only when every segment is read-only. Safe `/dev/null` sinks
+and descriptor duplication are ignored for mutation classification. File output redirection, mixed
+read/write compounds, `find -delete`, file-output actions, and mutating `find -exec` remain gated.
+
+Pi now registers bounded agent-callable code status, search, and symbol tools. Plan mode enforces
+provider-first discovery and allows raw broad scanning only after unavailable, unhealthy, degraded,
+failed, or empty provider evidence. The routing denial never opens an approval dialog.
 
 Validation:
 
 - strict TypeScript check: passed
 - automated tests: 79 passed, 0 failed
 - CLI smoke test: passed
-- line coverage: 83.26%
-- branch coverage: 66.63%
-- function coverage: 84.14%
-- Node SQLite integration regression: passed
-- Bun SQLite selection regression: passed
-- Bun missing-row normalization regression: passed
-- Node fallback regression: passed
-- Pi launcher argument/root regression: passed
-- static `node:sqlite` and `bun:sqlite` imports in the Pi dependency graph: absent
+- exact live-session compound classification regression: passed
+- read-only chained Git command regression: passed
+- mutating compound and `find` regression: passed
+- provider-first Pi routing regression: passed
+- zero approval prompts for plan-mode reads: passed
+
+- line coverage: 84.77%
+- branch coverage: 66.97%
+- function coverage: 84.21%

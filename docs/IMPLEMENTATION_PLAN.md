@@ -1,3 +1,5 @@
+> **v0.10.4 plan investigation:** Read-only shell compounds are now classified segment by segment, and Pi exposes provider-first code search and symbol tools directly to the agent. Broad raw discovery is an explicit provider fallback. See ADR-0017.
+
 > **v0.10.3 SQLite result normalization:** Bun returns `null` for a missing `Statement.get()` row while Node returns `undefined`. Atelier now normalizes this at the runtime boundary so fresh Pi sessions can read empty durable state. See ADR-0016.
 
 > **v0.10.2 Pi runtime correction:** Pi executes extensions inside Bun, so Atelier now selects `bun:sqlite` in the Pi shell and `node:sqlite` in Node consumers behind one ledger interface. Existing roots are canonicalized before launch. See ADR-0015.
@@ -2936,3 +2938,23 @@ Implemented:
 - add a focused regression for the empty-row behavior.
 
 The next live gate is a successful interactive `mise run launch` from the existing repository state.
+
+
+## v0.10.4 — Approval-free reads and provider-first agent tools
+
+A live planning session requested approval for a read-only `find`/`wc`/`rg`/`head` compound and then
+used raw repository scanning because provider search was not available as an agent tool.
+
+Implemented:
+
+- parse shell pipelines and command chains while respecting quotes and escapes;
+- classify each segment independently and preserve read-only status only when all segments are reads;
+- treat `/dev/null` sinks and descriptor duplication as non-mutating;
+- retain write gates for file redirection, mixed compounds, and mutating `find` actions;
+- register bounded `atlr_code_status`, `atlr_code_search`, and `atlr_code_symbols` Pi tools;
+- enforce provider-first discovery during every plan-mode agent turn;
+- permit raw discovery only after unavailable, unhealthy, degraded, failed, or empty provider evidence;
+- keep routing denial separate from permission approval.
+
+The next live gate is a planning session in which provider search occurs before broad scanning and all
+read-only investigation proceeds without approval prompts.
