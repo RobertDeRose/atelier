@@ -1,12 +1,15 @@
-# Migration Report — v0.10.2
+# Migration Report — v0.10.3
 
 No database migration is required. Atelier continues to use `.atelier/atelier.db` with the existing
 schema and WAL settings.
 
-The runtime boundary now chooses the SQLite implementation supplied by the process hosting Atelier:
+The runtime boundary now guarantees one missing-row contract:
 
-- Pi/Bun: `bun:sqlite`
-- CLI/Node: `node:sqlite`
+- Pi/Bun: native `null` from `Statement.get()` is normalized to `undefined`;
+- CLI/Node: native `undefined` is preserved.
+
+Existing databases and the partially created database from the failed v0.10.2 launch are valid and
+should not be removed.
 
 Use the supported interactive launcher after updating:
 
@@ -19,7 +22,3 @@ Additional Pi arguments are forwarded after `--`:
 ```bash
 mise run launch -- --model <model-pattern>
 ```
-
-Existing repository roots are resolved to their canonical filesystem path before Pi starts. This may
-change `/var/...` to `/private/var/...` on macOS, but it points to the same files and prevents duplicate
-Atelier state locations.

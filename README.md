@@ -4,12 +4,13 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.10.2 scope
+## v0.10.3 scope
 
-Atelier now launches inside Pi's actual Bun extension runtime. The ledger runtime selects `bun:sqlite`
-inside Pi and `node:sqlite` for the Node CLI and tests, while preserving the same `.atelier/atelier.db`
-file, schema, and synchronous interface. Existing repository roots are canonicalized before launch so
-macOS `/var` and `/private/var` aliases cannot split state or fail launcher validation.
+Atelier now normalizes the final SQLite semantic difference between Pi's Bun runtime and the Node
+CLI: a statement lookup with no matching row becomes `undefined` in both runtimes. Bun natively
+returns `null`, which previously caused a fresh `mise run launch` to fail while reading empty durable
+state. The normalization lives at the runtime boundary, so every ledger lookup receives the same
+contract without changing the database file, schema, or stored data.
 
 The supported interactive entry point remains:
 

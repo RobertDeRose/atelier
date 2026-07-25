@@ -1,3 +1,5 @@
+> **v0.10.3 SQLite result normalization:** Bun returns `null` for a missing `Statement.get()` row while Node returns `undefined`. Atelier now normalizes this at the runtime boundary so fresh Pi sessions can read empty durable state. See ADR-0016.
+
 > **v0.10.2 Pi runtime correction:** Pi executes extensions inside Bun, so Atelier now selects `bun:sqlite` in the Pi shell and `node:sqlite` in Node consumers behind one ledger interface. Existing roots are canonicalized before launch. See ADR-0015.
 
 > **v0.10.1 shell launch:** Atelier now provides `atlr launch` and `mise run launch`. The Pi extension dependency graph no longer contains a static `node:sqlite` import; SQLite is resolved at runtime through `process.getBuiltinModule()` to remain compatible with Pi's jiti extension loader. See ADR-0014.
@@ -2918,3 +2920,19 @@ Implemented:
 This advances ATLR-0510 and ATLR-0512. The next state-focused work should add indexed ledger
 retrieval by stable ID/path/symbol and a bounded recent-conversation tail, then measure exploratory
 tool-call reduction in live planning and implementation sessions.
+
+
+## v0.10.3 — SQLite missing-row compatibility
+
+A real v0.10.2 launch loaded the correct Bun SQLite implementation but failed on the first empty state
+lookup because Bun returned `null` where the ledger expected Node's `undefined`.
+
+Implemented:
+
+- wrap Bun prepared statements behind the Atelier-owned SQLite interface;
+- normalize missing `get()` rows from `null` to `undefined`;
+- keep state and task-mapping reads defensively null-safe;
+- preserve the existing database, schema, WAL mode, and migrations;
+- add a focused regression for the empty-row behavior.
+
+The next live gate is a successful interactive `mise run launch` from the existing repository state.

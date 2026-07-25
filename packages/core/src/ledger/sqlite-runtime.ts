@@ -29,6 +29,35 @@ interface BunSqliteModule {
   Database?: SqliteDatabaseConstructor;
 }
 
+function normalizeBunDatabaseConstructor(
+  Database: SqliteDatabaseConstructor,
+): SqliteDatabaseConstructor {
+  return class NormalizedBunDatabase implements SqliteDatabase {
+    readonly #database: SqliteDatabase;
+
+    constructor(path: string) {
+      this.#database = new Database(path);
+    }
+
+    exec(sql: string): void {
+      this.#database.exec(sql);
+    }
+
+    prepare(sql: string): SqliteStatement {
+      const statement = this.#database.prepare(sql);
+      return {
+        run: (...params: unknown[]) => statement.run(...params),
+        get: (...params: unknown[]) => statement.get(...params) ?? undefined,
+        all: (...params: unknown[]) => statement.all(...params),
+      };
+    }
+
+    close(): void {
+      this.#database.close();
+    }
+  };
+}
+
 export interface SqliteRuntimeOptions {
   getBuiltinModule?: (specifier: string) => unknown;
   requireModule?: (specifier: string) => unknown;
@@ -70,7 +99,7 @@ export function loadDatabaseSync(options: SqliteRuntimeOptions = {}): SqliteData
     if (typeof getBuiltinModule === "function") {
       try {
         const module = getBuiltinModule("bun:sqlite") as BunSqliteModule | undefined;
-        if (typeof module?.Database === "function") return module.Database;
+        if (typeof module?.Database === "function") return normalizeBunDatabaseConstructor(module.Database);
       } catch (error) {
         failures.push(`bun:sqlite via process.getBuiltinModule: ${errorDetail(error)}`);
       }
@@ -78,7 +107,7 @@ export function loadDatabaseSync(options: SqliteRuntimeOptions = {}): SqliteData
 
     try {
       const module = requireModule("bun:sqlite") as BunSqliteModule | undefined;
-      if (typeof module?.Database === "function") return module.Database;
+      if (typeof module?.Database === "function") return normalizeBunDatabaseConstructor(module.Database);
       failures.push("bun:sqlite did not expose Database");
     } catch (error) {
       failures.push(`bun:sqlite via require: ${errorDetail(error)}`);

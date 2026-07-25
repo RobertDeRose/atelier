@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.3 — 2026-07-25
+
+```text
+fix(shell): normalize Bun SQLite missing rows
+
+- normalize bun:sqlite Statement.get() null results to undefined
+- preserve node:sqlite missing-row behavior
+- make ledger state and task-mapping reads null-safe
+- keep the existing database schema and persisted state unchanged
+- add a Bun missing-row regression at the runtime boundary
+- retain dual-runtime and launcher regressions
+```
+
 ## 0.10.2 — 2026-07-25
 
 ```text

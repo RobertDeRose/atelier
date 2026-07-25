@@ -29,10 +29,10 @@ test("SQLite resolves dynamically without a static node:sqlite import", () => {
 
 test("SQLite selects bun:sqlite when Pi runs the extension inside Bun", () => {
   const calls: string[] = [];
+  let openedPath: string | undefined;
   class FakeBunDatabase implements SqliteDatabase {
-    readonly path: string;
     constructor(path: string) {
-      this.path = path;
+      openedPath = path;
     }
     exec(_sql: string): void {}
     prepare(_sql: string) {
@@ -56,9 +56,10 @@ test("SQLite selects bun:sqlite when Pi runs the extension inside Bun", () => {
     },
   });
 
-  const database = new Database("state.db") as FakeBunDatabase;
-  assert.equal(database.path, "state.db");
+  const database = new Database("state.db");
+  assert.equal(openedPath, "state.db");
   assert.deepEqual(calls, ["bun:sqlite"]);
+  database.close();
 });
 
 test("SQLite falls back to node:sqlite when Bun's module is unavailable", () => {
@@ -95,4 +96,32 @@ test("SQLite falls back to node:sqlite when Bun's module is unavailable", () => 
   const database = new Database("fallback.db") as FakeNodeDatabase;
   assert.equal(database.path, "fallback.db");
   assert.deepEqual(calls, ["bun:sqlite", "bun:sqlite", "node:sqlite"]);
+});
+
+test("Bun SQLite normalizes a missing row from null to undefined", () => {
+  class FakeBunDatabase implements SqliteDatabase {
+    exec(_sql: string): void {}
+    prepare(_sql: string) {
+      return {
+        run: (..._params: unknown[]) => ({ changes: 0 }),
+        get: (..._params: unknown[]) => null,
+        all: (..._params: unknown[]) => [],
+      };
+    }
+    close(): void {}
+  }
+
+  const Database = loadDatabaseSync({
+    preferBun: true,
+    runtimeDescription: "test Bun runtime",
+    getBuiltinModule: () => undefined,
+    requireModule: (specifier) => {
+      if (specifier === "bun:sqlite") return { Database: FakeBunDatabase };
+      throw new Error(`unexpected module ${specifier}`);
+    },
+  });
+
+  const database = new Database("empty.db");
+  assert.equal(database.prepare("SELECT value FROM missing").get(), undefined);
+  database.close();
 });

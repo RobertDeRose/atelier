@@ -188,7 +188,7 @@ export class SqliteLedger {
     const row = this.database.prepare("SELECT value_json FROM state WHERE key = ?").get(key) as
       | { value_json: string }
       | undefined;
-    return row === undefined ? undefined : (JSON.parse(row.value_json) as T);
+    return row == null ? undefined : (JSON.parse(row.value_json) as T);
   }
 
   saveGrant(grant: PermissionGrant): void {
@@ -275,7 +275,7 @@ export class SqliteLedger {
       .get(planTaskId) as
       | { provider: string; provider_task_id: string; plan_hash: string }
       | undefined;
-    return row === undefined
+    return row == null
       ? undefined
       : { provider: row.provider, providerTaskId: row.provider_task_id, planHash: row.plan_hash };
   }
