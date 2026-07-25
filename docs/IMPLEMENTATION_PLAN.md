@@ -2958,3 +2958,22 @@ Implemented:
 
 The next live gate is a planning session in which provider search occurs before broad scanning and all
 read-only investigation proceeds without approval prompts.
+
+
+## v0.10.5 — Pi active code-tool convergence
+
+Completed:
+
+- distinguish Pi tool registration from model-facing active-tool selection;
+- explicitly activate and prioritize Atelier code search, symbol, and status tools;
+- converge active tools on session start, plan entry, and every agent turn;
+- preserve disabled-provider behavior;
+- validate the exact broad `find` and `rg` commands from the live demo session;
+- keep provider routing denial separate from permission approval.
+
+Next live gate:
+
+- a new `/plan` session visibly calls `atlr_code_search` before broad repository discovery;
+- exact returned files are read directly;
+- no approval dialog appears for read-only investigation;
+- broad raw discovery occurs only after an explicit provider fallback result.

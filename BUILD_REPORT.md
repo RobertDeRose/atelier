@@ -1,33 +1,41 @@
 # Build report
 
-Atelier v0.10.4 corrects plan-mode investigation and makes the accepted code provider available to the
-agent itself.
+Atelier v0.10.5 closes the remaining gap between registering a Pi extension tool and making that
+tool available to the model.
 
-A live session exposed two related gaps. A shell command made entirely of `find`, `wc`, `rg`, and
-`head` requested approval because `2>/dev/null` was treated as a file write and compound commands were
-classified as arbitrary execution. The agent also used broad `find` and `rg` discovery because code
-intelligence existed only as user-facing slash commands.
+The live demo session still used broad `find` and `rg` commands even though v0.10.4 had registered
+provider tools and added provider-first routing. Pi maintains a separate active-tool list; a
+registered extension tool is not guaranteed to be selected for the next model turn. The model
+therefore continued to see generic repository tools as its practical discovery surface.
 
-Atelier now parses command chains and pipelines outside quotes, classifies each segment independently,
-and grants the compound read-only status only when every segment is read-only. Safe `/dev/null` sinks
-and descriptor duplication are ignored for mutation classification. File output redirection, mixed
-read/write compounds, `find -delete`, file-output actions, and mutating `find -exec` remain gated.
+Atelier now explicitly activates the three read-only code tools whenever code intelligence is
+enabled:
 
-Pi now registers bounded agent-callable code status, search, and symbol tools. Plan mode enforces
-provider-first discovery and allows raw broad scanning only after unavailable, unhealthy, degraded,
-failed, or empty provider evidence. The routing denial never opens an approval dialog.
+- `atlr_code_search`
+- `atlr_code_symbols`
+- `atlr_code_status`
+
+The tools are ordered before the existing active tools so provider search is presented as the
+primary discovery path. Activation converges on session start, `/plan` entry, and every agent turn,
+which also covers resumed plan sessions and Pi active-tool changes between turns. Disabled code
+providers do not force these tools into the active set.
+
+The provider-first Bash gate remains independent of permission approval. Exact reads and proven
+read-only shell commands execute without approval; broad raw discovery is blocked until provider
+fallback is explicitly justified by unavailable, unhealthy, degraded, failed, or empty evidence.
 
 Validation:
 
 - strict TypeScript check: passed
 - automated tests: 79 passed, 0 failed
 - CLI smoke test: passed
-- exact live-session compound classification regression: passed
-- read-only chained Git command regression: passed
-- mutating compound and `find` regression: passed
-- provider-first Pi routing regression: passed
-- zero approval prompts for plan-mode reads: passed
+- Pi active-tool activation regression: passed
+- exact live `find` and `rg` discovery regressions: passed
+- zero approval prompts for read-only plan commands: passed
+- provider fallback after empty evidence: passed
 
-- line coverage: 84.77%
-- branch coverage: 66.97%
-- function coverage: 84.21%
+Coverage:
+
+- line coverage: 84.95%
+- branch coverage: 67.35%
+- function coverage: 84.38%

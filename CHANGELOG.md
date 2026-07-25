@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.5 — 2026-07-25
+
+```text
+fix(plan): activate provider tools for agent turns
+
+- explicitly add Atelier code tools to Pi's active tool set
+- prioritize code search and symbol lookup before generic Bash/read tools
+- converge activation on session start, plan entry, and every agent turn
+- name the active tools directly in the plan instruction
+- retain approval-free exact reads and read-only shell commands
+- block the exact broad find/rg commands observed in the live demo session
+- add active-tool and live-command regressions
+```
+
 ## 0.10.4 — 2026-07-25
 
 ```text

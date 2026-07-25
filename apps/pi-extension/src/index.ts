@@ -18,6 +18,7 @@ import {
 } from "../../../packages/core/src/index.ts";
 
 const STATUS_KEY = "atlr";
+const CODE_AGENT_TOOLS = ["atlr_code_search", "atlr_code_symbols", "atlr_code_status"] as const;
 const EMPTY_COMPONENT = {
   render: (_width: number): string[] => [],
   invalidate: (): void => {},
@@ -77,6 +78,19 @@ let activeRoot: string | undefined;
 let reviewInProgress = false;
 let providerDiscoveryAttempted = false;
 let rawDiscoveryFallbackAllowed = false;
+
+function uniqueToolNames(names: readonly string[]): string[] {
+  return [...new Set(names)];
+}
+
+function ensureCodeToolsActive(pi: ExtensionAPI, core: AtelierCore): void {
+  if (core.config.codeProvider === "disabled") return;
+  const active = pi.getActiveTools();
+  // Put Atelier retrieval tools first so the model sees the preferred discovery path
+  // before generic Bash/read tools. Registered extension tools are not guaranteed to be
+  // active until explicitly selected through Pi's active-tool API.
+  pi.setActiveTools(uniqueToolNames([...CODE_AGENT_TOOLS, ...active]));
+}
 
 function resetDiscoveryRouting(): void {
   providerDiscoveryAttempted = false;
@@ -345,6 +359,8 @@ function planInstruction(core: AtelierCore, objective: string): string {
   return `[Atelier PLAN MODE]\n\n` +
     `Investigate the repository without modifying source code, dependencies, repository state, or task-provider state. ` +
     `Write or update the implementation plan only at ${core.config.planPath}. ` +
+    "Begin repository discovery with the active atlr_code_search tool and use atlr_code_symbols for identifier lookup. " +
+    "Read exact returned files afterward. Do not use broad rg, grep, find, fd, tree, or ls discovery unless Atelier reports unavailable, degraded, failed, or empty provider evidence. " +
     "Use stable task IDs, explicit dependencies, scope, validation steps, and observable completion criteria. " +
     "Do not ask the user to describe textual plan edits after the draft; Atelier will open the plan in their configured editor. " +
     `When the draft is complete, stop.\n\nObjective: ${objective || "Create an implementation plan for the current request."}`;
@@ -575,6 +591,7 @@ export default function atelierExtension(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     resetDiscoveryRouting();
     const core = coreFor(ctx);
+    ensureCodeToolsActive(pi, core);
     await updateStatus(ctx, core);
   });
 
@@ -611,6 +628,7 @@ export default function atelierExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", async (event, ctx) => {
     resetDiscoveryRouting();
     const core = coreFor(ctx);
+    ensureCodeToolsActive(pi, core);
     const state = await core.buildWorkingState();
     const activeContext = core.workingStateBuilder.toMarkdown(state);
     const retrievalInstruction = core.config.codeProvider === "disabled"
@@ -674,6 +692,7 @@ export default function atelierExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       await ctx.waitForIdle();
       const core = coreFor(ctx);
+      ensureCodeToolsActive(pi, core);
       ensurePlanDocument(core.config.planPath);
       const baseline = hashFile(core.config.planPath);
       core.ledger.setState("planAutoReviewBaselineHash", baseline);

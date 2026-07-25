@@ -49,12 +49,19 @@ test("Pi extension enforces provider-first plan discovery without approving read
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const commands = new Map<string, RegisteredCommand>();
   const tools = new Map<string, RegisteredTool>();
+  let activeTools = ["read", "bash", "edit", "write"];
+  const activeToolUpdates: string[][] = [];
   const fakePi = {
     on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void {
       events.set(name, handler);
     },
     registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
     registerTool(tool: RegisteredTool): void { tools.set(tool.name, tool); },
+    getActiveTools(): string[] { return [...activeTools]; },
+    setActiveTools(names: string[]): void {
+      activeTools = [...names];
+      activeToolUpdates.push([...names]);
+    },
     sendUserMessage(): void {},
   } as unknown as ExtensionAPI;
 
@@ -87,8 +94,15 @@ test("Pi extension enforces provider-first plan discovery without approving read
   }));
   const confirms = { count: 0 };
   const context = fakeContext(root, confirms);
+  await events.get("session_start")!({}, context);
   await commands.get("plan")!.handler("investigate planning policy", context);
-  await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
+  const agentStart = await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
+
+  assert.match(agentStart?.systemPrompt ?? "", /MUST call atlr_code_search/);
+  assert.deepEqual(activeTools.slice(0, 3), ["atlr_code_search", "atlr_code_symbols", "atlr_code_status"]);
+  assert.ok(activeToolUpdates.length >= 1, "Atelier must explicitly activate registered code tools");
+  assert.ok(activeTools.includes("read"));
+  assert.ok(activeTools.includes("bash"));
 
   const readOnlyCompound = await events.get("tool_call")!({
     toolName: "bash",
@@ -96,6 +110,21 @@ test("Pi extension enforces provider-first plan discovery without approving read
   }, context);
   assert.equal(readOnlyCompound, undefined);
   assert.equal(confirms.count, 0, "read-only plan commands must not request approval");
+
+
+  for (const command of [
+    "find . -maxdepth 3 -type f | sort | head -250 && printf '\n--- package ---\n' && test -f package.json && node -e 'console.log(1)'",
+    "rg -n -i 'demo|walkthrough|showcase|golden path' --glob '!node_modules/**' . | head -300",
+    "find apps packages tests scripts docs -maxdepth 4 -type f | sort",
+  ]) {
+    const blocked = await events.get("tool_call")!({
+      toolName: "bash",
+      input: { command },
+    }, context);
+    assert.equal(blocked?.block, true, `expected provider-first block for: ${command}`);
+    assert.match(blocked?.reason ?? "", /provider-first discovery/i);
+  }
+  assert.equal(confirms.count, 0, "provider routing must never request approval");
 
   const blockedRawScan = await events.get("tool_call")!({
     toolName: "bash",

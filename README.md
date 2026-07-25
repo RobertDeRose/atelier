@@ -4,17 +4,17 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.10.4 scope
+## v0.10.5 scope
 
-Plan mode now treats repository reads as reads rather than approval-worthy execution. Read-only shell
-pipelines and command chains are decomposed and permitted when every segment is read-only, including
-safe diagnostic sinks such as `2>/dev/null`. File redirection, mutating `find` actions, and mixed
-read/write compounds remain permission-gated.
+Pi extension tools must be both registered and active before the model can call them. Atelier now
+explicitly activates and prioritizes `atlr_code_search`, `atlr_code_symbols`, and
+`atlr_code_status` whenever code intelligence is enabled. Entering `/plan`, starting or resuming a
+session, and beginning each agent turn all converge on the same active-tool set.
 
-The Pi extension also exposes first-class agent tools for code-provider status, search, and symbol
-lookup. When code intelligence is enabled, planning uses `atlr_code_search` or `atlr_code_symbols`
-before broad `rg`, `grep`, `find`, `fd`, `tree`, or `ls` discovery. Raw scanning is available only as a
-fallback after unavailable, unhealthy, degraded, failed, or empty provider evidence.
+Plan instructions now name the active provider tools directly. Broad Bash discovery with `rg`,
+`grep`, `find`, `fd`, `tree`, or `ls` remains blocked until the provider reports unavailable,
+degraded, failed, or empty evidence. Exact file reads and independently classified read-only shell
+commands remain approval-free.
 
 The supported interactive entry point remains:
 

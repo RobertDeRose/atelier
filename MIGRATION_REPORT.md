@@ -1,20 +1,22 @@
-# Migration Report — v0.10.4
+# Migration Report — v0.10.5
 
-No database, configuration, task, or provider-index migration is required.
+No database, configuration, task, provider-index, or plan migration is required.
 
-After updating, launch Atelier normally:
+After updating, restart the Atelier shell so Pi rebuilds its active-tool set:
 
 ```bash
 mise run launch
 ```
 
-Behavior changes in plan mode:
+Behavior changes:
 
-- read-only shell pipelines and command chains no longer request approval;
-- safe diagnostic output to `/dev/null` remains read-only;
-- broad raw repository discovery is redirected to the agent-callable Atelier code tools first;
-- raw `rg`, `grep`, `find`, `fd`, `tree`, and `ls` discovery becomes available after the provider
-  reports unavailable, degraded, failed, or empty evidence;
-- mutations remain independently permission-gated.
+- Atelier code status, search, and symbol tools are explicitly active when the configured code
+  provider is enabled;
+- the tools are prioritized in the model-facing active-tool order;
+- `/plan` names those tools directly and requires provider-first repository discovery;
+- exact reads and proven read-only shell commands remain approval-free;
+- broad raw `rg`, `grep`, `find`, `fd`, `tree`, and `ls` discovery remains available only after a
+  provider fallback condition.
 
-No existing `.atelier/atelier.db`, reviewed plan, or code-provider index should be removed.
+Existing `.atelier/atelier.db`, `.atelier/PLAN.md`, `.codesearch.db`, and task-provider state should
+not be removed.
