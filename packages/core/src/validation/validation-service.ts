@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import type { DatabaseSync } from "node:sqlite";
+import type { SqliteDatabase } from "../ledger/sqlite-runtime.ts";
 import type { RepositorySnapshot } from "../domain/types.ts";
 import { nowIso, newId } from "../util/ids.ts";
 
@@ -35,10 +35,10 @@ export interface ValidationEvidence {
 
 export class ValidationService {
   private readonly root: string;
-  private readonly database: DatabaseSync;
+  private readonly database: SqliteDatabase;
   private readonly manifestPath: string;
 
-  constructor(options: { root: string; database: DatabaseSync; manifestPath?: string }) {
+  constructor(options: { root: string; database: SqliteDatabase; manifestPath?: string }) {
     this.root = resolve(options.root);
     this.database = options.database;
     this.manifestPath = resolve(this.root, options.manifestPath ?? ".atelier/validation.json");

@@ -14,6 +14,10 @@ run = "aube install --frozen-lockfile && aubr setup:octocode"
 description = "Run the Atelier CLI"
 run = "aubr atlr --"
 
+[tasks.launch]
+description = "Launch Pi with the Atelier extension"
+run = "aubr launch --"
+
 [tasks.doctor]
 description = "Run Atelier diagnostics"
 run = "aubr doctor"

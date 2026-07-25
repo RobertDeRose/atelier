@@ -1,3 +1,5 @@
+> **v0.10.1 shell launch:** Atelier now provides `atlr launch` and `mise run launch`. The Pi extension dependency graph no longer contains a static `node:sqlite` import; SQLite is resolved at runtime through `process.getBuiltinModule()` to remain compatible with Pi's jiti extension loader. See ADR-0014.
+
 > **v0.8.9 retrieval policy:** The external provider remains authoritative for semantic and literal retrieval. Atelier now augments healthy semantic results only with exact identifier hints or code-shaped query tokens, balances mixed source/test evidence, preserves provider rank, and reserves broad literal extraction for degraded fallback. See ADR-0010.
 
 > **v0.5.0 architectural correction:** Atelier no longer owns a native source, FTS5, Tree-sitter, embedding, vector, or code-graph implementation by default. The accepted design is external provider integration behind the Atelier-owned CodeProvider contract. `codesearch` is the first planned provider and Octocode the second experimental provider. See `CODE_INTELLIGENCE.md` and ADR-0002.

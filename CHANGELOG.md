@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.1 — 2026-07-25
+
+```text
+fix(shell): make the Pi extension launchable
+
+- replace static node:sqlite imports with runtime built-in resolution
+- preserve the existing SQLite ledger and database format
+- add an actionable runtime compatibility error
+- add atlr launch and mise run launch as supported Pi entry points
+- forward Pi arguments unchanged from the Atelier launcher
+- add SQLite-loader and launcher regression tests
+```
+
 ## 0.10.0 — 2026-07-23
 
 ```text

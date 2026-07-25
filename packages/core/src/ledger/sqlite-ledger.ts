@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { loadDatabaseSync, type SqliteDatabase } from "./sqlite-runtime.ts";
 import type { Actor, LedgerEvent, PermissionGrant, RepositorySnapshot } from "../domain/types.ts";
 import { newId, nowIso } from "../util/ids.ts";
 
@@ -31,11 +31,12 @@ interface PermissionRow {
 
 export class SqliteLedger {
   readonly path: string;
-  readonly database: DatabaseSync;
+  readonly database: SqliteDatabase;
 
   constructor(path: string) {
     this.path = path;
     mkdirSync(dirname(path), { recursive: true });
+    const DatabaseSync = loadDatabaseSync();
     this.database = new DatabaseSync(path);
     this.database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.migrate();

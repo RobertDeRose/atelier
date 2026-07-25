@@ -4,13 +4,18 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.10.0 scope
+## v0.10.1 scope
 
-Atelier now builds repository evidence from durable workflow state rather than waiting for an
-active provider task. `atlr plan` and `/plan` persist the normalized planning objective, and the
-Working State repository planner uses that objective immediately to retrieve bounded code
-evidence through the accepted codesearch provider. After approval, retrieval is rebuilt from the
-selected task and reviewed plan scope.
+Atelier now launches as a real Pi shell through `atlr launch` or `mise run launch`. The launcher
+starts Pi from the repository root, explicitly loads the Atelier extension, inherits the mise-pinned
+Node runtime, and forwards Pi arguments. SQLite remains Node's built-in implementation, but it is
+resolved dynamically so Pi's TypeScript extension loader does not reject the extension during static
+module resolution.
+
+The v0.10.0 Working State behavior remains intact. `atlr plan` and `/plan` persist the normalized
+planning objective, and the repository planner retrieves bounded code evidence before a provider task
+exists. Approved-plan task filtering, dependencies, blockers, corrections, Manual Edits, validation
+evidence, and selection rationale remain durable inputs to Working State.
 
 Task continuation is also stricter and more complete. Ready work is filtered to the approved plan,
 selection follows explicit task, resumable current task, priority, plan order, and stable ID, and the
@@ -63,6 +68,18 @@ Run the CLI directly:
 
 ```bash
 node ./bin/atlr.mjs help
+```
+
+Launch the interactive Atelier shell:
+
+```bash
+mise run launch
+```
+
+Forward Pi arguments after `--`:
+
+```bash
+mise run launch -- --model <model-pattern>
 ```
 
 ## Initial setup
@@ -146,7 +163,15 @@ Code commands use the `code-` namespace because Pi slash commands cannot express
 
 Each command has a command-palette description.
 
-Load the extension during development:
+Launch the extension through Atelier during development:
+
+```bash
+mise run launch
+# equivalent CLI form
+mise run atlr -- launch
+```
+
+Direct Pi loading remains available for loader debugging:
 
 ```bash
 pi -e ./apps/pi-extension/src/index.ts

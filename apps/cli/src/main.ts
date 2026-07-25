@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   ACTION_KINDS,
   AtelierCore,
@@ -79,6 +80,7 @@ Usage:
   atlr [--root PATH] <command>
 
 Commands:
+  launch [PI_ARGS...]              Launch Pi with the Atelier extension loaded
   init [--beads] [--stealth]       Initialize .atelier state and a plan document
   repo status [--json]             Show the selected repository provider and identity
   doctor                            Check Node, editor, VCS, and Beads availability
@@ -140,6 +142,24 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "launch") {
+    const commandIndex = raw.indexOf("launch");
+    const piArgs = commandIndex === -1 ? [] : raw.slice(commandIndex + 1);
+    const extensionPath = fileURLToPath(new URL("../../pi-extension/src/index.ts", import.meta.url));
+    const result = spawnSync("pi", ["--extension", extensionPath, ...piArgs], {
+      cwd: root,
+      env: { ...process.env, ATELIER_ROOT: root },
+      stdio: "inherit",
+      shell: false,
+      windowsHide: false,
+    });
+    if (result.error !== undefined) {
+      throw new Error(`Unable to launch Pi: ${result.error.message}. Install Pi and ensure the pi executable is on PATH.`);
+    }
+    process.exitCode = result.status ?? 1;
+    return;
+  }
+
   if (command === "doctor") {
     const core = AtelierCore.open(root);
     try {
@@ -156,6 +176,7 @@ async function main(): Promise<void> {
         git: commandAvailable("git"),
         jj: commandAvailable("jj"),
         beads: status,
+        pi: commandAvailable("pi"),
         editor,
         code: await core.code.status(undefined, core.codeWorkspace()),
         repositoryRoot: root,
