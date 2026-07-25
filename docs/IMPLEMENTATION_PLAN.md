@@ -1,3 +1,5 @@
+> **v0.10.2 Pi runtime correction:** Pi executes extensions inside Bun, so Atelier now selects `bun:sqlite` in the Pi shell and `node:sqlite` in Node consumers behind one ledger interface. Existing roots are canonicalized before launch. See ADR-0015.
+
 > **v0.10.1 shell launch:** Atelier now provides `atlr launch` and `mise run launch`. The Pi extension dependency graph no longer contains a static `node:sqlite` import; SQLite is resolved at runtime through `process.getBuiltinModule()` to remain compatible with Pi's jiti extension loader. See ADR-0014.
 
 > **v0.8.9 retrieval policy:** The external provider remains authoritative for semantic and literal retrieval. Atelier now augments healthy semantic results only with exact identifier hints or code-shaped query tokens, balances mixed source/test evidence, preserves provider rank, and reserves broad literal extraction for degraded fallback. See ADR-0010.

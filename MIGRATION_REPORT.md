@@ -1,20 +1,25 @@
-# Migration Report — v0.10.1
+# Migration Report — v0.10.2
 
-No database migration is required. Atelier continues to use Node's built-in SQLite implementation and the existing
-`.atelier/atelier.db` schema. Only module resolution changed: SQLite is now loaded at runtime rather than through a
-static import.
+No database migration is required. Atelier continues to use `.atelier/atelier.db` with the existing
+schema and WAL settings.
 
-Use the supported development launcher after updating:
+The runtime boundary now chooses the SQLite implementation supplied by the process hosting Atelier:
+
+- Pi/Bun: `bun:sqlite`
+- CLI/Node: `node:sqlite`
+
+Use the supported interactive launcher after updating:
 
 ```bash
 mise run launch
 ```
 
-Additional Pi arguments are forwarded after the task name, for example:
+Additional Pi arguments are forwarded after `--`:
 
 ```bash
 mise run launch -- --model <model-pattern>
 ```
 
-Direct `pi -e ./apps/pi-extension/src/index.ts` remains valid when Pi is running under a compatible Node runtime,
-but `mise run launch` is the validated path because it inherits the repository's pinned toolchain.
+Existing repository roots are resolved to their canonical filesystem path before Pi starts. This may
+change `/var/...` to `/private/var/...` on macOS, but it points to the same files and prevents duplicate
+Atelier state locations.

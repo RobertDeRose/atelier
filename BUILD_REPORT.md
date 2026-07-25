@@ -1,24 +1,26 @@
 # Build report
 
-Atelier v0.10.1 fixes the first real Pi-shell launch blocker found after v0.10.0 validation.
+Atelier v0.10.2 corrects the runtime assumption in the first Pi launcher release.
 
-Pi loads TypeScript extensions through jiti. Atelier previously exposed a static `node:sqlite` import through
-its Core dependency graph, causing Pi to reject the extension before initialization even though the pinned Node
-runtime supports SQLite. The release now resolves `DatabaseSync` through `process.getBuiltinModule()` behind an
-Atelier-owned database interface. The ledger schema, database path, and synchronous persistence behavior are
-unchanged.
+A real `mise run launch` showed that Pi is a Bun executable. The extension therefore runs inside Bun's
+Node-compatibility layer, where `process.version` is available but `node:sqlite.DatabaseSync` is not.
+Atelier now detects Bun and loads `bun:sqlite`; Node consumers continue loading `node:sqlite`. Both
+implementations are hidden behind the existing synchronous `SqliteDatabase` interface, so the database
+path, schema, WAL behavior, and ledger semantics are unchanged.
 
-The release also adds `atlr launch` and `mise run launch`. The launcher runs Pi from the selected repository root,
-loads the Atelier extension explicitly, inherits the mise toolchain environment, and forwards Pi arguments.
+The release also canonicalizes existing repository roots before launch, preventing macOS `/var` and
+`/private/var` aliases from producing false launcher failures or separate state paths.
 
 Validation:
 
 - strict TypeScript check: passed
-- automated tests: 76 passed, 0 failed
+- automated tests: 78 passed, 0 failed
 - CLI smoke test: passed
-- line coverage: 83.15%
-- branch coverage: 66.36%
-- function coverage: 84.71%
-- dynamic SQLite runtime regression: passed
+- line coverage: 83.20%
+- branch coverage: 66.50%
+- function coverage: 84.28%
+- Node SQLite integration regression: passed
+- Bun SQLite selection regression: passed
+- Node fallback regression: passed
 - Pi launcher argument/root regression: passed
-- static `node:sqlite` imports in the Pi dependency graph: removed
+- static `node:sqlite` and `bun:sqlite` imports in the Pi dependency graph: absent

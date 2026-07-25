@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --experimental-strip-types
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -134,7 +134,8 @@ Atelier owns the Code provider contract, provenance, and Working State integrati
 async function main(): Promise<void> {
   const raw = process.argv.slice(2);
   const parsed = parseArgs(raw);
-  const root = resolve(flagString(parsed, "root") ?? process.cwd());
+  const requestedRoot = resolve(flagString(parsed, "root") ?? process.cwd());
+  const root = existsSync(requestedRoot) ? realpathSync(requestedRoot) : requestedRoot;
   const [command, subcommand, ...rest] = parsed.positionals;
 
   if (command === undefined || command === "help" || flagBoolean(parsed, "help")) {

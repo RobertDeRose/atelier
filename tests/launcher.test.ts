@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -37,8 +37,9 @@ test("atlr launch starts Pi with the Atelier extension and forwards Pi arguments
       args: string[];
       atelierRoot: string;
     };
-    assert.equal(recorded.cwd, root);
-    assert.equal(recorded.atelierRoot, root);
+    const canonicalRoot = realpathSync(root);
+    assert.equal(recorded.cwd, canonicalRoot);
+    assert.equal(recorded.atelierRoot, canonicalRoot);
     assert.equal(recorded.args[0], "--extension");
     assert.match(recorded.args[1] ?? "", /apps\/pi-extension\/src\/index\.ts$/);
     assert.deepEqual(recorded.args.slice(2), ["--model", "test-model"]);

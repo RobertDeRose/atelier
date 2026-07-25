@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.2 — 2026-07-25
+
+```text
+fix(shell): support Pi's Bun SQLite runtime
+
+- detect the actual Bun extension runtime used by Pi
+- select bun:sqlite in Bun and node:sqlite in Node
+- preserve the existing SQLite schema and synchronous ledger API
+- avoid static SQLite built-in imports in the Pi dependency graph
+- canonicalize repository roots before launch on macOS
+- add Bun selection, Node fallback, and canonical launcher regressions
+- supersede the Node-only runtime assumption in ADR-0014
+```
+
 ## 0.10.1 — 2026-07-25
 
 ```text

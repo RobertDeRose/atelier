@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 export interface SqliteRunResult {
   changes: number | bigint;
   lastInsertRowid?: number | bigint;
@@ -15,47 +17,104 @@ export interface SqliteDatabase {
   close(): void;
 }
 
-interface DatabaseSyncConstructor {
+export interface SqliteDatabaseConstructor {
   new (path: string): SqliteDatabase;
 }
 
 interface NodeSqliteModule {
-  DatabaseSync?: DatabaseSyncConstructor;
+  DatabaseSync?: SqliteDatabaseConstructor;
+}
+
+interface BunSqliteModule {
+  Database?: SqliteDatabaseConstructor;
+}
+
+export interface SqliteRuntimeOptions {
+  getBuiltinModule?: (specifier: string) => unknown;
+  requireModule?: (specifier: string) => unknown;
+  preferBun?: boolean;
+  runtimeDescription?: string;
+}
+
+const runtimeRequire = createRequire(import.meta.url);
+
+function bunRuntimeDetected(): boolean {
+  const versions = process.versions as NodeJS.ProcessVersions & { bun?: string };
+  return typeof versions.bun === "string" || "Bun" in globalThis;
+}
+
+function errorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
- * Resolve node:sqlite at runtime instead of importing it statically.
+ * Resolve a synchronous SQLite constructor for the active shell runtime.
  *
- * Pi loads TypeScript extensions through jiti. Some loader/runtime combinations
- * reject newer built-ins during static resolution even when the Node process
- * itself provides them. process.getBuiltinModule bypasses that resolver while
- * retaining Node's built-in synchronous SQLite implementation.
+ * Atelier's CLI runs under Node and uses `node:sqlite`. Pi is distributed as a
+ * Bun executable and loads extensions inside Bun, where the matching built-in
+ * is `bun:sqlite`. Both implementations provide the small synchronous database
+ * surface used by SqliteLedger, so the runtime boundary selects one without a
+ * static import that Pi's extension loader would try to resolve eagerly.
  */
-export function loadDatabaseSync(): DatabaseSyncConstructor {
-  const getBuiltinModule = process.getBuiltinModule;
-  if (typeof getBuiltinModule !== "function") {
-    throw new Error(
-      `Atelier requires Node.js with process.getBuiltinModule and node:sqlite; current runtime is ${process.version}. ` +
-        "Launch Atelier through `mise run launch` so Pi uses the repository's pinned Node runtime.",
-    );
+export function loadDatabaseSync(options: SqliteRuntimeOptions = {}): SqliteDatabaseConstructor {
+  const getBuiltinModule = options.getBuiltinModule ?? process.getBuiltinModule;
+  const requireModule = options.requireModule ?? runtimeRequire;
+  const preferBun = options.preferBun ?? bunRuntimeDetected();
+  const runtimeDescription = options.runtimeDescription ??
+    (bunRuntimeDetected()
+      ? `Bun ${String((process.versions as NodeJS.ProcessVersions & { bun?: string }).bun ?? "runtime")}`
+      : `Node ${process.version}`);
+  const failures: string[] = [];
+
+  const loadBun = (): SqliteDatabaseConstructor | undefined => {
+    if (typeof getBuiltinModule === "function") {
+      try {
+        const module = getBuiltinModule("bun:sqlite") as BunSqliteModule | undefined;
+        if (typeof module?.Database === "function") return module.Database;
+      } catch (error) {
+        failures.push(`bun:sqlite via process.getBuiltinModule: ${errorDetail(error)}`);
+      }
+    }
+
+    try {
+      const module = requireModule("bun:sqlite") as BunSqliteModule | undefined;
+      if (typeof module?.Database === "function") return module.Database;
+      failures.push("bun:sqlite did not expose Database");
+    } catch (error) {
+      failures.push(`bun:sqlite via require: ${errorDetail(error)}`);
+    }
+    return undefined;
+  };
+
+  const loadNode = (): SqliteDatabaseConstructor | undefined => {
+    if (typeof getBuiltinModule === "function") {
+      try {
+        const module = getBuiltinModule("node:sqlite") as NodeSqliteModule | undefined;
+        if (typeof module?.DatabaseSync === "function") return module.DatabaseSync;
+        failures.push("node:sqlite did not expose DatabaseSync");
+      } catch (error) {
+        failures.push(`node:sqlite via process.getBuiltinModule: ${errorDetail(error)}`);
+      }
+    }
+
+    try {
+      const module = requireModule("node:sqlite") as NodeSqliteModule | undefined;
+      if (typeof module?.DatabaseSync === "function") return module.DatabaseSync;
+      failures.push("required node:sqlite did not expose DatabaseSync");
+    } catch (error) {
+      failures.push(`node:sqlite via require: ${errorDetail(error)}`);
+    }
+    return undefined;
+  };
+
+  const orderedLoaders = preferBun ? [loadBun, loadNode] : [loadNode, loadBun];
+  for (const loader of orderedLoaders) {
+    const constructor = loader();
+    if (constructor !== undefined) return constructor;
   }
 
-  let module: NodeSqliteModule | undefined;
-  try {
-    module = getBuiltinModule("node:sqlite") as NodeSqliteModule | undefined;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Atelier could not load node:sqlite from ${process.version}: ${detail}. ` +
-        "Launch Atelier through `mise run launch` so Pi uses the repository's pinned Node runtime.",
-    );
-  }
-
-  if (typeof module?.DatabaseSync !== "function") {
-    throw new Error(
-      `Atelier requires node:sqlite DatabaseSync; it is unavailable in ${process.version}. ` +
-        "Launch Atelier through `mise run launch` so Pi uses the repository's pinned Node runtime.",
-    );
-  }
-  return module.DatabaseSync;
+  throw new Error(
+    `Atelier could not load a synchronous SQLite implementation in ${runtimeDescription}. ` +
+      `Tried node:sqlite and bun:sqlite. ${failures.join("; ")}`,
+  );
 }

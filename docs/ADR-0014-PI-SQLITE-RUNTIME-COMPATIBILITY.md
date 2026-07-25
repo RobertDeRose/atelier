@@ -1,6 +1,6 @@
 # ADR-0014: Resolve SQLite dynamically for Pi extension compatibility
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0015
 - **Date:** 2026-07-25
 
 ## Context
@@ -11,7 +11,7 @@ The database API itself was not failing. The failure occurred because the extens
 
 ## Decision
 
-Atelier will retain Node's built-in synchronous SQLite implementation but resolve it at runtime through `process.getBuiltinModule("node:sqlite")` behind an Atelier-owned `SqliteDatabase` interface.
+Atelier initially retained Node's built-in synchronous SQLite implementation and resolved it at runtime through `process.getBuiltinModule("node:sqlite")` behind an Atelier-owned `SqliteDatabase` interface. A real Pi launch later proved that Pi executes extensions inside Bun, so runtime resolution alone was insufficient. ADR-0015 replaces this decision with a dual Node/Bun SQLite boundary.
 
 Atelier also provides `atlr launch` and `mise run launch` as the supported development entry point. The launcher starts Pi from the repository root, loads the Atelier extension explicitly, forwards Pi arguments, and inherits the mise-pinned runtime environment.
 

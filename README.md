@@ -4,44 +4,18 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.10.1 scope
+## v0.10.2 scope
 
-Atelier now launches as a real Pi shell through `atlr launch` or `mise run launch`. The launcher
-starts Pi from the repository root, explicitly loads the Atelier extension, inherits the mise-pinned
-Node runtime, and forwards Pi arguments. SQLite remains Node's built-in implementation, but it is
-resolved dynamically so Pi's TypeScript extension loader does not reject the extension during static
-module resolution.
+Atelier now launches inside Pi's actual Bun extension runtime. The ledger runtime selects `bun:sqlite`
+inside Pi and `node:sqlite` for the Node CLI and tests, while preserving the same `.atelier/atelier.db`
+file, schema, and synchronous interface. Existing repository roots are canonicalized before launch so
+macOS `/var` and `/private/var` aliases cannot split state or fail launcher validation.
 
-The v0.10.0 Working State behavior remains intact. `atlr plan` and `/plan` persist the normalized
-planning objective, and the repository planner retrieves bounded code evidence before a provider task
-exists. Approved-plan task filtering, dependencies, blockers, corrections, Manual Edits, validation
-evidence, and selection rationale remain durable inputs to Working State.
+The supported interactive entry point remains:
 
-Task continuation is also stricter and more complete. Ready work is filtered to the approved plan,
-selection follows explicit task, resumable current task, priority, plan order, and stable ID, and the
-selection rationale is recorded in the ledger. Working State now includes direct dependencies,
-blockers, durable corrections and findings, recent Manual Edits, validation evidence, retrieval
-queries, warnings, and provider provenance. A transient task-provider failure does not erase the
-durable current-task pointer.
-
-The v0.9.8 provider decision remains unchanged: codesearch is the accepted general retrieval
-provider. Octocode remains explicit and experimental for signatures, structural search, and
-GraphRAG. The missing Octocode 0.14.0 entry is now committed in `mise.lock`.
-
-Atelier now owns:
-
-- the provider-neutral Code contract;
-- multi-repository workspace identity;
-- provider discovery and capability negotiation;
-- normalized search results and source references;
-- retrieval provenance and index-state reporting;
-- MCP stdio process lifecycle;
-- Working State integration;
-- policy, task, plan, repository, and validation state.
-
-External providers own general-purpose code indexing, parsing, embeddings, ranking, and graphs. Native FTS5 and Tree-sitter code indexes from v0.4.0 were removed.
-
-Atelier includes a verified `codesearch` default provider and an experimental Octocode structural adapter. Codesearch owns the primary local semantic, lexical, symbol, and relationship path. Octocode remains opt-in for signatures, structural search, and GraphRAG; it is not accepted for default repository retrieval.
+```bash
+mise run launch
+```
 
 ## Requirements
 
@@ -171,7 +145,7 @@ mise run launch
 mise run atlr -- launch
 ```
 
-Direct Pi loading remains available for loader debugging:
+Direct Pi loading remains available for loader debugging, but `mise run launch` is the supported path because it sets the repository root and extension path consistently:
 
 ```bash
 pi -e ./apps/pi-extension/src/index.ts
