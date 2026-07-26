@@ -1,4 +1,5 @@
 # Atelier runtime state
+.atelier/
 .atelier/*.db
 .atelier/*.db-*
 .atelier/codesearch-probe/
@@ -25,3 +26,9 @@ node_modules/
 coverage/
 *.log
 .DS_Store
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
