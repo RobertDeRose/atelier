@@ -1,10 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { AtelierCore } from "../packages/core/src/core.ts";
 import { DisabledCodeProvider } from "../packages/core/src/code/disabled-provider.ts";
 import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
+
+test("plan review resumes across a Core restart", () => {
+  const root = createTemporaryRepository("atlr-core-review-restart-");
+  const planPath = join(root, ".atelier", "PLAN.md");
+  writeFileSync(planPath, VALID_PLAN, "utf8");
+
+  let core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
+  try {
+    core.beginPlan("Resume a durable plan review");
+    const started = core.beginPlanReview({
+      editor: { executable: "fake-editor", args: [], source: "atlr" },
+    });
+    core.close();
+
+    core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
+    assert.equal(core.currentWorkflowRun()?.checkpoint, "reviewing");
+    assert.equal(core.ledger.getManualEdit(started.id)?.status, "started");
+
+    writeFileSync(planPath, VALID_PLAN.replace("Create the guarded core.", "Create the restart-safe guarded core."), "utf8");
+    const completed = core.completePlanReview(started.id, { exitCode: 0 });
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.accepted, true);
+    assert.equal(core.currentWorkflowRun()?.checkpoint, "reviewed");
+    assert.equal(core.ledger.getState("reviewedPlanHash"), completed.afterHash);
+  } finally {
+    core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("review, approval, reconciliation, and Working State form a runnable vertical slice", async () => {
   const root = createTemporaryRepository("atlr-core-");
@@ -15,9 +44,9 @@ test("review, approval, reconciliation, and Working State form a runnable vertic
 
     assert.throws(() => core.approvePlan(), /reviewed/);
 
-    const planText = readFileSync(join(root, ".atelier", "PLAN.md"), "utf8");
     core.beginPlan("Build the guarded core from durable state");
-    const review = core.recordPlanReview(planText, planText);
+    const started = core.beginPlanReview();
+    const review = core.completePlanReview(started.id, { exitCode: 0 });
     assert.equal(review.changed, false);
     const approvedHash = core.approvePlan();
 

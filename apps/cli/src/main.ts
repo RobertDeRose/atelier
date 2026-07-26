@@ -9,11 +9,9 @@ import {
   PERMISSIONS,
   classifyShellCommand,
   ensurePlanDocument,
-  hashFile,
   parsePlanFile,
-  readPlanDocument,
   resolveEditorCommand,
-  runConfiguredEditor,
+  runInteractiveProcess,
   type ActionKind,
   type Permission,
 } from "../../../packages/core/src/index.ts";
@@ -499,20 +497,24 @@ async function handlePlan(core: AtelierCore, subcommand: string | undefined, arg
     }
     case "review": {
       ensurePlanDocument(core.config.planPath);
-      const beforeText = readPlanDocument(core.config.planPath);
-      const beforeHash = hashFile(core.config.planPath);
-      const result = runConfiguredEditor({ config: core.config, path: core.config.planPath, projectTrusted: true });
-      if (result.exitCode !== 0) {
+      const editor = resolveEditorCommand(core.config, true);
+      const started = core.beginPlanReview({ editor });
+      const result = runInteractiveProcess({
+        command: editor.executable,
+        args: [...editor.args, core.config.planPath],
+        cwd: core.config.repositoryRoot,
+      });
+      if (result.exitCode !== 0 || result.signal !== undefined || result.error !== undefined) {
+        core.cancelPlanReview(started.id, {
+          status: result.signal === undefined ? "failed" : "interrupted",
+          exitCode: result.exitCode,
+          ...(result.signal === undefined ? {} : { signal: result.signal }),
+          ...(result.error === undefined ? {} : { error: result.error }),
+        });
         throw new Error(`Editor exited with code ${result.exitCode}${result.error ? `: ${result.error}` : ""}`);
       }
-      const afterText = readPlanDocument(core.config.planPath);
-      const review = core.recordPlanReview(beforeText, afterText);
-      const plan = core.parsePlan();
-      asJson({
-        editor: result.editor,
-        ...review,
-        diagnostics: plan.diagnostics,
-      });
+      const review = core.completePlanReview(started.id, { exitCode: result.exitCode });
+      asJson(review);
       return;
     }
     case "approve": {

@@ -185,6 +185,105 @@ export interface ParsedPlan {
   diagnostics: PlanDiagnostic[];
 }
 
+export const PLAN_STRUCTURAL_FIELDS = [
+  "title",
+  "goal",
+  "description",
+  "scope",
+  "outOfScope",
+  "dependencies",
+  "validation",
+  "completionCriteria",
+  "notes",
+  "priority",
+  "type",
+] as const;
+
+export type PlanStructuralField = (typeof PLAN_STRUCTURAL_FIELDS)[number];
+
+export interface PlanStructureTaskSnapshot {
+  id: string;
+  fieldHashes: Record<PlanStructuralField, string>;
+}
+
+export interface PlanStructureSnapshot {
+  order: string[];
+  tasks: PlanStructureTaskSnapshot[];
+}
+
+export interface PlanStructuralDiff {
+  added: string[];
+  removed: string[];
+  reordered: Array<{ id: string; beforeIndex: number; afterIndex: number }>;
+  changed: Array<{ id: string; fields: PlanStructuralField[] }>;
+}
+
+export type WorkflowRunStatus = "active" | "completed" | "cancelled" | "failed";
+export type WorkflowCheckpoint =
+  | "drafting"
+  | "review_pending"
+  | "reviewing"
+  | "reviewed"
+  | "reconciling"
+  | "approved"
+  | "executing"
+  | "validating"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export interface WorkflowRun {
+  id: string;
+  status: WorkflowRunStatus;
+  checkpoint: WorkflowCheckpoint;
+  objective: string;
+  planPath: string;
+  currentManualEditId?: string;
+  reviewedPlanHash?: string;
+  startedAt: string;
+  updatedAt: string;
+}
+
+export type ManualEditStatus = "started" | "completed" | "interrupted" | "failed";
+export type ManualEditDriftStatus = "none" | "repository_changed" | "workspace_changed";
+
+export interface ManualEditEditor {
+  executable: string;
+  args: string[];
+  source?: "atlr" | "pi" | "VISUAL" | "EDITOR" | "fallback";
+}
+
+export interface ManualEdit {
+  id: string;
+  workflowRunId: string;
+  purpose: "plan_review";
+  status: ManualEditStatus;
+  planPath: string;
+  editor?: ManualEditEditor;
+  beforeHash: string;
+  beforeStructure: PlanStructureSnapshot;
+  beforeRepositorySnapshot: RepositorySnapshot;
+  beforeSourceFingerprint: string;
+  beforeSourcePaths: string[];
+  afterHash?: string;
+  afterStructure?: PlanStructureSnapshot;
+  afterRepositorySnapshot?: RepositorySnapshot;
+  afterSourceFingerprint?: string;
+  afterSourcePaths?: string[];
+  changed?: boolean;
+  changedPaths: string[];
+  diagnostics?: PlanDiagnostic[];
+  structuralDiff?: PlanStructuralDiff;
+  driftStatus: ManualEditDriftStatus;
+  ambiguous: boolean;
+  accepted: boolean;
+  exitCode?: number;
+  signal?: string;
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
 export type ReconciliationOperation =
   | { kind: "create"; planTaskId: string; request: CreateTaskRequest }
   | { kind: "update"; planTaskId: string; providerTaskId: string; patch: TaskPatch }

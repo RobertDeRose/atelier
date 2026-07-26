@@ -1,7 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { loadDatabaseSync, type SqliteDatabase } from "./sqlite-runtime.ts";
-import type { Actor, LedgerEvent, PermissionGrant, RepositorySnapshot } from "../domain/types.ts";
+import type {
+  Actor,
+  LedgerEvent,
+  ManualEdit,
+  PermissionGrant,
+  RepositorySnapshot,
+  WorkflowRun,
+} from "../domain/types.ts";
 import { newId, nowIso } from "../util/ids.ts";
 
 interface EventRow {
@@ -12,6 +19,14 @@ interface EventRow {
   task_id: string | null;
   repository_snapshot_json: string | null;
   payload_json: string;
+}
+
+interface WorkflowRunRow {
+  record_json: string;
+}
+
+interface ManualEditRow {
+  record_json: string;
 }
 
 interface PermissionRow {
@@ -96,6 +111,32 @@ export class SqliteLedger {
     this.database
       .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(1, nowIso());
+
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_runs (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        checkpoint TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS workflow_runs_status_time
+        ON workflow_runs(status, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS manual_edits (
+        id TEXT PRIMARY KEY,
+        workflow_run_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(workflow_run_id) REFERENCES workflow_runs(id)
+      );
+      CREATE INDEX IF NOT EXISTS manual_edits_workflow_time
+        ON manual_edits(workflow_run_id, updated_at DESC);
+    `);
+    this.database
+      .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(2, nowIso());
   }
 
   append<TPayload>(input: {
@@ -105,32 +146,102 @@ export class SqliteLedger {
     repositorySnapshot?: RepositorySnapshot;
     payload: TPayload;
   }): LedgerEvent<TPayload> {
-    const event: LedgerEvent<TPayload> = {
-      id: newId("evt"),
-      kind: input.kind,
-      occurredAt: nowIso(),
-      actor: input.actor,
-      ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
-      ...(input.repositorySnapshot === undefined ? {} : { repositorySnapshot: input.repositorySnapshot }),
-      payload: input.payload,
-    };
-
-    this.database
-      .prepare(`
-        INSERT INTO ledger_events(
-          id, kind, occurred_at, actor, task_id, repository_snapshot_json, payload_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
-        event.id,
-        event.kind,
-        event.occurredAt,
-        event.actor,
-        event.taskId ?? null,
-        event.repositorySnapshot === undefined ? null : JSON.stringify(event.repositorySnapshot),
-        JSON.stringify(event.payload),
-      );
+    const event = this.createEvent(input);
+    this.insertEvent(event);
     return event;
+  }
+
+  saveWorkflowTransition<TPayload>(input: {
+    run: WorkflowRun;
+    manualEdit?: ManualEdit;
+    event: {
+      kind: string;
+      actor: Actor;
+      taskId?: string;
+      repositorySnapshot?: RepositorySnapshot;
+      payload: TPayload;
+    };
+    stateUpdates?: Record<string, unknown>;
+    clearStateKeys?: string[];
+  }): LedgerEvent<TPayload> {
+    const event = this.createEvent(input.event);
+    const runJson = JSON.stringify(input.run);
+    const manualEditJson = input.manualEdit === undefined
+      ? undefined
+      : JSON.stringify(input.manualEdit);
+    const stateUpdates = Object.entries(input.stateUpdates ?? {}).map(([key, value]) => [
+      key,
+      JSON.stringify(value),
+    ] as const);
+    const timestamp = input.run.updatedAt;
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(`
+        INSERT INTO workflow_runs(id, status, checkpoint, record_json, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status = excluded.status,
+          checkpoint = excluded.checkpoint,
+          record_json = excluded.record_json,
+          updated_at = excluded.updated_at
+      `).run(input.run.id, input.run.status, input.run.checkpoint, runJson, timestamp);
+      this.upsertState("currentWorkflowRunId", JSON.stringify(input.run.id), timestamp);
+
+      if (input.manualEdit !== undefined && manualEditJson !== undefined) {
+        this.database.prepare(`
+          INSERT INTO manual_edits(id, workflow_run_id, status, record_json, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            workflow_run_id = excluded.workflow_run_id,
+            status = excluded.status,
+            record_json = excluded.record_json,
+            updated_at = excluded.updated_at
+        `).run(
+          input.manualEdit.id,
+          input.manualEdit.workflowRunId,
+          input.manualEdit.status,
+          manualEditJson,
+          input.manualEdit.finishedAt ?? input.manualEdit.startedAt,
+        );
+        this.upsertState("currentManualEditId", JSON.stringify(input.manualEdit.id), timestamp);
+      }
+
+      for (const [key, valueJson] of stateUpdates) this.upsertState(key, valueJson, timestamp);
+      for (const key of input.clearStateKeys ?? []) {
+        this.database.prepare("DELETE FROM state WHERE key = ?").run(key);
+      }
+      this.insertEvent(event);
+      this.database.exec("COMMIT");
+      return event;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  getWorkflowRun(id: string): WorkflowRun | undefined {
+    const row = this.database.prepare("SELECT record_json FROM workflow_runs WHERE id = ?").get(id) as
+      | WorkflowRunRow
+      | undefined;
+    return row == null ? undefined : JSON.parse(row.record_json) as WorkflowRun;
+  }
+
+  getCurrentWorkflowRun(): WorkflowRun | undefined {
+    const id = this.getState<string>("currentWorkflowRunId");
+    return id === undefined ? undefined : this.getWorkflowRun(id);
+  }
+
+  getManualEdit(id: string): ManualEdit | undefined {
+    const row = this.database.prepare("SELECT record_json FROM manual_edits WHERE id = ?").get(id) as
+      | ManualEditRow
+      | undefined;
+    return row == null ? undefined : JSON.parse(row.record_json) as ManualEdit;
+  }
+
+  getCurrentManualEdit(): ManualEdit | undefined {
+    const id = this.getState<string>("currentManualEditId");
+    return id === undefined ? undefined : this.getManualEdit(id);
   }
 
   listEvents(options: { kind?: string; kinds?: string[]; taskId?: string; limit?: number } = {}): LedgerEvent[] {
@@ -176,12 +287,12 @@ export class SqliteLedger {
   }
 
   setState<T>(key: string, value: T): void {
-    this.database
-      .prepare(`
-        INSERT INTO state(key, value_json, updated_at) VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-      `)
-      .run(key, JSON.stringify(value), nowIso());
+    this.upsertState(key, JSON.stringify(value), nowIso());
+  }
+
+  deleteState(key: string): boolean {
+    const result = this.database.prepare("DELETE FROM state WHERE key = ?").run(key);
+    return Number(result.changes) > 0;
   }
 
   getState<T>(key: string): T | undefined {
@@ -295,6 +406,47 @@ export class SqliteLedger {
       providerTaskId: row.provider_task_id,
       planHash: row.plan_hash,
     }));
+  }
+
+  private createEvent<TPayload>(input: {
+    kind: string;
+    actor: Actor;
+    taskId?: string;
+    repositorySnapshot?: RepositorySnapshot;
+    payload: TPayload;
+  }): LedgerEvent<TPayload> {
+    return {
+      id: newId("evt"),
+      kind: input.kind,
+      occurredAt: nowIso(),
+      actor: input.actor,
+      ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
+      ...(input.repositorySnapshot === undefined ? {} : { repositorySnapshot: input.repositorySnapshot }),
+      payload: input.payload,
+    };
+  }
+
+  private insertEvent(event: LedgerEvent): void {
+    this.database.prepare(`
+      INSERT INTO ledger_events(
+        id, kind, occurred_at, actor, task_id, repository_snapshot_json, payload_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      event.id,
+      event.kind,
+      event.occurredAt,
+      event.actor,
+      event.taskId ?? null,
+      event.repositorySnapshot === undefined ? null : JSON.stringify(event.repositorySnapshot),
+      JSON.stringify(event.payload),
+    );
+  }
+
+  private upsertState(key: string, valueJson: string, updatedAt: string): void {
+    this.database.prepare(`
+      INSERT INTO state(key, value_json, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+    `).run(key, valueJson, updatedAt);
   }
 
   close(): void {

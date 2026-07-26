@@ -37,6 +37,14 @@ Supported task types are `bug`, `feature`, `task`, `epic`, and `chore`. Prioriti
 
 Dependencies refer to stable plan task IDs, not provider task IDs.
 
+## Structural review
+
+A plan `ManualEdit` compares task order and every canonical parsed field: stable ID, title, goal,
+description, scope, exclusions, dependencies, validation, completion criteria, notes, priority, and
+type. Changing a stable ID is represented as one removed task and one added task; IDs are not matched
+by title. Atelier stores the plan's content hashes plus fixed-size hashes of these structural fields,
+not a second unrestricted copy of the Markdown document.
+
 ## Blocking diagnostics
 
 - No task headings.

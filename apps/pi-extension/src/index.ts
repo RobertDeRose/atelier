@@ -11,9 +11,9 @@ import {
   classifyShellCommand,
   ensurePlanDocument,
   hashFile,
-  readPlanDocument,
   resolveEditorCommand,
   type ActionRequest,
+  type ManualEditEditor,
   type Permission,
 } from "../../../packages/core/src/index.ts";
 
@@ -253,15 +253,16 @@ async function authorizeTool(
 async function runEditorWithPi(
   ctx: ExtensionContext,
   core: AtelierCore,
-): Promise<{ exitCode: number; error?: string; editor: string }> {
+  editor: ManualEditEditor,
+): Promise<{ exitCode: number; error?: string; signal?: string; editor: ManualEditEditor }> {
   if (ctx.mode !== "tui") {
     throw new Error("The configured external editor requires Pi TUI mode.");
   }
-  const editor = resolveEditorCommand(core.config, ctx.isProjectTrusted());
-  const result = await ctx.ui.custom<{ exitCode: number; error?: string }>((tui, _theme, _keybindings, done) => {
+  const result = await ctx.ui.custom<{ exitCode: number; error?: string; signal?: string }>((tui, _theme, _keybindings, done) => {
     tui.stop();
     let exitCode = 1;
     let error: string | undefined;
+    let signal: string | undefined;
     try {
       const child = spawnSync(editor.executable, [...editor.args, core.config.planPath], {
         cwd: core.config.repositoryRoot,
@@ -272,19 +273,21 @@ async function runEditorWithPi(
       });
       exitCode = child.status ?? 1;
       error = child.error?.message;
+      signal = child.signal ?? undefined;
     } catch (caught) {
       error = errorMessage(caught);
     } finally {
       tui.start();
       tui.requestRender(true);
     }
-    done({ exitCode, ...(error === undefined ? {} : { error }) });
+    done({
+      exitCode,
+      ...(error === undefined ? {} : { error }),
+      ...(signal === undefined ? {} : { signal }),
+    });
     return EMPTY_COMPONENT;
   });
-  return {
-    ...result,
-    editor: [editor.executable, ...editor.args].join(" "),
-  };
+  return { ...result, editor };
 }
 
 async function reviewPlan(
@@ -296,31 +299,28 @@ async function reviewPlan(
   if (reviewInProgress) return;
   reviewInProgress = true;
   core.ledger.setState("planAutoReviewPending", false);
+  let startedManualEditId: string | undefined;
   try {
     ensurePlanDocument(core.config.planPath);
-    const beforeText = readPlanDocument(core.config.planPath);
-    const beforeHash = hashFile(core.config.planPath);
-    core.ledger.append({
-      kind: "manual_edit.started",
-      actor: "user",
-      repositorySnapshot: core.repository.snapshot(),
-      payload: { path: core.config.planPath, beforeHash, purpose: "plan_review" },
-    });
-
-    const result = await runEditorWithPi(ctx, core);
-    if (result.exitCode !== 0) {
+    const editor = resolveEditorCommand(core.config, ctx.isProjectTrusted());
+    const started = core.beginPlanReview({ editor });
+    startedManualEditId = started.id;
+    const result = await runEditorWithPi(ctx, core, editor);
+    if (result.exitCode !== 0 || result.error !== undefined || result.signal !== undefined) {
+      core.cancelPlanReview(started.id, {
+        status: result.signal === undefined ? "failed" : "interrupted",
+        exitCode: result.exitCode,
+        ...(result.signal === undefined ? {} : { signal: result.signal }),
+        ...(result.error === undefined ? {} : { error: result.error }),
+      });
       throw new Error(`Editor exited with code ${result.exitCode}${result.error ? `: ${result.error}` : ""}`);
     }
-    if (!existsSync(core.config.planPath)) {
-      throw new Error(`The plan document was removed: ${core.config.planPath}`);
-    }
 
-    const afterText = readPlanDocument(core.config.planPath);
-    const review = core.recordPlanReview(beforeText, afterText);
+    const review = core.completePlanReview(started.id, { exitCode: result.exitCode });
     const parsed = core.parsePlan();
     const errors = parsed.diagnostics.filter((diagnostic) => diagnostic.level === "error");
     core.ledger.append({
-      kind: "plan.reviewed",
+      kind: review.accepted ? "plan.reviewed" : "plan.review_blocked",
       actor: "user",
       repositorySnapshot: core.repository.snapshot(),
       payload: {
@@ -329,6 +329,9 @@ async function reviewPlan(
         beforeHash: review.beforeHash,
         afterHash: review.afterHash,
         changed: review.changed,
+        accepted: review.accepted,
+        driftStatus: review.driftStatus,
+        structuralDiff: review.structuralDiff,
         diagnostics: parsed.diagnostics,
       },
     });
@@ -350,6 +353,15 @@ async function reviewPlan(
       );
     }
   } catch (error) {
+    if (
+      startedManualEditId !== undefined
+      && core.ledger.getManualEdit(startedManualEditId)?.status === "started"
+    ) {
+      core.cancelPlanReview(startedManualEditId, {
+        status: "failed",
+        error: errorMessage(error),
+      });
+    }
     core.ledger.append({
       kind: "plan.review_failed",
       actor: "system",

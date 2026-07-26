@@ -4,6 +4,8 @@ import { loadConfig, type AtelierConfig } from "./config/config.ts";
 import { WorkingStateBuilder } from "./state/working-state-builder.ts";
 import type {
   ActionRequest,
+  ManualEdit,
+  ManualEditEditor,
   WorkingState,
   Permission,
   PermissionGrant,
@@ -14,7 +16,12 @@ import type {
 } from "./domain/types.ts";
 import { SqliteLedger } from "./ledger/sqlite-ledger.ts";
 import { ensurePlanDocument } from "./planning/plan-document.ts";
-import { parsePlanFile, parsePlanText } from "./planning/plan-parser.ts";
+import { parsePlanFile } from "./planning/plan-parser.ts";
+import {
+  PlanReviewService,
+  type CancelPlanReviewOptions,
+  type CompletePlanReviewOptions,
+} from "./planning/plan-review-service.ts";
 import { PlanReconciler } from "./planning/plan-reconciler.ts";
 import { PolicyEngine } from "./policy/policy-engine.ts";
 import { createRepositoryProvider } from "./repository/repository-factory.ts";
@@ -56,6 +63,7 @@ export class AtelierCore {
   readonly taskProvider: TaskProvider;
   readonly policy = new PolicyEngine();
   readonly repository: RepositoryProvider;
+  readonly planReview: PlanReviewService;
   readonly workingStateBuilder: WorkingStateBuilder;
   readonly validation: ValidationService;
   readonly code: CodeService;
@@ -65,6 +73,13 @@ export class AtelierCore {
     this.ledger = ledger;
     this.taskProvider = taskProvider;
     this.repository = createRepositoryProvider(config, ledger);
+    this.planReview = new PlanReviewService({
+      repositoryRoot: config.repositoryRoot,
+      planPath: config.planPath,
+      stateDirectory: config.stateDirectory,
+      ledger,
+      repository: this.repository,
+    });
     this.validation = new ValidationService({ root: config.repositoryRoot, database: ledger.database });
     const selection = codeProvider === undefined ? createCodeProviders(config) : { providers: [codeProvider], defaultProvider: codeProvider.name };
     this.code = new CodeService(new CodeProviderRegistry(selection.providers, selection.defaultProvider), ledger, { maxResults: config.codeMaxResults, maxPreviewBytes: config.codeMaxPreviewBytes, maxChunkBytes: config.codeMaxChunkBytes, maxFetches: config.codeMaxFetches, maxTotalBytes: config.codeMaxTotalBytes });
@@ -145,14 +160,16 @@ export class AtelierCore {
     const normalized = objective.replace(/\s+/g, " ").trim();
     this.setMode("plan", options.actor ?? "user");
     this.ledger.setState("planObjective", normalized);
+    const run = this.planReview.startWorkflow(normalized, options);
     this.ledger.append({
       kind: "plan.requested",
       actor: options.actor ?? "user",
       repositorySnapshot: this.repository.snapshot(),
       payload: {
+        ...(options.metadata ?? {}),
+        workflowRunId: run.id,
         objective: normalized,
         path: this.config.planPath,
-        ...(options.metadata ?? {}),
       },
     });
     return normalized;
@@ -212,24 +229,20 @@ export class AtelierCore {
     return parsePlanFile(this.config.planPath);
   }
 
-  recordPlanReview(beforeText: string, afterText: string): { beforeHash: string; afterHash: string; changed: boolean } {
-    const before = parsePlanText(beforeText, this.config.planPath);
-    const after = parsePlanText(afterText, this.config.planPath);
-    const changed = before.hash !== after.hash;
-    this.ledger.setState("reviewedPlanHash", after.hash);
-    this.ledger.append({
-      kind: "manual_edit.completed",
-      actor: "user",
-      repositorySnapshot: this.repository.snapshot(),
-      payload: {
-        path: this.config.planPath,
-        beforeHash: before.hash,
-        afterHash: after.hash,
-        changed,
-        structuralDiff: structuralPlanDiff(before.tasks, after.tasks),
-      },
-    });
-    return { beforeHash: before.hash, afterHash: after.hash, changed };
+  currentWorkflowRun() {
+    return this.planReview.currentWorkflowRun();
+  }
+
+  beginPlanReview(options: { editor?: ManualEditEditor } = {}): ManualEdit {
+    return this.planReview.begin(options);
+  }
+
+  completePlanReview(id: string, options: CompletePlanReviewOptions = {}): ManualEdit {
+    return this.planReview.complete(id, options);
+  }
+
+  cancelPlanReview(id: string, options: CancelPlanReviewOptions): ManualEdit {
+    return this.planReview.cancel(id, options);
   }
 
   approvePlan(): string {
@@ -378,21 +391,4 @@ function createCodeProviders(config: AtelierConfig): { providers: CodeProvider[]
     providers: [codesearch, octocode],
     defaultProvider: config.codeProvider,
   };
-}
-
-function structuralPlanDiff(
-  before: Array<{ id: string; title: string; dependencies: string[] }>,
-  after: Array<{ id: string; title: string; dependencies: string[] }>,
-): { added: string[]; removed: string[]; changed: string[] } {
-  const beforeById = new Map(before.map((task) => [task.id, task]));
-  const afterById = new Map(after.map((task) => [task.id, task]));
-  const added = [...afterById.keys()].filter((id) => !beforeById.has(id));
-  const removed = [...beforeById.keys()].filter((id) => !afterById.has(id));
-  const changed = [...afterById.entries()]
-    .filter(([id, task]) => {
-      const previous = beforeById.get(id);
-      return previous !== undefined && JSON.stringify(previous) !== JSON.stringify(task);
-    })
-    .map(([id]) => id);
-  return { added, removed, changed };
 }
