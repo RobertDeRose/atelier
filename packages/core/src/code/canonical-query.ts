@@ -74,6 +74,16 @@ export function canonicalizeRetrievalQuery(input: CanonicalQueryInput): Canonica
   };
 }
 
+export function canonicalQueryRequestDigest(query: CanonicalRetrievalQuery): string {
+  return sha256(stableJson({
+    operation: query.operation,
+    normalizedText: query.normalizedText,
+    ...(query.mode === undefined ? {} : { mode: query.mode }),
+    ...(query.focus === undefined ? {} : { focus: query.focus }),
+    filters: query.filters,
+  }));
+}
+
 export function canonicalizeRevisionBinding(input: Pick<CanonicalQueryInput, "provider" | "workspaceId" | "repositories" | "indexRevision">): RetrievalRevisionBinding {
   const repositories = input.repositories
     .map(({ repositoryId, snapshot }): RepositoryRevisionBinding => ({

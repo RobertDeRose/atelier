@@ -107,6 +107,13 @@ export interface CodeProvenance {
   warnings?: string[];
 }
 
+export interface AtelierRetrievalObservation {
+  kind: "provider_call" | "exact_reuse" | "overlap_reuse" | "direct_read" | "invalidated" | "unsupported" | "budget_denied" | "deduplicated";
+  queryDigest: string;
+  reason: string;
+  observedAt: string;
+}
+
 export interface CodeSearchHit {
   rank: number;
   providerRank?: number;
@@ -124,6 +131,8 @@ export interface CodeSearchHit {
   preview?: string;
   reference: CodeReference;
   provenance: CodeProvenance;
+  provenanceObservations?: CodeProvenance[];
+  atelierObservations?: AtelierRetrievalObservation[];
 }
 
 export interface CodeChunk {
@@ -135,6 +144,8 @@ export interface CodeChunk {
   endLine?: number;
   content: string;
   provenance: CodeProvenance;
+  provenanceObservations?: CodeProvenance[];
+  atelierObservations?: AtelierRetrievalObservation[];
 }
 
 export interface CodeSymbolQuery {
@@ -158,4 +169,6 @@ export interface CodeRelationship {
   target: CodeReference;
   label?: string;
   provenance: CodeProvenance;
+  provenanceObservations?: CodeProvenance[];
+  atelierObservations?: AtelierRetrievalObservation[];
 }

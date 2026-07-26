@@ -116,6 +116,8 @@ export interface RetrievalBudgetSnapshot {
   uniquePathsLimit: number;
   evidenceEntriesUsed: number;
   evidenceEntriesLimit: number;
+  fetchesUsed: number;
+  fetchesLimit: number;
   bytesUsed: number;
   bytesLimit: number;
 }
@@ -133,6 +135,15 @@ export interface RetrievalDiagnostic {
   message: string;
   queryDigest?: string;
   providerCallRequired?: boolean;
+}
+
+export interface RetrievalSessionStatus {
+  sessionId: string;
+  lastDecision?: RetrievalReuseDecision;
+  budget: RetrievalBudgetSnapshot;
+  telemetry: RetrievalTelemetry;
+  inventory: RetrievalInventorySummary;
+  diagnostics: RetrievalDiagnostic[];
 }
 
 export interface RetrievalTelemetry {

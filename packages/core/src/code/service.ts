@@ -1,6 +1,34 @@
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
+import { newId, nowIso } from "../util/ids.ts";
+import {
+  canonicalizeRetrievalQuery,
+  canonicalQueryRequestDigest,
+  decideCanonicalQueryReuse,
+  type CanonicalQueryInput,
+} from "./canonical-query.ts";
+import type { CodeProvider } from "./provider.ts";
 import type { CodeProviderRegistry } from "./registry.ts";
-import type { CodeChunk, CodeIndexState, CodeRelationship, CodeRelationshipQuery, CodeSearchFocus, CodeSearchHit, CodeSearchMode, CodeWorkspace } from "./types.ts";
+import type {
+  CachedQueryCoverage,
+  CanonicalRetrievalQuery,
+  RetrievalBudgetSnapshot,
+  RetrievalDiagnostic,
+  RetrievalReuseDecision,
+  RetrievalSessionStatus,
+  RetrievalTelemetry,
+} from "./retrieval.ts";
+import type {
+  AtelierRetrievalObservation,
+  CodeChunk,
+  CodeIndexState,
+  CodeProviderStatus,
+  CodeRelationship,
+  CodeRelationshipQuery,
+  CodeSearchFocus,
+  CodeSearchHit,
+  CodeSearchMode,
+  CodeWorkspace,
+} from "./types.ts";
 
 export interface CodeIndexCoordinatorStatus {
   state: CodeIndexState;
@@ -12,22 +40,101 @@ export interface CodeIndexCoordinatorStatus {
   error?: string;
 }
 
+export interface CodeServiceLimits {
+  maxResults: number;
+  maxPreviewBytes: number;
+  maxChunkBytes: number;
+  maxFetches: number;
+  maxTotalBytes: number;
+  maxProviderRequests: number;
+  maxUniquePaths: number;
+  maxEvidenceEntries: number;
+}
+
+interface CachedHitQuery extends CachedQueryCoverage {
+  requestDigest: string;
+  hits: CodeSearchHit[];
+}
+
+interface CachedRelationshipQuery extends CachedQueryCoverage {
+  requestDigest: string;
+  relationships: CodeRelationship[];
+}
+
+interface InventoryHit {
+  hit: CodeSearchHit;
+  sourceDigests: Set<string>;
+}
+
+interface ReferenceContext {
+  query: CanonicalRetrievalQuery;
+  workspace: CodeWorkspace;
+}
+
+interface CachedChunk {
+  chunk: CodeChunk;
+  queryDigest: string;
+}
+
+interface BoundedHits {
+  hits: CodeSearchHit[];
+  truncated: boolean;
+}
+
+interface BoundedRelationships {
+  relationships: CodeRelationship[];
+  truncated: boolean;
+}
+
 type CodeIndexStatusListener = (status: CodeIndexCoordinatorStatus) => void;
+
+const DEFAULT_LIMITS: CodeServiceLimits = {
+  maxResults: 10,
+  maxPreviewBytes: 2_000,
+  maxChunkBytes: 16_000,
+  maxFetches: 8,
+  maxTotalBytes: 64_000,
+  maxProviderRequests: 8,
+  maxUniquePaths: 32,
+  maxEvidenceEntries: 64,
+};
 
 export class CodeService {
   private readonly registry: CodeProviderRegistry;
   private readonly ledger: SqliteLedger;
-  private readonly limits: { maxResults: number; maxPreviewBytes: number; maxChunkBytes: number; maxFetches: number; maxTotalBytes: number };
+  private readonly limits: CodeServiceLimits;
+  private sessionId: string;
   private fetched = 0;
   private retrievedBytes = 0;
+  private providerRequests = 0;
   private activeIndex: Promise<CodeIndexState> | undefined;
   private indexStatus: CodeIndexCoordinatorStatus = { state: "unknown", active: false };
   private readonly indexListeners = new Set<CodeIndexStatusListener>();
+  private readonly hitQueries = new Map<string, CachedHitQuery>();
+  private readonly relationshipQueries = new Map<string, CachedRelationshipQuery>();
+  private readonly inventoryHits = new Map<string, InventoryHit>();
+  private readonly referenceContexts = new Map<string, ReferenceContext>();
+  private readonly chunks = new Map<string, CachedChunk>();
+  private readonly pathKeys = new Set<string>();
+  private readonly evidenceEntryKeys = new Set<string>();
+  private readonly referenceKeys = new Set<string>();
+  private readonly symbolKeys = new Set<string>();
+  private readonly chunkKeys = new Set<string>();
+  private diagnostics: RetrievalDiagnostic[] = [];
+  private lastDecision: RetrievalReuseDecision | undefined;
+  private telemetry: RetrievalTelemetry = emptyTelemetry();
 
-  constructor(registry: CodeProviderRegistry, ledger: SqliteLedger, limits = { maxResults: 10, maxPreviewBytes: 2000, maxChunkBytes: 16000, maxFetches: 8, maxTotalBytes: 64000 }) {
+  constructor(
+    registry: CodeProviderRegistry,
+    ledger: SqliteLedger,
+    limits: Partial<CodeServiceLimits> = {},
+    sessionId = newId("retrieval-session"),
+  ) {
     this.registry = registry;
     this.ledger = ledger;
-    this.limits = limits;
+    this.limits = { ...DEFAULT_LIMITS, ...limits };
+    validateLimits(this.limits);
+    this.sessionId = sessionId;
   }
 
   providers(workspace?: CodeWorkspace) { return this.registry.statuses(workspace); }
@@ -45,6 +152,56 @@ export class CodeService {
       };
     }
     return selected.status(workspace);
+  }
+
+  beginRetrievalSession(sessionId = newId("retrieval-session")): string {
+    this.sessionId = sessionId;
+    this.fetched = 0;
+    this.retrievedBytes = 0;
+    this.providerRequests = 0;
+    this.hitQueries.clear();
+    this.relationshipQueries.clear();
+    this.inventoryHits.clear();
+    this.referenceContexts.clear();
+    this.chunks.clear();
+    this.pathKeys.clear();
+    this.evidenceEntryKeys.clear();
+    this.referenceKeys.clear();
+    this.symbolKeys.clear();
+    this.chunkKeys.clear();
+    this.diagnostics = [];
+    this.lastDecision = undefined;
+    this.telemetry = emptyTelemetry();
+    return sessionId;
+  }
+
+  retrievalStatus(): RetrievalSessionStatus {
+    const budget = this.budgetSnapshot();
+    const activeHits = [...this.inventoryHits.values()]
+      .filter((entry) => [...entry.sourceDigests].some((digest) => this.hitQueries.has(digest)))
+      .map((entry) => entry.hit);
+    const freshness = activeHits.length === 0
+      ? "unknown" as const
+      : activeHits.every((hit) => hit.provenance.freshness === undefined || hit.provenance.freshness === "current")
+        ? "current" as const
+        : "possibly_stale" as const;
+    return {
+      sessionId: this.sessionId,
+      ...(this.lastDecision === undefined ? {} : { lastDecision: { ...this.lastDecision } }),
+      budget,
+      telemetry: { ...this.telemetry },
+      inventory: {
+        sessionId: this.sessionId,
+        queryCount: this.hitQueries.size + this.relationshipQueries.size,
+        evidenceCount: this.evidenceEntryKeys.size,
+        uniquePathCount: this.pathKeys.size,
+        resolvedSymbols: [...new Set(activeHits.flatMap((hit) => hit.symbol === undefined ? [] : [hit.symbol]))].sort(),
+        knownPaths: [...new Set(activeHits.map((hit) => hit.path))].sort(),
+        freshness,
+        budget,
+      },
+      diagnostics: this.diagnostics.map((diagnostic) => ({ ...diagnostic })),
+    };
   }
 
   indexingStatus(): CodeIndexCoordinatorStatus {
@@ -65,29 +222,18 @@ export class CodeService {
       active: true,
       provider: selected.name,
       workspaceId: workspace.id,
-      startedAt: new Date().toISOString(),
+      startedAt: nowIso(),
     });
     const operation = (async () => {
       try {
         const state = await selected.ensureIndex(workspace);
         const { error: _previousError, ...statusWithoutError } = this.indexStatus;
-        this.setIndexStatus({
-          ...statusWithoutError,
-          state,
-          active: false,
-          completedAt: new Date().toISOString(),
-        });
+        this.setIndexStatus({ ...statusWithoutError, state, active: false, completedAt: nowIso() });
         this.ledger.append({ kind: "code.index_completed", actor: "system", payload: { provider: selected.name, workspaceId: workspace.id, state } });
         return state;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.setIndexStatus({
-          ...this.indexStatus,
-          state: "failed",
-          active: false,
-          completedAt: new Date().toISOString(),
-          error: message,
-        });
+        const message = errorMessage(error);
+        this.setIndexStatus({ ...this.indexStatus, state: "failed", active: false, completedAt: nowIso(), error: message });
         this.ledger.append({ kind: "code.index_failed", actor: "system", payload: { provider: selected.name, workspaceId: workspace.id, error: message } });
         throw error;
       } finally {
@@ -99,46 +245,624 @@ export class CodeService {
     return operation;
   }
 
-  async search(options: { workspace: CodeWorkspace; text: string; mode?: CodeSearchMode; focus?: CodeSearchFocus; literalHints?: string[]; repositoryIds?: string[]; limit?: number; provider?: string }): Promise<CodeSearchHit[]> {
+  async search(options: {
+    workspace: CodeWorkspace;
+    text: string;
+    mode?: CodeSearchMode;
+    focus?: CodeSearchFocus;
+    literalHints?: string[];
+    repositoryIds?: string[];
+    limit?: number;
+    provider?: string;
+  }): Promise<CodeSearchHit[]> {
     await this.waitForActiveIndex();
     const selected = this.registry.get(options.provider);
-    const results = await selected.search({
-      workspace: options.workspace,
+    const status = await selected.status(options.workspace);
+    const limit = boundedLimit(options.limit, this.limits.maxResults);
+    const query = this.canonicalQuery({
+      operation: "search",
       text: options.text,
+      selected,
+      status,
+      workspace: options.workspace,
+      ...(options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds }),
       mode: options.mode ?? "auto",
       focus: options.focus ?? "auto",
-      ...(options.literalHints === undefined ? {} : { literalHints: options.literalHints }),
-      ...(options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds }),
-      limit: Math.min(options.limit ?? this.limits.maxResults, this.limits.maxResults),
-      includeTests: true,
-      includeGenerated: false,
+      filters: {
+        ...(options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds }),
+        ...(options.literalHints === undefined ? {} : { literalHints: options.literalHints }),
+        includeTests: true,
+        includeGenerated: false,
+      },
+      requestedLimit: limit,
     });
-    const bounded = results.slice(0, this.limits.maxResults).map((hit) => ({ ...hit, ...(hit.preview === undefined ? {} : { preview: truncateUtf8(hit.preview, this.limits.maxPreviewBytes) }) }));
-    const warnings = [...new Set(bounded.flatMap((hit) => hit.provenance.warnings ?? []))];
-    this.ledger.append({ kind: "code.search_completed", actor: "system", payload: { provider: selected.name, workspaceId: options.workspace.id, query: options.text, focus: options.focus ?? "auto", resultCount: bounded.length, truncated: results.length > bounded.length, degraded: bounded.some((hit) => hit.provenance.degraded === true), warnings } });
-    return bounded;
+
+    const reusable = this.reuseHits(query, status);
+    if (reusable !== undefined) return this.returnHits(reusable, query, this.lastDecision!);
+
+    const direct = statusAllowsReuse(status) ? this.directReadHits(query) : [];
+    if (direct.length > 0) {
+      this.lastDecision = { kind: "direct_read", reason: "requested path is already present in the current session inventory" };
+      this.cacheHitQuery(query, direct, true, false, false, cacheFreshness(status));
+      return this.returnHits(direct, query, this.lastDecision);
+    }
+
+    const overlap = statusAllowsReuse(status) ? this.overlapHits(query) : [];
+    if (overlap.length > 0) {
+      this.telemetry.overlapReuses += 1;
+      this.lastDecision = { kind: "overlap_reuse", reason: "current scoped inventory explicitly resolves the requested symbol" };
+      this.cacheHitQuery(query, overlap, true, false, false, cacheFreshness(status));
+      return this.returnHits(overlap, query, this.lastDecision);
+    }
+
+    if (!status.capabilities.some((capability) => capability === "search.lexical" || capability === "search.semantic" || capability === "search.hybrid")) {
+      this.lastDecision = { kind: "unsupported", reason: `Code provider ${selected.name} does not advertise a supported search capability.` };
+      throw new Error(this.lastDecision.reason);
+    }
+    this.prepareProviderCall(query);
+    let results: CodeSearchHit[];
+    try {
+      results = await selected.search({
+        workspace: options.workspace,
+        text: options.text,
+        mode: options.mode ?? "auto",
+        focus: options.focus ?? "auto",
+        ...(options.literalHints === undefined ? {} : { literalHints: options.literalHints }),
+        ...(options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds }),
+        limit,
+        includeTests: true,
+        includeGenerated: false,
+      });
+    } catch (error) {
+      this.recordProviderError(query, error);
+      throw error;
+    }
+    const degraded = status.degraded === true || results.some((hit) => hit.provenance.degraded === true);
+    const bounded = this.ingestHits(query, options.workspace, results.slice(0, limit), results.length > limit);
+    this.cacheHitQuery(query, bounded.hits, !bounded.truncated, bounded.truncated, degraded, cacheFreshness(status));
+    this.recordCompletion("code.search_completed", selected, options.workspace, query, bounded.hits.length, bounded.truncated, degraded);
+    return this.returnHits(bounded.hits, query, this.lastDecision!);
   }
 
   async read(reference: CodeSearchHit["reference"], provider?: string): Promise<CodeChunk> {
-    if (this.fetched >= this.limits.maxFetches) throw new Error(`Code fetch budget exceeded (${this.limits.maxFetches})`);
-    const chunk = await this.registry.get(provider ?? reference.provider).read(reference);
-    const content = truncateUtf8(chunk.content, Math.min(this.limits.maxChunkBytes, this.limits.maxTotalBytes - this.retrievedBytes));
-    this.fetched += 1; this.retrievedBytes += Buffer.byteLength(content);
-    return { ...chunk, content };
+    const selected = this.registry.get(provider ?? reference.provider);
+    const key = referenceKey(reference);
+    let context = this.referenceContexts.get(key);
+    if (context !== undefined) {
+      const status = await selected.status(context.workspace);
+      const currentQuery = this.rebindQuery(context.query, selected, status, context.workspace);
+      if (currentQuery.digest !== context.query.digest || !statusAllowsReuse(status)) {
+        const reason = currentQuery.digest === context.query.digest
+          ? "provider status no longer permits current chunk reuse"
+          : bindingDifference(context.query, currentQuery);
+        this.lastDecision = { kind: "invalidated", reason };
+        this.telemetry.invalidations += 1;
+        this.chunks.delete(key);
+        context = { query: currentQuery, workspace: context.workspace };
+        this.referenceContexts.set(key, context);
+      }
+    }
+    const cached = this.chunks.get(key);
+    if (cached !== undefined && context !== undefined && cached.queryDigest === context.query.digest) {
+      this.telemetry.cacheHits += 1;
+      this.lastDecision = { kind: "exact_reuse", reason: "fetched chunk is already present at the current repository and index revisions" };
+      return observeChunk(cached.chunk, cached.queryDigest, this.lastDecision);
+    }
+    if (this.fetched >= this.limits.maxFetches) {
+      this.lastDecision = { kind: "budget_denied", reason: `Code fetch budget exceeded (${this.limits.maxFetches})` };
+      throw new Error(`Code fetch budget exceeded (${this.limits.maxFetches})`);
+    }
+    const remaining = this.limits.maxTotalBytes - this.retrievedBytes;
+    if (remaining <= 0) {
+      this.lastDecision = { kind: "budget_denied", reason: `Code byte budget exhausted (${this.limits.maxTotalBytes})` };
+      throw new Error(`Code byte budget exhausted (${this.limits.maxTotalBytes})`);
+    }
+    this.requireProviderBudget();
+    this.telemetry.providerCalls += 1;
+    let chunk: CodeChunk;
+    try {
+      chunk = await selected.read(reference);
+    } catch (error) {
+      const message = errorMessage(error);
+      this.diagnostics.push({ code: "provider_error", level: "error", message, providerCallRequired: true });
+      throw error;
+    }
+    const bounded = truncateUtf8(chunk.content, Math.min(this.limits.maxChunkBytes, remaining));
+    const result = { ...chunk, content: bounded.value };
+    this.fetched += 1;
+    this.retrievedBytes += Buffer.byteLength(result.content);
+    this.telemetry.bytesReturned += Buffer.byteLength(result.content);
+    this.telemetry.truncated ||= bounded.truncated;
+    if (bounded.truncated) this.noteTruncation("chunk_byte_budget_truncated", `Fetched chunk ${reference.repositoryId}:${reference.path} was truncated by the session byte budget.`);
+    this.lastDecision = this.lastDecision?.kind === "invalidated"
+      ? this.lastDecision
+      : { kind: "provider_call", reason: "chunk was not present in the current session inventory" };
+    if (!bounded.truncated && context !== undefined) {
+      this.chunks.set(key, { chunk: result, queryDigest: context.query.digest });
+    }
+    return observeChunk(result, context?.query.digest ?? key, this.lastDecision);
   }
 
-  async symbols(options: { workspace: CodeWorkspace; text: string; repositoryIds?: string[]; limit?: number; provider?: string }): Promise<CodeSearchHit[]> {
+  async symbols(options: {
+    workspace: CodeWorkspace;
+    text: string;
+    repositoryIds?: string[];
+    limit?: number;
+    provider?: string;
+  }): Promise<CodeSearchHit[]> {
     await this.waitForActiveIndex();
     const selected = this.registry.get(options.provider);
-    return selected.symbols({ workspace: options.workspace, text: options.text, ...(options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds }), limit: options.limit ?? 10 });
+    const status = await selected.status(options.workspace);
+    const limit = boundedLimit(options.limit, this.limits.maxResults);
+    const query = this.canonicalQuery({
+      operation: "symbols",
+      text: options.text,
+      selected,
+      status,
+      workspace: options.workspace,
+      ...(options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds }),
+      filters: options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds },
+      requestedLimit: limit,
+    });
+    const reusable = this.reuseHits(query, status);
+    if (reusable !== undefined) return this.returnHits(reusable, query, this.lastDecision!);
+    const overlap = statusAllowsReuse(status) ? this.overlapHits(query) : [];
+    if (overlap.length > 0) {
+      this.telemetry.overlapReuses += 1;
+      this.lastDecision = { kind: "overlap_reuse", reason: "current scoped inventory explicitly resolves the requested symbol" };
+      this.cacheHitQuery(query, overlap, true, false, false, cacheFreshness(status));
+      return this.returnHits(overlap, query, this.lastDecision);
+    }
+    if (!status.capabilities.includes("symbol.search")) {
+      this.lastDecision = { kind: "unsupported", reason: `Code provider ${selected.name} does not support symbol.search.` };
+      throw new Error(this.lastDecision.reason);
+    }
+    this.prepareProviderCall(query);
+    let results: CodeSearchHit[];
+    try {
+      results = await selected.symbols({
+        workspace: options.workspace,
+        text: options.text,
+        ...(options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds }),
+        limit,
+      });
+    } catch (error) {
+      this.recordProviderError(query, error);
+      throw error;
+    }
+    const degraded = status.degraded === true || results.some((hit) => hit.provenance.degraded === true);
+    const bounded = this.ingestHits(query, options.workspace, results.slice(0, limit), results.length > limit);
+    this.cacheHitQuery(query, bounded.hits, !bounded.truncated, bounded.truncated, degraded, cacheFreshness(status));
+    this.recordCompletion("code.symbols_completed", selected, options.workspace, query, bounded.hits.length, bounded.truncated, degraded);
+    return this.returnHits(bounded.hits, query, this.lastDecision!);
   }
 
   async relationships(query: CodeRelationshipQuery, provider?: string): Promise<CodeRelationship[]> {
     await this.waitForActiveIndex();
-    return this.registry.get(provider).relationships(query);
+    const selected = this.registry.get(provider);
+    const status = await selected.status(query.workspace);
+    const limit = boundedLimit(query.limit, this.limits.maxResults);
+    const canonical = this.canonicalQuery({
+      operation: "relationships",
+      text: `${query.reference.provider}:${query.reference.repositoryId}:${query.reference.path}`,
+      selected,
+      status,
+      workspace: query.workspace,
+      repositoryIds: [query.reference.repositoryId],
+      filters: {
+        repositoryIds: [query.reference.repositoryId],
+        relationshipKinds: query.kinds,
+        depth: query.depth,
+        reference: query.reference,
+      },
+      requestedLimit: limit,
+    });
+    const cached = this.relationshipQueries.get(canonical.digest);
+    if (cached !== undefined && statusAllowsReuse(status)) {
+      const decision = decideCanonicalQueryReuse(cached, canonical);
+      if (decision.kind === "exact_reuse") {
+        this.telemetry.cacheHits += 1;
+        this.lastDecision = decision;
+        return this.returnRelationships(cached.relationships.slice(0, limit), canonical, decision);
+      }
+    }
+    this.noteInvalidation(canonical);
+    if (!status.capabilities.includes("graph.relationships")) {
+      this.lastDecision = { kind: "unsupported", reason: `Code provider ${selected.name} does not support graph.relationships.` };
+      throw new Error(this.lastDecision.reason);
+    }
+    this.prepareProviderCall(canonical);
+    let results: CodeRelationship[];
+    try {
+      results = await selected.relationships({ ...query, limit });
+    } catch (error) {
+      this.recordProviderError(canonical, error);
+      throw error;
+    }
+    const degraded = status.degraded === true || results.some((item) => item.provenance.degraded === true);
+    const bounded = this.ingestRelationships(canonical, results.slice(0, limit), results.length > limit);
+    this.relationshipQueries.set(canonical.digest, {
+      query: canonical,
+      requestDigest: canonicalQueryRequestDigest(canonical),
+      relationships: bounded.relationships,
+      coveredLimit: canonical.requestedLimit,
+      complete: !bounded.truncated,
+      truncated: bounded.truncated,
+      degraded,
+      freshness: cacheFreshness(status),
+    });
+    this.recordCompletion("code.relationships_completed", selected, query.workspace, canonical, bounded.relationships.length, bounded.truncated, degraded);
+    return this.returnRelationships(bounded.relationships, canonical, this.lastDecision!);
   }
 
   close() { return this.registry.close(); }
+
+  private canonicalQuery(input: {
+    operation: CanonicalQueryInput["operation"];
+    text: string;
+    selected: CodeProvider;
+    status: CodeProviderStatus;
+    workspace: CodeWorkspace;
+    repositoryIds?: string[];
+    mode?: CodeSearchMode;
+    focus?: CodeSearchFocus;
+    filters: CanonicalQueryInput["filters"];
+    requestedLimit: number;
+  }): CanonicalRetrievalQuery {
+    const repositories = selectedRepositories(input.workspace, input.repositoryIds);
+    return canonicalizeRetrievalQuery({
+      operation: input.operation,
+      text: input.text,
+      provider: input.status.identity,
+      workspaceId: input.workspace.id,
+      repositories: repositories.map((repository) => ({ repositoryId: repository.id, snapshot: repository.snapshot })),
+      ...(input.status.indexRevision === undefined ? {} : { indexRevision: input.status.indexRevision }),
+      ...(input.mode === undefined ? {} : { mode: input.mode }),
+      ...(input.focus === undefined ? {} : { focus: input.focus }),
+      ...(input.filters === undefined ? {} : { filters: input.filters }),
+      requestedLimit: input.requestedLimit,
+    });
+  }
+
+  private rebindQuery(
+    query: CanonicalRetrievalQuery,
+    selected: CodeProvider,
+    status: CodeProviderStatus,
+    workspace: CodeWorkspace,
+  ): CanonicalRetrievalQuery {
+    return this.canonicalQuery({
+      operation: query.operation,
+      text: query.normalizedText,
+      selected,
+      status,
+      workspace,
+      ...(query.filters.repositoryIds.length === 0 ? {} : { repositoryIds: query.filters.repositoryIds }),
+      ...(query.mode === undefined ? {} : { mode: query.mode }),
+      ...(query.focus === undefined || query.focus === "mixed" ? {} : { focus: query.focus }),
+      filters: query.filters,
+      requestedLimit: query.requestedLimit,
+    });
+  }
+
+  private reuseHits(query: CanonicalRetrievalQuery, status: CodeProviderStatus): CodeSearchHit[] | undefined {
+    const cached = this.hitQueries.get(query.digest);
+    if (cached !== undefined && statusAllowsReuse(status)) {
+      const decision = decideCanonicalQueryReuse(cached, query);
+      if (decision.kind === "exact_reuse") {
+        this.telemetry.cacheHits += 1;
+        this.lastDecision = decision;
+        return cached.hits.slice(0, query.requestedLimit);
+      }
+    }
+    this.noteInvalidation(query);
+    return undefined;
+  }
+
+  private noteInvalidation(query: CanonicalRetrievalQuery): void {
+    const requestDigest = canonicalQueryRequestDigest(query);
+    const previous = [
+      ...this.hitQueries.values(),
+      ...this.relationshipQueries.values(),
+    ].filter((entry) => entry.requestDigest === requestDigest && entry.query.digest !== query.digest).at(-1);
+    if (previous === undefined) {
+      this.lastDecision = { kind: "provider_call", reason: "no complete current canonical result covers this request" };
+      return;
+    }
+    const reason = bindingDifference(previous.query, query);
+    this.lastDecision = { kind: "invalidated", reason };
+    this.telemetry.invalidations += 1;
+    this.diagnostics.push({
+      code: "retrieval_invalidated",
+      level: "info",
+      message: reason,
+      queryDigest: query.digest,
+      providerCallRequired: true,
+    });
+  }
+
+  private directReadHits(query: CanonicalRetrievalQuery): CodeSearchHit[] {
+    const paths = pathCandidates(query.normalizedText);
+    if (paths.length === 0) return [];
+    return this.currentInventoryHits(query, (hit) => paths.includes(normalizePath(hit.path)));
+  }
+
+  private overlapHits(query: CanonicalRetrievalQuery): CodeSearchHit[] {
+    if (query.operation !== "search" || !isIdentifier(query.normalizedText)) return [];
+    return this.currentInventoryHits(
+      query,
+      (hit) => hit.symbol === query.normalizedText,
+      (source) => source.query.operation === "symbols"
+        && source.complete
+        && !source.truncated
+        && !source.degraded
+        && source.freshness === "current",
+    );
+  }
+
+  private currentInventoryHits(
+    query: CanonicalRetrievalQuery,
+    predicate: (hit: CodeSearchHit) => boolean,
+    sourcePredicate: (source: CachedHitQuery) => boolean = () => true,
+  ): CodeSearchHit[] {
+    const repositories = new Set(query.binding.repositories.map((repository) => repository.repositoryId));
+    return [...this.inventoryHits.values()]
+      .filter((entry) => predicate(entry.hit) && repositories.has(entry.hit.repositoryId))
+      .filter((entry) => [...entry.sourceDigests].some((digest) => {
+        const source = this.hitQueries.get(digest);
+        return source !== undefined && sourcePredicate(source) && sameBinding(source.query, query);
+      }))
+      .map((entry) => entry.hit)
+      .slice(0, query.requestedLimit);
+  }
+
+  private prepareProviderCall(query: CanonicalRetrievalQuery): void {
+    this.requireProviderBudget();
+    this.telemetry.providerCalls += 1;
+    this.lastDecision = this.lastDecision?.kind === "invalidated"
+      ? this.lastDecision
+      : { kind: "provider_call", reason: "current inventory does not completely cover this request" };
+    this.diagnostics.push({
+      code: this.lastDecision.kind === "invalidated" ? "provider_call_after_invalidation" : "provider_call",
+      level: "info",
+      message: this.lastDecision.reason,
+      queryDigest: query.digest,
+      providerCallRequired: true,
+    });
+  }
+
+  private requireProviderBudget(): void {
+    if (this.providerRequests >= this.limits.maxProviderRequests) {
+      const reason = `Code provider request budget exhausted (${this.providerRequests}/${this.limits.maxProviderRequests}). Inspect the session inventory or start a new retrieval session. Raw scanning is not an automatic fallback.`;
+      this.lastDecision = { kind: "budget_denied", reason };
+      this.diagnostics.push({ code: "provider_request_budget_exhausted", level: "error", message: reason, providerCallRequired: false });
+      throw new Error(reason);
+    }
+    this.providerRequests += 1;
+  }
+
+  private ingestHits(query: CanonicalRetrievalQuery, workspace: CodeWorkspace, hits: CodeSearchHit[], initiallyTruncated: boolean): BoundedHits {
+    const output = new Map<string, CodeSearchHit>();
+    let truncated = initiallyTruncated;
+    if (initiallyTruncated) this.noteTruncation("result_limit_truncated", "Provider results exceeded the bounded request limit.", query.digest);
+    const scopedRepositories = new Set(query.binding.repositories.map((repository) => repository.repositoryId));
+    const enforceExplicitScope = query.filters.repositoryIds.length > 0;
+
+    for (const hit of hits) {
+      if (enforceExplicitScope && !scopedRepositories.has(hit.repositoryId)) {
+        truncated = true;
+        this.diagnostics.push({ code: "provider_scope_leak_removed", level: "warning", message: `Removed out-of-scope result ${hit.repositoryId}:${hit.path}.`, queryDigest: query.digest });
+        continue;
+      }
+      const pathKey = inventoryPathKey(query.binding.workspaceId, hit.repositoryId, hit.path);
+      const reference = referenceKey(hit.reference);
+      const chunk = chunkKey(hit);
+      const symbol = symbolKey(hit);
+      const entry = `${query.binding.workspaceId}:${chunk}`;
+      const newPath = !this.pathKeys.has(pathKey);
+      const newEntry = !this.evidenceEntryKeys.has(entry);
+
+      if (newPath && this.pathKeys.size >= this.limits.maxUniquePaths) {
+        truncated = true;
+        this.noteTruncation("unique_path_budget_truncated", `Unique-path budget ${this.limits.maxUniquePaths} excluded ${hit.repositoryId}:${hit.path}.`, query.digest);
+        continue;
+      }
+      if (newEntry && this.evidenceEntryKeys.size >= this.limits.maxEvidenceEntries) {
+        truncated = true;
+        this.noteTruncation("evidence_entry_budget_truncated", `Evidence-entry budget ${this.limits.maxEvidenceEntries} excluded ${hit.repositoryId}:${hit.path}.`, query.digest);
+        continue;
+      }
+
+      if (this.pathKeys.has(pathKey)) this.telemetry.duplicatePathsRemoved += 1;
+      if (this.referenceKeys.has(reference)) this.telemetry.duplicateReferencesRemoved += 1;
+      if (this.chunkKeys.has(chunk)) this.telemetry.duplicateChunksRemoved += 1;
+      if (symbol !== undefined && this.symbolKeys.has(symbol)) this.telemetry.duplicateSymbolsRemoved += 1;
+
+      this.pathKeys.add(pathKey);
+      this.referenceKeys.add(reference);
+      this.referenceContexts.set(reference, { query, workspace });
+      this.chunkKeys.add(chunk);
+      if (symbol !== undefined) this.symbolKeys.add(symbol);
+      if (newEntry) this.evidenceEntryKeys.add(entry);
+
+      const previous = this.inventoryHits.get(pathKey);
+      const bounded = previous === undefined ? this.boundHitPreview(hit) : { hit, truncated: false };
+      truncated ||= bounded.truncated;
+      if (bounded.truncated) this.noteTruncation("evidence_byte_budget_truncated", `Preview bytes were truncated for ${hit.repositoryId}:${hit.path}.`, query.digest);
+      const merged = previous === undefined
+        ? bounded.hit
+        : previous.sourceDigests.has(query.digest)
+          ? mergeHits(previous.hit, bounded.hit, query.digest)
+          : mergeHits(bounded.hit, previous.hit, query.digest);
+      const sources = previous?.sourceDigests ?? new Set<string>();
+      sources.add(query.digest);
+      this.inventoryHits.set(pathKey, { hit: merged, sourceDigests: sources });
+      output.set(pathKey, merged);
+    }
+
+    this.telemetry.uniquePaths = this.pathKeys.size;
+    this.telemetry.truncated ||= truncated;
+    return {
+      hits: [...output.values()].slice(0, query.requestedLimit).map((hit, index) => ({ ...hit, rank: index + 1 })),
+      truncated,
+    };
+  }
+
+  private boundHitPreview(hit: CodeSearchHit): { hit: CodeSearchHit; truncated: boolean } {
+    if (hit.preview === undefined) return { hit: { ...hit }, truncated: false };
+    const remaining = Math.max(0, this.limits.maxTotalBytes - this.retrievedBytes);
+    const bounded = truncateUtf8(hit.preview, Math.min(this.limits.maxPreviewBytes, remaining));
+    this.retrievedBytes += Buffer.byteLength(bounded.value);
+    return {
+      hit: { ...hit, preview: bounded.value },
+      truncated: bounded.truncated,
+    };
+  }
+
+  private cacheHitQuery(
+    query: CanonicalRetrievalQuery,
+    hits: CodeSearchHit[],
+    complete: boolean,
+    truncated: boolean,
+    degraded: boolean,
+    freshness: CachedHitQuery["freshness"],
+  ): void {
+    this.hitQueries.set(query.digest, {
+      query,
+      requestDigest: canonicalQueryRequestDigest(query),
+      hits,
+      coveredLimit: query.requestedLimit,
+      complete,
+      truncated,
+      degraded,
+      freshness,
+    });
+  }
+
+  private ingestRelationships(query: CanonicalRetrievalQuery, relationships: CodeRelationship[], initiallyTruncated: boolean): BoundedRelationships {
+    const output: CodeRelationship[] = [];
+    const seen = new Set<string>();
+    let truncated = initiallyTruncated;
+    if (initiallyTruncated) this.noteTruncation("result_limit_truncated", "Provider relationships exceeded the bounded request limit.", query.digest);
+    for (const relationship of relationships) {
+      const key = `${relationship.kind}:${referenceKey(relationship.source)}:${referenceKey(relationship.target)}`;
+      if (seen.has(key)) {
+        this.telemetry.duplicateReferencesRemoved += 1;
+        continue;
+      }
+      const existingEntry = this.evidenceEntryKeys.has(`relationship:${key}`);
+      if (existingEntry) this.telemetry.duplicateReferencesRemoved += 1;
+      if (!existingEntry && this.evidenceEntryKeys.size >= this.limits.maxEvidenceEntries) {
+        truncated = true;
+        this.noteTruncation("evidence_entry_budget_truncated", `Evidence-entry budget ${this.limits.maxEvidenceEntries} excluded a relationship.`, query.digest);
+        break;
+      }
+      const pathKey = inventoryPathKey(query.binding.workspaceId, relationship.target.repositoryId, relationship.target.path);
+      if (!this.pathKeys.has(pathKey) && this.pathKeys.size >= this.limits.maxUniquePaths) {
+        truncated = true;
+        this.noteTruncation("unique_path_budget_truncated", `Unique-path budget ${this.limits.maxUniquePaths} excluded ${relationship.target.repositoryId}:${relationship.target.path}.`, query.digest);
+        continue;
+      }
+      seen.add(key);
+      this.evidenceEntryKeys.add(`relationship:${key}`);
+      this.pathKeys.add(pathKey);
+      output.push(relationship);
+    }
+    this.telemetry.uniquePaths = this.pathKeys.size;
+    this.telemetry.truncated ||= truncated;
+    return { relationships: output, truncated };
+  }
+
+  private noteTruncation(code: string, message: string, queryDigest?: string): void {
+    this.telemetry.truncated = true;
+    this.diagnostics.push({
+      code,
+      level: "warning",
+      message,
+      ...(queryDigest === undefined ? {} : { queryDigest }),
+      providerCallRequired: false,
+    });
+  }
+
+  private returnHits(hits: CodeSearchHit[], query: CanonicalRetrievalQuery, decision: RetrievalReuseDecision): CodeSearchHit[] {
+    const observed = hits.map((hit, index) => observeHit({ ...hit, rank: index + 1 }, query.digest, decision));
+    const bytes = observed.reduce((total, hit) => total + Buffer.byteLength(hit.preview ?? ""), 0);
+    this.telemetry.bytesReturned += bytes;
+    this.recordReuse(query, decision, observed.length);
+    return observed;
+  }
+
+  private returnRelationships(relationships: CodeRelationship[], query: CanonicalRetrievalQuery, decision: RetrievalReuseDecision): CodeRelationship[] {
+    const observed = relationships.map((relationship) => observeRelationship(relationship, query.digest, decision));
+    this.recordReuse(query, decision, observed.length);
+    return observed;
+  }
+
+  private recordReuse(query: CanonicalRetrievalQuery, decision: RetrievalReuseDecision, resultCount: number): void {
+    if (decision.kind !== "exact_reuse" && decision.kind !== "overlap_reuse" && decision.kind !== "direct_read") return;
+    this.ledger.append({
+      kind: "code.retrieval_reused",
+      actor: "system",
+      payload: {
+        sessionId: this.sessionId,
+        queryDigest: query.digest,
+        operation: query.operation,
+        decision,
+        resultCount,
+        budget: this.budgetSnapshot(),
+        telemetry: this.telemetry,
+      },
+    });
+  }
+
+  private recordProviderError(query: CanonicalRetrievalQuery, error: unknown): void {
+    const message = errorMessage(error);
+    this.diagnostics.push({ code: "provider_error", level: "error", message, queryDigest: query.digest, providerCallRequired: true });
+    this.ledger.append({ kind: "code.retrieval_failed", actor: "system", payload: { sessionId: this.sessionId, queryDigest: query.digest, operation: query.operation, error: message, budget: this.budgetSnapshot() } });
+  }
+
+  private recordCompletion(
+    kind: string,
+    selected: CodeProvider,
+    workspace: CodeWorkspace,
+    query: CanonicalRetrievalQuery,
+    resultCount: number,
+    truncated: boolean,
+    degraded: boolean,
+  ): void {
+    this.ledger.append({
+      kind,
+      actor: "system",
+      payload: {
+        sessionId: this.sessionId,
+        provider: selected.name,
+        workspaceId: workspace.id,
+        query: query.normalizedText,
+        queryDigest: query.digest,
+        operation: query.operation,
+        resultCount,
+        decision: this.lastDecision,
+        truncated,
+        degraded,
+        budget: this.budgetSnapshot(),
+        telemetry: this.telemetry,
+      },
+    });
+  }
+
+  private budgetSnapshot(): RetrievalBudgetSnapshot {
+    return {
+      providerRequestsUsed: this.providerRequests,
+      providerRequestsLimit: this.limits.maxProviderRequests,
+      uniquePathsUsed: this.pathKeys.size,
+      uniquePathsLimit: this.limits.maxUniquePaths,
+      evidenceEntriesUsed: this.evidenceEntryKeys.size,
+      evidenceEntriesLimit: this.limits.maxEvidenceEntries,
+      fetchesUsed: this.fetched,
+      fetchesLimit: this.limits.maxFetches,
+      bytesUsed: this.retrievedBytes,
+      bytesLimit: this.limits.maxTotalBytes,
+    };
+  }
 
   private async waitForActiveIndex(): Promise<void> {
     if (this.activeIndex !== undefined) await this.activeIndex;
@@ -150,8 +874,181 @@ export class CodeService {
   }
 }
 
-function truncateUtf8(value: string, maxBytes: number): string {
-  if (Buffer.byteLength(value) <= maxBytes) return value;
-  let result = value; while (result && Buffer.byteLength(result) > maxBytes) result = result.slice(0, Math.max(0, result.length - Math.ceil((Buffer.byteLength(result)-maxBytes)/2)));
-  return `${result}\n…[truncated by Atelier retrieval budget]`;
+function emptyTelemetry(): RetrievalTelemetry {
+  return {
+    providerCalls: 0,
+    cacheHits: 0,
+    overlapReuses: 0,
+    uniquePaths: 0,
+    duplicatePathsRemoved: 0,
+    duplicateSymbolsRemoved: 0,
+    duplicateChunksRemoved: 0,
+    duplicateReferencesRemoved: 0,
+    bytesReturned: 0,
+    truncated: false,
+    invalidations: 0,
+  };
+}
+
+function validateLimits(limits: CodeServiceLimits): void {
+  for (const [name, value] of Object.entries(limits)) {
+    if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
+  }
+}
+
+function boundedLimit(value: number | undefined, maximum: number): number {
+  return Math.min(Number.isInteger(value) && (value ?? 0) > 0 ? value! : maximum, maximum);
+}
+
+function selectedRepositories(workspace: CodeWorkspace, repositoryIds: string[] | undefined) {
+  if (repositoryIds === undefined || repositoryIds.length === 0) return workspace.repositories;
+  const selected = new Set(repositoryIds);
+  const repositories = workspace.repositories.filter((repository) => selected.has(repository.id));
+  if (repositories.length !== selected.size) {
+    const missing = [...selected].filter((id) => !repositories.some((repository) => repository.id === id));
+    throw new Error(`Unknown repository scope: ${missing.join(", ")}`);
+  }
+  return repositories;
+}
+
+function statusAllowsReuse(status: CodeProviderStatus): boolean {
+  return status.available
+    && status.healthy
+    && status.indexRevision !== undefined
+    && status.indexState === "ready"
+    && status.degraded !== true;
+}
+
+function cacheFreshness(status: CodeProviderStatus) {
+  return statusAllowsReuse(status)
+    ? "current" as const
+    : "unknown" as const;
+}
+
+function sameBinding(left: CanonicalRetrievalQuery, right: CanonicalRetrievalQuery): boolean {
+  return JSON.stringify(left.binding) === JSON.stringify(right.binding);
+}
+
+function bindingDifference(previous: CanonicalRetrievalQuery, current: CanonicalRetrievalQuery): string {
+  if (previous.binding.workspaceId !== current.binding.workspaceId) return "workspace scope changed; cached evidence was invalidated";
+  if (JSON.stringify(previous.binding.provider) !== JSON.stringify(current.binding.provider)) return "provider identity changed; cached evidence was invalidated";
+  if (previous.binding.indexRevision !== current.binding.indexRevision) return "provider index revision changed; cached evidence was invalidated";
+  if (JSON.stringify(previous.binding.repositories) !== JSON.stringify(current.binding.repositories)) return "repository revision changed; cached evidence was invalidated";
+  return "canonical revision binding changed; cached evidence was invalidated";
+}
+
+function inventoryPathKey(workspaceId: string, repositoryId: string, path: string): string {
+  return `${workspaceId}:${repositoryId}:${normalizePath(path)}`;
+}
+
+function referenceKey(reference: CodeSearchHit["reference"]): string {
+  return `${reference.provider}:${reference.repositoryId}:${reference.opaqueId}`;
+}
+
+function chunkKey(hit: CodeSearchHit): string {
+  return `${hit.repositoryId}:${normalizePath(hit.path)}:${hit.startLine ?? ""}:${hit.endLine ?? ""}:${referenceKey(hit.reference)}`;
+}
+
+function symbolKey(hit: CodeSearchHit): string | undefined {
+  return hit.symbol === undefined
+    ? undefined
+    : `${hit.repositoryId}:${normalizePath(hit.path)}:${hit.startLine ?? ""}:${hit.endLine ?? ""}:${hit.symbol}`;
+}
+
+function mergeHits(current: CodeSearchHit, previous: CodeSearchHit, queryDigest: string): CodeSearchHit {
+  const provenanceObservations = uniqueProvenance([
+    current.provenance,
+    ...(current.provenanceObservations ?? []),
+    previous.provenance,
+    ...(previous.provenanceObservations ?? []),
+  ]);
+  return {
+    ...current,
+    retrievalMethods: [...new Set([...current.retrievalMethods, ...previous.retrievalMethods])],
+    provenanceObservations,
+    atelierObservations: [
+      ...(previous.atelierObservations ?? []),
+      ...(current.atelierObservations ?? []),
+      observation("deduplicated", queryDigest, `Merged repeated path ${current.repositoryId}:${current.path}.`),
+    ],
+  };
+}
+
+function uniqueProvenance(values: CodeSearchHit["provenance"][]): CodeSearchHit["provenance"][] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = JSON.stringify([value.provider, value.workspaceId, value.repositoryId, value.query, value.retrievedAt, value.indexedRevision, value.currentRevision]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function observeHit(hit: CodeSearchHit, queryDigest: string, decision: RetrievalReuseDecision): CodeSearchHit {
+  return {
+    ...hit,
+    atelierObservations: [
+      ...(hit.atelierObservations ?? []),
+      observation(decision.kind, queryDigest, decision.reason),
+    ],
+  };
+}
+
+function observeChunk(chunk: CodeChunk, queryDigest: string, decision: RetrievalReuseDecision): CodeChunk {
+  return {
+    ...chunk,
+    atelierObservations: [
+      ...(chunk.atelierObservations ?? []),
+      observation(decision.kind, queryDigest, decision.reason),
+    ],
+  };
+}
+
+function observeRelationship(relationship: CodeRelationship, queryDigest: string, decision: RetrievalReuseDecision): CodeRelationship {
+  return {
+    ...relationship,
+    atelierObservations: [
+      ...(relationship.atelierObservations ?? []),
+      observation(decision.kind, queryDigest, decision.reason),
+    ],
+  };
+}
+
+function observation(kind: AtelierRetrievalObservation["kind"], queryDigest: string, reason: string): AtelierRetrievalObservation {
+  return { kind, queryDigest, reason, observedAt: nowIso() };
+}
+
+function pathCandidates(text: string): string[] {
+  const tokens = text.match(/[A-Za-z0-9_.@/-]+/g) ?? [];
+  return [...new Set(tokens.map(normalizePath).filter((token) => {
+    const name = token.split("/").at(-1) ?? token;
+    return token.includes("/") && /\.[A-Za-z0-9]{1,8}$/.test(name);
+  }))];
+}
+
+function isIdentifier(text: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(text);
+}
+
+function normalizePath(path: string): string {
+  return path.replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
+function truncateUtf8(value: string, maxBytes: number): { value: string; truncated: boolean } {
+  if (Buffer.byteLength(value) <= maxBytes) return { value, truncated: false };
+  if (maxBytes <= 0) return { value: "", truncated: true };
+  const marker = "…[truncated]";
+  const markerBytes = Buffer.byteLength(marker);
+  if (maxBytes < markerBytes) return { value: utf8Prefix(value, maxBytes), truncated: true };
+  return { value: `${utf8Prefix(value, maxBytes - markerBytes)}${marker}`, truncated: true };
+}
+
+function utf8Prefix(value: string, maxBytes: number): string {
+  let result = value;
+  while (result && Buffer.byteLength(result) > maxBytes) result = result.slice(0, -1);
+  return result;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
