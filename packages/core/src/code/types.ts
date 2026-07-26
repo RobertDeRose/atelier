@@ -54,6 +54,8 @@ export interface CodeProviderStatus {
   healthy: boolean;
   capabilities: CodeCapability[];
   indexState: CodeIndexState;
+  /** Opaque provider-neutral token that changes when the observable index revision changes. */
+  indexRevision?: string;
   detail?: string;
   lastIndexedAt?: string;
   lastQueryAt?: string;

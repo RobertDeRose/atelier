@@ -127,6 +127,8 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     assert.ok(status.capabilities.includes("search.semantic"));
     assert.ok(status.capabilities.includes("result.fetch_on_demand"));
     assert.equal(status.capabilities.includes("index.multi_repository"), false);
+    assert.equal(status.capabilities.includes("index.revision_aware"), true);
+    assert.match(status.indexRevision ?? "", /^[a-f0-9]{64}$/);
 
     const hits = await provider.search({
       workspace: workspace(root),

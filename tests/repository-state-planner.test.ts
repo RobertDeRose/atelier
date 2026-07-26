@@ -4,15 +4,87 @@ import { RepositoryStatePlanner, extractLiteralHints } from "../packages/core/sr
 
 const planner = new RepositoryStatePlanner();
 
-test("repository state planner derives planning retrieval from durable objectives", () => {
-  const objective = "Implement `WorkingStateBuilder` in packages/core/src/state/working-state-builder.ts and add regression tests";
+test("repository state planner derives one semantic discovery from durable objectives", () => {
+  const objective = "Implement `WorkingStateBuilder` and add regression tests";
   const plan = planner.plan({ mode: "plan", planObjective: objective });
 
   assert.equal(plan.queries.length, 1);
+  assert.equal(plan.queries[0]?.operation, "search");
+  assert.equal(plan.queries[0]?.phase, "semantic_discovery");
   assert.equal(plan.queries[0]?.purpose, "plan_objective");
   assert.equal(plan.queries[0]?.focus, "mixed");
   assert.ok(plan.queries[0]?.literalHints.includes("WorkingStateBuilder"));
-  assert.ok(plan.queries[0]?.literalHints.includes("packages/core/src/state/working-state-builder.ts"));
+  assert.match(plan.queries[0]?.reason ?? "", /broad semantic discovery/i);
+});
+
+test("repository state planner merges purposes into one broad semantic phase", () => {
+  const plan = planner.plan({
+    mode: "plan",
+    planObjective: "Trace `CodeService` retrieval",
+    activeTask: {
+      id: "task-1",
+      title: "Trace CodeService retrieval",
+      description: "Trace `CodeService` retrieval",
+      acceptanceCriteria: [],
+      status: "in_progress",
+      priority: 0,
+      type: "task",
+      dependencies: [],
+      labels: [],
+    },
+  });
+
+  assert.equal(plan.queries.length, 1);
+  assert.deepEqual(plan.queries[0]?.purposes, ["plan_objective", "active_task"]);
+  assert.match(plan.explanation.join(" "), /merged 2 equivalent retrieval purposes/i);
+});
+
+test("exact symbol phases are emitted only after semantic discovery and only for unresolved identifiers", () => {
+  const first = planner.plan({
+    mode: "plan",
+    planObjective: "Trace `CodeService` and `RepositoryStatePlanner`",
+  });
+  assert.deepEqual(first.queries.map((query) => query.operation), ["search"]);
+
+  const followUp = planner.plan({
+    mode: "plan",
+    planObjective: "Trace `CodeService` and `RepositoryStatePlanner`",
+    evidence: {
+      semanticDiscoveryComplete: true,
+      resolvedIdentifiers: ["CodeService"],
+      knownPaths: [],
+    },
+    maximumQueries: 3,
+  });
+  assert.deepEqual(followUp.queries.map((query) => query.operation), ["symbols"]);
+  assert.equal(followUp.queries[0]?.text, "RepositoryStatePlanner");
+  assert.match(followUp.queries[0]?.reason ?? "", /remained unresolved/i);
+});
+
+test("known paths produce direct-read decisions instead of semantic searches", () => {
+  const path = "packages/core/src/code/service.ts";
+  const plan = planner.plan({
+    mode: "plan",
+    planObjective: `Inspect \`${path}\``,
+    evidence: { semanticDiscoveryComplete: false, resolvedIdentifiers: [], knownPaths: [path] },
+  });
+
+  assert.deepEqual(plan.queries, []);
+  assert.deepEqual(plan.decisions, [{
+    kind: "direct_read",
+    path,
+    reason: "Path is already known; read it directly instead of issuing another provider query.",
+  }]);
+});
+
+test("directory scopes remain semantic filters rather than direct-read decisions", () => {
+  const plan = planner.plan({
+    mode: "plan",
+    planObjective: "Inspect packages/core/src/code/ retrieval contracts",
+  });
+  assert.equal(plan.decisions.length, 0);
+  assert.equal(plan.queries[0]?.operation, "search");
+  assert.ok(plan.queries[0]?.literalHints.includes("packages/core/src/code/"));
 });
 
 test("literal hint extraction is bounded and excludes generic workflow nouns", () => {

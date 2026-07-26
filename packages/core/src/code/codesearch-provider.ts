@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { nowIso } from "../util/ids.ts";
+import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus } from "./focus.ts";
@@ -91,12 +92,14 @@ export class CodesearchProvider implements CodeProvider {
     try {
       await this.connect();
       if (this.hasTool("status")) this.indexState = await this.readIndexState(this.workspace);
+      const indexRevision = this.currentIndexRevision();
       return {
         identity: this.identity,
         available: true,
         healthy: true,
         capabilities: this.capabilities(),
         indexState: this.indexState,
+        ...(indexRevision === undefined ? {} : { indexRevision }),
         ...(this.detail === undefined ? {} : { detail: this.detail }),
         ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
         ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
@@ -104,12 +107,14 @@ export class CodesearchProvider implements CodeProvider {
         ...(this.combinedWarnings().length === 0 ? {} : { degraded: true, warnings: this.combinedWarnings() }),
       };
     } catch (error) {
+      const indexRevision = this.currentIndexRevision();
       return {
         identity: this.identity,
         available: true,
         healthy: false,
         capabilities: this.capabilities(),
         indexState: this.indexState,
+        ...(indexRevision === undefined ? {} : { indexRevision }),
         detail: errorMessage(error),
         ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
         ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
@@ -568,8 +573,18 @@ export class CodesearchProvider implements CodeProvider {
     return this.tools.some((tool) => tool.name === name);
   }
 
+  private currentIndexRevision(): string | undefined {
+    if (this.lastIndexedAt === undefined || this.indexedSnapshots.size === 0) return undefined;
+    return createOpaqueIndexRevision({
+      provider: this.identity,
+      indexedRevisions: Object.fromEntries(this.indexedSnapshots),
+      indexedAt: this.lastIndexedAt,
+    });
+  }
+
   private capabilities(): CodeCapability[] {
     const capabilities: CodeCapability[] = ["index.repository", "index.incremental"];
+    if (this.currentIndexRevision() !== undefined) capabilities.push("index.revision_aware");
     if (this.routingMode === "client" || (this.routingMode === "unknown" && this.mode !== "local")) capabilities.push("index.multi_repository");
     if (this.hasTool("search")) capabilities.push("search.lexical", "search.semantic", "search.hybrid", "result.rerank");
     if (this.hasTool("find")) capabilities.push("symbol.search", "symbol.definition", "symbol.references", "graph.relationships", "graph.imports", "graph.dependencies");

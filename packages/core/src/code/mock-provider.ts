@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { newId, nowIso } from "../util/ids.ts";
+import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import type { CodeProvider } from "./provider.ts";
 import type {
   CodeChunk,
@@ -29,6 +30,7 @@ export class MockCodeProvider implements CodeProvider {
   private indexState: CodeIndexState = "missing";
   private lastIndexedAt?: string;
   private lastQueryAt?: string;
+  private indexRevision?: string;
   private readonly documents: MockCodeDocument[];
 
   constructor(documents: MockCodeDocument[] = []) {
@@ -44,19 +46,29 @@ export class MockCodeProvider implements CodeProvider {
         "index.repository",
         "index.multi_repository",
         "index.incremental",
+        ...(this.indexRevision === undefined ? [] : ["index.revision_aware" as const]),
         "search.lexical",
         "symbol.search",
         "result.fetch_on_demand",
       ],
       indexState: this.indexState,
+      ...(this.indexRevision === undefined ? {} : { indexRevision: this.indexRevision }),
       ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
       ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
     };
   }
 
-  async ensureIndex(_workspace: CodeWorkspace): Promise<CodeIndexState> {
+  async ensureIndex(workspace: CodeWorkspace): Promise<CodeIndexState> {
     this.indexState = "ready";
     this.lastIndexedAt = nowIso();
+    this.indexRevision = createOpaqueIndexRevision({
+      provider: { name: this.name, version: "1", instanceId: "mock-local" },
+      indexedRevisions: Object.fromEntries(workspace.repositories.map((repository) => [
+        repository.id,
+        `${repository.snapshot.headCommit}:${repository.snapshot.changeId ?? ""}:${repository.snapshot.operationId ?? ""}:${repository.snapshot.dirtyFingerprint}`,
+      ])),
+      indexedAt: this.lastIndexedAt,
+    });
     return this.indexState;
   }
 

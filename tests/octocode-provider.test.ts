@@ -80,6 +80,8 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
     assert.equal(status.healthy, true);
     assert.ok(status.capabilities.includes("graph.relationships"));
     assert.ok(status.capabilities.includes("index.multi_repository"));
+    assert.ok(status.capabilities.includes("index.revision_aware"));
+    assert.match(status.indexRevision ?? "", /^[a-f0-9]{64}$/);
 
     const hits = await provider.search({ workspace: work, text: "refresh token", mode: "auto", focus: "source", limit: 10, includeTests: true, includeGenerated: false });
     assert.equal(hits.length, 2);

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus, type ResolvedCodeSearchFocus } from "./focus.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
@@ -84,6 +85,8 @@ export class OctocodeProvider implements CodeProvider {
       });
       const states = await Promise.all(workspace.repositories.map((repository) => this.clientFor(repository.id, repository.root)));
       const capabilities = capabilitiesFor(states.flatMap((state) => [...state.tools.keys()]));
+      const indexRevision = this.currentIndexRevision();
+      if (indexRevision !== undefined) capabilities.push("index.revision_aware");
       const indexed = stats.every(({ stats: value }) => value.totalBlocks > 0);
       return {
         identity: this.identity,
@@ -91,6 +94,7 @@ export class OctocodeProvider implements CodeProvider {
         healthy: configurationWarnings.length === 0,
         capabilities,
         indexState: indexed ? "ready" : "missing",
+        ...(indexRevision === undefined ? {} : { indexRevision }),
         detail: indexed
           ? `Octocode MCP available for ${states.length} repository process(es); searchable blocks verified.`
           : `Octocode MCP available for ${states.length} repository process(es), but one or more repositories have no searchable blocks.`,
@@ -131,7 +135,16 @@ export class OctocodeProvider implements CodeProvider {
       }
       await this.clientFor(repository.id, repository.root);
     }
-    this.indexedRevisions = Object.fromEntries(workspace.repositories.map((repository) => [repository.id, repository.snapshot.headCommit]));
+    this.indexedRevisions = Object.fromEntries(workspace.repositories.map((repository) => [
+      repository.id,
+      [
+        repository.snapshot.vcs,
+        repository.snapshot.headCommit,
+        repository.snapshot.changeId ?? "",
+        repository.snapshot.operationId ?? "",
+        repository.snapshot.dirtyFingerprint,
+      ].join(":"),
+    ]));
     this.lastIndexedAt = new Date().toISOString();
     return "ready";
   }
@@ -306,6 +319,15 @@ export class OctocodeProvider implements CodeProvider {
     const environment = { ...process.env, ...this.environment };
     if (environment[required]?.trim()) return undefined;
     return `${required} is not set for configured code embedding model ${model}. Set the key, or install/configure an Octocode build with a local embedding provider.`;
+  }
+
+  private currentIndexRevision(): string | undefined {
+    if (this.lastIndexedAt === undefined || Object.keys(this.indexedRevisions).length === 0) return undefined;
+    return createOpaqueIndexRevision({
+      provider: this.identity,
+      indexedRevisions: this.indexedRevisions,
+      indexedAt: this.lastIndexedAt,
+    });
   }
 
   private detectVersion(): string | undefined {
