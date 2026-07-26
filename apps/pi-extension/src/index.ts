@@ -710,7 +710,6 @@ export default function atelierExtension(pi: ExtensionAPI): void {
   pi.registerCommand("plan", {
     description: "Enter guarded plan mode; the completed draft opens in the configured editor",
     handler: async (args, ctx) => {
-      await ctx.waitForIdle();
       const core = coreFor(ctx);
       ensureCodeToolsActive(pi, core);
       ensurePlanDocument(core.config.planPath);

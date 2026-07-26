@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.7 — 2026-07-26
+
+```text
+fix(plan): start slash-command planning immediately
+
+- remove the unresolved waitForIdle boundary from /plan
+- rely on Pi's command boundary before sending the planning message
+- preserve objectives supplied as /plan <context>
+- add a regression with a deliberately unresolved idle promise
+```
+
 ## 0.10.6 — 2026-07-26
 
 ```text

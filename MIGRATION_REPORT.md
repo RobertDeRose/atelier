@@ -1,8 +1,11 @@
-# Migration Report — v0.10.6
+# Migration Report — v0.10.7
 
 No database, configuration, task, provider-index, or plan migration is required.
 Pi now starts indexing automatically, exposes lifecycle state in the footer, and
 coalesces `/code-index` with the active background operation.
+
+Restart `mise run launch` after applying the patch so Pi reloads the corrected
+`/plan` handler.
 
 After updating, restart the Atelier shell so Pi rebuilds its active-tool set:
 

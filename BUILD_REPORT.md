@@ -1,7 +1,7 @@
 # Build report
 
-Atelier v0.10.6 adds a single background code-index coordinator shared by Pi startup, commands,
-status, and retrieval.
+Atelier v0.10.7 makes `/plan` enter guarded planning immediately at Pi's command
+boundary instead of waiting on an idle promise that may not resolve.
 
 The live demo session still used broad `find` and `rg` commands even though v0.10.4 had registered
 provider tools and added provider-first routing. Pi maintains a separate active-tool list; a

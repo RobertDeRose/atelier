@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import atelierExtension from "../apps/pi-extension/src/index.ts";
 import type {
@@ -51,6 +51,7 @@ test("Pi extension enforces provider-first plan discovery without approving read
   const tools = new Map<string, RegisteredTool>();
   let activeTools = ["read", "bash", "edit", "write"];
   const activeToolUpdates: string[][] = [];
+  const sentMessages: string[] = [];
   const fakePi = {
     on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void {
       events.set(name, handler);
@@ -62,7 +63,7 @@ test("Pi extension enforces provider-first plan discovery without approving read
       activeTools = [...names];
       activeToolUpdates.push([...names]);
     },
-    sendUserMessage(): void {},
+    sendUserMessage(message: string): void { sentMessages.push(message); },
   } as unknown as ExtensionAPI;
 
   atelierExtension(fakePi);
@@ -99,6 +100,7 @@ test("Pi extension enforces provider-first plan discovery without approving read
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(statuses.some((status) => /index (building|ready)/.test(status)), "Pi footer must expose background index state");
   await commands.get("plan")!.handler("investigate planning policy", context);
+  assert.match(sentMessages.at(-1) ?? "", /Objective: investigate planning policy/);
   const agentStart = await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
 
   assert.match(agentStart?.systemPrompt ?? "", /MUST call atlr_code_search/);
@@ -154,4 +156,40 @@ test("Pi extension enforces provider-first plan discovery without approving read
   assert.equal(confirms.count, 0);
 
   await events.get("session_shutdown")!({}, context);
+});
+
+test("Pi /plan starts immediately without waiting on Pi idle state", async () => {
+  const commands = new Map<string, RegisteredCommand>();
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const sentMessages: string[] = [];
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getActiveTools(): string[] { return []; },
+    setActiveTools(): void {},
+    sendUserMessage(message: string): void { sentMessages.push(message); },
+  } as unknown as ExtensionAPI;
+  atelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-pi-plan-command-");
+  mkdirSync(join(root, ".atelier"), { recursive: true });
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "none",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }));
+  const context = {
+    ...fakeContext(root, { count: 0 }),
+    waitForIdle: () => new Promise<void>(() => {}),
+  } as ExtensionCommandContext;
+
+  try {
+    await commands.get("plan")!.handler("continue building Atelier", context);
+    assert.match(sentMessages.at(-1) ?? "", /Atelier PLAN MODE/);
+    assert.match(sentMessages.at(-1) ?? "", /Objective: continue building Atelier/);
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
