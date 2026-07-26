@@ -1,7 +1,7 @@
 # Build report
 
-Atelier v0.10.5 closes the remaining gap between registering a Pi extension tool and making that
-tool available to the model.
+Atelier v0.10.6 adds a single background code-index coordinator shared by Pi startup, commands,
+status, and retrieval.
 
 The live demo session still used broad `find` and `rg` commands even though v0.10.4 had registered
 provider tools and added provider-first routing. Pi maintains a separate active-tool list; a

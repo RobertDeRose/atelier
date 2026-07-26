@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.6 — 2026-07-26
+
+```text
+fix(code): coordinate background indexing in Pi
+
+- start code indexing in the background when a Pi session launches
+- coalesce startup, command, and concurrent index requests into one operation
+- make searches, symbol lookup, and relationships wait for active indexing
+- prevent status checks from reconnecting MCP while the local writer is active
+- show building, ready, and failed index state in the Pi footer
+- route /code-index through the same lifecycle
+- record completed and failed indexing outcomes in the ledger
+- add focused concurrency and waiting regressions
+```
+
 ## 0.10.5 — 2026-07-25
 
 ```text
@@ -377,4 +392,3 @@ feat(code): prove multi-repository provider workflows
 - extend code diagnostics with workspace mappings and provider state
 - keep native parsing, embeddings, ranking, and graph ownership out of Atelier
 ```
-

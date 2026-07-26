@@ -4,6 +4,60 @@ import { rmSync } from "node:fs";
 import { AtelierCore, MockCodeProvider } from "../packages/core/src/index.ts";
 import { createTemporaryRepository } from "./fixtures.ts";
 
+class DeferredIndexProvider extends MockCodeProvider {
+  indexCalls = 0;
+  searchCalls = 0;
+  private releaseIndex!: () => void;
+  private readonly gate = new Promise<void>((resolve) => { this.releaseIndex = resolve; });
+
+  release(): void { this.releaseIndex(); }
+
+  override async ensureIndex(workspace: Parameters<MockCodeProvider["ensureIndex"]>[0]) {
+    this.indexCalls += 1;
+    await this.gate;
+    return super.ensureIndex(workspace);
+  }
+
+  override async search(query: Parameters<MockCodeProvider["search"]>[0]) {
+    this.searchCalls += 1;
+    return super.search(query);
+  }
+}
+
+test("code indexing coordinator coalesces requests and makes search wait for the active writer", async () => {
+  const root = createTemporaryRepository("atlr-code-coordinator-");
+  const provider = new DeferredIndexProvider([
+    { repositoryId: "repo", repositoryName: "repo", root, path: "src/index.ts", content: "export const coordinated = true;" },
+  ]);
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: provider });
+  try {
+    const workspace = core.codeWorkspace();
+    const statuses: string[] = [];
+    const unsubscribe = core.code.onIndexStatus((status) => statuses.push(`${status.state}:${status.active}`));
+    const first = core.code.ensureIndex(workspace);
+    const second = core.code.ensureIndex(workspace);
+    const search = core.code.search({ workspace, text: "coordinated", limit: 10 });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(provider.indexCalls, 1);
+    assert.equal(provider.searchCalls, 0);
+    assert.equal(core.code.indexingStatus().state, "building");
+    assert.equal((await core.code.status(undefined, workspace)).indexState, "building");
+
+    provider.release();
+    assert.equal(await first, "ready");
+    assert.equal(await second, "ready");
+    assert.equal((await search).length, 1);
+    assert.equal(provider.searchCalls, 1);
+    assert.equal(core.code.indexingStatus().state, "ready");
+    assert.deepEqual(statuses, ["unknown:false", "building:true", "ready:false"]);
+    unsubscribe();
+  } finally {
+    core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("code provider contract supports multi-repository normalized search with provenance", async () => {
   const root = createTemporaryRepository("atlr-code-");
   const provider = new MockCodeProvider([

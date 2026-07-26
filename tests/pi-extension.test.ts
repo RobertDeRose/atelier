@@ -27,7 +27,7 @@ interface RegisteredCommand {
   handler(args: string, ctx: ExtensionCommandContext): Promise<void>;
 }
 
-function fakeContext(cwd: string, confirms: { count: number }): ExtensionCommandContext {
+function fakeContext(cwd: string, confirms: { count: number }, statuses: string[] = []): ExtensionCommandContext {
   return {
     cwd,
     mode: "tui",
@@ -39,7 +39,7 @@ function fakeContext(cwd: string, confirms: { count: number }): ExtensionCommand
       confirm: async () => { confirms.count += 1; return true; },
       select: async () => undefined,
       notify: () => {},
-      setStatus: () => {},
+      setStatus: (_key: string, value: string | undefined) => { if (value !== undefined) statuses.push(value); },
       custom: async () => ({ exitCode: 0 }),
     },
   } as unknown as ExtensionCommandContext;
@@ -93,8 +93,11 @@ test("Pi extension enforces provider-first plan discovery without approving read
     codeProvider: "mock",
   }));
   const confirms = { count: 0 };
-  const context = fakeContext(root, confirms);
+  const statuses: string[] = [];
+  const context = fakeContext(root, confirms, statuses);
   await events.get("session_start")!({}, context);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(statuses.some((status) => /index (building|ready)/.test(status)), "Pi footer must expose background index state");
   await commands.get("plan")!.handler("investigate planning policy", context);
   const agentStart = await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
 

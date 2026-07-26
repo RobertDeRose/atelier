@@ -78,6 +78,7 @@ let activeRoot: string | undefined;
 let reviewInProgress = false;
 let providerDiscoveryAttempted = false;
 let rawDiscoveryFallbackAllowed = false;
+let stopIndexStatusUpdates: (() => void) | undefined;
 
 function uniqueToolNames(names: readonly string[]): string[] {
   return [...new Set(names)];
@@ -118,7 +119,13 @@ async function updateStatus(ctx: ExtensionContext, core = coreFor(ctx)): Promise
     const status = await core.status();
     const approved = status.currentPlanHash !== undefined && status.currentPlanHash === status.approvedPlanHash;
     const task = status.currentTaskId === undefined ? "no task" : status.currentTaskId;
-    ctx.ui.setStatus(STATUS_KEY, `Atelier ${status.mode} · ${approved ? "approved" : "review"} · ${task}`);
+    const indexing = core.code.indexingStatus();
+    const index = indexing.active
+      ? "indexing…"
+      : indexing.state === "unknown"
+        ? "index unknown"
+        : `index ${indexing.state}`;
+    ctx.ui.setStatus(STATUS_KEY, `Atelier ${status.mode} · ${approved ? "approved" : "review"} · ${task} · ${index}`);
   } catch (error) {
     ctx.ui.setStatus(STATUS_KEY, "Atelier unavailable");
     ctx.ui.notify(errorMessage(error), "error");
@@ -592,11 +599,24 @@ export default function atelierExtension(pi: ExtensionAPI): void {
     resetDiscoveryRouting();
     const core = coreFor(ctx);
     ensureCodeToolsActive(pi, core);
+    stopIndexStatusUpdates?.();
+    stopIndexStatusUpdates = core.code.onIndexStatus(() => {
+      void updateStatus(ctx, core);
+    });
     await updateStatus(ctx, core);
+    if (core.config.codeProvider !== "disabled") {
+      // Indexing is deliberately detached from session startup. CodeService owns
+      // the single in-flight operation; searches and /code-index join it.
+      void core.code.ensureIndex(core.codeWorkspace()).catch((error) => {
+        ctx.ui.notify(`Code indexing failed: ${errorMessage(error)}`, "error");
+      });
+    }
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
     ctx.ui.setStatus(STATUS_KEY, undefined);
+    stopIndexStatusUpdates?.();
+    stopIndexStatusUpdates = undefined;
     activeCore?.close();
     activeCore = undefined;
     activeRoot = undefined;
@@ -779,7 +799,7 @@ export default function atelierExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("code-index", {
-    description: "Ensure the current Atelier workspace is indexed by the configured code provider",
+    description: "Start or join the Atelier background code-index operation",
     handler: async (_args, ctx) => {
       const core = coreFor(ctx);
       const state = await core.code.ensureIndex(core.codeWorkspace());
