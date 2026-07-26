@@ -22,6 +22,10 @@ run = "aubr launch --"
 description = "Run Atelier diagnostics"
 run = "aubr doctor"
 
+[tasks.typecheck]
+description = "Run TypeScript static analysis"
+run = "aubr typecheck"
+
 [tasks.test]
 description = "Run the test suite"
 run = "aubr test"
