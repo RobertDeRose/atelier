@@ -1,0 +1,1 @@
+{"id":"int-c38578d42b81e33595d5b4934bfcc327","kind":"field_change","created_at":"2026-07-26T18:26:05.756934Z","actor":"Robert DeRose","issue_id":"atelier-cu0","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"ATLR-1100 acceptance criteria satisfied; implementation 1a34b6a and validation-contract fix 57f5f24e25f615defa4110c875d8de828c8a244a"}}
