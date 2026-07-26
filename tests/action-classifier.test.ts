@@ -29,6 +29,13 @@ test("classifies task, repository, dependency, and file mutations", () => {
   assert.equal(classifyShellCommand("aube add zod").action, "dependency.modify");
   assert.equal(classifyShellCommand("aubr test").action, "command.long_running");
   assert.equal(classifyShellCommand("printf test > output.txt").action, "write.file");
+  assert.equal(classifyShellCommand("git commit -am 'finish task'").risk, "routine");
+  assert.equal(classifyShellCommand("git reset --hard HEAD~1").risk, "destructive");
+  assert.equal(classifyShellCommand("jj abandon @").risk, "destructive");
+  assert.equal(classifyShellCommand("rm -rf build").risk, "destructive");
+  assert.equal(classifyShellCommand("mise run check").risk, "routine");
+  assert.equal(classifyShellCommand("node --test tests/unit.test.ts").risk, "routine");
+  assert.equal(classifyShellCommand("curl https://example.com").risk, "external");
 });
 
 test("unknown and mutating compound commands still require approval", () => {
@@ -38,6 +45,7 @@ test("unknown and mutating compound commands still require approval", () => {
 
   assert.equal(unknown.action, "command.execute");
   assert.equal(unknown.confidence, "low");
+  assert.equal(unknown.risk, "unknown");
   assert.equal(compound.action, "write.file");
   assert.equal(compound.mutating, true);
   assert.equal(findExec.action, "write.file");

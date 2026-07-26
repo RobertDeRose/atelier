@@ -162,6 +162,7 @@ function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): A
     return {
       ...base,
       action: "write.file",
+      risk: "routine",
       ...(path === undefined ? {} : { paths: [path] }),
       rationale: `Pi ${event.toolName} tool modifies a file.`,
     };
@@ -173,6 +174,7 @@ function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): A
     return {
       ...base,
       action: classification.action,
+      risk: classification.risk,
       command: [command],
       rationale: classification.rationale.join("; "),
     };
@@ -181,6 +183,7 @@ function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): A
   return {
     ...base,
     action: "command.execute",
+    risk: "unknown",
     rationale: `Custom tool ${String(event.toolName)} is not declared read-only to Atelier.`,
   };
 }
@@ -670,7 +673,7 @@ export default function atelierExtension(pi: ExtensionAPI): void {
       ? `Only ${core.config.planPath} may be modified. Task-provider and source mutations are prohibited until approval. Read-only repository investigation never requires approval. ${retrievalInstruction}`
       : state.mode === "investigate"
         ? "Investigate only. Any mutation requires a distinct Atelier approval."
-        : "Implement only the selected task and approved scope. Every mutation remains independently permission-gated.";
+        : "Implement only the selected task and approved scope. Routine changes, validations, task updates, and local commits inside the active repository are approved by default. Ask only before destructive operations, external side effects, publication, or work outside the repository. Do not report implementation complete with uncommitted changes: run the appropriate validation and create a local Jujutsu change or Git commit before stopping.";
     return {
       systemPrompt: `${event.systemPrompt}\n\n## Atelier enforced working state\n\n${modeInstruction}\n\n${activeContext}`,
     };
@@ -692,6 +695,25 @@ export default function atelierExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_settled", async (_event, ctx) => {
     const core = coreFor(ctx);
+    if (core.mode() === "act") {
+      const status = await core.status();
+      const changedPaths = core.repository.changedPaths()
+        .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/"));
+      if (status.currentTaskId !== undefined && changedPaths.length > 0) {
+        const fingerprint = core.repository.snapshot().dirtyFingerprint;
+        if (core.ledger.getState<string>("completionGuardFingerprint") !== fingerprint) {
+          core.ledger.setState("completionGuardFingerprint", fingerprint);
+          pi.sendUserMessage(
+            `[Atelier completion guard] ${status.currentTaskId} still has ${changedPaths.length} uncommitted repository change(s). ` +
+              "Do not report completion yet. Run the required validation, inspect the final diff, then create a local Jujutsu change or Git commit containing only the approved task work. " +
+              "Publication still requires explicit approval.",
+          );
+        }
+      } else {
+        core.ledger.deleteState("completionGuardFingerprint");
+      }
+      return;
+    }
     if (core.mode() !== "plan" || reviewInProgress) return;
     if (core.ledger.getState<boolean>("planAutoReviewPending") !== true) return;
     if (!existsSync(core.config.planPath)) return;

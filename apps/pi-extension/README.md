@@ -26,6 +26,11 @@ Pi command names use hyphens because Pi registers one command token after `/`.
 - `tool_call`: classifies and gates actions before execution.
 - `before_agent_start`: injects deterministic Atelier Working State.
 - `session_before_compact`: supplies task-backed reconstruction rather than a free-form authoritative summary.
+- Approved act-mode work auto-allows routine repository-scoped edits, validation,
+  task updates, and local commits. Destructive, external, unknown, publication,
+  and out-of-repository effects still prompt.
+- `agent_settled`: prevents selected-task work with uncommitted changes from being
+  reported complete without validation, final diff inspection, and a local commit.
 - `agent_settled`: opens a changed plan draft in the configured editor.
 
 ## Editor handoff

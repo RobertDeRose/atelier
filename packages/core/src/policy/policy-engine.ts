@@ -30,6 +30,22 @@ const ACTION_PERMISSION: Record<ActionKind, Permission> = {
   "capability.promote": "capability.promote",
 };
 
+const ROUTINE_ACT_ACTIONS = new Set<ActionKind>([
+  "write.file",
+  "write.multiple_files",
+  "dependency.modify",
+  "repository.change.create",
+  "repository.workspace.create",
+  "task.create",
+  "task.update",
+  "task.link",
+  "task.close",
+  "validation.focused",
+  "validation.full_suite",
+  "command.execute",
+  "command.long_running",
+]);
+
 export interface PolicyState {
   mode: WorkflowMode;
   repositoryRoot: string;
@@ -131,6 +147,34 @@ export class PolicyEngine {
       matchedRules.push(`matched permission grant ${grant.id}`);
       if (grant.paths !== undefined) constraints.push(`paths constrained to ${grant.paths.join(", ")}`);
       return this.decision(request.action, "allow", matchedRules, [], constraints, `Allowed by ${grant.scope} grant.`, requiredPermission);
+    }
+
+    if (state.mode === "act" && request.risk === "routine" && ROUTINE_ACT_ACTIONS.has(request.action)) {
+      const paths = request.paths ?? [];
+      if (paths.length > 0 && !paths.every((path) => pathWithin(path, state.repositoryRoot))) {
+        matchedRules.push("routine act-mode mutations are limited to the active repository");
+        constraints.push(`paths must remain within ${state.repositoryRoot}`);
+      } else {
+        matchedRules.push("approved act mode permits routine repository-scoped work by default");
+        constraints.push(`operation is constrained to ${state.repositoryRoot}`);
+        return this.decision(
+          request.action,
+          "allow",
+          matchedRules,
+          [],
+          constraints,
+          "Routine work in the active repository is allowed by default.",
+          requiredPermission,
+        );
+      }
+    }
+
+    if (request.risk === "destructive") {
+      matchedRules.push("destructive operations always require explicit approval");
+    } else if (request.risk === "external") {
+      matchedRules.push("external side effects and publication require explicit approval");
+    } else if (request.risk === "unknown") {
+      matchedRules.push("operations with unknown effects require explicit approval");
     }
 
     matchedRules.push(`no active ${requiredPermission} grant matched`);

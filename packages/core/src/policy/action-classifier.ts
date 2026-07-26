@@ -1,4 +1,4 @@
-import type { ActionKind, Permission } from "../domain/types.ts";
+import type { ActionKind, OperationRisk, Permission } from "../domain/types.ts";
 import { splitCommandLine } from "../util/command-line.ts";
 
 export interface CommandClassification {
@@ -9,6 +9,7 @@ export interface CommandClassification {
   mutating: boolean;
   longRunning: boolean;
   network: boolean;
+  risk: OperationRisk;
   rationale: string[];
 }
 
@@ -134,19 +135,24 @@ function classifyGit(args: string[], rationale: string[]): CommandClassification
     "tag",
   ]);
   const network = new Set(["fetch", "ls-remote", "pull", "push", "remote"]);
+  const destructive = new Set(["clean", "reset", "restore"]);
   if (readOnly.has(subcommand)) {
     if (subcommand === "branch" && args.some((arg) => ["-c", "-C", "-d", "-D", "--delete", "--move"].includes(arg))) {
       rationale.push("git branch option mutates repository references");
-      return mutation("repository.change.create", "repository.change.create", rationale, false, false, args.join(" "));
+      return mutation("repository.change.create", "repository.change.create", rationale, false, false, args.join(" "), "high", "destructive");
     }
     rationale.push(`git ${subcommand} is treated as read-only`);
     return readonly(args.join(" "), rationale);
+  }
+  if (destructive.has(subcommand) || (subcommand === "checkout" && args.includes("--"))) {
+    rationale.push(`git ${subcommand} can discard working-copy or repository state`);
+    return mutation("repository.change.create", "repository.change.create", rationale, false, false, args.join(" "), "high", "destructive");
   }
   if (network.has(subcommand)) {
     rationale.push(`git ${subcommand} may access the network or mutate repository state`);
     const action: ActionKind = subcommand === "push" ? "repository.publish" : "network.access";
     const permission: Permission = subcommand === "push" ? "repository.publish" : "network.access";
-    return mutation(action, permission, rationale, false, true, args.join(" "));
+    return mutation(action, permission, rationale, false, true, args.join(" "), "high", "external");
   }
   rationale.push(`git ${subcommand || "command"} can mutate repository state`);
   return mutation("repository.change.create", "repository.change.create", rationale, false, false, args.join(" "));
@@ -157,18 +163,23 @@ function classifyJj(args: string[], rationale: string[]): CommandClassification 
   if (["diff", "file", "log", "op", "show", "status", "workspace"].includes(subcommand)) {
     if (subcommand === "op" && !["", "log", "show"].includes(args[2] ?? "")) {
       rationale.push("jj op subcommand can restore or mutate repository state");
-      return mutation("repository.change.create", "repository.change.create", rationale, false, false, args.join(" "));
+      return mutation("repository.change.create", "repository.change.create", rationale, false, false, args.join(" "), "high", "destructive");
     }
     if (subcommand === "workspace" && !["", "list", "root"].includes(args[2] ?? "")) {
       rationale.push("jj workspace subcommand can create or remove workspaces");
-      return mutation("repository.workspace.create", "repository.workspace.create", rationale, false, false, args.join(" "));
+      const risk: OperationRisk = ["forget", "remove"].includes(args[2] ?? "") ? "destructive" : "routine";
+      return mutation("repository.workspace.create", "repository.workspace.create", rationale, false, false, args.join(" "), "high", risk);
     }
     rationale.push(`jj ${subcommand} is treated as read-only`);
     return readonly(args.join(" "), rationale);
   }
+  if (["abandon", "restore", "undo"].includes(subcommand)) {
+    rationale.push(`jj ${subcommand} can discard or rewrite repository state`);
+    return mutation("repository.change.create", "repository.change.create", rationale, false, false, args.join(" "), "high", "destructive");
+  }
   if (subcommand === "git" && args[2] === "push") {
     rationale.push("jj git push publishes repository state");
-    return mutation("repository.publish", "repository.publish", rationale, false, true, args.join(" "));
+    return mutation("repository.publish", "repository.publish", rationale, false, true, args.join(" "), "high", "external");
   }
   rationale.push(`jj ${subcommand || "command"} can mutate repository state`);
   return mutation("repository.change.create", "repository.change.create", rationale, false, false, args.join(" "));
@@ -200,7 +211,8 @@ function classifyPackageManager(executable: string, args: string[], rationale: s
   const subcommand = args[1] ?? "";
   if (["install", "add", "remove", "uninstall", "update", "upgrade", "link", "unlink", "dedupe"].includes(subcommand)) {
     rationale.push(`${executable} ${subcommand} changes dependencies or lockfiles`);
-    return mutation("dependency.modify", "dependency.modify", rationale, true, true, args.join(" "));
+    const risk: OperationRisk = ["remove", "uninstall", "unlink"].includes(subcommand) ? "destructive" : "routine";
+    return mutation("dependency.modify", "dependency.modify", rationale, true, true, args.join(" "), "high", risk);
   }
   if (["test", "check", "lint", "run", "exec", "x", "dlx"].includes(subcommand)) {
     rationale.push(`${executable} ${subcommand} executes repository code and may be long-running`);
@@ -208,6 +220,20 @@ function classifyPackageManager(executable: string, args: string[], rationale: s
   }
   rationale.push(`${executable} command is not proven read-only`);
   return mutation("command.execute", "command.execute", rationale, false, NETWORK_EXECUTABLES.has(executable), args.join(" "), "low");
+}
+
+function classifyMise(args: string[], rationale: string[]): CommandClassification {
+  const subcommand = args[1] ?? "";
+  if (["run", "exec", "x"].includes(subcommand)) {
+    rationale.push(`mise ${subcommand} executes a declared repository task`);
+    return mutation("command.long_running", "command.long_running", rationale, true, false, args.join(" "));
+  }
+  if (["install", "uninstall", "upgrade", "use"].includes(subcommand)) {
+    rationale.push(`mise ${subcommand} changes the external development tool environment`);
+    return mutation("network.access", "network.access", rationale, true, true, args.join(" "), "high", "external");
+  }
+  rationale.push("mise command is not proven repository-local");
+  return mutation("command.execute", "command.execute", rationale, false, false, args.join(" "), "low", "unknown");
 }
 
 function readonly(command: string, rationale: string[]): CommandClassification {
@@ -219,6 +245,7 @@ function readonly(command: string, rationale: string[]): CommandClassification {
     mutating: false,
     longRunning: false,
     network: false,
+    risk: "routine",
     rationale,
   };
 }
@@ -231,6 +258,7 @@ function mutation(
   network: boolean,
   command: string,
   confidence: CommandClassification["confidence"] = "high",
+  risk: OperationRisk = network ? "external" : "routine",
 ): CommandClassification {
   return {
     command,
@@ -240,6 +268,7 @@ function mutation(
     mutating: true,
     longRunning,
     network,
+    risk,
     rationale,
   };
 }
@@ -322,7 +351,8 @@ function classifyFind(args: string[], command: string, rationale: string[]): Com
   const mutatingFlag = args.find((arg) => mutatingFlags.has(arg));
   if (mutatingFlag !== undefined) {
     rationale.push(`find ${mutatingFlag} modifies filesystem state`);
-    return mutation("write.file", "file.write", rationale, false, false, command);
+    const risk: OperationRisk = mutatingFlag === "-delete" ? "destructive" : "routine";
+    return mutation("write.file", "file.write", rationale, false, false, command, "high", risk);
   }
   const execFlags = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
   for (let index = 1; index < args.length; index += 1) {
@@ -372,8 +402,13 @@ function classifySimpleCommand(command: string): CommandClassification {
   if (executable === "git") return classifyGit(args, rationale);
   if (executable === "jj") return classifyJj(args, rationale);
   if (executable === "bd") return classifyBeads(args, rationale);
+  if (executable === "mise") return classifyMise(args, rationale);
   if (["npm", "aube", "aubr", "aubx", "pnpm", "yarn"].includes(executable)) return classifyPackageManager(executable, args, rationale);
   if (executable === "find") return classifyFind(args, command, rationale);
+  if (["bash", "bun", "node", "python", "python3", "ruby", "tsx"].includes(executable)) {
+    rationale.push(`${executable} executes repository-local code`);
+    return mutation("command.execute", "command.execute", rationale, false, false, command);
+  }
 
   if (executable === "sed" && args.some((arg) => arg === "-i" || arg.startsWith("-i"))) {
     rationale.push("sed -i modifies files in place");
@@ -385,7 +420,10 @@ function classifySimpleCommand(command: string): CommandClassification {
   }
   if (MUTATING_EXECUTABLES.has(executable)) {
     rationale.push(`${executable} can modify filesystem state`);
-    return mutation("write.file", "file.write", rationale, false, false, command);
+    const risk: OperationRisk = ["dd", "mv", "rm", "rmdir", "truncate"].includes(executable)
+      ? "destructive"
+      : "routine";
+    return mutation("write.file", "file.write", rationale, false, false, command, "high", risk);
   }
   if (READ_ONLY_COMMANDS.has(executable)) {
     rationale.push(`${executable} is in the read-only command allowlist`);
@@ -397,10 +435,10 @@ function classifySimpleCommand(command: string): CommandClassification {
   }
   if (NETWORK_EXECUTABLES.has(executable)) {
     rationale.push(`${executable} may access the network`);
-    return mutation("network.access", "network.access", rationale, false, true, command, "medium");
+    return mutation("network.access", "network.access", rationale, false, true, command, "medium", "external");
   }
   rationale.push("command is not proven read-only");
-  return mutation("command.execute", "command.execute", rationale, LONG_RUNNING_EXECUTABLES.has(executable), false, command, "low");
+  return mutation("command.execute", "command.execute", rationale, LONG_RUNNING_EXECUTABLES.has(executable), false, command, "low", "unknown");
 }
 
 export function classifyShellCommand(command: string): CommandClassification {

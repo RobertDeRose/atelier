@@ -46,6 +46,7 @@ export type Permission = (typeof PERMISSIONS)[number];
 export type Actor = "user" | "agent" | "tool" | "system";
 export type WorkflowMode = "investigate" | "plan" | "act";
 export type GrantScope = "operation" | "turn" | "task" | "session" | "repository";
+export type OperationRisk = "routine" | "destructive" | "external" | "unknown";
 
 export interface RepositorySnapshot {
   repositoryId: string;
@@ -61,6 +62,7 @@ export interface RepositorySnapshot {
 
 export interface ActionRequest {
   action: ActionKind;
+  risk?: OperationRisk;
   taskId?: string;
   actor: Actor;
   repositorySnapshot?: RepositorySnapshot;

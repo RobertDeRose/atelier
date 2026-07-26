@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import atelierExtension from "../apps/pi-extension/src/index.ts";
+import { AtelierCore } from "../packages/core/src/index.ts";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -188,6 +189,64 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
     await commands.get("plan")!.handler("continue building Atelier", context);
     assert.match(sentMessages.at(-1) ?? "", /Atelier PLAN MODE/);
     assert.match(sentMessages.at(-1) ?? "", /Objective: continue building Atelier/);
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Pi act mode auto-allows routine repository work and prompts only for destructive commands", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const sentMessages: string[] = [];
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(): void {},
+    registerTool(): void {},
+    getActiveTools(): string[] { return []; },
+    setActiveTools(): void {},
+    sendUserMessage(message: string): void { sentMessages.push(message); },
+  } as unknown as ExtensionAPI;
+  atelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-pi-act-policy-");
+  mkdirSync(join(root, ".atelier"), { recursive: true });
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "none",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }));
+  const setup = AtelierCore.open(root, { taskProvider: "none" });
+  setup.setMode("act");
+  setup.ledger.setState("currentTaskId", "ATLR-TEST");
+  setup.close();
+  const confirms = { count: 0 };
+  const context = fakeContext(root, confirms);
+
+  try {
+    assert.equal(await events.get("tool_call")!({
+      toolName: "edit",
+      input: { path: "src/index.ts" },
+    }, context), undefined);
+    assert.equal(await events.get("tool_call")!({
+      toolName: "bash",
+      input: { command: "mise run check" },
+    }, context), undefined);
+    assert.equal(await events.get("tool_call")!({
+      toolName: "bash",
+      input: { command: "git commit -am 'finish task'" },
+    }, context), undefined);
+    assert.equal(confirms.count, 0);
+
+    assert.equal(await events.get("tool_call")!({
+      toolName: "bash",
+      input: { command: "rm -rf build" },
+    }, context), undefined);
+    assert.equal(confirms.count, 1);
+
+    writeFileSync(join(root, "completion-guard.ts"), "export const pending = true;\n");
+    await events.get("agent_settled")!({}, context);
+    assert.match(sentMessages.at(-1) ?? "", /completion guard/i);
+    assert.match(sentMessages.at(-1) ?? "", /Git commit/);
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });

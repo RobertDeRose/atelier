@@ -4,17 +4,18 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.10.5 scope
+## v0.11.0 scope
 
-Pi extension tools must be both registered and active before the model can call them. Atelier now
-explicitly activates and prioritizes `atlr_code_search`, `atlr_code_symbols`, and
-`atlr_code_status` whenever code intelligence is enabled. Entering `/plan`, starting or resuming a
-session, and beginning each agent turn all converge on the same active-tool set.
+Approved act-mode work is repository-scoped by default. Routine edits, writes,
+validations, task updates, dependency changes, and local Git/Jujutsu commits no
+longer produce one approval dialog per operation. Destructive commands, external
+effects, publication, unknown commands, and explicit paths outside the active
+repository still require approval.
 
-Plan instructions now name the active provider tools directly. Broad Bash discovery with `rg`,
-`grep`, `find`, `fd`, `tree`, or `ls` remains blocked until the provider reports unavailable,
-degraded, failed, or empty evidence. Exact file reads and independently classified read-only shell
-commands remain approval-free.
+Plan review is now restart-safe and records durable `ManualEdit` lifecycle evidence
+plus deterministic structural diffs. When an agent settles in act mode with a
+selected task and uncommitted changes, Atelier sends a completion-guard follow-up
+requiring validation, final diff review, and a local commit before completion.
 
 The supported interactive entry point remains:
 
@@ -151,6 +152,11 @@ atlr_code_symbols
 In plan mode, provider-first discovery is enforced. The agent reads exact paths returned by Atelier and
 uses broad raw scanning only after the provider reports no usable evidence or an explicit degraded or
 unavailable condition. Read-only commands never require an approval prompt.
+
+After plan approval, routine work inside the active repository is also approval-free.
+Atelier prompts for destructive operations, external effects, publication, unknown
+commands, or out-of-repository paths. The act-mode completion guard prevents a task
+with uncommitted repository changes from being reported as complete.
 
 Each slash command has a command-palette description.
 

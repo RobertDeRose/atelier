@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.0 — 2026-07-26
+
+```text
+feat(workflow): make approved local execution usable
+
+- persist restart-safe workflow and ManualEdit lifecycle records
+- add deterministic structural plan snapshots and diffs
+- migrate the ledger atomically to workflow schema version 2
+- default routine approved-task work inside the active repository to allowed
+- distinguish routine, destructive, external, and unknown command effects
+- retain approval for destructive commands, publication, external effects,
+  unknown commands, and explicit paths outside the repository
+- classify mise validation, local runtimes, Git commits, and normal Jujutsu
+  operations as routine execution
+- add an act-mode completion guard for validated but uncommitted task work
+- add focused policy, classifier, Pi, review, migration, and recovery tests
+```
+
 ## 0.10.7 — 2026-07-26
 
 ```text

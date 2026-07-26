@@ -6,6 +6,8 @@
 
 > **v0.10.6 background indexing:** Pi now starts one coordinated background code-index operation. Concurrent index requests coalesce, retrieval waits for the active operation, and the Pi footer shows index lifecycle state without reconnecting MCP during local writer ownership. See ADR-0016.
 
+> **v0.11.0 approved local execution:** Approved act-mode work now defaults routine in-repository edits, validation, task updates, dependency changes, and local commits to allowed. Destructive, external, unknown, publication, and out-of-repository effects remain approval-gated. A completion guard prevents selected-task work from ending with uncommitted changes. Plan reviews now persist restart-safe ManualEdit lifecycle records and structural diffs. See ADR-0018.
+
 > **v0.10.1 shell launch:** Atelier now provides `atlr launch` and `mise run launch`. The Pi extension dependency graph no longer contains a static `node:sqlite` import; SQLite is resolved at runtime through `process.getBuiltinModule()` to remain compatible with Pi's jiti extension loader. See ADR-0014.
 
 > **v0.8.9 retrieval policy:** The external provider remains authoritative for semantic and literal retrieval. Atelier now augments healthy semantic results only with exact identifier hints or code-shaped query tokens, balances mixed source/test evidence, preserves provider rank, and reserves broad literal extraction for degraded fallback. See ADR-0010.
@@ -145,7 +147,7 @@ It treats the agent session as the primary interaction surface. Editors, file na
 Atelier addresses these failures in current coding harnesses:
 
 - Treating a defect report, log, file path, or review comment as permission to modify code.
-- Creating branches, worktrees, tasks, commits, pushes, or dependencies without explicit approval.
+- Creating destructive repository rewrites, external workspaces, or publication effects without explicit approval.
 - Repeating expensive validation after equivalent evidence already exists.
 - Losing or distorting instructions through LLM-generated conversation compaction.
 - Reverting or overwriting manual edits because their provenance is unknown.
@@ -425,7 +427,10 @@ interface PolicyDecision {
 }
 ```
 
-The default for ambiguous mutation is denial with read-only investigation allowed.
+The default for ambiguous mutation is approval-gated, with read-only investigation
+allowed. After explicit plan approval, routine operations constrained to the active
+repository are allowed by default; destructive, external, unknown, publication,
+and out-of-repository effects remain approval-gated.
 
 ## 5.3 Permission model
 

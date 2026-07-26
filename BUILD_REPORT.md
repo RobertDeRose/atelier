@@ -1,7 +1,9 @@
 # Build report
 
-Atelier v0.10.7 makes `/plan` enter guarded planning immediately at Pi's command
-boundary instead of waiting on an idle promise that may not resolve.
+Atelier v0.11.0 completes the durable ManualEdit review slice and makes approved
+local execution practical. Routine repository-scoped work no longer prompts for
+every operation, while destructive, external, unknown, publication, and
+out-of-repository effects remain approval-gated.
 
 The live demo session still used broad `find` and `rg` commands even though v0.10.4 had registered
 provider tools and added provider-first routing. Pi maintains a separate active-tool list; a
