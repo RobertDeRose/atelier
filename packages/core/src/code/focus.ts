@@ -51,7 +51,7 @@ export function classifyCodePath(path: string): CodePathKind {
 
 export function focusedProviderLimit(finalLimit: number, focus: ResolvedCodeSearchFocus, _mode: string): number {
   if (focus === "all") return finalLimit;
-  return Math.min(50, Math.max(finalLimit * 4, 25));
+  return 50;
 }
 
 export function applyCodeSearchFocus(

@@ -6,7 +6,7 @@ import { nowIso } from "../util/ids.ts";
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
-import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus } from "./focus.ts";
+import { applyCodeSearchFocus, focusedProviderLimit, rankCodePathsByFocus, resolveCodeSearchFocus } from "./focus.ts";
 import type {
   CodeCapability,
   CodeChunk,
@@ -255,7 +255,7 @@ export class CodesearchProvider implements CodeProvider {
         throw new Error(`codesearch semantic search failed and literal fallback returned no results: ${primaryError}`);
       }
     } else if (shouldAugmentSearch(query.mode, resolvedFocus)) {
-      const augmentation = await this.literalCandidateSearch(providerQuery, scope, 6, Math.min(12, providerLimit), "augmentation");
+      const augmentation = await this.literalCandidateSearch(providerQuery, scope, 6, providerLimit, "augmentation");
       if (augmentation.rows.length > 0) {
         rows = fuseSearchRows(rows, augmentation.rows, providerLimit);
         actualMode = "hybrid";
@@ -340,7 +340,7 @@ export class CodesearchProvider implements CodeProvider {
         continue;
       }
       lastData = extractData(response);
-      const candidateRows = extractRows(lastData);
+      const candidateRows = rankProviderRowsByFocus(extractRows(lastData), query);
       for (const [index, row] of candidateRows.entries()) {
         const key = rowPathIdentity(row);
         const contribution = 1 / (60 + index + 1);
@@ -724,6 +724,17 @@ function fuseSearchRows(
     }));
 }
 
+function rankProviderRowsByFocus(rows: Array<Record<string, unknown>>, query: CodeSearchQuery): Array<Record<string, unknown>> {
+  const paths = rows.map((row) => String(row.path ?? row.file ?? row.file_path ?? row.relative_path ?? ""));
+  const rankedPaths = rankCodePathsByFocus(paths, query.focus, query.text).paths;
+  const order = new Map(rankedPaths.map((path, index) => [path, index]));
+  return [...rows].sort((left, right) => {
+    const leftPath = String(left.path ?? left.file ?? left.file_path ?? left.relative_path ?? "");
+    const rightPath = String(right.path ?? right.file ?? right.file_path ?? right.relative_path ?? "");
+    return (order.get(leftPath) ?? Number.MAX_SAFE_INTEGER) - (order.get(rightPath) ?? Number.MAX_SAFE_INTEGER);
+  });
+}
+
 function rowPathIdentity(row: Record<string, unknown>): string {
   return `${row.project ?? row.repository ?? row.repo ?? row.alias ?? ""}:${row.path ?? row.file ?? row.file_path ?? row.relative_path ?? rowIdentity(row)}`;
 }
@@ -972,16 +983,45 @@ function provenanceFor(options: {
 }
 
 function inferIndexState(data: unknown, fallback: CodeIndexState = "unknown"): CodeIndexState {
-  const explicit = findStateValue(data);
-  if (explicit !== undefined) return explicit;
+  const indexState = findIndexStateValue(data);
+  if (indexState !== undefined) return indexState;
 
   const text = collectStrings(data).join("\n").toLowerCase();
-  if (/database:\s+.+\(ready\)/.test(text) || /index(?:_state| state)?:?\s*ready/.test(text)) return "ready";
+  if (/database:?\s+.*\(ready\)/.test(text) || /index(?:_state| state)?:?\s*ready/.test(text)) return "ready";
   if (/index(?:_state| state)?:?\s*(building|indexing)/.test(text)) return "building";
   if (/index(?:_state| state)?:?\s*stale/.test(text)) return "stale";
   if (/index(?:_state| state)?:?\s*(failed|error)/.test(text)) return "failed";
   if (/not indexed|index(?:_state| state)?:?\s*(missing|unindexed)/.test(text)) return "missing";
-  return fallback;
+  return findStateValue(data) ?? fallback;
+}
+
+function findIndexStateValue(data: unknown): CodeIndexState | undefined {
+  if (Array.isArray(data)) {
+    for (const value of data) {
+      const state = findIndexStateValue(value);
+      if (state !== undefined) return state;
+    }
+    return undefined;
+  }
+  if (!isRecord(data)) return undefined;
+  for (const key of ["index_state", "indexState"]) {
+    const value = data[key];
+    if (typeof value === "string") {
+      const state = normalizeIndexState(value);
+      if (state !== undefined) return state;
+    }
+  }
+  if (typeof data.index_age_seconds === "number") return "ready";
+  if (isRecord(data.index)) {
+    const state = findStateValue(data.index);
+    if (state !== undefined) return state;
+  }
+  for (const [key, value] of Object.entries(data)) {
+    if (key === "index" || !isRecord(value) && !Array.isArray(value)) continue;
+    const state = findIndexStateValue(value);
+    if (state !== undefined) return state;
+  }
+  return undefined;
 }
 
 function findStateValue(data: unknown): CodeIndexState | undefined {

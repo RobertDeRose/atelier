@@ -58,7 +58,9 @@ process.stdin.on('data', chunk => {
       if (name === 'status') {
         statusCalls += 1;
         const buildingCalls = Number(process.env.FAKE_BUILDING_STATUS_COUNT ?? '0');
-        result = { structuredContent: statusCalls <= buildingCalls ? { index_state: 'building' } : { index_state: 'ready', index_age_seconds: 3 } };
+        result = { structuredContent: process.env.FAKE_OPTIONAL_STATUS_ERROR === '1'
+          ? { database: 'project database (ready)', optional_indexer: { status: 'error', detail: 'SCIP unavailable' } }
+          : statusCalls <= buildingCalls ? { index_state: 'building' } : { index_state: 'ready', index_age_seconds: 3 } };
       }
       else if (name === 'search' && input.mode === 'semantic' && process.env.FAKE_SEMANTIC_ERROR === '1') result = { content: [{ type: 'text', text: 'Error searching vector store: Error opening database for read fallback' }], isError: false };
       else if (name === 'search') {
@@ -185,6 +187,28 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     assert.equal(searchCall?.params?.arguments?.group, undefined);
     assert.equal(searchCall?.params?.arguments?.mode, "semantic");
     assert.equal(searchCall?.params?.arguments?.semantic_mode, "hybrid");
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("codesearch index readiness outranks unrelated optional-index errors", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-optional-status-"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_OPTIONAL_STATUS_ERROR: "1" },
+  });
+  try {
+    assert.equal(await provider.ensureIndex(workspace(root)), "ready");
+    assert.equal((await provider.status(workspace(root))).indexState, "ready");
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });
@@ -451,7 +475,7 @@ test("codesearch overfetches and reranks implementation searches toward diverse 
       .split("\n")
       .map((line) => JSON.parse(line) as { method: string; params?: { name?: string; arguments?: Record<string, unknown> } });
     const searchCall = calls.find((call) => call.method === "tools/call" && call.params?.name === "search");
-    assert.equal(searchCall?.params?.arguments?.limit, 25);
+    assert.equal(searchCall?.params?.arguments?.limit, 50);
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });
@@ -512,6 +536,7 @@ test("codesearch fuses bounded literal identifiers into focused automatic retrie
     const searches = calls.filter((call) => call.method === "tools/call" && call.params?.name === "search");
     assert.equal(searches[0]?.params?.arguments?.mode, "semantic");
     assert.ok(searches.slice(1).some((call) => call.params?.arguments?.mode === "literal"));
+    assert.ok(searches.slice(1).every((call) => call.params?.arguments?.limit === 50), "exact-hint augmentation must retain the bounded focused candidate pool for accepted source recall");
     assert.ok(searches.length <= 5);
   } finally {
     await provider.close();

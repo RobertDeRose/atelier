@@ -18,9 +18,19 @@ The enforced sequence is:
    degraded, failed, or genuinely empty provider evidence.
 
 Cache reuse, request-budget denial, and agent preference do not enable raw scanning.
-Every code-tool response reports the session inventory, freshness, remaining budgets,
-deduplication, returned bytes, truncation, and the latest provider-call or reuse
-decision.
+Every code-tool response reports the session inventory, freshness, remaining budgets, deduplication, returned bytes, truncation, invalidations, repository scopes, and the latest provider-call or reuse decision. Original provider provenance remains attached to fresh and reused evidence.
+
+Repository, provider identity, and index revision changes invalidate affected evidence before another decision. Historical observations may remain for explanation, but they are marked non-current and cannot satisfy Working State retrieval after reopen.
+
+The extension consumes the provider-neutral budgets from `.atelier/config.json`: `codeMaxProviderRequests`, `codeMaxResults`, `codeMaxUniquePaths`, `codeMaxEvidenceEntries`, `codeMaxFetches`, and byte limits. `codeRetainedSessions`, `codeMaxPersistedEntries`, and `codeMaxPersistedBytes` bound restart state.
+
+Troubleshooting:
+
+- Inspect `/code-status` before another search; it includes the current inventory.
+- Read a known path directly when the decision says `direct_read`.
+- A `no_provider_call` symbol decision means semantic discovery has not left that identifier unresolved.
+- Start a new Pi session after a genuine request-budget exhaustion; raw scanning is not enabled by denial.
+- Reindex when status is stale or failed. Degraded or unavailable status enables guarded raw fallback, but critical evidence still needs a direct read.
 
 ## Commands
 

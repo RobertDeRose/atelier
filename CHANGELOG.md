@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0 — 2026-07-27
+
+```text
+feat(retrieval): bound and prove self-hosting evidence reuse
+
+- enforce one semantic discovery before unresolved exact-symbol lookup
+- reuse equivalent canonical queries and known paths without provider dispatch
+- isolate repository scopes and invalidate overlapping repository/index bindings
+- preserve historical provenance without reporting invalid evidence as current
+- report calls, cache hits, overlap reuse, unique paths, deduplication, bytes,
+  truncation, invalidations, and repository scopes
+- gate codesearch evaluation against every accepted expected path and recall score
+- add a portable eight-call self-hosting scenario and provider-independent acceptance
+- verify the supported launch flow with one provider call and one exact cache hit
+```
+
 ## 0.11.0 — 2026-07-26
 
 ```text

@@ -141,6 +141,7 @@ export class CodeService {
   private decisions: RetrievalDecisionRecord[] = [];
   private invalidations: RetrievalInvalidation[] = [];
   private lastDecision: RetrievalReuseDecision | undefined;
+  private pendingBindingInvalidationDigest: string | undefined;
   private telemetry: RetrievalTelemetry = emptyTelemetry();
 
   constructor(
@@ -199,6 +200,7 @@ export class CodeService {
     this.decisions = [];
     this.invalidations = [];
     this.lastDecision = undefined;
+    this.pendingBindingInvalidationDigest = undefined;
     this.telemetry = emptyTelemetry();
     this.persistCheckpoint();
     return sessionId;
@@ -651,7 +653,7 @@ export class CodeService {
     requestedLimit: number;
   }): CanonicalRetrievalQuery {
     const repositories = selectedRepositories(input.workspace, input.repositoryIds);
-    return canonicalizeRetrievalQuery({
+    const query = canonicalizeRetrievalQuery({
       operation: input.operation,
       text: input.text,
       provider: input.status.identity,
@@ -663,6 +665,36 @@ export class CodeService {
       ...(input.filters === undefined ? {} : { filters: input.filters }),
       requestedLimit: input.requestedLimit,
     });
+    this.invalidateOverlappingBindings(query);
+    return query;
+  }
+
+  private invalidateOverlappingBindings(query: CanonicalRetrievalQuery): void {
+    const requestDigest = canonicalQueryRequestDigest(query);
+    const stale = new Map<string, { query: CanonicalRetrievalQuery; digests: string[]; reason: string }>();
+    for (const cached of [...this.hitQueries.values(), ...this.relationshipQueries.values()]) {
+      if (cached.requestDigest === requestDigest || cached.query.binding.workspaceId !== query.binding.workspaceId) continue;
+      const reason = overlappingBindingDifference(cached.query, query);
+      if (reason === undefined) continue;
+      const key = JSON.stringify(cached.query.binding);
+      const existing = stale.get(key);
+      if (existing === undefined) stale.set(key, { query: cached.query, digests: [cached.query.digest], reason });
+      else if (!existing.digests.includes(cached.query.digest)) existing.digests.push(cached.query.digest);
+    }
+    for (const item of stale.values()) {
+      this.evictBinding(item.query);
+      this.telemetry.invalidations += 1;
+      this.invalidations.push(createInvalidation(item.reason, item.digests));
+      this.lastDecision = { kind: "invalidated", reason: item.reason };
+      this.pendingBindingInvalidationDigest = query.digest;
+      this.diagnostics.push({
+        code: "retrieval_invalidated",
+        level: "info",
+        message: item.reason,
+        queryDigest: query.digest,
+        providerCallRequired: false,
+      });
+    }
   }
 
   private rebindQuery(
@@ -697,6 +729,8 @@ export class CodeService {
     }
     if (cached !== undefined && !statusAllowsReuse(status)) {
       this.invalidateCachedQuery(query, "provider status no longer permits current evidence reuse");
+    } else if (this.pendingBindingInvalidationDigest === query.digest) {
+      this.pendingBindingInvalidationDigest = undefined;
     } else this.noteInvalidation(query);
     return undefined;
   }
@@ -1094,7 +1128,7 @@ export class CodeService {
         value,
         provenance: uniqueProvenance([
           { ...compactProvenance(provenance), freshness },
-          ...(provenanceObservations ?? []).map(compactProvenance),
+          ...(provenanceObservations ?? []).map((item) => ({ ...compactProvenance(item), freshness: "unknown" as const })),
         ]),
       });
     }
@@ -1110,9 +1144,9 @@ export class CodeService {
           queryDigests: [...new Set([...(existing?.queryDigests ?? []), cached.query.digest])].sort(),
           value,
           provenance: uniqueProvenance([
-            ...(existing?.provenance ?? []),
-            compactProvenance(provenance),
-            ...(provenanceObservations ?? []).map(compactProvenance),
+            { ...compactProvenance(provenance), freshness: cached.freshness },
+            ...(provenanceObservations ?? []).map((item) => ({ ...compactProvenance(item), freshness: "unknown" as const })),
+            ...(existing?.provenance ?? []).map((item) => ({ ...item, freshness: "unknown" as const })),
           ]),
         });
       }
@@ -1404,6 +1438,26 @@ function sameBinding(left: CanonicalRetrievalQuery, right: CanonicalRetrievalQue
   return JSON.stringify(left.binding) === JSON.stringify(right.binding);
 }
 
+function overlappingBindingDifference(
+  previous: CanonicalRetrievalQuery,
+  current: CanonicalRetrievalQuery,
+): string | undefined {
+  if (JSON.stringify(previous.binding.provider) !== JSON.stringify(current.binding.provider)) {
+    return "provider identity changed; overlapping cached evidence was invalidated";
+  }
+  if (previous.binding.indexRevision !== current.binding.indexRevision) {
+    return "provider index revision changed; overlapping cached evidence was invalidated";
+  }
+  const currentRepositories = new Map(current.binding.repositories.map((repository) => [repository.repositoryId, repository]));
+  const changedRepository = previous.binding.repositories.find((repository) => {
+    const currentRepository = currentRepositories.get(repository.repositoryId);
+    return currentRepository !== undefined && JSON.stringify(repository) !== JSON.stringify(currentRepository);
+  });
+  return changedRepository === undefined
+    ? undefined
+    : `repository revision changed for ${changedRepository.repositoryId}; overlapping cached evidence was invalidated`;
+}
+
 function bindingDifference(previous: CanonicalRetrievalQuery, current: CanonicalRetrievalQuery): string {
   if (previous.binding.workspaceId !== current.binding.workspaceId) return "workspace scope changed; cached evidence was invalidated";
   if (JSON.stringify(previous.binding.provider) !== JSON.stringify(current.binding.provider)) return "provider identity changed; cached evidence was invalidated";
@@ -1511,11 +1565,13 @@ const NON_SYMBOL_IDENTIFIERS = new Set([
 
 function identifierCandidates(text: string, explicit: string[] | undefined): string[] {
   const quoted = [...text.matchAll(/`([^`]+)`/g)].flatMap((match) => match[1] === undefined ? [] : [match[1]]);
+  const quotedIdentifiers = new Set(quoted);
   const explicitIdentifiers = [...(explicit ?? []), ...quoted]
     .filter((value) => isIdentifier(value)
       && !value.includes("/")
       && !value.includes(".")
-      && !NON_SYMBOL_IDENTIFIERS.has(value.toLowerCase()));
+      && !NON_SYMBOL_IDENTIFIERS.has(value.toLowerCase())
+      && (quotedIdentifiers.has(value) || isCodeShapedIdentifier(value)));
   const inferred = (text.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []).filter(isCodeShapedIdentifier);
   return [...new Set([...explicitIdentifiers, ...inferred])];
 }

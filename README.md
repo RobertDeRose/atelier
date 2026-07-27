@@ -86,7 +86,7 @@ atlr validate plan
 atlr validate focused
 ```
 
-The reviewed Markdown plan is the Manual Edited scope baseline. Beads is its executable task projection. Jujutsu is the primary local repository model.
+The reviewed Markdown plan and its durable `ManualEdit` evidence form the scope baseline. Beads is its executable task projection. Jujutsu is the primary local repository model.
 
 ## Code provider commands
 
@@ -115,6 +115,12 @@ atlr code search --provider codesearch --repo api,auth "token refresh"
 Search mode may be `auto`, `semantic`, `hybrid`, or `lexical`. Search focus may be `auto`, `source`, `tests`, `docs`, or `all`. Automatic focus recognizes implementation-, test-, documentation-, and mixed implementation/test questions. Focused automatic and hybrid searches overfetch compact semantic metadata and may issue bounded literal provider queries only for exact `--hint` identifiers or identifiers already expressed in code-like or quoted form. Atelier fuses evidence by repository path, preserves `providerRank`, records `retrievalMethods`, diversifies files, and applies the user-visible retrieval limit afterward. Broad natural-language literal extraction is reserved for degraded fallback when codesearch reports an operational semantic/vector failure. Explicit `--mode semantic` never hides that failure.
 
 Unsupported provider capabilities must be reported explicitly. Atelier does not silently discard filters or hide fallback-provider semantics.
+
+### Retrieval economy and freshness
+
+Atelier owns a bounded retrieval session rather than relying on conversational memory. Start with one focused semantic search, inspect the returned inventory, resolve only identifiers listed as unresolved, and read known paths directly. Equivalent canonical requests at the same provider, repository, and index revisions reuse evidence without another provider dispatch. Repository, provider, or index changes invalidate affected evidence; historical provenance remains visible but cannot be labeled current.
+
+`atlr code status` and every code search response report provider calls, cache hits, overlap reuse, unique paths, duplicate identities removed, bytes returned, truncation, invalidations, repository scopes, and remaining budgets. Pass `--retrieval-session ID` to reuse one explicit session across separate CLI invocations. Pi creates and closes this session automatically.
 
 ## Pi commands
 
@@ -248,9 +254,9 @@ Every normalized result can record:
 
 Provider output is evidence, not authority. Critical results should still be verified against current source.
 
-## Manual Edited terminology
+## ManualEdit terminology
 
-Atelier uses **Manual Edited** for artifacts modified directly through an editor or another user-controlled tool. It never uses "Human Edited" as a provenance category.
+Atelier records a durable **ManualEdit** lifecycle when an artifact is reviewed through an editor or another user-controlled tool. Working State remains authoritative over conversational compaction.
 
 ## Validation
 
@@ -300,7 +306,7 @@ Define `.atelier/workspace.json` when a task spans multiple repositories:
 }
 ```
 
-Validate it with `atlr config validate`. Code retrieval is bounded by provider-neutral limits in `.atelier/config.json`: `codeMaxResults`, `codeMaxPreviewBytes`, `codeMaxChunkBytes`, `codeMaxFetches`, and `codeMaxTotalBytes`.
+Validate it with `atlr config validate`. Code retrieval is bounded by provider-neutral limits in `.atelier/config.json`: `codeMaxResults`, `codeMaxPreviewBytes`, `codeMaxChunkBytes`, `codeMaxFetches`, `codeMaxTotalBytes`, `codeMaxProviderRequests`, `codeMaxUniquePaths`, and `codeMaxEvidenceEntries`. Restart persistence is independently bounded by `codeRetainedSessions`, `codeMaxPersistedEntries`, and `codeMaxPersistedBytes`.
 
 ## Real codesearch probe
 

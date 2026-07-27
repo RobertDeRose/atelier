@@ -2,11 +2,9 @@
 
 ## Status
 
-Atelier v0.8.9 provides a repeatable live conformance workflow and a ranked comparative
-retrieval benchmark for codesearch.
+Atelier provides a repeatable live conformance workflow, a ranked comparative retrieval benchmark, and a deterministic provider-independent self-hosting economy scenario.
 
-The first evidence report is in
-`docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md`.
+The first evidence report is in `docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md`. The bounded self-hosting result and live-run diagnostics are in `docs/CODESEARCH_RETRIEVAL_ECONOMY_REPORT_2026-07-27.md`.
 
 ## Test isolation
 
@@ -53,13 +51,43 @@ The report records:
 - Degraded-result counts and unique provider warnings.
 - Results supported by both semantic and literal retrieval.
 - Exact identifier hints supplied to provider retrieval.
+- Agent/tool calls and actual provider dispatches.
+- Exact cache hits and safe overlap reuse.
+- Unique paths and duplicate evidence identities removed.
+- Model-facing bytes returned and truncation.
+- Repository or index invalidations.
+- Requested repository scopes.
 
-It writes `.atelier/evaluation/latest.json` plus a timestamped immutable report.
+It writes `.atelier/evaluation/latest.json` plus a timestamped immutable report. When codesearch is included, the runner also loads `evaluation/fixtures/accepted-codesearch-recall.json`. It fails if weighted recall drops below an accepted task score or if any previously accepted expected path disappears. Baseline, codesearch, and Octocode continue through the same scoring contract; tasks absent from the accepted fixture are reported without weakening that gate.
 
-This is a retrieval comparison, not yet a full autonomous-agent correctness benchmark. A
-later stage can execute identical implementation tasks with fixed model and tool budgets
-and human scoring.
+This is a retrieval comparison, not a claim about general autonomous-agent quality.
 
+## Self-hosting economy acceptance
+
+`evaluation/fixtures/self-hosting-retrieval-economy.json` records the observed planning baseline: 19 semantic searches, 20 symbol searches, 339 returned results, and 58 unique paths. It also lists the expected source, test, configuration, persistence, Pi, evaluation, and documentation evidence.
+
+The provider-independent acceptance in `tests/self-hosting-retrieval-acceptance.test.ts` exercises the final sequence with a deterministic fake provider:
+
+1. Build Working State from one semantic discovery.
+2. Resolve only `UnresolvedInventorySymbol` after the inventory marks it unresolved.
+3. Repeat an equivalent Unicode/whitespace-normalized query and require exact reuse.
+4. Request a known path and require direct-read guidance.
+5. Isolate two repository scopes.
+6. Reopen the bounded ledger session without another provider call.
+7. Change a repository revision and then the provider index revision.
+8. Prove historical evidence is never labeled current after either invalidation.
+
+The scenario permits at most eight repository-intelligence calls and eight provider calls. It additionally asserts unique model-facing paths, duplicate removal, provenance preservation, bytes, truncation state, and scope isolation. Ordinary tests inject the fake provider and do not require codesearch, Octocode, Jujutsu, or Pi.
+
+For the live acceptance, use `mise run launch` in a clean or disposable Jujutsu-first workspace. Start with one focused semantic query, inspect its included inventory, read returned paths directly, use symbol lookup only for unresolved identifiers, and finish without broad file-tree scans. Record the final telemetry and require no more than eight repository-intelligence calls.
+
+## Troubleshooting
+
+- A failed accepted-recall gate names every lost path and lower weighted score.
+- `index_revision` or `repository_revision` invalidations require a fresh provider result; cached provenance remains historical only.
+- Empty fresh provider evidence may permit raw fallback in Pi. Cache hits and request-budget denial do not.
+- A live codesearch MCP process may hold the local writer. Use Atelier's coordinated `code index` lifecycle rather than running competing indexers.
+- Unknown provider index revisions disable current cache reuse by design.
 
 ## Workflow focus
 

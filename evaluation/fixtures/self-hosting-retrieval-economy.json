@@ -1,0 +1,69 @@
+{
+  "id": "self-hosting-retrieval-economy",
+  "objective": "Resolve `UnresolvedInventorySymbol` only if semantic discovery leaves it unresolved. Improve Atelier codesearch efficiency while preserving Working State provenance, retrieval recall, persistence, Pi integration, configuration, evaluation, and documentation behavior.",
+  "observedBaseline": {
+    "semanticSearchCalls": 19,
+    "symbolCalls": 20,
+    "repositoryIntelligenceCalls": 39,
+    "results": 339,
+    "uniquePaths": 58,
+    "repeatedPaths": {
+      "docs/IMPLEMENTATION_PLAN.md": 63,
+      "packages/core/src/core.ts": 46,
+      "apps/pi-extension/src/index.ts": 28,
+      "apps/cli/src/main.ts": 28
+    }
+  },
+  "budgets": {
+    "maxRepositoryIntelligenceCalls": 8,
+    "maxProviderCalls": 8
+  },
+  "expectedOutcome": {
+    "agentToolCalls": 8,
+    "providerCalls": 6,
+    "cacheHits": 1,
+    "uniquePaths": 5,
+    "overlapReuseMinimum": 0,
+    "duplicateIdentitiesRemovedMinimum": 1,
+    "invalidationsMinimum": 2,
+    "repositoryScopes": [
+      ["atelier"],
+      ["docs"],
+      ["atelier", "docs"]
+    ],
+    "truncation": false
+  },
+  "expectedPathGroups": {
+    "source": [
+      "packages/core/src/code/service.ts",
+      "packages/core/src/code/retrieval.ts",
+      "packages/core/src/state/working-state-builder.ts",
+      "packages/core/src/state/repository-state-planner.ts",
+      "packages/core/src/ledger/sqlite-ledger.ts"
+    ],
+    "tests": [
+      "tests/code-budgets.test.ts",
+      "tests/working-state-retrieval-persistence.test.ts",
+      "tests/pi-extension.test.ts",
+      "tests/code-evaluation.test.ts"
+    ],
+    "configuration": [
+      "packages/core/src/config/config.ts",
+      ".atelier/config.json"
+    ],
+    "pi": [
+      "apps/pi-extension/src/index.ts",
+      "apps/pi-extension/README.md"
+    ],
+    "evaluation": [
+      "evaluation/tasks.json",
+      "scripts/evaluate-code.ts"
+    ],
+    "documentation": [
+      "README.md",
+      "docs/CODE_INTELLIGENCE.md",
+      "docs/CODESEARCH_EVALUATION.md",
+      "CHANGELOG.md"
+    ]
+  }
+}

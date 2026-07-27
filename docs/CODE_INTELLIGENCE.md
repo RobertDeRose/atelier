@@ -387,6 +387,18 @@ follow symbols or relationships as needed
 
 Do not eagerly return large source files or dozens of full chunks.
 
+Atelier now enforces this sequence with a session-scoped inventory:
+
+1. Issue one focused semantic discovery when the current scope has none.
+2. Inspect the inventory included in that response or Working State.
+3. Reuse exact or safely overlapping evidence before another provider call.
+4. Resolve only identifiers explicitly marked unresolved.
+5. Read known or returned paths directly with the built-in read tool.
+
+The canonical reuse key includes normalized query text, operation, filters, provider identity, workspace and repository scopes, repository snapshots, and provider index revision. Evidence never crosses workspace or repository scopes. Revision or provider changes invalidate affected requests before reuse. Original provenance is retained as a historical observation with non-current freshness; only evidence matching the active binding may be reported current.
+
+Do not use raw repository scans merely because the request budget is exhausted. Pi permits broad fallback only for unavailable, unhealthy, stale, failed, degraded, or genuinely empty provider evidence.
+
 The adapter or repository-intelligence service should enforce configurable limits for:
 
 - Number of search results
@@ -396,6 +408,8 @@ The adapter or repository-intelligence service should enforce configurable limit
 - Relationship traversal depth
 - Total retrieved bytes
 - Total estimated tokens
+
+The implemented configuration also bounds provider requests, unique paths, evidence identities, retained sessions, persisted entries, and persisted bytes. Repeated paths consume one unique-path slot. The compact inventory and telemetry explain cache hits, overlap reuse, deduplication, truncation, invalidation, and remaining capacity.
 
 ## Provider Configuration
 
@@ -489,13 +503,11 @@ When Atlr detects changes through Jujutsu state or filesystem observation, it sh
 
 Search results from a potentially stale index must carry that warning. The agent may then verify critical evidence using direct file reads.
 
-## Manual Edited State
+## ManualEdit state
 
-The project uses the term **Manual Edited** for artifacts that users may modify directly.
+The project uses **ManualEdit** for the durable lifecycle evidence created when a user-controlled editor reviews an artifact.
 
-Code intelligence must never overwrite Manual Edited artifacts.
-
-When Atlr later indexes plans, task metadata, decisions, transcripts, or other project artifacts, the index may consume Manual Edited content as evidence, but the provider must remain read-only with respect to those files unless a separate approved workflow explicitly performs edits.
+Code intelligence must never overwrite ManualEdit-controlled artifacts. Working State remains authoritative over conversational compaction and may consume ManualEdit content as evidence, but the provider stays read-only unless a separate approved workflow explicitly performs edits.
 
 ## Failure Handling
 
@@ -602,6 +614,16 @@ Examples:
 Do not introduce a slash command for every low-level provider operation. Agent workflows should normally call the repository-intelligence service directly.
 
 ## Diagnostics
+
+`atlr code status` and Pi's `/code-status` report the provider and the active retrieval session. Search and symbol responses include the same inventory, decision, budgets, provenance, scope, freshness, and telemetry. The evaluation contract records agent/tool calls, provider calls, cache hits, overlap reuse, unique paths, duplicate identities removed, bytes returned, truncation, invalidations, and repository scopes.
+
+Troubleshooting sequence:
+
+- If evidence is current, inspect or read it instead of searching again.
+- If symbol lookup returns `no_provider_call`, run semantic discovery first or use the already resolved evidence.
+- If the request budget is exhausted, start a new explicit session; do not switch automatically to raw scanning.
+- If repository or index revisions changed, expect an invalidation followed by a fresh provider call.
+- If provider status is unavailable, unhealthy, stale, failed, or degraded, repair or reindex it and verify critical paths by direct read.
 
 `atlr intelligence doctor` should report:
 

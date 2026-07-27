@@ -15,6 +15,10 @@ type Task = {
   focus?: CodeSearchFocus;
 };
 type ProviderName = "codesearch" | "octocode";
+type AcceptedRecall = {
+  provider: "codesearch";
+  tasks: Record<string, { weightedRecall: number; expectedFound: string[] }>;
+};
 type Run = {
   method: "baseline" | ProviderName;
   status: number | null;
@@ -31,6 +35,16 @@ type Run = {
   fusionResultCount: number;
   literalHintCount: number;
   warnings: string[];
+  agentToolCalls: number;
+  providerCalls: number;
+  cacheHits: number;
+  overlapReuse: number;
+  uniquePaths: number;
+  duplicateIdentitiesRemoved: number;
+  bytesReturned: number;
+  truncation: boolean;
+  invalidations: number;
+  repositoryScopes: string[][];
 };
 
 const parsed = parseArguments(process.argv.slice(2));
@@ -38,6 +52,7 @@ const root = resolve(parsed.positionals[0] ?? process.cwd());
 const tasksPath = resolve(parsed.positionals[1] ?? "evaluation/tasks.json");
 const out = resolve(parsed.positionals[2] ?? ".atelier/evaluation");
 const providers = parseProviders(parsed.options.providers ?? process.env.ATELIER_EVALUATION_PROVIDERS ?? "codesearch");
+const acceptedPath = resolve(parsed.options.accepted ?? "evaluation/fixtures/accepted-codesearch-recall.json");
 mkdirSync(out, { recursive: true });
 const tasks = JSON.parse(readFileSync(tasksPath, "utf8")) as Task[];
 const coldStartRuns = Object.fromEntries(providers.map((provider) => [provider, tasks[0] === undefined ? undefined : runProvider(tasks[0], provider)])) as Partial<Record<ProviderName, Run | undefined>>;
@@ -83,14 +98,15 @@ const payload = {
     ...providerAggregates,
   },
 };
+if (providers.includes("codesearch") && existsSync(acceptedPath)) assertAcceptedCodesearchRecall(summary, acceptedPath);
 const path = resolve(out, `comparison-${Date.now()}.json`);
 writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`);
 writeFileSync(resolve(out, "latest.json"), `${JSON.stringify(payload, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify({ generatedAt, path, providers, coldStarts, aggregate: payload.aggregate, summary }, null, 2)}\n`);
 
-function parseArguments(args: string[]): { positionals: string[]; options: { providers?: string } } {
+function parseArguments(args: string[]): { positionals: string[]; options: { providers?: string; accepted?: string } } {
   const positionals: string[] = [];
-  const options: { providers?: string } = {};
+  const options: { providers?: string; accepted?: string } = {};
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index]!;
     if (value === "--providers" || value === "--provider") {
@@ -106,6 +122,17 @@ function parseArguments(args: string[]): { positionals: string[]; options: { pro
     }
     if (value.startsWith("--provider=")) {
       options.providers = value.slice("--provider=".length);
+      continue;
+    }
+    if (value === "--accepted") {
+      const next = args[index + 1];
+      if (!next) throw new Error("--accepted requires a fixture path");
+      options.accepted = next;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--accepted=")) {
+      options.accepted = value.slice("--accepted=".length);
       continue;
     }
     positionals.push(value);
@@ -165,6 +192,16 @@ function runBaseline(task: Task): Run {
     fusionResultCount: 0,
     literalHintCount: task.literals?.length ?? 0,
     warnings: [],
+    agentToolCalls: 1,
+    providerCalls: 0,
+    cacheHits: 0,
+    overlapReuse: 0,
+    uniquePaths: paths.length,
+    duplicateIdentitiesRemoved: Math.max(0, count - paths.length),
+    bytesReturned: Buffer.byteLength(result.stdout),
+    truncation: false,
+    invalidations: 0,
+    repositoryScopes: task.repos === undefined ? [] : [[...task.repos].sort()],
   };
 }
 
@@ -184,10 +221,24 @@ function runProvider(task: Task, provider: ProviderName): Run {
   });
   let rows: Array<{
     path?: string;
+    repositoryId?: string;
     providerRank?: number;
     retrievalMethods?: string[];
     provenance?: { degraded?: boolean; warnings?: string[]; reranked?: boolean; requestedFilters?: Record<string, unknown>; postProcessing?: string[] };
   }> = [];
+  let retrieval: {
+    telemetry?: {
+      providerCalls?: number;
+      cacheHits?: number;
+      overlapReuses?: number;
+      uniquePaths?: number;
+      duplicateResultsRemoved?: number;
+      bytesReturned?: number;
+      truncated?: boolean;
+      invalidations?: number;
+    };
+    bindings?: Array<{ repositories?: Array<{ repositoryId?: string }> }>;
+  } | undefined;
   try {
     const value = JSON.parse(result.stdout) as unknown;
     rows = Array.isArray(value)
@@ -195,6 +246,9 @@ function runProvider(task: Task, provider: ProviderName): Run {
       : typeof value === "object" && value !== null && Array.isArray((value as { results?: unknown }).results)
         ? (value as { results: typeof rows }).results
         : [];
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      retrieval = (value as { retrieval?: typeof retrieval }).retrieval;
+    }
   } catch { /* retain raw output */ }
   const paths: string[] = [];
   for (const row of rows) if (typeof row.path === "string") pushUnique(paths, normalizePath(row.path));
@@ -203,6 +257,12 @@ function runProvider(task: Task, provider: ProviderName): Run {
     if (typeof row.path === "string") pushUnique(providerPaths, normalizePath(row.path));
   }
   const resolvedFocus = rows.map((row) => row.provenance?.requestedFilters?.resolvedFocus).find((value): value is string => typeof value === "string") ?? resolveCodeSearchFocus(task.focus, task.query);
+  const repositoryScopes = uniqueScopes([
+    ...(retrieval?.bindings ?? []).map((binding) => (binding.repositories ?? [])
+      .flatMap((repository) => repository.repositoryId === undefined ? [] : [repository.repositoryId])),
+    rows.flatMap((row) => row.repositoryId === undefined ? [] : [row.repositoryId]),
+  ]);
+  const telemetry = retrieval?.telemetry;
   return {
     method: provider,
     status: result.status,
@@ -222,6 +282,16 @@ function runProvider(task: Task, provider: ProviderName): Run {
       return Array.isArray(hints) ? hints.length : 0;
     })),
     warnings: [...new Set(rows.flatMap((row) => row.provenance?.warnings ?? []))],
+    agentToolCalls: 1,
+    providerCalls: telemetry?.providerCalls ?? (result.status === 0 ? 1 : 0),
+    cacheHits: telemetry?.cacheHits ?? 0,
+    overlapReuse: telemetry?.overlapReuses ?? 0,
+    uniquePaths: telemetry?.uniquePaths ?? paths.length,
+    duplicateIdentitiesRemoved: telemetry?.duplicateResultsRemoved ?? 0,
+    bytesReturned: telemetry?.bytesReturned ?? Buffer.byteLength(result.stdout),
+    truncation: telemetry?.truncated ?? false,
+    invalidations: telemetry?.invalidations ?? 0,
+    repositoryScopes,
   };
 }
 
@@ -255,7 +325,7 @@ function score(run: Run, task: Task) {
 }
 
 function aggregate(scores: Array<ReturnType<typeof score>>) {
-  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, degradedResultCount: 0, fusionResultCount: 0, literalHintCount: 0, rerankedTasks: 0, warnings: [], meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
+  if (scores.length === 0) return { tasks: 0, durationMs: 0, bytes: 0, degradedResultCount: 0, fusionResultCount: 0, literalHintCount: 0, rerankedTasks: 0, warnings: [], agentToolCalls: 0, providerCalls: 0, cacheHits: 0, overlapReuse: 0, uniquePaths: 0, duplicateIdentitiesRemoved: 0, bytesReturned: 0, truncatedRuns: 0, invalidations: 0, repositoryScopes: [], meanWeightedRecall: 0, meanReciprocalRank: 0, meanNdcgAt10: 0 };
   return {
     tasks: scores.length,
     durationMs: scores.reduce((sum, item) => sum + item.durationMs, 0),
@@ -265,6 +335,16 @@ function aggregate(scores: Array<ReturnType<typeof score>>) {
     literalHintCount: scores.reduce((sum, item) => sum + item.literalHintCount, 0),
     rerankedTasks: scores.filter((item) => item.reranked).length,
     warnings: [...new Set(scores.flatMap((item) => item.warnings))],
+    agentToolCalls: scores.reduce((sum, item) => sum + item.agentToolCalls, 0),
+    providerCalls: scores.reduce((sum, item) => sum + item.providerCalls, 0),
+    cacheHits: scores.reduce((sum, item) => sum + item.cacheHits, 0),
+    overlapReuse: scores.reduce((sum, item) => sum + item.overlapReuse, 0),
+    uniquePaths: new Set(scores.flatMap((item) => item.paths)).size,
+    duplicateIdentitiesRemoved: scores.reduce((sum, item) => sum + item.duplicateIdentitiesRemoved, 0),
+    bytesReturned: scores.reduce((sum, item) => sum + item.bytesReturned, 0),
+    truncatedRuns: scores.filter((item) => item.truncation).length,
+    invalidations: scores.reduce((sum, item) => sum + item.invalidations, 0),
+    repositoryScopes: uniqueScopes(scores.flatMap((item) => item.repositoryScopes)),
     meanWeightedRecall: round(scores.reduce((sum, item) => sum + item.weightedRecall, 0) / scores.length),
     meanReciprocalRank: round(scores.reduce((sum, item) => sum + item.reciprocalRank, 0) / scores.length),
     meanNdcgAt10: round(scores.reduce((sum, item) => sum + item.ndcgAt10, 0) / scores.length),
@@ -292,7 +372,48 @@ function summarizeRun(run: Run) {
     fusionResultCount: run.fusionResultCount,
     literalHintCount: run.literalHintCount,
     warnings: run.warnings,
+    agentToolCalls: run.agentToolCalls,
+    providerCalls: run.providerCalls,
+    cacheHits: run.cacheHits,
+    overlapReuse: run.overlapReuse,
+    uniquePaths: run.uniquePaths,
+    duplicateIdentitiesRemoved: run.duplicateIdentitiesRemoved,
+    bytesReturned: run.bytesReturned,
+    truncation: run.truncation,
+    invalidations: run.invalidations,
+    repositoryScopes: run.repositoryScopes,
   };
+}
+
+function assertAcceptedCodesearchRecall(
+  scores: Array<{ id: string; codesearch?: ReturnType<typeof score>; providers: Record<ProviderName, ReturnType<typeof score>> }>,
+  fixturePath: string,
+): void {
+  const accepted = JSON.parse(readFileSync(fixturePath, "utf8")) as AcceptedRecall;
+  const regressions: string[] = [];
+  for (const [taskId, baseline] of Object.entries(accepted.tasks)) {
+    const current = scores.find((item) => item.id === taskId)?.providers.codesearch;
+    if (current === undefined) {
+      regressions.push(`${taskId} accepted task is missing from current evaluation`);
+      continue;
+    }
+    if (current.weightedRecall < baseline.weightedRecall) {
+      regressions.push(`${taskId} weighted recall ${current.weightedRecall} < ${baseline.weightedRecall}`);
+    }
+    for (const expectedPath of baseline.expectedFound) {
+      if (!current.expectedFound.some((path) => pathsMatch(path, expectedPath))) regressions.push(`${taskId} lost ${expectedPath}`);
+    }
+  }
+  if (regressions.length > 0) throw new Error(`Accepted codesearch recall regressed:\n- ${regressions.join("\n- ")}`);
+}
+
+function uniqueScopes(scopes: string[][]): string[][] {
+  const values = new Map<string, string[]>();
+  for (const scope of scopes) {
+    const normalized = [...new Set(scope)].sort();
+    if (normalized.length > 0) values.set(JSON.stringify(normalized), normalized);
+  }
+  return [...values.values()];
 }
 
 function normalizePath(path: string): string {

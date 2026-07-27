@@ -103,5 +103,64 @@
       }
     ],
     "focus": "source"
+  },
+  {
+    "id": "self-hosting-retrieval-economy",
+    "query": "How does Atelier enforce bounded retrieval-session reuse across Working State, persistence, Pi tools, configuration, diagnostics, evaluation, and tests?",
+    "literals": [
+      "RetrievalSessionStatus",
+      "WorkingStateBuilder",
+      "saveRetrievalCheckpoint",
+      "atlr_code_search"
+    ],
+    "scenarioFixture": "evaluation/fixtures/self-hosting-retrieval-economy.json",
+    "expectedResults": [
+      {
+        "path": "packages/core/src/code/service.ts",
+        "relevance": 3,
+        "rationale": "Owns provider-neutral orchestration, budgets, reuse, invalidation, and telemetry."
+      },
+      {
+        "path": "packages/core/src/state/working-state-builder.ts",
+        "relevance": 3,
+        "rationale": "Projects compact current retrieval evidence into Working State."
+      },
+      {
+        "path": "packages/core/src/ledger/sqlite-ledger.ts",
+        "relevance": 2,
+        "rationale": "Persists bounded retrieval checkpoints across restart."
+      },
+      {
+        "path": "packages/core/src/config/config.ts",
+        "relevance": 2,
+        "rationale": "Loads configurable request, result, path, entry, and byte budgets."
+      },
+      {
+        "path": "apps/pi-extension/src/index.ts",
+        "relevance": 3,
+        "rationale": "Exposes the efficient provider-first sequence and session diagnostics to Pi."
+      },
+      {
+        "path": "tests/code-budgets.test.ts",
+        "relevance": 2,
+        "rationale": "Proves canonical reuse, deduplication, budgets, and scope isolation."
+      },
+      {
+        "path": "tests/working-state-retrieval-persistence.test.ts",
+        "relevance": 2,
+        "rationale": "Proves restart and revision freshness behavior."
+      },
+      {
+        "path": "scripts/evaluate-code.ts",
+        "relevance": 2,
+        "rationale": "Reports retrieval quality and economy through one evaluation contract."
+      },
+      {
+        "path": "docs/CODESEARCH_EVALUATION.md",
+        "relevance": 1,
+        "rationale": "Documents the accepted recall gate and self-hosting procedure."
+      }
+    ],
+    "focus": "source"
   }
 ]

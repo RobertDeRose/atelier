@@ -1,0 +1,37 @@
+{
+  "provider": "codesearch",
+  "description": "Accepted codesearch retrieval contract. Every listed expected path must remain found and per-task weighted recall may not regress.",
+  "tasks": {
+    "locate-provider-selection": {
+      "weightedRecall": 1,
+      "expectedFound": [
+        "packages/core/src/core.ts",
+        "packages/core/src/code/registry.ts",
+        "packages/core/src/code/service.ts"
+      ]
+    },
+    "trace-code-search": {
+      "weightedRecall": 1,
+      "expectedFound": [
+        "apps/cli/src/main.ts",
+        "packages/core/src/code/service.ts",
+        "packages/core/src/code/codesearch-provider.ts"
+      ]
+    },
+    "find-normalization-tests": {
+      "weightedRecall": 1,
+      "expectedFound": [
+        "packages/core/src/code/codesearch-provider.ts",
+        "tests/codesearch-provider.test.ts"
+      ]
+    },
+    "working-state-evidence": {
+      "weightedRecall": 1,
+      "expectedFound": [
+        "packages/core/src/state/working-state-builder.ts",
+        "packages/core/src/core.ts",
+        "packages/core/src/code/codesearch-provider.ts"
+      ]
+    }
+  }
+}
