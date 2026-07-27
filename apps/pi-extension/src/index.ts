@@ -173,7 +173,8 @@ async function updateStatus(ctx: ExtensionContext, core = coreFor(ctx)): Promise
       : indexing.state === "unknown"
         ? "index unknown"
         : `index ${indexing.state}`;
-    ctx.ui.setStatus(STATUS_KEY, `Atelier ${status.mode} · ${approved ? "approved" : "review"} · ${task} · ${index}`);
+    const next = status.nextAction.length > 56 ? `${status.nextAction.slice(0, 53)}…` : status.nextAction;
+    ctx.ui.setStatus(STATUS_KEY, `Atelier ${status.mode} · ${approved ? "approved" : "review"} · ${task} · ${index} · ${next}`);
   } catch (error) {
     ctx.ui.setStatus(STATUS_KEY, "Atelier unavailable");
     ctx.ui.notify(errorMessage(error), "error");
@@ -328,7 +329,7 @@ async function runEditorWithPi(
   editor: ManualEditEditor,
 ): Promise<{ exitCode: number; error?: string; signal?: string; editor: ManualEditEditor }> {
   if (ctx.mode !== "tui") {
-    throw new Error("The configured external editor requires Pi TUI mode.");
+    throw new Error(`ManualEdit requires Pi TUI mode to open ${core.config.planPath}. Run \`atlr review\` in a terminal, then resume this session.`);
   }
   const result = await ctx.ui.custom<{ exitCode: number; error?: string; signal?: string }>((tui, _theme, _keybindings, done) => {
     tui.stop();
@@ -363,10 +364,8 @@ async function runEditorWithPi(
 }
 
 async function reviewPlan(
-  pi: ExtensionAPI,
   ctx: ExtensionContext,
   core: AtelierCore,
-  options: { continueAgentReview: boolean },
 ): Promise<void> {
   if (reviewInProgress) return;
   reviewInProgress = true;
@@ -391,6 +390,13 @@ async function reviewPlan(
     const review = core.completePlanReview(started.id, { exitCode: result.exitCode });
     const parsed = core.parsePlan();
     const errors = parsed.diagnostics.filter((diagnostic) => diagnostic.level === "error");
+    let reconciliation: Awaited<ReturnType<AtelierCore["reconcilePlan"]>> | undefined;
+    let reconciliationError: string | undefined;
+    try {
+      reconciliation = await core.reconcilePlan(false);
+    } catch (error) {
+      reconciliationError = errorMessage(error);
+    }
     core.ledger.append({
       kind: review.accepted ? "plan.reviewed" : "plan.review_blocked",
       actor: "user",
@@ -409,21 +415,10 @@ async function reviewPlan(
     });
     await updateStatus(ctx, core);
 
-    if (errors.length > 0) {
-      ctx.ui.notify(`Plan review found ${errors.length} blocking validation error(s).`, "warning");
-    } else {
-      ctx.ui.notify(`Reviewed ${parsed.tasks.length} plan task(s).`, "info");
-    }
-
-    if (options.continueAgentReview) {
-      core.ledger.setState("planAutoReviewBaselineHash", review.afterHash);
-      core.ledger.setState("planAutoReviewPending", true);
-      pi.sendUserMessage(
-        `[Atelier] The user reviewed the plan directly in ${core.config.planPath}. ` +
-          "Treat that file as authoritative. Re-read it, check task identity, dependencies, scope, validation, and completion criteria. " +
-          "Do not modify source code or task-provider state. Update only the plan if corrections are required; otherwise report that it is ready for approval and stop.",
-      );
-    }
+    ctx.ui.notify(
+      manualEditSummary(review, parsed.diagnostics, reconciliation, reconciliationError),
+      errors.length > 0 || (reconciliation?.conflicts.length ?? 0) > 0 ? "warning" : "info",
+    );
   } catch (error) {
     if (
       startedManualEditId !== undefined
@@ -456,6 +451,49 @@ function planInstruction(core: AtelierCore, objective: string): string {
     "Use stable task IDs, explicit dependencies, scope, validation steps, and observable completion criteria. " +
     "Do not ask the user to describe textual plan edits after the draft; Atelier will open the plan in their configured editor. " +
     `When the draft is complete, stop.\n\nObjective: ${objective || "Create an implementation plan for the current request."}`;
+}
+
+function manualEditSummary(
+  review: ReturnType<AtelierCore["completePlanReview"]>,
+  diagnostics: ReturnType<AtelierCore["parsePlan"]>["diagnostics"],
+  reconciliation?: Awaited<ReturnType<AtelierCore["reconcilePlan"]>>,
+  reconciliationError?: string,
+): string {
+  const diff = review.structuralDiff;
+  return [
+    `ManualEdit ${review.id}: ${review.accepted ? "accepted" : "blocked"}`,
+    `Plan hash: ${review.afterHash ?? review.beforeHash}`,
+    `Structural diff: added ${diff?.added.join(", ") || "none"}; removed ${diff?.removed.join(", ") || "none"}; changed ${diff?.changed.map((item) => `${item.id}(${item.fields.join(",")})`).join(", ") || "none"}`,
+    `Diagnostics: ${diagnostics.length === 0 ? "none" : diagnostics.map((item) => `${item.level}:${item.code} ${item.message}`).join("; ")}`,
+    ...(reconciliation === undefined
+      ? [`Reconciliation preview unavailable: ${reconciliationError ?? "unknown error"}`]
+      : [
+          `Reconciliation digest: ${reconciliation.digest}`,
+          `Operations: ${reconciliation.operations.length}`,
+          ...reconciliation.operations.map((operation) => `- ${operation.kind}: ${operation.planTaskId}`),
+          ...reconciliation.conflicts.map((conflict) => `CONFLICT: ${conflict}`),
+        ]),
+  ].join("\n");
+}
+
+function preparationSummary(
+  core: AtelierCore,
+  prepared: Awaited<ReturnType<AtelierCore["execution"]["prepare"]>>,
+): string {
+  const first = core.parsePlan().tasks
+    .map((task, index) => ({ task, index }))
+    .filter(({ task }) => task.dependencies.length === 0)
+    .sort((left, right) => left.task.priority - right.task.priority || left.index - right.index)[0]?.task;
+  const retirements = prepared.reconciliation.operations.filter((operation) => operation.kind === "retire");
+  return [
+    `Plan hash: ${prepared.approval.planHash}`,
+    `Provider: ${prepared.approval.provider.name}${prepared.approval.provider.version ? ` ${prepared.approval.provider.version}` : ""}`,
+    `Reconciliation digest: ${prepared.approval.reconciliationDigest}`,
+    `Operations: ${prepared.reconciliation.operations.length}`,
+    ...prepared.reconciliation.operations.map((operation) => `- ${operation.kind}: ${operation.planTaskId}`),
+    `Retirements: ${retirements.length}${retirements.length === 0 ? "" : ` (${retirements.map((operation) => operation.planTaskId).join(", ")})`}`,
+    `Proposed first task: ${first === undefined ? "none" : `${first.id} — ${first.title}`}`,
+  ].join("\n");
 }
 
 async function approveAndReconcile(
@@ -492,8 +530,7 @@ async function approveAndReconcile(
   }
   const confirmed = await ctx.ui.confirm(
     "Approve exact execution transaction",
-    `Approve plan ${prepared.approval.planHash.slice(0, 12)}, reconciliation ${prepared.approval.reconciliationDigest.slice(0, 12)}, `
-      + `${prepared.reconciliation.operations.length} operation(s), and activation of one ready task?`,
+    `${preparationSummary(core, prepared)}\n\nApprove and apply this exact transaction?`,
   );
   if (!confirmed) {
     await core.execution.approveAndApply(prepared.approval.id, false);
@@ -781,23 +818,30 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   pi.on("tool_result", async (event, ctx) => {
     const core = coreFor(ctx);
     const pending = core.ledger.getExecutionEvidence(event.toolCallId);
-    if (pending === undefined || pending.status !== "started") return;
-    const text = event.content
-      .filter((item: { type: string; text?: string }): item is { type: "text"; text: string } => item.type === "text" && typeof item.text === "string")
-      .map((item: { type: "text"; text: string }) => item.text)
-      .join("\n");
-    const interrupted = event.isError === true && /abort|cancel|interrupt|signal/i.test(text);
-    const evidence = core.completeExecutionEvidence(event.toolCallId, {
-      status: interrupted ? "interrupted" : event.isError === true ? "failed" : "succeeded",
-      ...(event.isError === true ? { error: text || "Tool execution failed." } : {}),
-    });
-    if (evidence?.action === "task.close" && evidence.status === "succeeded") {
-      await core.observeTaskClosure();
+    if (pending !== undefined && pending.status === "started") {
+      const text = event.content
+        .filter((item: { type: string; text?: string }): item is { type: "text"; text: string } => item.type === "text" && typeof item.text === "string")
+        .map((item: { type: "text"; text: string }) => item.text)
+        .join("\n");
+      const interrupted = event.isError === true && /abort|cancel|interrupt|signal/i.test(text);
+      const evidence = core.completeExecutionEvidence(event.toolCallId, {
+        status: interrupted ? "interrupted" : event.isError === true ? "failed" : "succeeded",
+        ...(event.isError === true ? { error: text || "Tool execution failed." } : {}),
+      });
+      if (evidence?.action === "task.close" && evidence.status === "succeeded") {
+        await core.observeTaskClosure();
+      }
     }
+    await updateStatus(ctx, core);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     const core = coreFor(ctx);
+    try {
+      await core.execution.resume();
+    } catch (error) {
+      ctx.ui.notify(`Execution validation failed closed: ${errorMessage(error)}`, "error");
+    }
     ensureCodeToolsActive(pi, core);
     const state = await core.buildWorkingState();
     const retrieval = core.code.retrievalStatus();
@@ -827,6 +871,11 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
 
   pi.on("session_before_compact", async (event, ctx) => {
     const core = coreFor(ctx);
+    try {
+      await core.execution.resume();
+    } catch (error) {
+      ctx.ui.notify(`Execution validation failed closed before compaction: ${errorMessage(error)}`, "error");
+    }
     const state = await core.buildWorkingState();
     const summary = `${core.workingStateBuilder.toMarkdown(state)}\n` +
       "Conversation history is non-authoritative. Resume from the current task, approved plan, active permissions, repository snapshot, corrections, and validation evidence above.";
@@ -863,14 +912,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     if (core.mode() !== "plan" || reviewInProgress) return;
     if (core.ledger.getState<boolean>("planAutoReviewPending") !== true) return;
     if (!existsSync(core.config.planPath)) return;
-    const baseline = core.ledger.getState<string>("planAutoReviewBaselineHash");
-    const current = hashFile(core.config.planPath);
-    if (baseline === current) {
-      core.ledger.setState("planAutoReviewPending", false);
-      await updateStatus(ctx, core);
-      return;
-    }
-    await reviewPlan(pi, ctx, core, { continueAgentReview: true });
+    await reviewPlan(ctx, core);
   });
 
   pi.registerCommand("status", {
@@ -880,7 +922,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const status = await core.status();
       ctx.ui.notify(
         `Mode: ${status.mode}\nPlan: ${status.currentPlanHash === status.approvedPlanHash ? "approved" : "not approved"}\n` +
-          `Task: ${status.currentTaskId ?? "none"}\nProvider: ${status.taskProvider.provider} (${status.taskProvider.initialized ? "ready" : "not initialized"})`,
+          `Task: ${status.currentTaskId ?? "none"}\nProvider: ${status.taskProvider.provider} (${status.taskProvider.initialized ? "ready" : "not initialized"})\n` +
+          `Next action: ${status.nextAction}`,
         "info",
       );
       await updateStatus(ctx, core);
@@ -908,7 +951,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       await ctx.waitForIdle();
       const core = coreFor(ctx);
       core.setMode("plan");
-      await reviewPlan(pi, ctx, core, { continueAgentReview: true });
+      await reviewPlan(ctx, core);
     },
   });
 
@@ -916,6 +959,49 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "Approve the reviewed plan, reconcile Beads, and enter act mode",
     handler: async (_args, ctx) => {
       await approveAndReconcile(pi, ctx, coreFor(ctx));
+    },
+  });
+
+  pi.registerCommand("execute", {
+    description: "Explicitly activate the next or requested approved-plan task",
+    handler: async (args, ctx) => {
+      await ctx.waitForIdle();
+      const core = coreFor(ctx);
+      const requestedTaskId = args.trim() || undefined;
+      const previous = core.ledger.listExecutionGrants()[0];
+      if (previous === undefined) {
+        ctx.ui.notify("No prior approved execution exists for task continuation.", "error");
+        return;
+      }
+      const confirmed = await ctx.ui.confirm(
+        "Activate approved-plan task",
+        `Plan hash: ${previous.planHash}\nPrevious task: ${previous.taskId}\nRequested next task: ${requestedTaskId ?? "next ready in reviewed plan order"}\n\nActivate explicitly?`,
+      );
+      if (!confirmed) return;
+      try {
+        const transition = await core.execution.startNextTask(true, requestedTaskId);
+        if (transition === undefined) return;
+        ctx.ui.notify(`Activated ${transition.task.id} with execution grant ${transition.executionGrant.id}.`, "info");
+        await updateStatus(ctx, core);
+      } catch (error) {
+        ctx.ui.notify(errorMessage(error), "error");
+      }
+    },
+  });
+
+  pi.registerCommand("cancel", {
+    description: "Cancel the active execution without closing its task",
+    handler: async (args, ctx) => {
+      await ctx.waitForIdle();
+      const core = coreFor(ctx);
+      const reason = args.trim() || "User cancelled execution through Pi /cancel.";
+      const cancelled = core.execution.cancel(reason);
+      if (cancelled === undefined) {
+        ctx.ui.notify("No active execution exists to cancel.", "info");
+        return;
+      }
+      ctx.ui.notify(`Cancelled execution ${cancelled.id}; task ${cancelled.taskId} remains open.`, "info");
+      await updateStatus(ctx, core);
     },
   });
 
@@ -1070,11 +1156,14 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         return;
       }
       if (name === "plan" || name === "focused") {
-        const changedPaths = core.repository.changedPaths()
-          .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/"));
-        const plan = core.validation.planFocused(changedPaths, []);
         if (name === "plan") {
-          ctx.ui.notify(plan.length === 0 ? "No focused validations matched." : plan.map((item) => `${item.name}: ${item.reason}`).join("\n"), "info");
+          const selection = core.selectFocusedValidation();
+          ctx.ui.notify(
+            selection.noMatch
+              ? `Focused selection ${selection.id}: no configured validations matched.`
+              : `Focused selection ${selection.id}:\n${selection.selected.map((item) => `${item.name}: ${item.reason}${item.required ? " (required)" : ""}`).join("\n")}`,
+            "info",
+          );
           return;
         }
         const selection = core.selectFocusedValidation();
@@ -1087,7 +1176,11 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
             taskId: executionGrant.taskId,
             reason: `Explicit Pi focused validation ${item.name}`,
           });
-          results.push(await core.runValidation(item.name, { selectionId: selection.id }));
+          const signal = contextSignal(ctx);
+          results.push(await core.runValidation(item.name, {
+            selectionId: selection.id,
+            ...(signal === undefined ? {} : { signal }),
+          }));
         }
         ctx.ui.notify(results.length === 0 ? "No focused validations matched." : results.map((item) => `${item.name}: ${item.status} (${item.durationMs} ms)`).join("\n"), results.some((item) => item.status !== "passed") ? "error" : "info");
         return;
@@ -1100,7 +1193,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         taskId: executionGrant.taskId,
         reason: `Explicit Pi validation ${name}`,
       });
-      const evidence = await core.runValidation(name);
+      const signal = contextSignal(ctx);
+      const evidence = await core.runValidation(name, signal === undefined ? {} : { signal });
       ctx.ui.notify(`${name}: ${evidence.status} (${evidence.durationMs} ms)`, evidence.status === "passed" ? "info" : "error");
     },
   });
@@ -1125,6 +1219,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
 
 export default function atelierExtension(pi: ExtensionAPI): void {
   registerAtelierExtension(pi);
+}
+
+function contextSignal(ctx: ExtensionContext): AbortSignal | undefined {
+  return (ctx as ExtensionContext & { signal?: AbortSignal }).signal;
 }
 
 function errorMessage(error: unknown): string {

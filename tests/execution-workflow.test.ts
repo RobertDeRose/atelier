@@ -413,3 +413,30 @@ test("starting a later task requires confirmation while reusing unchanged plan a
     rmSync(context.root, { recursive: true, force: true });
   }
 });
+
+test("starting an explicitly requested later task works after explicit closure revoked the prior grant", async () => {
+  const context = setup("atlr-execution-next-closed-");
+  try {
+    const prepared = await context.coordinator.prepare();
+    const first = await context.coordinator.approveAndApply(prepared.approval.id, true);
+    assert.ok(first.task);
+    await context.provider.close(first.task.id, "completed");
+    context.coordinator.cancel(`Task ${first.task.id} was explicitly closed.`);
+
+    const ready = await context.provider.ready();
+    const requested = ready.find((task) => task.planTaskId === "ATLR-002");
+    assert.ok(requested);
+    const next = await context.coordinator.startNextTask(true, requested.id);
+    assert.equal(next?.task.id, requested.id);
+    assert.equal(next?.executionGrant.planApprovalId, first.executionGrant?.planApprovalId);
+
+    context.coordinator.cancel("cancelled without closing the active task");
+    await assert.rejects(
+      context.coordinator.startNextTask(true),
+      /status in_progress/i,
+    );
+  } finally {
+    context.ledger.close();
+    rmSync(context.root, { recursive: true, force: true });
+  }
+});

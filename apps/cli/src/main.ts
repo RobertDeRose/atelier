@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node --experimental-strip-types
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -16,8 +17,12 @@ import {
   type CodeProviderStatus,
   type CodeSearchHit,
   type CodeWorkspace,
+  type ExecutionPreparation,
+  type ManualEdit,
   type Permission,
+  type PlanDiagnostic,
   type RetrievalSessionStatus,
+  type TaskReconciliation,
 } from "../../../packages/core/src/index.ts";
 
 interface ParsedArgs {
@@ -132,10 +137,12 @@ Commands:
   plan reconcile [--json]           Preview task-provider reconciliation
   plan prepare [--json]             Prepare an exact execution approval transaction
   review                            Open the plan in the configured editor and record a ManualEdit
-  approve [--approval ID]           Inspect a preparation or apply its exact transaction
+  approve [--approval ID]           Prepare, inspect, or explicitly apply an exact transaction
+  execute [TASK_ID] [--yes]         Explicitly activate a later approved-plan task
+  cancel --reason TEXT              Revoke the current execution without closing its task
   ready [--json]                    Return provider-reported unblocked work
   task show ID [--json]             Read one provider task
-  task claim ID                     Atomically claim a task
+  task start [ID] [--yes]           Explicitly activate a later approved-plan task
   task close ID --reason TEXT       Close a task with evidence
   permission list [--json]          List active grants
   permission grant NAME [options]   Grant an explicit permission
@@ -315,6 +322,7 @@ async function main(): Promise<void> {
               : [`Workspace: ${status.snapshot.workspaceId}`, `Git commit: ${status.snapshot.headCommit}`]),
             `Dirty generation: ${status.snapshot.dirtyGeneration}`,
             `Active grants: ${status.activePermissions.length}`,
+            `Next action: ${status.nextAction}`,
           ].join("\n") + "\n");
         }
         return;
@@ -347,6 +355,21 @@ async function main(): Promise<void> {
 
       case "approve": {
         await handlePlan(core, "approve", parsed);
+        return;
+      }
+
+      case "execute": {
+        await handleTaskStart(core, subcommand, parsed);
+        return;
+      }
+
+      case "cancel": {
+        const reason = flagString(parsed, "reason");
+        if (!reason) throw new Error("Usage: atlr cancel --reason TEXT [--json]");
+        const executionGrant = core.execution.cancel(reason);
+        if (executionGrant === undefined) throw new Error("No active execution exists to cancel.");
+        if (flagBoolean(parsed, "json")) asJson({ executionGrant, nextAction: await core.nextAction() });
+        else process.stdout.write(`Cancelled execution ${executionGrant.id}. Task ${executionGrant.taskId} remains open.\n`);
         return;
       }
 
@@ -410,10 +433,13 @@ async function main(): Promise<void> {
           const changedPaths = core.repository.changedPaths()
             .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/"));
           if (subcommand === "plan") {
-            const plan = core.validation.planFocused(changedPaths, []);
-            if (flagBoolean(parsed, "json")) asJson({ snapshot, changedPaths, validations: plan });
-            else if (plan.length === 0) process.stdout.write("No focused validations matched the current changes.\n");
-            else for (const item of plan) process.stdout.write(`${item.name}\t${item.reason}\n`);
+            const selection = core.selectFocusedValidation();
+            if (flagBoolean(parsed, "json")) asJson({ snapshot, changedPaths, selection });
+            else if (selection.noMatch) process.stdout.write(`Focused selection ${selection.id}: no configured validations matched the current changes.\n`);
+            else {
+              process.stdout.write(`Focused selection ${selection.id}:\n`);
+              for (const item of selection.selected) process.stdout.write(`${item.name}\t${item.reason}${item.required ? "\trequired" : ""}\n`);
+            }
             return;
           }
           const selection = core.selectFocusedValidation();
@@ -604,18 +630,29 @@ async function handlePlan(core: AtelierCore, subcommand: string | undefined, arg
         });
         throw new Error(`Editor exited with code ${result.exitCode}${result.error ? `: ${result.error}` : ""}`);
       }
-      const review = core.completePlanReview(started.id, { exitCode: result.exitCode });
-      asJson(review);
+      const manualEdit = core.completePlanReview(started.id, { exitCode: result.exitCode });
+      const plan = core.parsePlan();
+      let reconciliation: Awaited<ReturnType<AtelierCore["reconcilePlan"]>> | undefined;
+      let reconciliationError: string | undefined;
+      try {
+        reconciliation = await core.reconcilePlan(false);
+      } catch (error) {
+        reconciliationError = error instanceof Error ? error.message : String(error);
+      }
+      const payload = {
+        manualEdit,
+        diagnostics: plan.diagnostics,
+        ...(reconciliation === undefined ? {} : { reconciliation }),
+        ...(reconciliationError === undefined ? {} : { reconciliationError }),
+      };
+      if (flagBoolean(args, "json")) asJson(payload);
+      else process.stdout.write(reviewText(payload));
       return;
     }
     case "prepare": {
       const prepared = await core.execution.prepare();
       if (flagBoolean(args, "json")) asJson(prepared);
-      else process.stdout.write(
-        `Approval: ${prepared.approval.id}\nPlan: ${prepared.approval.planHash}\n`
-        + `Reconciliation: ${prepared.approval.reconciliationDigest}\n`
-        + `Operations: ${prepared.reconciliation.operations.length}\n`,
-      );
+      else process.stdout.write(`${preparationText(core, prepared)}\n`);
       return;
     }
     case "approve": {
@@ -623,10 +660,27 @@ async function handlePlan(core: AtelierCore, subcommand: string | undefined, arg
       if (approvalId === undefined) {
         const prepared = await core.execution.prepare();
         if (flagBoolean(args, "json")) asJson(prepared);
-        else process.stdout.write(
-          `Prepared ${prepared.approval.id}. Inspect plan ${prepared.approval.planHash} and reconciliation `
-          + `${prepared.approval.reconciliationDigest}, then run approve --approval ${prepared.approval.id}.\n`,
-        );
+        else process.stdout.write(`${preparationText(core, prepared)}\nApply with: atlr approve --approval ${prepared.approval.id} --digest ${prepared.approval.reconciliationDigest} --yes\n`);
+        return;
+      }
+      const approval = core.ledger.getPlanApproval(approvalId);
+      if (approval === undefined || approval.status !== "prepared") throw new Error(`Prepared approval not found or no longer pending: ${approvalId}`);
+      const digest = flagString(args, "digest");
+      if (digest === undefined || digest !== approval.reconciliationDigest) {
+        throw new Error(`Approval digest mismatch. Expected --digest ${approval.reconciliationDigest}.`);
+      }
+      const transaction = core.ledger.getApprovalReconciliationTransaction(approval.id);
+      if (transaction === undefined) throw new Error(`Prepared reconciliation is missing for ${approval.id}.`);
+      const currentPlan = core.parsePlan();
+      if (currentPlan.hash !== approval.planHash) {
+        throw new Error("Plan changed after preparation. Prepare and inspect a fresh exact transaction.");
+      }
+      const prepared = { approval, transaction, reconciliation: transaction.preview };
+      if (!flagBoolean(args, "json")) process.stdout.write(`${preparationText(core, prepared)}\n`);
+      const confirmed = await explicitConfirmation(args, "Apply this exact transaction?");
+      if (!confirmed) {
+        await core.execution.approveAndApply(approvalId, false);
+        process.stdout.write("Approval rejected. No provider mutation was applied.\n");
         return;
       }
       const transition = await core.execution.approveAndApply(approvalId, true);
@@ -656,6 +710,77 @@ async function handlePlan(core: AtelierCore, subcommand: string | undefined, arg
   }
 }
 
+function reviewText(payload: {
+  manualEdit: ManualEdit;
+  diagnostics: PlanDiagnostic[];
+  reconciliation?: TaskReconciliation;
+  reconciliationError?: string;
+}): string {
+  const diff = payload.manualEdit.structuralDiff;
+  return [
+    `ManualEdit: ${payload.manualEdit.id} (${payload.manualEdit.accepted ? "accepted" : "blocked"})`,
+    `Plan hash: ${payload.manualEdit.afterHash ?? payload.manualEdit.beforeHash}`,
+    `Structural diff: added ${diff?.added.join(", ") || "none"}; removed ${diff?.removed.join(", ") || "none"}; changed ${diff?.changed.map((item) => `${item.id}(${item.fields.join(",")})`).join(", ") || "none"}`,
+    `Diagnostics: ${payload.diagnostics.length === 0 ? "none" : payload.diagnostics.map((item) => `${item.level}:${item.code} ${item.message}`).join("; ")}`,
+    ...(payload.reconciliation === undefined
+      ? [`Reconciliation preview unavailable: ${payload.reconciliationError ?? "unknown error"}`]
+      : [
+          `Reconciliation: ${payload.reconciliation.digest}`,
+          `Operations: ${payload.reconciliation.operations.length}`,
+          ...payload.reconciliation.operations.map((operation) => `- ${operation.kind}: ${operation.planTaskId}`),
+          ...payload.reconciliation.conflicts.map((conflict) => `CONFLICT: ${conflict}`),
+        ]),
+  ].join("\n") + "\n";
+}
+
+function preparationText(core: AtelierCore, prepared: ExecutionPreparation): string {
+  const plan = core.parsePlan();
+  const retirements = prepared.reconciliation.operations.filter((operation) => operation.kind === "retire");
+  const proposed = plan.tasks
+    .map((task, index) => ({ task, index }))
+    .filter(({ task }) => task.dependencies.length === 0)
+    .sort((left, right) => left.task.priority - right.task.priority || left.index - right.index)[0]?.task;
+  return [
+    `Approval: ${prepared.approval.id}`,
+    `Plan hash: ${prepared.approval.planHash}`,
+    `Provider: ${prepared.approval.provider.name}${prepared.approval.provider.version ? ` ${prepared.approval.provider.version}` : ""}`,
+    `Reconciliation digest: ${prepared.approval.reconciliationDigest}`,
+    `Operations: ${prepared.reconciliation.operations.length}`,
+    ...prepared.reconciliation.operations.map((operation) => `- ${operation.kind}: ${operation.planTaskId}`),
+    `Retirements: ${retirements.length}${retirements.length === 0 ? "" : ` (${retirements.map((operation) => operation.planTaskId).join(", ")})`}`,
+    `Proposed first task: ${proposed === undefined ? "none" : `${proposed.id} — ${proposed.title}`}`,
+  ].join("\n");
+}
+
+async function explicitConfirmation(args: ParsedArgs, prompt: string): Promise<boolean> {
+  if (flagBoolean(args, "yes")) return true;
+  if (flagBoolean(args, "json")) {
+    throw new Error("JSON execution requires the explicit --yes affirmative flag.");
+  }
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error("Non-interactive execution requires the explicit --yes affirmative flag.");
+  }
+  const readline = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await readline.question(`${prompt} [y/N] `)).trim().toLowerCase();
+    return answer === "y" || answer === "yes";
+  } finally {
+    readline.close();
+  }
+}
+
+async function handleTaskStart(core: AtelierCore, requestedTaskId: string | undefined, args: ParsedArgs): Promise<void> {
+  const confirmed = await explicitConfirmation(args, `Activate ${requestedTaskId ?? "the next approved-plan task"}?`);
+  if (!confirmed) {
+    process.stdout.write("Task activation cancelled.\n");
+    return;
+  }
+  const transition = await core.execution.startNextTask(true, requestedTaskId);
+  if (transition === undefined) throw new Error("Task activation was not confirmed.");
+  if (flagBoolean(args, "json")) asJson(transition);
+  else process.stdout.write(`Activated ${transition.task.id} with execution grant ${transition.executionGrant.id}.\n`);
+}
+
 async function handleTasks(core: AtelierCore, subcommand: string | undefined, rest: string[], args: ParsedArgs): Promise<void> {
   switch (subcommand) {
     case "ready": {
@@ -674,12 +799,10 @@ async function handleTasks(core: AtelierCore, subcommand: string | undefined, re
       return;
     }
     case "claim": {
-      const id = rest[0];
-      if (!id) throw new Error("Usage: atlr task claim ID");
-      const task = await core.taskProvider.claim(id);
-      core.ledger.setState("currentTaskId", task.id);
-      core.ledger.append({ kind: "task.claimed", actor: "user", taskId: task.id, payload: { provider: core.taskProvider.name } });
-      asJson(task);
+      throw new Error("Direct task claims bypass exact execution authorization. Use: atlr task start [ID] --yes");
+    }
+    case "start": {
+      await handleTaskStart(core, rest[0], args);
       return;
     }
     case "close": {
@@ -693,7 +816,7 @@ async function handleTasks(core: AtelierCore, subcommand: string | undefined, re
       return;
     }
     default:
-      throw new Error("Usage: atlr task <show|claim|close>");
+      throw new Error("Usage: atlr task <show|start|close>");
   }
 }
 

@@ -40,6 +40,8 @@ The slash commands mirror the `atlr` CLI verbs:
 - `atlr plan` → `/plan <objective>`
 - `atlr review` → `/review`
 - `atlr approve` → `/approve`
+- `atlr execute [task-id]` → `/execute [task-id]`
+- `atlr cancel --reason <text>` → `/cancel [reason]`
 - `atlr ready` → `/ready [task-id]`
 - `atlr state` → `/state`
 - `atlr code status` → `/code-status`
@@ -53,26 +55,33 @@ The slash commands mirror the `atlr` CLI verbs:
 
 Pi command names use hyphens because Pi registers one command token after `/`.
 
+The CLI approval sequence is intentionally exact and non-interactive-safe:
+
+```sh
+atlr review
+atlr plan prepare --json
+atlr approve --approval <id> --digest <reconciliation-digest> --yes
+```
+
+`review` prints the durable `ManualEdit` structural diff, plan diagnostics, and reconciliation preview. `prepare` reports the full plan hash, provider identity, operation details, retirements, and proposed first task. A non-interactive `approve` refuses to apply without the matching ID, digest, and `--yes`; an interactive terminal may confirm the same displayed transaction. Use `atlr task start [id] --yes` or `atlr execute [id] --yes` only after explicit closure exposes later approved-plan work. `atlr cancel --reason <text>` revokes execution authorization without closing the provider task.
+
 ## Hooks
 
-- `session_start`: opens Atelier state, starts one retrieval session, and updates status.
-- `session_shutdown`: closes the retrieval session and SQLite state.
-- `tool_call`: classifies and gates actions before execution, including provider-first
-  raw-discovery routing.
-- `before_agent_start`: injects deterministic Atelier Working State and its compact
-  retrieval inventory.
-- `session_before_compact`: supplies task-backed reconstruction rather than a free-form
-  authoritative summary.
+- `session_start`: opens Atelier state, validates or fails closed any durable execution, starts one retrieval session, and updates status.
+- `session_shutdown`: interrupts unfinished tool evidence, closes the retrieval session, and closes SQLite state.
+- `tool_call`: classifies and gates actions before execution, including provider-first raw-discovery routing, then starts durable evidence for authorized mutations.
+- `tool_result`: completes success, failure, or interruption evidence for every mutating result and refreshes workflow/validation status. One-operation grants are consumed by authorization regardless of the result.
+- `before_agent_start`: revalidates execution and injects deterministic Atelier Working State, next action, and compact retrieval inventory.
+- `session_before_compact`: revalidates execution and supplies task-backed reconstruction rather than a conversationally authoritative summary.
 - Approved act-mode work auto-allows routine repository-scoped edits, validation,
   task updates, and local commits. Destructive, external, unknown, publication,
   and out-of-repository effects still prompt.
 - `agent_settled`: prevents selected-task work with uncommitted changes from being
   reported complete without validation, final diff inspection, and a local commit.
-- `agent_settled`: opens a changed plan draft in the configured editor.
+- `agent_settled`: automatically opens every completed initial plan draft in the configured editor, records the `ManualEdit`, and displays its structural summary and reconciliation readiness.
 
 ## Editor handoff
 
-The extension uses Pi's custom UI lifecycle to stop the TUI, run the editor as a direct
-foreground child with inherited standard streams, restart the TUI, and request a
-render. It does not invoke a shell and does not emit alternate-screen control
-sequences.
+The extension uses Pi's custom UI lifecycle to stop the TUI, run the editor as a direct foreground child with inherited standard streams, restart the TUI, and request a render. It does not invoke a shell and does not emit alternate-screen control sequences. Non-TUI sessions receive an actionable recovery message directing them to run `atlr review` in a terminal.
+
+The SQLite ledger and Working State remain authoritative across restart and compaction. Pi conversation text and custom session entries are never used to infer approval, task activation, permissions, mutation outcomes, or validation freshness. `/status` and `/state` expose the durable next action: review, resolve reconciliation conflicts, approve, execute, validate, close, or select later ready work.

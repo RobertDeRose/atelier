@@ -178,6 +178,18 @@ test("task closure requires current focused passes, invalidates execution, and e
     assert.equal(result.nextReady.length, 1);
     assert.equal(result.nextReady[0]?.planTaskId, "ATLR-002");
     assert.equal(result.nextReady[0]?.status, "open");
+    const unrelated = await core.taskProvider.create({
+      planTaskId: "UNRELATED-001",
+      title: "Unrelated ready work",
+      description: "Must never be advertised as approved-plan execution.",
+      acceptanceCriteria: [],
+      priority: 0,
+      type: "task",
+    });
+    assert.doesNotMatch(await core.nextAction(), new RegExp(unrelated.id));
+    const state = await core.buildWorkingState();
+    assert.equal(state.executionGrant?.status, "revoked");
+    assert.match(state.nextAction, /execute.*approved-plan task/i);
   } finally {
     core.close();
     rmSync(root, { recursive: true, force: true });

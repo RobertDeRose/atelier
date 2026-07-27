@@ -59,6 +59,7 @@ export interface AtelierStatus {
   taskProvider: TaskProviderStatus;
   snapshot: ReturnType<RepositoryProvider["snapshot"]>;
   activePermissions: PermissionGrant[];
+  nextAction: string;
 }
 
 export class AtelierCore {
@@ -653,6 +654,48 @@ export class AtelierCore {
     return state;
   }
 
+  async nextAction(): Promise<string> {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant !== undefined) {
+      const readiness = this.taskClosureReadiness();
+      if (readiness.ready) return `Close active task ${executionGrant.taskId} with explicit completion evidence.`;
+      if (this.currentWorkflowRun()?.checkpoint === "validating") return `Run or rerun required focused validation: ${readiness.reason}`;
+      return `Continue executing active task ${executionGrant.taskId}, then select and run focused validation.`;
+    }
+    const previousGrant = this.ledger.listExecutionGrants()[0];
+    if (previousGrant?.status === "revoked") {
+      try {
+        const task = await this.taskProvider.get(previousGrant.taskId);
+        if (task?.status === "in_progress") {
+          return `Prepare a fresh exact transaction to resume task ${task.id}, or explicitly close/defer it in the task provider.`;
+        }
+      } catch (error) {
+        return `Restore task-provider availability before continuing: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    const approval = this.ledger.listPlanApprovals()[0];
+    if (approval?.status === "prepared") {
+      return `Inspect and explicitly approve prepared transaction ${approval.id} with digest ${approval.reconciliationDigest}.`;
+    }
+    const workflow = this.currentWorkflowRun();
+    if (workflow?.checkpoint === "reviewed") return "Prepare and approve the exact reviewed plan transaction.";
+    if (workflow !== undefined && ["drafting", "review_pending", "reviewing"].includes(workflow.checkpoint)) {
+      return `Complete ManualEdit review of ${this.config.planPath}.`;
+    }
+    if (approval?.status === "approved") {
+      try {
+        const mappedTaskIds = new Set(this.ledger.listTaskMappings()
+          .filter((mapping) => mapping.provider === this.taskProvider.name && mapping.planHash === approval.planHash)
+          .map((mapping) => mapping.providerTaskId));
+        const ready = (await this.taskProvider.ready()).filter((task) => mappedTaskIds.has(task.id));
+        if (ready.length > 0) return `Explicitly execute the next approved-plan task (${ready.map((task) => task.id).join(", ")}).`;
+      } catch (error) {
+        return `Restore task-provider availability before continuing: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    return `Start or resume planning in ${this.config.planPath}.`;
+  }
+
   async status(): Promise<AtelierStatus> {
     const planExists = existsSync(this.config.planPath);
     const approvedPlanHash = this.ledger.getState<string>("approvedPlanHash");
@@ -681,6 +724,7 @@ export class AtelierCore {
       taskProvider,
       snapshot: this.repository.snapshot(),
       activePermissions: this.ledger.listGrants(),
+      nextAction: await this.nextAction(),
     };
   }
 

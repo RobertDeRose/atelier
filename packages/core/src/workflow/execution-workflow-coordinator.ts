@@ -197,16 +197,17 @@ export class ExecutionWorkflowCoordinator {
     }
   }
 
-  async startNextTask(confirmed: boolean): Promise<TaskStartTransition | undefined> {
-    const previous = this.ledger.getActiveExecutionGrant();
-    if (previous === undefined) throw new Error("No active execution grant exists for task continuation.");
+  async startNextTask(confirmed: boolean, requestedTaskId?: string): Promise<TaskStartTransition | undefined> {
+    const active = this.ledger.getActiveExecutionGrant();
+    const previous = active ?? this.ledger.listExecutionGrants().find((grant) => grant.status === "revoked");
+    if (previous === undefined) throw new Error("No prior approved execution grant exists for task continuation.");
     const currentTask = await this.provider.get(previous.taskId);
     if (currentTask !== undefined && currentTask.status !== "closed" && currentTask.status !== "deferred") {
       throw new Error(`Current task ${currentTask.id} has status ${currentTask.status}; later task activation is not available.`);
     }
     const invalid = await this.invalidReason(previous);
     if (invalid !== undefined && !invalid.includes("status")) {
-      this.ledger.invalidateExecutionGrant(previous.id, { status: "invalidated", reason: invalid });
+      if (active !== undefined) this.ledger.invalidateExecutionGrant(previous.id, { status: "invalidated", reason: invalid });
       throw new Error(invalid);
     }
     if (!confirmed) return undefined;
@@ -221,11 +222,13 @@ export class ExecutionWorkflowCoordinator {
       throw new Error(reason);
     }
 
-    const revoked = this.ledger.invalidateExecutionGrant(previous.id, {
-      status: "revoked",
-      reason: `Previous task ${previous.taskId} completed before later task activation.`,
-    });
-    if (revoked === undefined) throw new Error("Previous execution grant disappeared before later task activation.");
+    if (active !== undefined) {
+      const revoked = this.ledger.invalidateExecutionGrant(previous.id, {
+        status: "revoked",
+        reason: `Previous task ${previous.taskId} completed before later task activation.`,
+      });
+      if (revoked === undefined) throw new Error("Previous execution grant disappeared before later task activation.");
+    }
     const timestamp = nowIso();
     const applying: ReconciliationTransaction = {
       id: newId("reconciliation"),
@@ -250,7 +253,7 @@ export class ExecutionWorkflowCoordinator {
       throw new Error(`Later task activation could not start exclusively: ${errorMessage(error)}`);
     }
     try {
-      const task = await this.claimReadyTask(plan.hash, plan.tasks.map((item) => item.id));
+      const task = await this.claimReadyTask(plan.hash, plan.tasks.map((item) => item.id), requestedTaskId);
       const transaction: ReconciliationTransaction = { ...applying, status: "applied", updatedAt: nowIso() };
       const grant = this.executionGrant(approval, transaction.id, task);
       this.ledger.activateExecution({ approval, transaction, grant });
@@ -352,7 +355,7 @@ export class ExecutionWorkflowCoordinator {
     });
   }
 
-  private async claimReadyTask(planHash: string, planOrderIds: string[]): Promise<TaskRecord> {
+  private async claimReadyTask(planHash: string, planOrderIds: string[], requestedTaskId?: string): Promise<TaskRecord> {
     const order = new Map(planOrderIds.map((id, index) => [id, index]));
     const mappings = this.ledger.listTaskMappings().filter((mapping) =>
       mapping.provider === this.provider.name && mapping.planHash === planHash && order.has(mapping.planTaskId));
@@ -362,7 +365,12 @@ export class ExecutionWorkflowCoordinator {
       || (order.get(byProvider.get(left.id)!) ?? Number.MAX_SAFE_INTEGER)
         - (order.get(byProvider.get(right.id)!) ?? Number.MAX_SAFE_INTEGER)
       || left.id.localeCompare(right.id));
-    let selected = ready[0];
+    let selected = requestedTaskId === undefined
+      ? ready[0]
+      : ready.find((task) => task.id === requestedTaskId);
+    if (requestedTaskId !== undefined && selected === undefined) {
+      throw new Error(`Requested approved-plan task ${requestedTaskId} is not ready for activation.`);
+    }
     let alreadyClaimed = selected?.status === "in_progress";
     if (selected === undefined) {
       const recoverable = (await this.provider.list()).filter((task) =>

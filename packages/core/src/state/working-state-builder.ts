@@ -72,13 +72,14 @@ export class WorkingStateBuilder {
     const taskDependencies = await this.taskDependencies(activeTask, omissions);
     const taskBlockers = taskDependencies.filter((task) => task.status !== "closed");
     const permissions = this.activePermissions(this.ledger.listGrants());
-    const executionGrant = this.ledger.getActiveExecutionGrant();
+    const activeExecutionGrant = this.ledger.getActiveExecutionGrant();
+    const executionGrant = activeExecutionGrant ?? this.ledger.listExecutionGrants()[0];
     const workflowRun = this.ledger.getCurrentWorkflowRun();
     const planApproval = executionGrant === undefined
-      ? undefined
+      ? this.ledger.listPlanApprovals()[0]
       : this.ledger.getPlanApproval(executionGrant.planApprovalId);
     const reconciliationTransaction = executionGrant === undefined
-      ? undefined
+      ? (planApproval === undefined ? undefined : this.ledger.getApprovalReconciliationTransaction(planApproval.id))
       : this.ledger.getReconciliationTransaction(executionGrant.reconciliationTransactionId);
     const executionEvidence = activeTask === undefined
       ? []
@@ -301,9 +302,18 @@ export class WorkingStateBuilder {
       request.changedPaths ?? [],
       activeTask?.id,
     ) ?? { current: [], stale: [] };
-    const taskClosure = executionGrant === undefined || this.validation === undefined
+    const taskClosure = activeExecutionGrant === undefined || this.validation === undefined
       ? { ready: false, required: [], missing: [], stale: [], failed: [], reason: "No active execution grant exists." }
-      : this.validation.closureReadiness(request.snapshot, executionGrant.taskId, executionGrant.id);
+      : this.validation.closureReadiness(request.snapshot, activeExecutionGrant.taskId, activeExecutionGrant.id);
+    const nextAction = describeNextAction({
+      ...(request.plan === undefined ? {} : { planPath: request.plan.path }),
+      ...(workflowRun === undefined ? {} : { workflowCheckpoint: workflowRun.checkpoint }),
+      ...(planApproval === undefined ? {} : { planApproval }),
+      ...(reconciliationTransaction === undefined ? {} : { reconciliationTransaction }),
+      ...(executionGrant === undefined ? {} : { executionGrant }),
+      taskClosure,
+      readyTasks,
+    });
 
     this.persistTaskSelection(selection, request.snapshot);
     if (request.plan === undefined) {
@@ -348,6 +358,7 @@ export class WorkingStateBuilder {
       currentValidationEvidence: validationSummaries.current,
       staleValidationEvidence: validationSummaries.stale,
       taskClosure,
+      nextAction,
       corrections,
       findings,
       manualEdits,
@@ -380,6 +391,7 @@ export class WorkingStateBuilder {
       `- Plan approval: ${state.planApproval?.id ?? "none"}`,
       `- Reconciliation: ${state.reconciliationTransaction?.id ?? "none"}`,
       `- Task closure: ${state.taskClosure.ready ? "ready" : "blocked"} — ${state.taskClosure.reason}`,
+      `- Next action: ${state.nextAction}`,
     ];
 
     if (state.planObjective) lines.push(`- Planning objective: ${state.planObjective}`);
@@ -711,6 +723,40 @@ function manualEditText(event: LedgerEvent): string {
   const path = typeof record.path === "string" ? record.path : "unknown path";
   const changed = typeof record.changed === "boolean" ? record.changed : undefined;
   return `${path}${changed === undefined ? "" : changed ? " changed" : " reviewed without textual change"}`;
+}
+
+function describeNextAction(input: {
+  planPath?: string;
+  workflowCheckpoint?: WorkingState["workflowCheckpoint"];
+  planApproval?: WorkingState["planApproval"];
+  reconciliationTransaction?: WorkingState["reconciliationTransaction"];
+  executionGrant?: WorkingState["executionGrant"];
+  taskClosure: WorkingState["taskClosure"];
+  readyTasks: TaskRecord[];
+}): string {
+  if (input.reconciliationTransaction?.preview.conflicts.length) {
+    return `Resolve reconciliation conflicts: ${input.reconciliationTransaction.preview.conflicts.join("; ")}`;
+  }
+  if (input.executionGrant?.status === "active") {
+    if (input.taskClosure.ready) return `Close active task ${input.executionGrant.taskId} explicitly.`;
+    if (input.workflowCheckpoint === "validating") return `Run required focused validation: ${input.taskClosure.reason}`;
+    return `Continue implementing active task ${input.executionGrant.taskId}, then validate focused changes.`;
+  }
+  if (input.executionGrant?.status === "revoked" && input.readyTasks.length === 0) {
+    return `Prepare a fresh exact transaction to resume task ${input.executionGrant.taskId}, or explicitly close/defer it in the task provider.`;
+  }
+  if (input.planApproval?.status === "prepared") {
+    return `Inspect and explicitly approve transaction ${input.planApproval.id} with digest ${input.planApproval.reconciliationDigest}.`;
+  }
+  if (input.workflowCheckpoint === "reviewed") return "Prepare and approve the exact reviewed plan transaction.";
+  if (input.workflowCheckpoint !== undefined && ["drafting", "review_pending", "reviewing"].includes(input.workflowCheckpoint)) {
+    return `Complete ManualEdit review of ${input.planPath ?? "the plan document"}.`;
+  }
+  if (input.planApproval?.status === "approved" && input.readyTasks.length > 0) {
+    return `Explicitly execute one approved-plan task: ${input.readyTasks.map((task) => task.id).join(", ")}.`;
+  }
+  if (input.readyTasks.length > 0) return `Select a ready task: ${input.readyTasks.map((task) => task.id).join(", ")}.`;
+  return `Start or resume planning in ${input.planPath ?? "the plan document"}.`;
 }
 
 function normalizeOptional(value: string | undefined): string | undefined {

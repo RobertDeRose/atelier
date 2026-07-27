@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension/src/index.ts";
-import { AtelierCore, MockCodeProvider, SqliteLedger } from "../packages/core/src/index.ts";
+import { AtelierCore, InMemoryTaskProvider, MockCodeProvider, SqliteLedger } from "../packages/core/src/index.ts";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -28,7 +28,12 @@ interface RegisteredCommand {
   handler(args: string, ctx: ExtensionCommandContext): Promise<void>;
 }
 
-function fakeContext(cwd: string, confirms: { count: number }, statuses: string[] = []): ExtensionCommandContext {
+function fakeContext(
+  cwd: string,
+  confirms: { count: number },
+  statuses: string[] = [],
+  observations: { confirmationBodies?: string[]; notifications?: string[]; signal?: AbortSignal } = {},
+): ExtensionCommandContext {
   return {
     cwd,
     mode: "tui",
@@ -36,10 +41,15 @@ function fakeContext(cwd: string, confirms: { count: number }, statuses: string[
     isIdle: () => true,
     isProjectTrusted: () => true,
     waitForIdle: async () => {},
+    ...(observations.signal === undefined ? {} : { signal: observations.signal }),
     ui: {
-      confirm: async () => { confirms.count += 1; return true; },
+      confirm: async (_title: string, body: string) => {
+        confirms.count += 1;
+        observations.confirmationBodies?.push(body);
+        return true;
+      },
       select: async () => undefined,
-      notify: () => {},
+      notify: (message: string) => { observations.notifications?.push(message); },
       setStatus: (_key: string, value: string | undefined) => { if (value !== undefined) statuses.push(value); },
       custom: async () => ({ exitCode: 0 }),
     },
@@ -73,13 +83,14 @@ test("Pi extension enforces provider-first plan discovery without approving read
     "session_start",
     "session_shutdown",
     "tool_call",
+    "tool_result",
     "before_agent_start",
     "session_before_compact",
     "agent_settled",
   ]) {
     assert.ok(events.has(event), `missing event ${event}`);
   }
-  for (const command of ["status", "plan", "review", "approve", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence"]) {
+  for (const command of ["status", "plan", "review", "approve", "execute", "cancel", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence"]) {
     assert.ok(commands.has(command), `missing command ${command}`);
   }
   for (const tool of ["atlr_code_status", "atlr_code_search", "atlr_code_symbols"]) {
@@ -336,6 +347,164 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
   }
 });
 
+test("Pi automatic ManualEdit review presents exact approval and supports cancellation", async () => {
+  const commands = new Map<string, RegisteredCommand>();
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const sentMessages: string[] = [];
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getActiveTools(): string[] { return []; },
+    setActiveTools(): void {},
+    sendUserMessage(message: string): void { sentMessages.push(message); },
+  } as unknown as ExtensionAPI;
+  registerAtelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-pi-interactive-workflow-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "memory",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }));
+  writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
+  const confirms = { count: 0 };
+  const confirmationBodies: string[] = [];
+  const notifications: string[] = [];
+  const context = fakeContext(root, confirms, [], { confirmationBodies, notifications });
+
+  try {
+    await events.get("session_start")!({}, context);
+    await commands.get("plan")!.handler("exercise the exact workflow", context);
+    writeFileSync(
+      join(root, ".atelier", "PLAN.md"),
+      VALID_PLAN.replace("Create the guarded core.", "Create the exact guarded core."),
+      "utf8",
+    );
+    await events.get("agent_settled")!({}, context);
+    assert.ok(notifications.some((message) => /ManualEdit/i.test(message)));
+    assert.equal(sentMessages.length, 1, "ManualEdit review must not ask the agent to restate user edits");
+
+    await commands.get("approve")!.handler("", context);
+    assert.equal(confirms.count, 1);
+    assert.match(confirmationBodies[0] ?? "", /Plan hash:/i);
+    assert.match(confirmationBodies[0] ?? "", /Provider:/i);
+    assert.match(confirmationBodies[0] ?? "", /Operations:/i);
+    assert.match(confirmationBodies[0] ?? "", /Proposed first task:/i);
+
+    await commands.get("status")!.handler("", context);
+    assert.ok(notifications.some((message) => /Next action:/i));
+    await commands.get("cancel")!.handler("user stopped execution", context);
+    assert.ok(notifications.some((message) => /cancelled execution/i));
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Pi /execute activates an explicitly requested later approved-plan task", async () => {
+  const commands = new Map<string, RegisteredCommand>();
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const provider = new InMemoryTaskProvider();
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getActiveTools(): string[] { return []; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+
+  const root = createTemporaryRepository("atlr-pi-execute-next-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "memory",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }));
+  writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
+  const setup = AtelierCore.open(root, { taskProviderInstance: provider });
+  setup.beginPlan("Execute later work");
+  const review = setup.beginPlanReview();
+  setup.completePlanReview(review.id, { exitCode: 0 });
+  const prepared = await setup.execution.prepare();
+  const first = await setup.execution.approveAndApply(prepared.approval.id, true);
+  assert.ok(first.task);
+  await provider.close(first.task.id, "completed");
+  setup.execution.cancel(`Task ${first.task.id} was explicitly closed.`);
+  setup.close();
+  const requested = (await provider.ready()).find((task) => task.planTaskId === "ATLR-002");
+  assert.ok(requested);
+
+  registerAtelierExtension(fakePi, {
+    openCore: (repositoryRoot) => AtelierCore.open(repositoryRoot, { taskProviderInstance: provider }),
+  });
+  const context = fakeContext(root, { count: 0 });
+  try {
+    await events.get("session_start")!({}, context);
+    await commands.get("execute")!.handler(requested.id, context);
+    assert.equal((await provider.get(requested.id))?.status, "in_progress");
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Pi focused validation passes the current abort signal and records interruption", async () => {
+  const commands = new Map<string, RegisteredCommand>();
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getActiveTools(): string[] { return []; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+  registerAtelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-pi-validation-abort-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "memory",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }));
+  writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
+  writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({ validations: {
+    focused: {
+      command: [process.execPath, "-e", "setTimeout(() => {}, 10_000)"],
+      category: "focused",
+      focused: true,
+      required: true,
+      paths: ["src/**"],
+    },
+  } }), "utf8");
+  const setup = AtelierCore.open(root, { taskProvider: "memory" });
+  setup.beginPlan("Abort focused validation");
+  const review = setup.beginPlanReview();
+  setup.completePlanReview(review.id, { exitCode: 0 });
+  const prepared = await setup.execution.prepare();
+  const started = await setup.execution.approveAndApply(prepared.approval.id, true);
+  assert.ok(started.task);
+  setup.close();
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src", "abort.ts"), "export const abort = true;\n", "utf8");
+
+  const controller = new AbortController();
+  const notifications: string[] = [];
+  const context = fakeContext(root, { count: 0 }, [], { notifications, signal: controller.signal });
+  try {
+    await commands.get("validate")!.handler("plan", context);
+    assert.ok(notifications.some((message) => /Focused selection .*focused.*required/is.test(message)));
+    const pending = commands.get("validate")!.handler("focused", context);
+    setTimeout(() => controller.abort(), 50);
+    await pending;
+    assert.ok(notifications.some((message) => /focused: interrupted/i.test(message)));
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Pi act mode requires execution-linked permissions and still prompts for destructive commands", async () => {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const sentMessages: string[] = [];
@@ -370,7 +539,8 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
   setup.grant({ permission: "repository.change.create", scope: "task", taskId: started.task.id, reason: "commit task" });
   setup.close();
   const confirms = { count: 0 };
-  const context = fakeContext(root, confirms);
+  const statuses: string[] = [];
+  const context = fakeContext(root, confirms, statuses);
 
   try {
     assert.equal(await events.get("tool_call")!({
@@ -378,12 +548,26 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
       toolName: "edit",
       input: { path: "src/index.ts" },
     }, context), undefined);
+    const statusCountBeforeResult = statuses.length;
     await events.get("tool_result")!({
       toolCallId: "edit-routine",
       toolName: "edit",
       input: { path: "src/index.ts" },
       content: [{ type: "text", text: "updated" }],
       isError: false,
+    }, context);
+    assert.ok(statuses.length > statusCountBeforeResult, "tool results must refresh durable workflow status");
+    assert.equal(await events.get("tool_call")!({
+      toolCallId: "edit-failed",
+      toolName: "edit",
+      input: { path: "src/failed.ts" },
+    }, context), undefined);
+    await events.get("tool_result")!({
+      toolCallId: "edit-failed",
+      toolName: "edit",
+      input: { path: "src/failed.ts" },
+      content: [{ type: "text", text: "replacement did not match" }],
+      isError: true,
     }, context);
     assert.equal(await events.get("tool_call")!({
       toolCallId: "bash-check",
@@ -410,6 +594,10 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
     assert.match(sentMessages.at(-1) ?? "", /Git commit/);
   } finally {
     await events.get("session_shutdown")!({}, context);
+    const ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+    assert.equal(ledger.getExecutionEvidence("edit-routine")?.status, "succeeded");
+    assert.equal(ledger.getExecutionEvidence("edit-failed")?.status, "failed");
+    ledger.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -574,6 +574,7 @@ export interface WorkingState {
   currentValidationEvidence: ValidationEvidenceSummary[];
   staleValidationEvidence: ValidationEvidenceSummary[];
   taskClosure: TaskClosureReadiness;
+  nextAction: string;
   corrections: LedgerEvent[];
   findings: LedgerEvent[];
   manualEdits: LedgerEvent[];
