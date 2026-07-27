@@ -181,9 +181,11 @@ async function updateStatus(ctx: ExtensionContext, core = coreFor(ctx)): Promise
 
 function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): ActionRequest {
   const snapshot = core.repository.snapshot();
+  const currentTaskId = core.ledger.getState<string>("currentTaskId");
   const base = {
     actor: "agent" as const,
     repositorySnapshot: snapshot,
+    ...(currentTaskId === undefined ? {} : { taskId: currentTaskId }),
   };
 
   if ([
@@ -442,73 +444,54 @@ async function approveAndReconcile(
   core: AtelierCore,
 ): Promise<void> {
   await ctx.waitForIdle();
-  const plan = core.parsePlan();
-  const errors = plan.diagnostics.filter((diagnostic) => diagnostic.level === "error");
-  if (errors.length > 0) {
-    ctx.ui.notify(`Plan has ${errors.length} blocking validation error(s).`, "error");
-    return;
-  }
-  if (core.ledger.getState<string>("reviewedPlanHash") !== plan.hash) {
-    ctx.ui.notify("The current plan revision must be reviewed in the configured editor before approval.", "warning");
-    return;
-  }
-  const confirmed = await ctx.ui.confirm(
-    "Approve Atelier plan",
-    `Approve revision ${plan.hash.slice(0, 12)} with ${plan.tasks.length} task(s) and enter act mode?`,
-  );
-  if (!confirmed) return;
-
-  core.approvePlan();
-  core.ledger.setState("planAutoReviewPending", false);
-  let providerReady = false;
   let providerStatus = await core.taskProvider.status();
   if (providerStatus.available && !providerStatus.initialized) {
     const initialize = await ctx.ui.confirm(
       "Initialize task provider",
-      `Initialize ${providerStatus.provider} in this repository so the approved plan can become executable task state?`,
+      `Initialize ${providerStatus.provider} as a separate preparation step?`,
     );
-    if (initialize) {
-      await core.taskProvider.initialize({ quiet: true });
-      providerStatus = await core.taskProvider.status();
-    }
+    if (!initialize) return;
+    await core.execution.initializeProvider(true);
+    providerStatus = await core.taskProvider.status();
   }
-  providerReady = providerStatus.available && providerStatus.initialized;
-
-  if (providerReady) {
-    const preview = await core.reconcilePlan(false);
-    if (preview.conflicts.length > 0) {
-      ctx.ui.notify(`Task reconciliation has ${preview.conflicts.length} conflict(s).`, "error");
-      return;
-    }
-    if (preview.operations.length > 0) {
-      const apply = await ctx.ui.confirm(
-        "Apply task reconciliation",
-        `Apply ${preview.operations.length} create, update, or dependency operation(s) to ${core.taskProvider.name}?`,
-      );
-      if (!apply) {
-        ctx.ui.notify("Plan approved, but task reconciliation was not applied.", "warning");
-        return;
-      }
-      const applied = await core.reconcilePlan(true, preview);
-      if (!applied.applied || applied.conflicts.length > 0) {
-        ctx.ui.notify("Task reconciliation did not complete.", "error");
-        return;
-      }
-    }
-  } else {
-    ctx.ui.notify(
-      `Plan approved without persistent task state because ${providerStatus.provider} is unavailable or not initialized.`,
-      "warning",
-    );
+  if (!providerStatus.available || !providerStatus.initialized) {
+    ctx.ui.notify(providerStatus.reason ?? `${providerStatus.provider} is unavailable or uninitialized.`, "error");
+    return;
   }
 
-  core.setMode("act");
-  await updateStatus(ctx, core);
-  pi.sendUserMessage(
-    `[Atelier] Plan revision ${plan.hash} is approved. ` +
-      "Enter implementation mode using the current task selected from durable task state when available. " +
-      "Inspect current source before acting, stay within the approved task scope, record findings in task state, and allow Atelier to gate every mutation independently.",
+  let prepared;
+  try {
+    prepared = await core.execution.prepare();
+  } catch (error) {
+    ctx.ui.notify(errorMessage(error), "error");
+    return;
+  }
+  if (prepared.reconciliation.conflicts.length > 0) {
+    ctx.ui.notify(`Task reconciliation has ${prepared.reconciliation.conflicts.length} conflict(s).`, "error");
+    return;
+  }
+  const confirmed = await ctx.ui.confirm(
+    "Approve exact execution transaction",
+    `Approve plan ${prepared.approval.planHash.slice(0, 12)}, reconciliation ${prepared.approval.reconciliationDigest.slice(0, 12)}, `
+      + `${prepared.reconciliation.operations.length} operation(s), and activation of one ready task?`,
   );
+  if (!confirmed) {
+    await core.execution.approveAndApply(prepared.approval.id, false);
+    return;
+  }
+
+  try {
+    const transition = await core.execution.approveAndApply(prepared.approval.id, true);
+    core.ledger.setState("planAutoReviewPending", false);
+    await updateStatus(ctx, core);
+    pi.sendUserMessage(
+      `[Atelier] Plan revision ${transition.approval.planHash} is approved and task ${transition.task?.id ?? "unknown"} is active. ` +
+        `Execution grant ${transition.executionGrant?.id ?? "unknown"} authorizes only this task/workspace and conveys no action permission. ` +
+        "Inspect current source, stay within scope, and obtain independently required permissions for mutations.",
+    );
+  } catch (error) {
+    ctx.ui.notify(errorMessage(error), "error");
+  }
 }
 
 export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExtensionOptions = {}): void {
@@ -711,6 +694,11 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     stopIndexStatusUpdates = core.code.onIndexStatus(() => {
       void updateStatus(ctx, core);
     });
+    try {
+      await core.execution.resume();
+    } catch (error) {
+      ctx.ui.notify(`Execution resume failed closed: ${errorMessage(error)}`, "error");
+    }
     await updateStatus(ctx, core);
     if (core.config.codeProvider !== "disabled") {
       // Indexing is deliberately detached from session startup. CodeService owns

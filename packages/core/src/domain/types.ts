@@ -86,6 +86,7 @@ export interface ActionRequest {
 
 export interface PermissionGrant {
   id: string;
+  executionGrantId?: string;
   permission: Permission;
   scope: GrantScope;
   actor: Actor;
@@ -366,6 +367,73 @@ export interface TaskReconciliation {
   conflicts: string[];
 }
 
+export type PlanApprovalStatus = "prepared" | "accepted" | "approved" | "rejected" | "invalidated" | "cancelled";
+
+export interface PlanApproval {
+  id: string;
+  status: PlanApprovalStatus;
+  planPath: string;
+  planHash: string;
+  reconciliationDigest: string;
+  provider: TaskProviderIdentity;
+  workspaceId: string;
+  repositoryId: string;
+  preparedAt: string;
+  decidedAt?: string;
+  invalidationReason?: string;
+}
+
+export type ReconciliationTransactionStatus = "prepared" | "applying" | "applied" | "failed" | "cancelled";
+
+export interface ReconciliationTransaction {
+  id: string;
+  planApprovalId: string;
+  status: ReconciliationTransactionStatus;
+  planHash: string;
+  reconciliationDigest: string;
+  provider: TaskProviderIdentity;
+  preview: TaskReconciliation;
+  preparedAt: string;
+  updatedAt: string;
+  error?: string;
+}
+
+export type ExecutionGrantStatus = "active" | "revoked" | "invalidated";
+
+export interface ExecutionGrant {
+  id: string;
+  status: ExecutionGrantStatus;
+  planApprovalId: string;
+  reconciliationTransactionId: string;
+  planHash: string;
+  reconciliationDigest: string;
+  provider: TaskProviderIdentity;
+  workspaceId: string;
+  repositoryId: string;
+  taskId: string;
+  planTaskId: string;
+  issuedAt: string;
+  revokedAt?: string;
+  invalidationReason?: string;
+}
+
+export interface ExecutionPreparation {
+  approval: PlanApproval;
+  transaction: ReconciliationTransaction;
+  reconciliation: TaskReconciliation;
+}
+
+export interface ExecutionTransition extends ExecutionPreparation {
+  task?: TaskRecord;
+  executionGrant?: ExecutionGrant;
+}
+
+export interface TaskStartTransition {
+  task: TaskRecord;
+  transaction: ReconciliationTransaction;
+  executionGrant: ExecutionGrant;
+}
+
 export interface LedgerEvent<TPayload = unknown> {
   id: string;
   kind: string;
@@ -422,6 +490,7 @@ export interface WorkingState {
   taskBlockers: TaskRecord[];
   approvedPlanHash?: string;
   planTask?: PlanTask;
+  executionGrant?: ExecutionGrant;
   permissions: PermissionGrant[];
   corrections: LedgerEvent[];
   findings: LedgerEvent[];

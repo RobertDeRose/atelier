@@ -71,6 +71,7 @@ export class WorkingStateBuilder {
     const taskDependencies = await this.taskDependencies(activeTask, omissions);
     const taskBlockers = taskDependencies.filter((task) => task.status !== "closed");
     const permissions = this.activePermissions(this.ledger.listGrants());
+    const executionGrant = this.ledger.getActiveExecutionGrant();
     const recentEvents = this.ledger.listEvents({ limit: request.maximumRecentEvents ?? 30 });
     const durableLimit = request.maximumDurableEvents ?? 20;
     const corrections = this.relevantEvents(
@@ -315,6 +316,7 @@ export class WorkingStateBuilder {
       taskBlockers,
       ...(approvedPlanHash === undefined ? {} : { approvedPlanHash }),
       ...(planTask === undefined ? {} : { planTask }),
+      ...(executionGrant === undefined ? {} : { executionGrant }),
       permissions,
       corrections,
       findings,
@@ -341,6 +343,9 @@ export class WorkingStateBuilder {
       + ` / dirty generation ${state.snapshot.dirtyGeneration}`,
       `- Working state: ${state.stateId}`,
       `- Task selection: ${state.taskSelection.source} — ${state.taskSelection.rationale}`,
+      `- Execution grant: ${state.executionGrant === undefined
+        ? "none"
+        : `${state.executionGrant.id} (${state.executionGrant.status}) for ${state.executionGrant.taskId}`}`,
     ];
 
     if (state.planObjective) lines.push(`- Planning objective: ${state.planObjective}`);

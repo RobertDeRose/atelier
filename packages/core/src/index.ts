@@ -27,6 +27,7 @@ export * from "./util/hash.ts";
 export * from "./util/ids.ts";
 
 export * from "./validation/validation-service.ts";
+export * from "./workflow/execution-workflow-coordinator.ts";
 
 
 export * from "./code/types.ts";

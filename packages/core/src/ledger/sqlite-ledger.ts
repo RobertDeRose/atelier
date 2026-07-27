@@ -3,10 +3,13 @@ import { dirname } from "node:path";
 import { loadDatabaseSync, type SqliteDatabase } from "./sqlite-runtime.ts";
 import type {
   Actor,
+  ExecutionGrant,
   LedgerEvent,
   ManualEdit,
   PermissionGrant,
+  PlanApproval,
   ReconciliationOperationCheckpoint,
+  ReconciliationTransaction,
   RepositorySnapshot,
   WorkflowRun,
 } from "../domain/types.ts";
@@ -39,6 +42,7 @@ interface ManualEditRow {
 
 interface PermissionRow {
   id: string;
+  execution_grant_id: string | null;
   permission: PermissionGrant["permission"];
   scope: PermissionGrant["scope"];
   actor: Actor;
@@ -94,6 +98,7 @@ export class SqliteLedger {
 
       CREATE TABLE IF NOT EXISTS permission_grants (
         id TEXT PRIMARY KEY,
+        execution_grant_id TEXT,
         permission TEXT NOT NULL,
         scope TEXT NOT NULL,
         actor TEXT NOT NULL,
@@ -219,6 +224,42 @@ export class SqliteLedger {
     this.database
       .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(4, nowIso());
+
+    const permissionColumns = this.database.prepare("PRAGMA table_info(permission_grants)").all() as unknown as Array<{ name: string }>;
+    if (!permissionColumns.some((column) => column.name === "execution_grant_id")) {
+      this.database.exec("ALTER TABLE permission_grants ADD COLUMN execution_grant_id TEXT");
+    }
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS plan_approvals (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS reconciliation_transactions (
+        id TEXT PRIMARY KEY,
+        plan_approval_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS reconciliation_transactions_approval
+        ON reconciliation_transactions(plan_approval_id, updated_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS reconciliation_transactions_one_applying
+        ON reconciliation_transactions(status) WHERE status = 'applying';
+      CREATE TABLE IF NOT EXISTS execution_grants (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS execution_grants_one_active
+        ON execution_grants(status) WHERE status = 'active';
+    `);
+    this.database
+      .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(5, nowIso());
   }
 
   append<TPayload>(input: {
@@ -713,14 +754,293 @@ export class SqliteLedger {
     return rows.map((row) => JSON.parse(row.record_json) as ReconciliationOperationCheckpoint);
   }
 
+  savePlanApproval(approval: PlanApproval): void {
+    const record = JSON.stringify(approval);
+    this.database.prepare(`
+      INSERT INTO plan_approvals(id, status, record_json, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        record_json = excluded.record_json,
+        updated_at = excluded.updated_at
+    `).run(approval.id, approval.status, record, approval.decidedAt ?? approval.preparedAt);
+  }
+
+  getPlanApproval(id: string): PlanApproval | undefined {
+    const row = this.database.prepare("SELECT record_json FROM plan_approvals WHERE id = ?").get(id) as
+      | { record_json: string }
+      | undefined;
+    return row === undefined ? undefined : JSON.parse(row.record_json) as PlanApproval;
+  }
+
+  listPlanApprovals(): PlanApproval[] {
+    const rows = this.database.prepare("SELECT record_json FROM plan_approvals ORDER BY updated_at DESC, id DESC").all() as unknown as Array<{ record_json: string }>;
+    return rows.map((row) => JSON.parse(row.record_json) as PlanApproval);
+  }
+
+  saveReconciliationTransaction(transaction: ReconciliationTransaction): void {
+    const record = JSON.stringify(transaction);
+    this.database.prepare(`
+      INSERT INTO reconciliation_transactions(id, plan_approval_id, status, record_json, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        plan_approval_id = excluded.plan_approval_id,
+        status = excluded.status,
+        record_json = excluded.record_json,
+        updated_at = excluded.updated_at
+    `).run(transaction.id, transaction.planApprovalId, transaction.status, record, transaction.updatedAt);
+  }
+
+  getReconciliationTransaction(id: string): ReconciliationTransaction | undefined {
+    const row = this.database.prepare("SELECT record_json FROM reconciliation_transactions WHERE id = ?").get(id) as
+      | { record_json: string }
+      | undefined;
+    return row === undefined ? undefined : JSON.parse(row.record_json) as ReconciliationTransaction;
+  }
+
+  getApprovalReconciliationTransaction(planApprovalId: string): ReconciliationTransaction | undefined {
+    const row = this.database.prepare(`
+      SELECT record_json FROM reconciliation_transactions
+      WHERE plan_approval_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1
+    `).get(planApprovalId) as { record_json: string } | undefined;
+    return row === undefined ? undefined : JSON.parse(row.record_json) as ReconciliationTransaction;
+  }
+
+  listReconciliationTransactions(): ReconciliationTransaction[] {
+    const rows = this.database.prepare(`
+      SELECT record_json FROM reconciliation_transactions ORDER BY updated_at DESC, id DESC
+    `).all() as unknown as Array<{ record_json: string }>;
+    return rows.map((row) => JSON.parse(row.record_json) as ReconciliationTransaction);
+  }
+
+  beginExecutionApplication(approval: PlanApproval, transaction: ReconciliationTransaction): void {
+    const approvalJson = JSON.stringify(approval);
+    const transactionJson = JSON.stringify(transaction);
+    const event = this.createEvent({
+      kind: "execution.approval_accepted",
+      actor: "user",
+      payload: {
+        planApprovalId: approval.id,
+        reconciliationTransactionId: transaction.id,
+        planHash: approval.planHash,
+        reconciliationDigest: approval.reconciliationDigest,
+      },
+    });
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const active = this.database.prepare("SELECT id FROM execution_grants WHERE status = 'active' LIMIT 1").get() as
+        | { id: string }
+        | undefined;
+      if (active !== undefined) throw new Error(`Execution grant ${active.id} is already active.`);
+      this.database.prepare(`
+        INSERT INTO plan_approvals(id, status, record_json, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = excluded.status, record_json = excluded.record_json, updated_at = excluded.updated_at
+      `).run(approval.id, approval.status, approvalJson, approval.decidedAt ?? approval.preparedAt);
+      this.database.prepare(`
+        INSERT INTO reconciliation_transactions(id, plan_approval_id, status, record_json, updated_at) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = excluded.status, record_json = excluded.record_json, updated_at = excluded.updated_at
+      `).run(transaction.id, transaction.planApprovalId, transaction.status, transactionJson, transaction.updatedAt);
+      this.insertEvent(event);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  failExecutionApplication(approval: PlanApproval, transaction: ReconciliationTransaction, reason: string): void {
+    const timestamp = nowIso();
+    const invalidated: PlanApproval = {
+      ...approval,
+      status: "invalidated",
+      decidedAt: timestamp,
+      invalidationReason: reason,
+    };
+    const failed: ReconciliationTransaction = {
+      ...transaction,
+      status: "failed",
+      updatedAt: timestamp,
+      error: reason,
+    };
+    const event = this.createEvent({
+      kind: "execution.start_failed",
+      actor: "system",
+      payload: {
+        planApprovalId: approval.id,
+        reconciliationTransactionId: transaction.id,
+        error: reason,
+      },
+    });
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(`
+        UPDATE plan_approvals SET status = ?, record_json = ?, updated_at = ? WHERE id = ?
+      `).run(invalidated.status, JSON.stringify(invalidated), timestamp, invalidated.id);
+      this.database.prepare(`
+        UPDATE reconciliation_transactions SET status = ?, record_json = ?, updated_at = ? WHERE id = ?
+      `).run(failed.status, JSON.stringify(failed), timestamp, failed.id);
+      this.upsertState("workflowMode", JSON.stringify("plan"), timestamp);
+      this.database.prepare("DELETE FROM state WHERE key IN ('approvedPlanHash', 'currentPlanApprovalId', 'currentExecutionGrantId', 'currentTaskId')").run();
+      this.insertEvent(event);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  saveExecutionGrant(grant: ExecutionGrant): void {
+    const record = JSON.stringify(grant);
+    this.database.prepare(`
+      INSERT INTO execution_grants(id, status, task_id, record_json, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        task_id = excluded.task_id,
+        record_json = excluded.record_json,
+        updated_at = excluded.updated_at
+    `).run(grant.id, grant.status, grant.taskId, record, grant.revokedAt ?? grant.issuedAt);
+  }
+
+  getActiveExecutionGrant(): ExecutionGrant | undefined {
+    const row = this.database.prepare("SELECT record_json FROM execution_grants WHERE status = 'active' LIMIT 1").get() as
+      | { record_json: string }
+      | undefined;
+    return row === undefined ? undefined : JSON.parse(row.record_json) as ExecutionGrant;
+  }
+
+  listExecutionGrants(): ExecutionGrant[] {
+    const rows = this.database.prepare("SELECT record_json FROM execution_grants ORDER BY updated_at DESC, id DESC").all() as unknown as Array<{ record_json: string }>;
+    return rows.map((row) => JSON.parse(row.record_json) as ExecutionGrant);
+  }
+
+  activateExecution(input: {
+    approval: PlanApproval;
+    transaction: ReconciliationTransaction;
+    grant: ExecutionGrant;
+  }): void {
+    const approvalJson = JSON.stringify(input.approval);
+    const transactionJson = JSON.stringify(input.transaction);
+    const grantJson = JSON.stringify(input.grant);
+    const approvalEvent = this.createEvent({
+      kind: "plan.approved",
+      actor: "user",
+      taskId: input.grant.taskId,
+      payload: {
+        planApprovalId: input.approval.id,
+        reconciliationTransactionId: input.transaction.id,
+        planHash: input.approval.planHash,
+        reconciliationDigest: input.approval.reconciliationDigest,
+      },
+    });
+    const event = this.createEvent({
+      kind: "execution.started",
+      actor: "user",
+      taskId: input.grant.taskId,
+      payload: {
+        executionGrantId: input.grant.id,
+        planApprovalId: input.approval.id,
+        reconciliationTransactionId: input.transaction.id,
+      },
+    });
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(`
+        INSERT INTO plan_approvals(id, status, record_json, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = excluded.status, record_json = excluded.record_json, updated_at = excluded.updated_at
+      `).run(input.approval.id, input.approval.status, approvalJson, input.approval.decidedAt ?? input.approval.preparedAt);
+      this.database.prepare(`
+        INSERT INTO reconciliation_transactions(id, plan_approval_id, status, record_json, updated_at) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = excluded.status, record_json = excluded.record_json, updated_at = excluded.updated_at
+      `).run(input.transaction.id, input.transaction.planApprovalId, input.transaction.status, transactionJson, input.transaction.updatedAt);
+      this.database.prepare(`
+        INSERT INTO execution_grants(id, status, task_id, record_json, updated_at) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = excluded.status, task_id = excluded.task_id, record_json = excluded.record_json, updated_at = excluded.updated_at
+      `).run(input.grant.id, input.grant.status, input.grant.taskId, grantJson, input.grant.issuedAt);
+      this.upsertState("approvedPlanHash", JSON.stringify(input.approval.planHash), input.grant.issuedAt);
+      this.upsertState("currentPlanApprovalId", JSON.stringify(input.approval.id), input.grant.issuedAt);
+      this.upsertState("currentExecutionGrantId", JSON.stringify(input.grant.id), input.grant.issuedAt);
+      this.upsertState("currentTaskId", JSON.stringify(input.grant.taskId), input.grant.issuedAt);
+      this.upsertState("workflowMode", JSON.stringify("act"), input.grant.issuedAt);
+      this.insertEvent(approvalEvent);
+      this.insertEvent(event);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  invalidateExecutionGrant(id: string, input: {
+    status: "revoked" | "invalidated";
+    reason: string;
+    occurredAt?: string;
+  }): ExecutionGrant | undefined {
+    const current = this.getActiveExecutionGrant();
+    if (current === undefined || current.id !== id) return undefined;
+    const occurredAt = input.occurredAt ?? nowIso();
+    const next: ExecutionGrant = {
+      ...current,
+      status: input.status,
+      revokedAt: occurredAt,
+      invalidationReason: input.reason,
+    };
+    const record = JSON.stringify(next);
+    const event = this.createEvent({
+      kind: input.status === "revoked" ? "execution.revoked" : "execution.invalidated",
+      actor: "system",
+      taskId: current.taskId,
+      payload: { executionGrantId: id, reason: input.reason },
+    });
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(`
+        UPDATE execution_grants SET status = ?, record_json = ?, updated_at = ? WHERE id = ?
+      `).run(next.status, record, occurredAt, id);
+      this.database.prepare(`
+        UPDATE permission_grants SET revoked_at = ?
+        WHERE execution_grant_id = ? AND revoked_at IS NULL
+      `).run(occurredAt, id);
+      this.upsertState("workflowMode", JSON.stringify("plan"), occurredAt);
+      this.database.prepare("DELETE FROM state WHERE key IN ('currentExecutionGrantId', 'currentTaskId')").run();
+      this.insertEvent(event);
+      this.database.exec("COMMIT");
+      return next;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  restoreExecution(grant: ExecutionGrant): void {
+    const timestamp = nowIso();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.upsertState("currentExecutionGrantId", JSON.stringify(grant.id), timestamp);
+      this.upsertState("currentTaskId", JSON.stringify(grant.taskId), timestamp);
+      this.upsertState("workflowMode", JSON.stringify("act"), timestamp);
+      this.insertEvent(this.createEvent({
+        kind: "execution.resumed",
+        actor: "system",
+        taskId: grant.taskId,
+        payload: { executionGrantId: grant.id },
+      }));
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   saveGrant(grant: PermissionGrant): void {
     this.database
       .prepare(`
         INSERT INTO permission_grants(
-          id, permission, scope, actor, task_id, repository_id, paths_json,
+          id, execution_grant_id, permission, scope, actor, task_id, repository_id, paths_json,
           command_prefix_json, reason, created_at, expires_at, revoked_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
+          execution_grant_id = excluded.execution_grant_id,
           permission = excluded.permission,
           scope = excluded.scope,
           actor = excluded.actor,
@@ -734,6 +1054,7 @@ export class SqliteLedger {
       `)
       .run(
         grant.id,
+        grant.executionGrantId ?? null,
         grant.permission,
         grant.scope,
         grant.actor,
@@ -761,6 +1082,7 @@ export class SqliteLedger {
       .all() as unknown as PermissionRow[];
     return rows.map((row) => ({
       id: row.id,
+      ...(row.execution_grant_id === null ? {} : { executionGrantId: row.execution_grant_id }),
       permission: row.permission,
       scope: row.scope,
       actor: row.actor,

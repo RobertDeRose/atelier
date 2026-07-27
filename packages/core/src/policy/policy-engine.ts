@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type {
   ActionKind,
   ActionRequest,
+  ExecutionGrant,
   Permission,
   PermissionGrant,
   PolicyDecision,
@@ -51,12 +52,21 @@ export interface PolicyState {
   repositoryRoot: string;
   planPath: string;
   grants: PermissionGrant[];
+  executionGrant?: ExecutionGrant;
 }
 
 function pathWithin(path: string, allowedPath: string): boolean {
   const candidate = resolve(path);
   const allowed = resolve(allowedPath);
   return candidate === allowed || candidate.startsWith(`${allowed}/`);
+}
+
+function executionMatches(request: ActionRequest, grant: ExecutionGrant | undefined): boolean {
+  if (grant === undefined || grant.status !== "active") return false;
+  if (request.taskId === undefined || request.taskId !== grant.taskId) return false;
+  if (request.repositorySnapshot === undefined) return false;
+  return request.repositorySnapshot.workspaceId === grant.workspaceId
+    && request.repositorySnapshot.repositoryId === grant.repositoryId;
 }
 
 function grantMatches(request: ActionRequest, grant: PermissionGrant, state: PolicyState, permission: Permission): boolean {
@@ -70,13 +80,15 @@ function grantMatches(request: ActionRequest, grant: PermissionGrant, state: Pol
   ) {
     return false;
   }
-  if (grant.paths !== undefined && request.paths !== undefined) {
-    if (!request.paths.every((path) => grant.paths?.some((allowed) => pathWithin(path, allowed)))) {
+  if (grant.paths !== undefined) {
+    if (request.paths === undefined
+      || !request.paths.every((path) => grant.paths?.some((allowed) => pathWithin(path, allowed)))) {
       return false;
     }
   }
-  if (grant.commandPrefix !== undefined && request.command !== undefined) {
-    if (!grant.commandPrefix.every((part, index) => request.command?.[index] === part)) {
+  if (grant.commandPrefix !== undefined) {
+    if (request.command === undefined
+      || !grant.commandPrefix.every((part, index) => request.command?.[index] === part)) {
       return false;
     }
   }
@@ -142,14 +154,30 @@ export class PolicyEngine {
       );
     }
 
-    const grant = state.grants.find((candidate) => grantMatches(request, candidate, state, requiredPermission));
+    const executionRequired = state.mode === "act" && request.actor === "agent";
+    if (executionRequired && !executionMatches(request, state.executionGrant)) {
+      matchedRules.push("act-mode agent mutation requires a valid task-scoped execution grant");
+      return this.decision(
+        request.action,
+        "require_approval",
+        matchedRules,
+        [requiredPermission],
+        constraints,
+        "A valid execution grant for the request task and workspace is required.",
+        requiredPermission,
+      );
+    }
+
+    const grant = state.grants.find((candidate) =>
+      (!executionRequired || candidate.executionGrantId === state.executionGrant?.id)
+      && grantMatches(request, candidate, state, requiredPermission));
     if (grant !== undefined) {
       matchedRules.push(`matched permission grant ${grant.id}`);
       if (grant.paths !== undefined) constraints.push(`paths constrained to ${grant.paths.join(", ")}`);
       return this.decision(request.action, "allow", matchedRules, [], constraints, `Allowed by ${grant.scope} grant.`, requiredPermission);
     }
 
-    if (state.mode === "act" && request.risk === "routine" && ROUTINE_ACT_ACTIONS.has(request.action)) {
+    if (state.mode === "act" && request.actor !== "agent" && request.risk === "routine" && ROUTINE_ACT_ACTIONS.has(request.action)) {
       const paths = request.paths ?? [];
       if (paths.length > 0 && !paths.every((path) => pathWithin(path, state.repositoryRoot))) {
         matchedRules.push("routine act-mode mutations are limited to the active repository");

@@ -24,6 +24,7 @@ import {
 } from "./planning/plan-review-service.ts";
 import { PlanReconciler } from "./planning/plan-reconciler.ts";
 import { PolicyEngine } from "./policy/policy-engine.ts";
+import { ExecutionWorkflowCoordinator } from "./workflow/execution-workflow-coordinator.ts";
 import { createRepositoryProvider } from "./repository/repository-factory.ts";
 import type { RepositoryProvider } from "./repository/repository-provider.ts";
 import { ValidationService } from "./validation/validation-service.ts";
@@ -67,6 +68,7 @@ export class AtelierCore {
   readonly workingStateBuilder: WorkingStateBuilder;
   readonly validation: ValidationService;
   readonly code: CodeService;
+  readonly execution: ExecutionWorkflowCoordinator;
 
   private constructor(
     config: AtelierConfig,
@@ -84,6 +86,12 @@ export class AtelierCore {
       planPath: config.planPath,
       stateDirectory: config.stateDirectory,
       ledger,
+      repository: this.repository,
+    });
+    this.execution = new ExecutionWorkflowCoordinator({
+      planPath: config.planPath,
+      ledger,
+      provider: taskProvider,
       repository: this.repository,
     });
     this.validation = new ValidationService({ root: config.repositoryRoot, database: ledger.database });
@@ -185,6 +193,9 @@ export class AtelierCore {
   }
 
   setMode(mode: WorkflowMode, actor: "user" | "system" = "user"): void {
+    if (mode === "act" && this.ledger.getActiveExecutionGrant() === undefined) {
+      throw new Error("Act mode requires an active task-scoped execution grant.");
+    }
     const previous = this.mode();
     this.ledger.setState("workflowMode", mode);
     this.ledger.append({ kind: "workflow.mode_changed", actor, payload: { previous, mode } });
@@ -192,6 +203,9 @@ export class AtelierCore {
 
   beginPlan(objective: string, options: { actor?: "user" | "system"; metadata?: Record<string, unknown> } = {}): string {
     ensurePlanDocument(this.config.planPath);
+    if (this.ledger.getActiveExecutionGrant() !== undefined) {
+      this.execution.cancel("A new planning workflow invalidated the active execution grant.");
+    }
     const normalized = objective.replace(/\s+/g, " ").trim();
     this.setMode("plan", options.actor ?? "user");
     this.ledger.setState("planObjective", normalized);
@@ -216,6 +230,9 @@ export class AtelierCore {
       repositoryRoot: this.config.repositoryRoot,
       planPath: this.config.planPath,
       grants: this.ledger.listGrants(),
+      ...(this.ledger.getActiveExecutionGrant() === undefined
+        ? {}
+        : { executionGrant: this.ledger.getActiveExecutionGrant()! }),
     });
     this.ledger.append({
       kind: "policy.decision",
@@ -224,6 +241,19 @@ export class AtelierCore {
       ...(request.repositorySnapshot === undefined ? {} : { repositorySnapshot: request.repositorySnapshot }),
       payload: decision,
     });
+    if (decision.result === "allow") {
+      const matched = decision.matchedRules.find((rule) => rule.startsWith("matched permission grant "));
+      const grantId = matched?.slice("matched permission grant ".length);
+      const grant = grantId === undefined ? undefined : this.ledger.listGrants().find((item) => item.id === grantId);
+      if (grant?.scope === "operation" && this.ledger.revokeGrant(grant.id)) {
+        this.ledger.append({
+          kind: "permission.consumed",
+          actor: "system",
+          ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
+          payload: { grantId: grant.id, executionGrantId: grant.executionGrantId, decisionId: decision.id },
+        });
+      }
+    }
     return decision;
   }
 
@@ -236,8 +266,12 @@ export class AtelierCore {
     reason: string;
     expiresAt?: string;
   }): PermissionGrant {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
     const grant: PermissionGrant = {
       id: newId("grant"),
+      ...(executionGrant !== undefined && (options.taskId === undefined || options.taskId === executionGrant.taskId)
+        ? { executionGrantId: executionGrant.id }
+        : {}),
       permission: options.permission,
       scope: options.scope ?? "session",
       actor: options.actor ?? "user",
@@ -301,18 +335,13 @@ export class AtelierCore {
   }
 
   async reconcilePlan(apply = false, approvedPreview?: TaskReconciliation): Promise<TaskReconciliation> {
+    if (apply) {
+      throw new Error("Task reconciliation mutation requires an exact ExecutionWorkflowCoordinator approval transaction.");
+    }
     const plan = this.parsePlan();
     const reconciler = new PlanReconciler(this.taskProvider, this.ledger);
     const preview = approvedPreview ?? await reconciler.preview(plan);
-    if (!apply) return preview;
-    const approvedHash = this.ledger.getState<string>("approvedPlanHash");
-    if (approvedHash !== plan.hash) {
-      return {
-        ...preview,
-        conflicts: [...preview.conflicts, "The current plan revision has not been approved."],
-      };
-    }
-    return reconciler.apply(plan, preview);
+    return preview;
   }
 
   beginRetrievalSession(sessionId?: string): string {

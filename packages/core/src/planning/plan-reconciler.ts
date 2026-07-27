@@ -209,6 +209,10 @@ export class PlanReconciler {
       }
 
       if (existing.status === "closed" || existing.status === "deferred") {
+        if (!adopted && mapping?.planHash === plan.hash) {
+          resolved.set(task.id, existing);
+          continue;
+        }
         addConflict(task.id, `Provider task ${existing.id} for active plan task ${task.id} has unexpected status ${existing.status}.`);
         continue;
       }

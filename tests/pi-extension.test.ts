@@ -9,7 +9,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createTemporaryRepository } from "./fixtures.ts";
+import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
 
 interface RegisteredTool {
   name: string;
@@ -336,7 +336,7 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
   }
 });
 
-test("Pi act mode auto-allows routine repository work and prompts only for destructive commands", async () => {
+test("Pi act mode requires execution-linked permissions and still prompts for destructive commands", async () => {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const sentMessages: string[] = [];
   const fakePi = {
@@ -352,13 +352,22 @@ test("Pi act mode auto-allows routine repository work and prompts only for destr
   const root = createTemporaryRepository("atlr-pi-act-policy-");
   mkdirSync(join(root, ".atelier"), { recursive: true });
   writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
-    taskProvider: "none",
+    taskProvider: "memory",
     repositoryProvider: "git",
     codeProvider: "disabled",
   }));
-  const setup = AtelierCore.open(root, { taskProvider: "none" });
-  setup.setMode("act");
-  setup.ledger.setState("currentTaskId", "ATLR-TEST");
+  writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
+  const setup = AtelierCore.open(root, { taskProvider: "memory" });
+  setup.beginPlan("Exercise act-mode policy");
+  const review = setup.beginPlanReview();
+  setup.completePlanReview(review.id, { exitCode: 0 });
+  const prepared = await setup.execution.prepare();
+  const started = await setup.execution.approveAndApply(prepared.approval.id, true);
+  assert.ok(started.task);
+  setup.grant({ permission: "file.write", scope: "task", taskId: started.task.id, paths: [join(root, "src")], reason: "edit source" });
+  setup.grant({ permission: "validation.full_suite", scope: "task", taskId: started.task.id, reason: "run checks" });
+  setup.grant({ permission: "command.long_running", scope: "task", taskId: started.task.id, reason: "run approved commands" });
+  setup.grant({ permission: "repository.change.create", scope: "task", taskId: started.task.id, reason: "commit task" });
   setup.close();
   const confirms = { count: 0 };
   const context = fakeContext(root, confirms);

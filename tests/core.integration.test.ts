@@ -48,21 +48,20 @@ test("review, approval, reconciliation, and Working State form a runnable vertic
     const started = core.beginPlanReview();
     const review = core.completePlanReview(started.id, { exitCode: 0 });
     assert.equal(review.changed, false);
-    const approvedHash = core.approvePlan();
+    const prepared = await core.execution.prepare();
+    assert.equal(prepared.reconciliation.conflicts.length, 0);
+    assert.equal(prepared.reconciliation.operations.filter((operation) => operation.kind === "create").length, 2);
+    const transition = await core.execution.approveAndApply(prepared.approval.id, true);
+    const approvedHash = transition.approval.planHash;
+    assert.equal(transition.reconciliation.applied, true);
+    assert.equal(transition.executionGrant?.status, "active");
 
-    const preview = await core.reconcilePlan(false);
-    assert.equal(preview.conflicts.length, 0);
-    assert.equal(preview.operations.filter((operation) => operation.kind === "create").length, 2);
-
-    const applied = await core.reconcilePlan(true);
-    assert.equal(applied.applied, true);
-
-    core.setMode("act");
     const state = await core.buildWorkingState();
     assert.equal(state.approvedPlanHash, approvedHash);
     assert.equal(state.planObjective, "Build the guarded core from durable state");
     assert.equal(state.planTask?.id, "ATLR-001");
-    assert.equal(state.activeTask?.status, "open");
+    assert.equal(state.activeTask?.status, "in_progress");
+    assert.equal(state.executionGrant?.taskId, state.activeTask?.id);
 
     const status = await core.status();
     assert.equal(status.mode, "act");

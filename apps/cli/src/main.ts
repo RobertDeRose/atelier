@@ -129,9 +129,10 @@ Commands:
   mode <investigate|plan|act>       Change the guarded workflow mode
   plan [OBJECTIVE]                  Enter plan mode and create the plan document if missing
   plan parse [--json]               Parse and validate the plan
-  plan reconcile [--apply] [--json] Preview or apply task-provider reconciliation
+  plan reconcile [--json]           Preview task-provider reconciliation
+  plan prepare [--json]             Prepare an exact execution approval transaction
   review                            Open the plan in the configured editor and record a ManualEdit
-  approve                           Approve the current manually reviewed plan revision
+  approve [--approval ID]           Inspect a preparation or apply its exact transaction
   ready [--json]                    Return provider-reported unblocked work
   task show ID [--json]             Read one provider task
   task claim ID                     Atomically claim a task
@@ -329,7 +330,7 @@ async function main(): Promise<void> {
       }
 
       case "plan": {
-        if (["create", "parse", "reconcile"].includes(subcommand ?? "")) {
+        if (["create", "parse", "reconcile", "prepare"].includes(subcommand ?? "")) {
           await handlePlan(core, subcommand, parsed);
           return;
         }
@@ -587,13 +588,40 @@ async function handlePlan(core: AtelierCore, subcommand: string | undefined, arg
       asJson(review);
       return;
     }
+    case "prepare": {
+      const prepared = await core.execution.prepare();
+      if (flagBoolean(args, "json")) asJson(prepared);
+      else process.stdout.write(
+        `Approval: ${prepared.approval.id}\nPlan: ${prepared.approval.planHash}\n`
+        + `Reconciliation: ${prepared.approval.reconciliationDigest}\n`
+        + `Operations: ${prepared.reconciliation.operations.length}\n`,
+      );
+      return;
+    }
     case "approve": {
-      const hash = core.approvePlan();
-      process.stdout.write(`Approved plan revision ${hash}.\n`);
+      const approvalId = flagString(args, "approval");
+      if (approvalId === undefined) {
+        const prepared = await core.execution.prepare();
+        if (flagBoolean(args, "json")) asJson(prepared);
+        else process.stdout.write(
+          `Prepared ${prepared.approval.id}. Inspect plan ${prepared.approval.planHash} and reconciliation `
+          + `${prepared.approval.reconciliationDigest}, then run approve --approval ${prepared.approval.id}.\n`,
+        );
+        return;
+      }
+      const transition = await core.execution.approveAndApply(approvalId, true);
+      if (flagBoolean(args, "json")) asJson(transition);
+      else process.stdout.write(
+        `Approved ${transition.approval.planHash}; activated task ${transition.task?.id ?? "none"} `
+        + `with execution grant ${transition.executionGrant?.id ?? "none"}.\n`,
+      );
       return;
     }
     case "reconcile": {
-      const reconciliation = await core.reconcilePlan(flagBoolean(args, "apply"));
+      if (flagBoolean(args, "apply")) {
+        throw new Error("Use plan prepare, inspect the exact digest, then approve --approval ID.");
+      }
+      const reconciliation = await core.reconcilePlan(false);
       if (flagBoolean(args, "json")) asJson(reconciliation);
       else {
         process.stdout.write(`Plan: ${reconciliation.planHash}\nApplied: ${reconciliation.applied}\n`);
