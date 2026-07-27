@@ -45,15 +45,20 @@ jj status
 atlr doctor
 atlr repo status
 bd where --json || true
+bd list --json || true
 ```
 
-If and only if this disposable clone has no Beads state, initialize it explicitly:
+A local clone can contain tracked `.beads` metadata without the local Dolt database. Directory presence and `bd where` alone do not prove readiness. If `bd list --json` fails, initialize the disposable clone explicitly, then require a successful list before launching Pi:
 
 ```sh
-atlr init --beads
+if ! bd list --json >/dev/null 2>&1; then
+  atlr init --beads
+fi
+bd list --json >/dev/null
+atlr status
 ```
 
-Do not remove or recreate existing `.atelier`, `.beads`, codesearch, or Octocode state. Record unavailable optional integrations as unavailable; do not represent mock conformance as a live result.
+Stop if the final list fails. Capture `bd doctor` output for diagnosis; do not delete, import over, or recreate provider state to force the gate through. Do not remove or recreate existing `.atelier`, `.beads`, codesearch, or Octocode state. Record unavailable optional integrations as unavailable; do not represent mock conformance as a live result.
 
 ## Interactive walkthrough
 
@@ -77,7 +82,8 @@ Verify:
 - exact unresolved identifiers alone use `atlr_code_symbols`;
 - returned paths are read directly;
 - broad raw scanning occurs only after an explicit unavailable/degraded/failed/empty result;
-- planning modifies only `.atelier/PLAN.md`.
+- planning modifies only `.atelier/PLAN.md`;
+- `write`/`edit` can update that designated plan without an act-mode execution grant or an “Unable to start durable execution evidence” error; the later `ManualEdit` is the durable plan-change evidence.
 
 ### 2. Foreground `ManualEdit`
 

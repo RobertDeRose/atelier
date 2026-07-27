@@ -245,6 +245,13 @@ interface ToolAuthorization {
   response?: { block?: boolean; reason?: string };
 }
 
+function isDesignatedPlanWrite(request: ActionRequest, core: AtelierCore): boolean {
+  return core.mode() === "plan"
+    && request.action === "write.file"
+    && (request.paths?.length ?? 0) > 0
+    && request.paths?.every((path) => resolve(path) === resolve(core.config.planPath)) === true;
+}
+
 function matchedPermissionGrantId(decision: PolicyDecision): string | undefined {
   return decision.matchedRules.find((rule) => rule.startsWith("matched permission grant "))
     ?.slice("matched permission grant ".length);
@@ -798,7 +805,11 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     }
     const request = requestForTool(event, ctx, core);
     const authorization = await authorizeTool(request, ctx, core);
-    if (authorization.response === undefined && request.action !== "read.repository") {
+    if (
+      authorization.response === undefined
+      && request.action !== "read.repository"
+      && !isDesignatedPlanWrite(request, core)
+    ) {
       try {
         core.beginExecutionEvidence({
           toolCallId: event.toolCallId,

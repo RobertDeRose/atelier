@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { ProviderError } from "../domain/errors.ts";
 import type {
@@ -203,12 +201,22 @@ export class BeadsCliTaskProvider implements TaskProvider {
     }
 
     const where = this.run(["where", "--json"], { allowFailure: true });
+    const list = where.status === 0
+      ? this.run(["list", "--json"], { allowFailure: true })
+      : undefined;
+    const initialized = where.status === 0 && list?.status === 0;
     return {
       provider: this.name,
       available: true,
-      initialized: where.status === 0 || existsSync(join(this.cwd, ".beads")),
+      initialized,
       version: version.stdout.trim() || version.stderr.trim(),
-      ...(where.status === 0 ? {} : { reason: where.stderr.trim() || "Beads is not initialized in this repository" }),
+      ...(initialized
+        ? {}
+        : {
+            reason: list?.stderr.trim()
+              || where.stderr.trim()
+              || "Beads is not initialized in this repository",
+          }),
     };
   }
 

@@ -275,6 +275,15 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     await events.get("session_start")!({}, context);
     await commands.get("plan")!.handler("prove local acceptance", context);
     assert.match(sentMessages[0] ?? "", /Objective: prove local acceptance/);
+    const planDraftRequest = await events.get("tool_call")!({
+      toolCallId: "acceptance-plan-write",
+      toolName: "write",
+      input: { path: join(root, ".atelier", "PLAN.md") },
+    }, context);
+    assert.equal(planDraftRequest, undefined, "plan drafting must not require an act-mode execution grant");
+    let ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+    assert.equal(ledger.getExecutionEvidence("acceptance-plan-write"), undefined, "ManualEdit owns plan mutation evidence");
+    ledger.close();
     await events.get("agent_settled")!({}, context);
     assert.equal(stopped, 1);
     assert.equal(started, 1);
@@ -286,7 +295,7 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     assert.equal(mutationLog(fake.logPath).length, 0, "preview must not mutate provider state");
     await commands.get("approve")!.handler("", context);
     assert.equal(mutationLog(fake.logPath).length, 0, "rejected exact approval must not mutate provider state");
-    let ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+    ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
     assert.equal(ledger.getActiveExecutionGrant(), undefined);
     assert.equal(ledger.getState("workflowMode"), "plan");
     ledger.close();

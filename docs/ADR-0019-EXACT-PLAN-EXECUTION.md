@@ -46,7 +46,7 @@ Successful reconciliation claims exactly one approved-plan ready task and create
 
 The execution grant permits act mode but conveys no action permission. File, task, validation, repository, command, network, and publication permissions remain independent. One-operation grants are consumed at authorization attempt.
 
-Pi records mutating tool outcomes at `tool_result`, not from authorization. Evidence includes success/failure/interruption, before/after repository identity, observed changed paths, and bounded errors.
+Pi records implementation-tool mutation outcomes at `tool_result`, not from authorization. Evidence includes success/failure/interruption, before/after repository identity, observed changed paths, and bounded errors. A direct plan-mode write/edit of the designated plan document is intentionally excluded from task execution evidence: no task grant exists yet, and the subsequent `ManualEdit` is its durable review record.
 
 ### Continuation is explicit
 

@@ -61,7 +61,7 @@ An execution grant never implies a file, task, validation, repository, network, 
 
 ### After tool execution
 
-Pi's `tool_call` hook performs blocking preflight. Its `tool_result` hook records `succeeded`, `failed`, or `interrupted` execution evidence with before/after repository identity, observed changed paths, and bounded errors. Authorization alone is never represented as an observed edit.
+Pi's `tool_call` hook performs blocking preflight. For implementation mutations, its `tool_result` hook records `succeeded`, `failed`, or `interrupted` execution evidence with before/after repository identity, observed changed paths, and bounded errors. Authorization alone is never represented as an observed edit. The one plan-mode exception is a direct write/edit of the designated plan document: it requires no act-mode execution grant because the subsequent `ManualEdit` supplies its durable before/after evidence.
 
 ## Exact reviewed-plan workflow
 

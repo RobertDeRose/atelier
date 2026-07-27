@@ -113,6 +113,18 @@ test("Pi extension enforces provider-first plan discovery without approving read
   assert.ok(statuses.some((status) => /index (building|ready)/.test(status)), "Pi footer must expose background index state");
   await commands.get("plan")!.handler("investigate planning policy", context);
   assert.match(sentMessages.at(-1) ?? "", /Objective: investigate planning policy/);
+
+  const planWrite = await events.get("tool_call")!({
+    toolCallId: "plan-write",
+    toolName: "write",
+    input: { path: join(root, ".atelier", "PLAN.md") },
+  }, context);
+  assert.equal(planWrite, undefined, "the designated plan write must not require an act-mode execution grant");
+  const ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+  assert.equal(ledger.getExecutionEvidence("plan-write"), undefined, "ManualEdit, not execution evidence, records plan drafting");
+  ledger.close();
+  assert.equal(confirms.count, 0, "the designated plan write is permitted directly in plan mode");
+
   const readOnlyCompound = await events.get("tool_call")!({
     toolName: "bash",
     input: { command: "git log -3 --oneline && printf 'status\\n' && git status --short" },

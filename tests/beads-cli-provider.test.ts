@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BeadsCliTaskProvider, normalizeBeadsTask } from "../packages/core/src/tasks/beads-cli-provider.ts";
@@ -87,6 +87,30 @@ console.error("unsupported", args); process.exit(2);
     assert.equal(create[create.indexOf("--labels") + 1], "atelier-plan,prototype");
     assert.equal(create.includes("--add-label"), false);
     assert.ok(commands.some((args) => args.slice(0, 4).join(" ") === "dep remove bd-created bd-1"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("status does not report tracked Beads metadata as an initialized database", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-beads-metadata-only-"));
+  const executable = join(root, "fake-bd.mjs");
+  mkdirSync(join(root, ".beads"));
+  writeFileSync(join(root, ".beads", "metadata.json"), JSON.stringify({ database: "dolt" }), "utf8");
+  writeFileSync(executable, `#!/usr/bin/env node
+const command = process.argv[2];
+if (command === "version") { console.log("bd metadata-only"); process.exit(0); }
+if (command === "where") { console.log(JSON.stringify({ root: process.cwd() })); process.exit(0); }
+if (command === "list") { console.error("Dolt database is not initialized"); process.exit(1); }
+process.exit(2);
+`, "utf8");
+  chmodSync(executable, 0o755);
+
+  try {
+    const status = await new BeadsCliTaskProvider({ cwd: root, executable }).status();
+    assert.equal(status.available, true);
+    assert.equal(status.initialized, false);
+    assert.match(status.reason ?? "", /not initialized/i);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
