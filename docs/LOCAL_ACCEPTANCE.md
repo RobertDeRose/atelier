@@ -60,6 +60,23 @@ atlr status
 
 Stop if the final list fails. Capture `bd doctor` output for diagnosis; do not delete, import over, or recreate provider state to force the gate through. Do not remove or recreate existing `.atelier`, `.beads`, codesearch, or Octocode state. Record unavailable optional integrations as unavailable; do not represent mock conformance as a live result.
 
+Configure one required focused validation in this disposable clone so the stale-evidence portion tests Atelier rather than only running a test command directly:
+
+```sh
+cat > .atelier/validation.json <<'JSON'
+{
+  "validations": {
+    "acceptance-workflow": {
+      "command": ["node", "--no-warnings", "--experimental-strip-types", "--test", "tests/acceptance-workflow.test.ts"],
+      "paths": ["tests/acceptance-workflow.test.ts"],
+      "focused": true,
+      "required": true
+    }
+  }
+}
+JSON
+```
+
 ## Interactive walkthrough
 
 Start the supported shell:
@@ -102,13 +119,13 @@ Do not describe the editor changes again in chat.
 
 ### 3. Reject, then approve exactly
 
-Run `/approve`, inspect the full transaction, and reject it once. Verify with `/status`, `/state`, and provider inspection that:
+Run `/approve`, inspect the full transaction, and **reject the approval confirmation once**. Do not approve every prompt during this step. Verify with `/status`, `/state`, and provider inspection that:
 
 - mode remains `plan`;
 - no execution grant exists;
 - provider task content, dependencies, and count did not change.
 
-Run `/approve` again against the unchanged reviewed revision and confirm. Verify:
+Run `/approve` again against the unchanged reviewed revision and confirm it. Later prompts for the two bounded source mutations should be approved; they are the independent operation-permission checks. Verify:
 
 - reconciliation converges;
 - no duplicate provider task exists;
@@ -121,7 +138,7 @@ Run `/approve` again against the unchanged reviewed revision and confirm. Verify
 
 Allow one bounded source mutation when prompted. Verify `/state` records the mutating tool outcome, before/after repository identity, observed mutation, and changed paths without touching any pre-existing change.
 
-Run:
+Run these slash commands yourself rather than treating a direct `node --test` invocation as Atelier validation evidence:
 
 ```text
 /validate plan
@@ -130,7 +147,7 @@ Run:
 /state
 ```
 
-Verify the focused selection gives reasons, only focused permission is requested, and the pass is current.
+Verify the `acceptance-workflow` selection gives a path-match reason, is required, only focused permission is requested, and the pass is current. A direct test run may be useful implementation feedback but does not satisfy this evidence check.
 
 Perform one further authorized source change. Verify `/evidence` and `/state` show the old pass as stale, not current. Run `/validate focused` again and verify the new pass is current.
 
