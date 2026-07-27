@@ -300,10 +300,10 @@ export class AtelierCore {
     return plan.hash;
   }
 
-  async reconcilePlan(apply = false): Promise<TaskReconciliation> {
+  async reconcilePlan(apply = false, approvedPreview?: TaskReconciliation): Promise<TaskReconciliation> {
     const plan = this.parsePlan();
     const reconciler = new PlanReconciler(this.taskProvider, this.ledger);
-    const preview = await reconciler.preview(plan);
+    const preview = approvedPreview ?? await reconciler.preview(plan);
     if (!apply) return preview;
     const approvedHash = this.ledger.getState<string>("approvedPlanHash");
     if (approvedHash !== plan.hash) {

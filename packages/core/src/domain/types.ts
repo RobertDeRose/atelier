@@ -297,15 +297,70 @@ export interface ManualEdit {
   finishedAt?: string;
 }
 
+export interface TaskProviderIdentity {
+  name: string;
+  version?: string;
+}
+
+export interface TaskProviderCapabilities {
+  stablePlanTaskIds: boolean;
+  dependencyRemoval: boolean;
+  retirement: boolean;
+}
+
+export interface ReconciliationFieldChange {
+  field: keyof TaskPatch;
+  before: unknown;
+  after: unknown;
+}
+
+interface ReconciliationOperationBase {
+  operationId: string;
+  planTaskId: string;
+}
+
 export type ReconciliationOperation =
-  | { kind: "create"; planTaskId: string; request: CreateTaskRequest }
-  | { kind: "update"; planTaskId: string; providerTaskId: string; patch: TaskPatch }
-  | { kind: "link"; planTaskId: string; providerTaskId: string; dependencyPlanTaskId: string; dependencyProviderTaskId: string }
-  | { kind: "conflict"; planTaskId: string; reason: string };
+  | (ReconciliationOperationBase & { kind: "create"; request: CreateTaskRequest })
+  | (ReconciliationOperationBase & { kind: "adopt"; providerTaskId: string })
+  | (ReconciliationOperationBase & {
+      kind: "update";
+      providerTaskId: string;
+      patch: TaskPatch;
+      changes: ReconciliationFieldChange[];
+    })
+  | (ReconciliationOperationBase & {
+      kind: "link";
+      providerTaskId?: string;
+      dependencyPlanTaskId: string;
+      dependencyProviderTaskId?: string;
+    })
+  | (ReconciliationOperationBase & {
+      kind: "unlink";
+      providerTaskId: string;
+      dependencyPlanTaskId: string;
+      dependencyProviderTaskId: string;
+    })
+  | (ReconciliationOperationBase & { kind: "retire"; providerTaskId: string })
+  | (ReconciliationOperationBase & { kind: "conflict"; reason: string });
+
+export type ReconciliationOperationStatus = "started" | "completed" | "failed";
+
+export interface ReconciliationOperationCheckpoint {
+  reconciliationDigest: string;
+  operationId: string;
+  provider: TaskProviderIdentity;
+  planHash: string;
+  status: ReconciliationOperationStatus;
+  error?: string;
+  updatedAt: string;
+}
 
 export interface TaskReconciliation {
   planHash: string;
+  provider: TaskProviderIdentity;
+  digest: string;
   operations: ReconciliationOperation[];
+  unchanged: string[];
   created: Array<{ planTaskId: string; providerTaskId: string }>;
   applied: boolean;
   conflicts: string[];

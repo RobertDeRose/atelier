@@ -5,6 +5,7 @@ import { ProviderError } from "../domain/errors.ts";
 import type {
   CreateTaskRequest,
   TaskPatch,
+  TaskProviderCapabilities,
   TaskProviderStatus,
   TaskRecord,
   TaskStatus,
@@ -83,6 +84,11 @@ function unwrapJson(value: unknown): unknown[] {
   return [record];
 }
 
+function stablePlanTaskId(notes: string): string | undefined {
+  const match = /(?:^|\n)Atelier plan task:\s*([^\s]+)\s*(?:\n|$)/.exec(notes);
+  return match?.[1];
+}
+
 export function normalizeBeadsTask(value: unknown): TaskRecord {
   const record = asRecord(value);
   if (record === undefined) throw new ProviderError("Beads returned a non-object task", { value });
@@ -97,13 +103,16 @@ export function normalizeBeadsTask(value: unknown): TaskRecord {
   ]);
   const acceptance = firstDefined(record, ["acceptance_criteria", "acceptance", "criteria"]);
   const labels = firstDefined(record, ["labels", "tags"]);
+  const notes = stringValue(record, ["notes", "note"]);
+  const planTaskId = stablePlanTaskId(notes);
 
   return {
     id,
+    ...(planTaskId === undefined ? {} : { planTaskId }),
     title: stringValue(record, ["title", "name"], id),
     description: stringValue(record, ["description", "body"]),
     ...(stringValue(record, ["design"]) ? { design: stringValue(record, ["design"]) } : {}),
-    ...(stringValue(record, ["notes", "note"]) ? { notes: stringValue(record, ["notes", "note"]) } : {}),
+    ...(notes ? { notes } : {}),
     acceptanceCriteria:
       typeof acceptance === "string"
         ? acceptance.split("\n").map((line) => line.trim()).filter(Boolean)
@@ -150,6 +159,10 @@ export class BeadsCliTaskProvider implements TaskProvider {
     this.cwd = options.cwd;
     this.executable = options.executable ?? "bd";
     this.timeoutMs = options.timeoutMs ?? 30_000;
+  }
+
+  async capabilities(): Promise<TaskProviderCapabilities> {
+    return { stablePlanTaskIds: true, dependencyRemoval: true, retirement: true };
   }
 
   private run(args: string[], options: { input?: string; allowFailure?: boolean } = {}): CommandResult {
@@ -290,6 +303,14 @@ export class BeadsCliTaskProvider implements TaskProvider {
     type: "blocks" | "related" | "parent-child" = "blocks",
   ): Promise<void> {
     this.run(["dep", "add", taskId, dependencyTaskId, "--type", type, "--json"]);
+  }
+
+  async removeDependency(
+    taskId: string,
+    dependencyTaskId: string,
+    _type: "blocks" | "related" | "parent-child" = "blocks",
+  ): Promise<void> {
+    this.run(["dep", "remove", taskId, dependencyTaskId, "--json"]);
   }
 
   async close(taskId: string, reason: string): Promise<TaskRecord> {

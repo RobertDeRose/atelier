@@ -1,12 +1,14 @@
 import type {
   CreateTaskRequest,
   TaskPatch,
+  TaskProviderCapabilities,
   TaskProviderStatus,
   TaskRecord,
 } from "../domain/types.ts";
 
 export interface TaskProvider {
   readonly name: string;
+  capabilities(): Promise<TaskProviderCapabilities>;
   status(): Promise<TaskProviderStatus>;
   initialize(options?: { stealth?: boolean; quiet?: boolean }): Promise<void>;
   ready(): Promise<TaskRecord[]>;
@@ -16,5 +18,6 @@ export interface TaskProvider {
   update(taskId: string, patch: TaskPatch): Promise<TaskRecord>;
   claim(taskId: string): Promise<TaskRecord>;
   addDependency(taskId: string, dependencyTaskId: string, type?: "blocks" | "related" | "parent-child"): Promise<void>;
+  removeDependency(taskId: string, dependencyTaskId: string, type?: "blocks" | "related" | "parent-child"): Promise<void>;
   close(taskId: string, reason: string): Promise<TaskRecord>;
 }

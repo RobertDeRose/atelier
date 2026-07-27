@@ -1,6 +1,7 @@
 import type {
   CreateTaskRequest,
   TaskPatch,
+  TaskProviderCapabilities,
   TaskProviderStatus,
   TaskRecord,
 } from "../domain/types.ts";
@@ -17,6 +18,10 @@ export class InMemoryTaskProvider implements TaskProvider {
 
   constructor(initialTasks: TaskRecord[] = []) {
     for (const task of initialTasks) this.tasks.set(task.id, cloneTask(task));
+  }
+
+  async capabilities(): Promise<TaskProviderCapabilities> {
+    return { stablePlanTaskIds: true, dependencyRemoval: true, retirement: true };
   }
 
   async status(): Promise<TaskProviderStatus> {
@@ -93,6 +98,16 @@ export class InMemoryTaskProvider implements TaskProvider {
     if (!this.tasks.has(dependencyTaskId)) throw new Error(`Unknown dependency: ${dependencyTaskId}`);
     if (!task.dependencies.includes(dependencyTaskId)) {
       task.dependencies.push(dependencyTaskId);
+      task.updatedAt = nowIso();
+    }
+  }
+
+  async removeDependency(taskId: string, dependencyTaskId: string): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (task === undefined) throw new Error(`Unknown task: ${taskId}`);
+    const next = task.dependencies.filter((dependency) => dependency !== dependencyTaskId);
+    if (next.length !== task.dependencies.length) {
+      task.dependencies = next;
       task.updatedAt = nowIso();
     }
   }

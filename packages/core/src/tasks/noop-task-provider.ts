@@ -2,6 +2,7 @@ import { ProviderError } from "../domain/errors.ts";
 import type {
   CreateTaskRequest,
   TaskPatch,
+  TaskProviderCapabilities,
   TaskProviderStatus,
   TaskRecord,
 } from "../domain/types.ts";
@@ -13,6 +14,10 @@ import type { TaskProvider } from "./task-provider.ts";
  */
 export class NoopTaskProvider implements TaskProvider {
   readonly name = "none";
+
+  async capabilities(): Promise<TaskProviderCapabilities> {
+    return { stablePlanTaskIds: false, dependencyRemoval: false, retirement: false };
+  }
 
   async status(): Promise<TaskProviderStatus> {
     return {
@@ -50,6 +55,14 @@ export class NoopTaskProvider implements TaskProvider {
   }
 
   async addDependency(
+    _taskId: string,
+    _dependencyTaskId: string,
+    _type: "blocks" | "related" | "parent-child" = "blocks",
+  ): Promise<void> {
+    throw this.disabled();
+  }
+
+  async removeDependency(
     _taskId: string,
     _dependencyTaskId: string,
     _type: "blocks" | "related" | "parent-child" = "blocks",

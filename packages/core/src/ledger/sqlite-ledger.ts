@@ -6,6 +6,7 @@ import type {
   LedgerEvent,
   ManualEdit,
   PermissionGrant,
+  ReconciliationOperationCheckpoint,
   RepositorySnapshot,
   WorkflowRun,
 } from "../domain/types.ts";
@@ -202,6 +203,22 @@ export class SqliteLedger {
     this.database
       .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(3, nowIso());
+
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS reconciliation_operations (
+        reconciliation_digest TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(reconciliation_digest, operation_id)
+      );
+      CREATE INDEX IF NOT EXISTS reconciliation_operations_status
+        ON reconciliation_operations(reconciliation_digest, status, updated_at);
+    `);
+    this.database
+      .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(4, nowIso());
   }
 
   append<TPayload>(input: {
@@ -654,6 +671,46 @@ export class SqliteLedger {
   private scalarCount(sql: string): number {
     const row = this.database.prepare(sql).get() as { count: number | bigint };
     return Number(row.count);
+  }
+
+  saveReconciliationCheckpoint(checkpoint: ReconciliationOperationCheckpoint): void {
+    const event = this.createEvent({
+      kind: `reconciliation.operation_${checkpoint.status}`,
+      actor: "system",
+      payload: checkpoint,
+    });
+    const record = JSON.stringify(checkpoint);
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(`
+        INSERT INTO reconciliation_operations(
+          reconciliation_digest, operation_id, status, record_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(reconciliation_digest, operation_id) DO UPDATE SET
+          status = excluded.status,
+          record_json = excluded.record_json,
+          updated_at = excluded.updated_at
+      `).run(
+        checkpoint.reconciliationDigest,
+        checkpoint.operationId,
+        checkpoint.status,
+        record,
+        checkpoint.updatedAt,
+      );
+      this.insertEvent(event);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listReconciliationCheckpoints(reconciliationDigest: string): ReconciliationOperationCheckpoint[] {
+    const rows = this.database.prepare(`
+      SELECT record_json FROM reconciliation_operations
+      WHERE reconciliation_digest = ? ORDER BY operation_id
+    `).all(reconciliationDigest) as unknown as Array<{ record_json: string }>;
+    return rows.map((row) => JSON.parse(row.record_json) as ReconciliationOperationCheckpoint);
   }
 
   saveGrant(grant: PermissionGrant): void {

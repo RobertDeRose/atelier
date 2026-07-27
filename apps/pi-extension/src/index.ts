@@ -489,7 +489,7 @@ async function approveAndReconcile(
         ctx.ui.notify("Plan approved, but task reconciliation was not applied.", "warning");
         return;
       }
-      const applied = await core.reconcilePlan(true);
+      const applied = await core.reconcilePlan(true, preview);
       if (!applied.applied || applied.conflicts.length > 0) {
         ctx.ui.notify("Task reconciliation did not complete.", "error");
         return;
