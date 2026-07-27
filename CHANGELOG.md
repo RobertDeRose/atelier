@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.13.0 — 2026-07-27
+
+```text
+feat(workflow): prove exact local execution end to end
+
+- open initial plan drafts in the configured foreground editor and persist ManualEdit diffs
+- require exact plan hash, provider reconciliation digest, and explicit approval before mutation
+- reconcile create, adopt, update, dependency link/unlink, and retirement idempotently
+- bind act mode to one approved-plan task/workspace without implying action permissions
+- persist post-tool success, failure, interruption, snapshots, and observed changed paths
+- select focused validation with reasons and reject stale passes at task closure
+- reconstruct approval, task, grants, mutation evidence, validation, and next action after restart
+- add explicit execute and cancel flows to both CLI and Pi
+- add portable end-to-end and smoke-cleanup acceptance without live optional services
+- document authority boundaries, migration preservation, and the disposable Jujutsu launch gate
+```
+
 ## 0.12.0 — 2026-07-27
 
 ```text

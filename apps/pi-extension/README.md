@@ -85,3 +85,9 @@ atlr approve --approval <id> --digest <reconciliation-digest> --yes
 The extension uses Pi's custom UI lifecycle to stop the TUI, run the editor as a direct foreground child with inherited standard streams, restart the TUI, and request a render. It does not invoke a shell and does not emit alternate-screen control sequences. Non-TUI sessions receive an actionable recovery message directing them to run `atlr review` in a terminal.
 
 The SQLite ledger and Working State remain authoritative across restart and compaction. Pi conversation text and custom session entries are never used to infer approval, task activation, permissions, mutation outcomes, or validation freshness. `/status` and `/state` expose the durable next action: review, resolve reconciliation conflicts, approve, execute, validate, close, or select later ready work.
+
+## Acceptance and restart
+
+The portable fake-Pi acceptance test is `tests/acceptance-workflow.test.ts`; it does not substitute for a live TUI result. Maintainers should run the final workflow through `mise run launch` only from a disposable Jujutsu-first clone, reject one exact transaction before approving it, verify focused-validation staleness/rerun, restart Pi, and then exercise `/cancel` and optional `/execute`. The full checklist and evidence fields are in [`docs/LOCAL_ACCEPTANCE.md`](../../docs/LOCAL_ACCEPTANCE.md).
+
+An upgrade must preserve `.atelier/PLAN.md`, the SQLite ledger, `TaskProvider`/Beads state, provider indexes, Jujutsu operation/workspace state, and legitimate working-copy changes. Exit the old Pi process, update without cleaning those assets, restart with `mise run launch`, and inspect `/status` plus `/state`. Invalid plan/provider/repository/task bindings fail closed instead of silently resuming act mode.

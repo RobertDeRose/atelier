@@ -1,3 +1,5 @@
+> **v0.13.0 local acceptance:** The delivered CLI/Pi workflow now uses exact reviewed-plan approval, convergent provider reconciliation, task-scoped execution grants, post-tool mutation evidence, focused-validation freshness, deterministic restart reconstruction, and a portable end-to-end acceptance fixture. See ADR-0019 and `LOCAL_ACCEPTANCE.md`.
+
 > **v0.10.4 plan investigation:** Read-only shell compounds are now classified segment by segment, and Pi exposes provider-first code search and symbol tools directly to the agent. Broad raw discovery is an explicit provider fallback. See ADR-0017.
 
 > **v0.10.3 SQLite result normalization:** Bun returns `null` for a missing `Statement.get()` row while Node returns `undefined`. Atelier now normalizes this at the runtime boundary so fresh Pi sessions can read empty durable state. See ADR-0016.
@@ -16,17 +18,22 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.2.0
+## Implementation Status — v0.13.0
 
-The current prototype implements the guarded shell vertical slice plus two repository-aware foundations:
+The current prototype delivers the guarded local workflow:
 
-- Incremental SQLite FTS5 indexing for tracked and untracked text files.
-- Snapshot-qualified search with stale-result reporting.
-- Validation manifests, direct command execution, and durable evidence.
-- Working State projection of repository and validation evidence.
-- Matching `atlr` CLI and concise Pi slash commands for index, search, validate, and evidence.
+- automatic configured-editor plan review with durable `ManualEdit` structural evidence;
+- exact plan/provider/reconciliation preparation and approval with zero-mutation rejection;
+- convergent `TaskProvider` create, adopt, update, link, unlink, retirement, and ready-task claim;
+- task/workspace-scoped execution grants plus independent action permissions;
+- Pi `tool_call` preflight and `tool_result` success/failure/interruption evidence;
+- asynchronous abort-aware validation, explainable focused selection, strict fingerprint freshness, and closure gates;
+- deterministic Working State reconstruction across Pi restart and compaction;
+- Jujutsu-first repository identity with Git compatibility;
+- bounded provider-first codesearch retrieval with provenance, reuse, invalidation, and multi-repository isolation; and
+- matching CLI/Pi commands for review, approval, execution, cancellation, validation, evidence, status, and state.
 
-Tree-sitter symbols, semantic indexing, focused-validation selection, and reusable validation policies remain planned work.
+The portable acceptance fixture in `tests/acceptance-workflow.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `LOCAL_ACCEPTANCE.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their “planned” wording does not override this delivered-status section.
 
 ---
 

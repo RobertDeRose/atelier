@@ -4,18 +4,13 @@ Atelier is an Agentic Development Environment (ADE): a local-first software work
 
 The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
 
-## v0.11.0 scope
+## Current workflow scope
 
-Approved act-mode work is repository-scoped by default. Routine edits, writes,
-validations, task updates, dependency changes, and local Git/Jujutsu commits no
-longer produce one approval dialog per operation. Destructive commands, external
-effects, publication, unknown commands, and explicit paths outside the active
-repository still require approval.
+Plan review is restart-safe and records durable `ManualEdit` lifecycle evidence plus deterministic structural diffs. Exact preparation binds the reviewed plan hash to provider, reconciliation, repository, and workspace identity. Rejection performs no provider mutation; approval rechecks the exact preview before reconciling and claiming one approved-plan task.
 
-Plan review is now restart-safe and records durable `ManualEdit` lifecycle evidence
-plus deterministic structural diffs. When an agent settles in act mode with a
-selected task and uncommitted changes, Atelier sends a completion-guard follow-up
-requiring validation, final diff review, and a local commit before completion.
+Approved act-mode work is repository-scoped by default. Routine edits, writes, validations, task updates, dependency changes, and local Git/Jujutsu commits no longer produce one approval dialog per operation. Destructive commands, external effects, publication, unknown commands, and explicit paths outside the active repository still require approval. Every mutating Pi tool result records durable success, failure, or interruption evidence.
+
+Focused validation is snapshot-qualified. A later repository fingerprint makes prior passing evidence stale and prevents task closure until rerun. When an agent settles with uncommitted task changes, Atelier requires validation, final diff review, and a local commit before completion.
 
 The supported interactive entry point remains:
 
@@ -78,15 +73,20 @@ Atelier stores repository-local state under `.atelier/`.
 ```bash
 atlr plan "implement the requested feature"
 atlr review
-atlr approve
-atlr plan reconcile --apply
-atlr ready
+atlr plan prepare --json
+atlr approve --approval <id> --digest <digest> --yes
 atlr state
 atlr validate plan
 atlr validate focused
+atlr task close <provider-task-id> --reason "validated outcome"
+atlr execute [next-provider-task-id] --yes
+# or stop without closing the task
+atlr cancel --reason "operator stopped execution"
 ```
 
-The reviewed Markdown plan and its durable `ManualEdit` evidence form the scope baseline. Beads is its executable task projection. Jujutsu is the primary local repository model.
+`atlr plan reconcile` is preview-only; provider mutation is available only through an exact prepared approval. In an interactive terminal, `atlr approve` can ask for confirmation after displaying the exact transaction. Non-interactive use requires the matching approval ID, reconciliation digest, and `--yes`.
+
+The reviewed Markdown plan and its durable `ManualEdit` evidence form the scope baseline. Beads is its executable task projection. Jujutsu is the primary local repository model. An execution grant authorizes one task/workspace but grants no action permission. Working State—not conversation or compaction—reconstructs approval, task, permissions, mutation evidence, validation freshness, and the next action after restart.
 
 ## Code provider commands
 
@@ -128,13 +128,16 @@ Pi commands omit the redundant `atlr-` prefix. Workflow commands remain short:
 
 ```text
 /status
-/plan
+/plan <objective>
 /review
 /approve
+/execute [task-id]
+/cancel [reason]
 /ready
 /state
 /changed
-/validate
+/validate plan
+/validate focused
 /evidence
 ```
 
@@ -164,7 +167,21 @@ Atelier prompts for destructive operations, external effects, publication, unkno
 commands, or out-of-repository paths. The act-mode completion guard prevents a task
 with uncommitted repository changes from being reported as complete.
 
-Each slash command has a command-palette description.
+Each slash command has a command-palette description. The initial plan draft opens in the configured editor automatically when the agent settles. Pi suspends its TUI while the foreground editor owns the terminal, then displays `ManualEdit` hashes, structural changes, diagnostics, and reconciliation readiness without asking the user to restate edits.
+
+## Local acceptance
+
+The deterministic end-to-end fixture uses a temporary Git repository, foreground fake editor, persistent fake Beads CLI, configured focused validation, and fake Pi harness. It proves create/update/link/unlink/retire reconciliation, rejection without mutation, exact approval, task claim, independent operation permission, post-tool evidence, stale validation, rerun, cancellation, shutdown, and resume without live optional services.
+
+Run automated acceptance:
+
+```bash
+node --no-warnings --experimental-strip-types --test tests/acceptance-workflow.test.ts
+bash scripts/smoke.sh
+mise run check
+```
+
+The smoke script forces Git, disabled code intelligence, and temporary state; it does not use live Pi, Beads, Jujutsu, codesearch, network access, or the caller's repository. See [the local acceptance guide](docs/LOCAL_ACCEPTANCE.md) for the final disposable Jujutsu-first `mise run launch` walkthrough and evidence checklist.
 
 Launch the extension through Atelier during development:
 
