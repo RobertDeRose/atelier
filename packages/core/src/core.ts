@@ -68,7 +68,13 @@ export class AtelierCore {
   readonly validation: ValidationService;
   readonly code: CodeService;
 
-  private constructor(config: AtelierConfig, ledger: SqliteLedger, taskProvider: TaskProvider, codeProvider?: CodeProvider) {
+  private constructor(
+    config: AtelierConfig,
+    ledger: SqliteLedger,
+    taskProvider: TaskProvider,
+    codeProvider?: CodeProvider,
+    retrievalSessionId?: string,
+  ) {
     this.config = config;
     this.ledger = ledger;
     this.taskProvider = taskProvider;
@@ -82,11 +88,34 @@ export class AtelierCore {
     });
     this.validation = new ValidationService({ root: config.repositoryRoot, database: ledger.database });
     const selection = codeProvider === undefined ? createCodeProviders(config) : { providers: [codeProvider], defaultProvider: codeProvider.name };
-    this.code = new CodeService(new CodeProviderRegistry(selection.providers, selection.defaultProvider), ledger, { maxResults: config.codeMaxResults, maxPreviewBytes: config.codeMaxPreviewBytes, maxChunkBytes: config.codeMaxChunkBytes, maxFetches: config.codeMaxFetches, maxTotalBytes: config.codeMaxTotalBytes });
+    this.code = new CodeService(
+      new CodeProviderRegistry(selection.providers, selection.defaultProvider),
+      ledger,
+      {
+        maxResults: positiveOrOne(config.codeMaxResults),
+        maxPreviewBytes: positiveOrOne(config.codeMaxPreviewBytes),
+        maxChunkBytes: positiveOrOne(config.codeMaxChunkBytes),
+        maxFetches: positiveOrOne(config.codeMaxFetches),
+        maxTotalBytes: positiveOrOne(config.codeMaxTotalBytes),
+        maxProviderRequests: positiveOrOne(config.codeMaxProviderRequests),
+        maxUniquePaths: positiveOrOne(config.codeMaxUniquePaths),
+        maxEvidenceEntries: positiveOrOne(config.codeMaxEvidenceEntries),
+      },
+      retrievalSessionId,
+      {
+        maxRetainedSessions: positiveOrOne(config.codeRetainedSessions),
+        maxEntries: positiveOrOne(config.codeMaxPersistedEntries),
+        maxBytes: positiveOrOne(config.codeMaxPersistedBytes),
+      },
+    );
     this.workingStateBuilder = new WorkingStateBuilder(taskProvider, ledger, this.code, this.validation);
   }
 
-  static open(repositoryRoot = process.cwd(), options: { taskProvider?: "beads" | "memory" | "none"; codeProvider?: CodeProvider } = {}): AtelierCore {
+  static open(repositoryRoot = process.cwd(), options: {
+    taskProvider?: "beads" | "memory" | "none";
+    codeProvider?: CodeProvider;
+    retrievalSessionId?: string;
+  } = {}): AtelierCore {
     const config = loadConfig(repositoryRoot);
     if (options.taskProvider !== undefined) config.taskProvider = options.taskProvider;
     mkdirSync(config.stateDirectory, { recursive: true });
@@ -97,7 +126,7 @@ export class AtelierCore {
         : config.taskProvider === "memory"
           ? new InMemoryTaskProvider()
           : new NoopTaskProvider();
-    return new AtelierCore(config, ledger, taskProvider, options.codeProvider);
+    return new AtelierCore(config, ledger, taskProvider, options.codeProvider, options.retrievalSessionId);
   }
 
   initialize(options: { createPlan?: boolean } = {}): { createdPlan: boolean } {
@@ -124,6 +153,12 @@ export class AtelierCore {
             codeMaxChunkBytes: this.config.codeMaxChunkBytes,
             codeMaxFetches: this.config.codeMaxFetches,
             codeMaxTotalBytes: this.config.codeMaxTotalBytes,
+            codeMaxProviderRequests: this.config.codeMaxProviderRequests,
+            codeMaxUniquePaths: this.config.codeMaxUniquePaths,
+            codeMaxEvidenceEntries: this.config.codeMaxEvidenceEntries,
+            codeRetainedSessions: this.config.codeRetainedSessions,
+            codeMaxPersistedEntries: this.config.codeMaxPersistedEntries,
+            codeMaxPersistedBytes: this.config.codeMaxPersistedBytes,
             longRunningThresholdMs: this.config.longRunningThresholdMs,
           },
           null,
@@ -290,7 +325,24 @@ export class AtelierCore {
     if (this.config.codeTimeoutMs < 1) issues.push("codeTimeoutMs must be positive");
     if (this.config.codeIndexTimeoutMs < 1) issues.push("codeIndexTimeoutMs must be positive");
     if (this.config.codeMaxResults < 1) issues.push("codeMaxResults must be positive");
+    for (const name of [
+      "codeMaxProviderRequests",
+      "codeMaxUniquePaths",
+      "codeMaxEvidenceEntries",
+      "codeRetainedSessions",
+      "codeMaxPersistedEntries",
+      "codeMaxPersistedBytes",
+    ] as const) {
+      const value = this.config[name];
+      if (!Number.isInteger(value) || value < 1) issues.push(`${name} must be a positive integer`);
+    }
+    if (this.config.codeMaxUniquePaths > this.config.codeMaxEvidenceEntries) issues.push("codeMaxUniquePaths must be <= codeMaxEvidenceEntries");
+    if (this.config.codeMaxEvidenceEntries > this.config.codeMaxPersistedEntries) issues.push("codeMaxEvidenceEntries must be <= codeMaxPersistedEntries");
+    if (this.config.codeMaxEvidenceEntries + this.config.codeMaxProviderRequests > this.config.codeMaxPersistedEntries) {
+      issues.push("codeMaxPersistedEntries must cover codeMaxEvidenceEntries plus codeMaxProviderRequests");
+    }
     if (this.config.codeMaxTotalBytes < this.config.codeMaxChunkBytes) issues.push("codeMaxTotalBytes must be >= codeMaxChunkBytes");
+    if (this.config.codeMaxPersistedBytes < this.config.codeMaxTotalBytes) issues.push("codeMaxPersistedBytes must be >= codeMaxTotalBytes");
     return issues;
   }
 
@@ -321,6 +373,16 @@ export class AtelierCore {
           degraded: query.degraded,
         })),
         codeEvidenceCount: state.codeEvidence.length,
+        ...(state.retrievalSession === undefined ? {} : {
+          retrievalSession: {
+            id: state.retrievalSession.id,
+            inventoryCount: state.retrievalSession.inventory.length,
+            budget: state.retrievalSession.budget,
+            telemetry: state.retrievalSession.telemetry,
+            persistence: state.retrievalSession.persistence,
+            invalidationCount: state.retrievalSession.invalidations.length,
+          },
+        }),
         omissions: state.omissions,
       },
     });
@@ -362,6 +424,10 @@ export class AtelierCore {
     void this.code.close();
     this.ledger.close();
   }
+}
+
+function positiveOrOne(value: number): number {
+  return Number.isInteger(value) && value > 0 ? value : 1;
 }
 
 function createCodeProviders(config: AtelierConfig): { providers: CodeProvider[]; defaultProvider: string } {

@@ -11,8 +11,15 @@ import type { CodeProviderRegistry } from "./registry.ts";
 import type {
   CachedQueryCoverage,
   CanonicalRetrievalQuery,
+  CompactHitValue,
+  CompactRelationshipValue,
+  PersistedRetrievalCheckpoint,
+  PersistedRetrievalEvidence,
   RetrievalBudgetSnapshot,
+  RetrievalDecisionRecord,
   RetrievalDiagnostic,
+  RetrievalInvalidation,
+  RetrievalPersistenceLimits,
   RetrievalReuseDecision,
   RetrievalSessionStatus,
   RetrievalTelemetry,
@@ -22,6 +29,7 @@ import type {
   CodeChunk,
   CodeIndexState,
   CodeProviderStatus,
+  CodeProvenance,
   CodeRelationship,
   CodeRelationshipQuery,
   CodeSearchFocus,
@@ -88,6 +96,12 @@ interface BoundedRelationships {
 
 type CodeIndexStatusListener = (status: CodeIndexCoordinatorStatus) => void;
 
+const DEFAULT_PERSISTENCE_LIMITS: RetrievalPersistenceLimits = {
+  maxRetainedSessions: 4,
+  maxEntries: 256,
+  maxBytes: 256_000,
+};
+
 const DEFAULT_LIMITS: CodeServiceLimits = {
   maxResults: 10,
   maxPreviewBytes: 2_000,
@@ -103,7 +117,9 @@ export class CodeService {
   private readonly registry: CodeProviderRegistry;
   private readonly ledger: SqliteLedger;
   private readonly limits: CodeServiceLimits;
+  private readonly persistenceLimits: RetrievalPersistenceLimits;
   private sessionId: string;
+  private sessionStartedAt: string;
   private fetched = 0;
   private retrievedBytes = 0;
   private providerRequests = 0;
@@ -121,6 +137,8 @@ export class CodeService {
   private readonly symbolKeys = new Set<string>();
   private readonly chunkKeys = new Set<string>();
   private diagnostics: RetrievalDiagnostic[] = [];
+  private decisions: RetrievalDecisionRecord[] = [];
+  private invalidations: RetrievalInvalidation[] = [];
   private lastDecision: RetrievalReuseDecision | undefined;
   private telemetry: RetrievalTelemetry = emptyTelemetry();
 
@@ -129,12 +147,17 @@ export class CodeService {
     ledger: SqliteLedger,
     limits: Partial<CodeServiceLimits> = {},
     sessionId = newId("retrieval-session"),
+    persistenceLimits: Partial<RetrievalPersistenceLimits> = {},
   ) {
     this.registry = registry;
     this.ledger = ledger;
     this.limits = { ...DEFAULT_LIMITS, ...limits };
+    this.persistenceLimits = { ...DEFAULT_PERSISTENCE_LIMITS, ...persistenceLimits };
     validateLimits(this.limits);
+    validatePersistenceLimits(this.persistenceLimits);
     this.sessionId = sessionId;
+    this.sessionStartedAt = nowIso();
+    this.hydrateCheckpoint(this.ledger.loadRetrievalCheckpoint(sessionId));
   }
 
   providers(workspace?: CodeWorkspace) { return this.registry.statuses(workspace); }
@@ -156,6 +179,7 @@ export class CodeService {
 
   beginRetrievalSession(sessionId = newId("retrieval-session")): string {
     this.sessionId = sessionId;
+    this.sessionStartedAt = nowIso();
     this.fetched = 0;
     this.retrievedBytes = 0;
     this.providerRequests = 0;
@@ -170,6 +194,8 @@ export class CodeService {
     this.symbolKeys.clear();
     this.chunkKeys.clear();
     this.diagnostics = [];
+    this.decisions = [];
+    this.invalidations = [];
     this.lastDecision = undefined;
     this.telemetry = emptyTelemetry();
     return sessionId;
@@ -180,6 +206,7 @@ export class CodeService {
     const activeHits = [...this.inventoryHits.values()]
       .filter((entry) => [...entry.sourceDigests].some((digest) => this.hitQueries.has(digest)))
       .map((entry) => entry.hit);
+    const storage = this.ledger.retrievalStorageStats();
     const freshness = activeHits.length === 0
       ? "unknown" as const
       : activeHits.every((hit) => hit.provenance.freshness === undefined || hit.provenance.freshness === "current")
@@ -190,6 +217,14 @@ export class CodeService {
       ...(this.lastDecision === undefined ? {} : { lastDecision: { ...this.lastDecision } }),
       budget,
       telemetry: { ...this.telemetry },
+      persistence: {
+        retainedSessionsUsed: storage.sessions,
+        retainedSessionsLimit: this.persistenceLimits.maxRetainedSessions,
+        entriesUsed: storage.entries,
+        entriesLimit: this.persistenceLimits.maxEntries,
+        bytesUsed: storage.bytes,
+        bytesLimit: this.persistenceLimits.maxBytes,
+      },
       inventory: {
         sessionId: this.sessionId,
         queryCount: this.hitQueries.size + this.relationshipQueries.size,
@@ -201,6 +236,13 @@ export class CodeService {
         budget,
       },
       diagnostics: this.diagnostics.map((diagnostic) => ({ ...diagnostic })),
+      invalidations: this.invalidations.map((record) => ({ ...record, affectedQueryDigests: [...record.affectedQueryDigests] })),
+      decisions: this.decisions.map((record) => ({ ...record, decision: { ...record.decision } })),
+      evidence: this.compactEvidence(),
+      bindings: uniqueBindings([
+        ...this.hitQueries.values(),
+        ...this.relationshipQueries.values(),
+      ].map((entry) => entry.query.binding)),
     };
   }
 
@@ -297,6 +339,8 @@ export class CodeService {
 
     if (!status.capabilities.some((capability) => capability === "search.lexical" || capability === "search.semantic" || capability === "search.hybrid")) {
       this.lastDecision = { kind: "unsupported", reason: `Code provider ${selected.name} does not advertise a supported search capability.` };
+      this.recordDecision(query, this.lastDecision);
+      this.persistCheckpoint();
       throw new Error(this.lastDecision.reason);
     }
     this.prepareProviderCall(query);
@@ -320,8 +364,9 @@ export class CodeService {
     const degraded = status.degraded === true || results.some((hit) => hit.provenance.degraded === true);
     const bounded = this.ingestHits(query, options.workspace, results.slice(0, limit), results.length > limit);
     this.cacheHitQuery(query, bounded.hits, !bounded.truncated, bounded.truncated, degraded, cacheFreshness(status));
-    this.recordCompletion("code.search_completed", selected, options.workspace, query, bounded.hits.length, bounded.truncated, degraded);
-    return this.returnHits(bounded.hits, query, this.lastDecision!);
+    const output = this.returnHits(bounded.hits, query, this.lastDecision!);
+    this.recordCompletion("code.search_completed", selected, options.workspace, query, output.length, bounded.truncated, degraded);
+    return output;
   }
 
   async read(reference: CodeSearchHit["reference"], provider?: string): Promise<CodeChunk> {
@@ -337,6 +382,7 @@ export class CodeService {
           : bindingDifference(context.query, currentQuery);
         this.lastDecision = { kind: "invalidated", reason };
         this.telemetry.invalidations += 1;
+        this.invalidations.push(createInvalidation(reason, [context.query.digest]));
         this.chunks.delete(key);
         context = { query: currentQuery, workspace: context.workspace };
         this.referenceContexts.set(key, context);
@@ -346,18 +392,24 @@ export class CodeService {
     if (cached !== undefined && context !== undefined && cached.queryDigest === context.query.digest) {
       this.telemetry.cacheHits += 1;
       this.lastDecision = { kind: "exact_reuse", reason: "fetched chunk is already present at the current repository and index revisions" };
+      this.recordDecision(context.query, this.lastDecision);
+      this.persistCheckpoint();
       return observeChunk(cached.chunk, cached.queryDigest, this.lastDecision);
     }
     if (this.fetched >= this.limits.maxFetches) {
       this.lastDecision = { kind: "budget_denied", reason: `Code fetch budget exceeded (${this.limits.maxFetches})` };
+      if (context !== undefined) this.recordDecision(context.query, this.lastDecision);
+      this.persistCheckpoint();
       throw new Error(`Code fetch budget exceeded (${this.limits.maxFetches})`);
     }
     const remaining = this.limits.maxTotalBytes - this.retrievedBytes;
     if (remaining <= 0) {
       this.lastDecision = { kind: "budget_denied", reason: `Code byte budget exhausted (${this.limits.maxTotalBytes})` };
+      if (context !== undefined) this.recordDecision(context.query, this.lastDecision);
+      this.persistCheckpoint();
       throw new Error(`Code byte budget exhausted (${this.limits.maxTotalBytes})`);
     }
-    this.requireProviderBudget();
+    this.requireProviderBudget(context?.query);
     this.telemetry.providerCalls += 1;
     let chunk: CodeChunk;
     try {
@@ -365,6 +417,8 @@ export class CodeService {
     } catch (error) {
       const message = errorMessage(error);
       this.diagnostics.push({ code: "provider_error", level: "error", message, providerCallRequired: true });
+      if (context !== undefined) this.recordDecision(context.query, this.lastDecision ?? { kind: "provider_call", reason: "provider fetch failed" });
+      this.persistCheckpoint();
       throw error;
     }
     const bounded = truncateUtf8(chunk.content, Math.min(this.limits.maxChunkBytes, remaining));
@@ -380,6 +434,8 @@ export class CodeService {
     if (!bounded.truncated && context !== undefined) {
       this.chunks.set(key, { chunk: result, queryDigest: context.query.digest });
     }
+    if (context !== undefined) this.recordDecision(context.query, this.lastDecision);
+    this.persistCheckpoint();
     return observeChunk(result, context?.query.digest ?? key, this.lastDecision);
   }
 
@@ -415,6 +471,8 @@ export class CodeService {
     }
     if (!status.capabilities.includes("symbol.search")) {
       this.lastDecision = { kind: "unsupported", reason: `Code provider ${selected.name} does not support symbol.search.` };
+      this.recordDecision(query, this.lastDecision);
+      this.persistCheckpoint();
       throw new Error(this.lastDecision.reason);
     }
     this.prepareProviderCall(query);
@@ -433,8 +491,9 @@ export class CodeService {
     const degraded = status.degraded === true || results.some((hit) => hit.provenance.degraded === true);
     const bounded = this.ingestHits(query, options.workspace, results.slice(0, limit), results.length > limit);
     this.cacheHitQuery(query, bounded.hits, !bounded.truncated, bounded.truncated, degraded, cacheFreshness(status));
-    this.recordCompletion("code.symbols_completed", selected, options.workspace, query, bounded.hits.length, bounded.truncated, degraded);
-    return this.returnHits(bounded.hits, query, this.lastDecision!);
+    const output = this.returnHits(bounded.hits, query, this.lastDecision!);
+    this.recordCompletion("code.symbols_completed", selected, options.workspace, query, output.length, bounded.truncated, degraded);
+    return output;
   }
 
   async relationships(query: CodeRelationshipQuery, provider?: string): Promise<CodeRelationship[]> {
@@ -466,9 +525,13 @@ export class CodeService {
         return this.returnRelationships(cached.relationships.slice(0, limit), canonical, decision);
       }
     }
-    this.noteInvalidation(canonical);
+    if (cached !== undefined && !statusAllowsReuse(status)) {
+      this.invalidateCachedQuery(canonical, "provider status no longer permits current relationship evidence reuse");
+    } else this.noteInvalidation(canonical);
     if (!status.capabilities.includes("graph.relationships")) {
       this.lastDecision = { kind: "unsupported", reason: `Code provider ${selected.name} does not support graph.relationships.` };
+      this.recordDecision(canonical, this.lastDecision);
+      this.persistCheckpoint();
       throw new Error(this.lastDecision.reason);
     }
     this.prepareProviderCall(canonical);
@@ -491,8 +554,9 @@ export class CodeService {
       degraded,
       freshness: cacheFreshness(status),
     });
-    this.recordCompletion("code.relationships_completed", selected, query.workspace, canonical, bounded.relationships.length, bounded.truncated, degraded);
-    return this.returnRelationships(bounded.relationships, canonical, this.lastDecision!);
+    const output = this.returnRelationships(bounded.relationships, canonical, this.lastDecision!);
+    this.recordCompletion("code.relationships_completed", selected, query.workspace, canonical, output.length, bounded.truncated, degraded);
+    return output;
   }
 
   close() { return this.registry.close(); }
@@ -554,8 +618,25 @@ export class CodeService {
         return cached.hits.slice(0, query.requestedLimit);
       }
     }
-    this.noteInvalidation(query);
+    if (cached !== undefined && !statusAllowsReuse(status)) {
+      this.invalidateCachedQuery(query, "provider status no longer permits current evidence reuse");
+    } else this.noteInvalidation(query);
     return undefined;
+  }
+
+  private invalidateCachedQuery(query: CanonicalRetrievalQuery, reason: string): void {
+    this.hitQueries.delete(query.digest);
+    this.relationshipQueries.delete(query.digest);
+    this.lastDecision = { kind: "invalidated", reason };
+    this.telemetry.invalidations += 1;
+    this.invalidations.push(createInvalidation(reason, [query.digest]));
+    this.diagnostics.push({
+      code: "retrieval_invalidated",
+      level: "info",
+      message: reason,
+      queryDigest: query.digest,
+      providerCallRequired: true,
+    });
   }
 
   private noteInvalidation(query: CanonicalRetrievalQuery): void {
@@ -569,8 +650,11 @@ export class CodeService {
       return;
     }
     const reason = bindingDifference(previous.query, query);
+    this.hitQueries.delete(previous.query.digest);
+    this.relationshipQueries.delete(previous.query.digest);
     this.lastDecision = { kind: "invalidated", reason };
     this.telemetry.invalidations += 1;
+    this.invalidations.push(createInvalidation(reason, [previous.query.digest]));
     this.diagnostics.push({
       code: "retrieval_invalidated",
       level: "info",
@@ -616,7 +700,7 @@ export class CodeService {
   }
 
   private prepareProviderCall(query: CanonicalRetrievalQuery): void {
-    this.requireProviderBudget();
+    this.requireProviderBudget(query);
     this.telemetry.providerCalls += 1;
     this.lastDecision = this.lastDecision?.kind === "invalidated"
       ? this.lastDecision
@@ -630,11 +714,13 @@ export class CodeService {
     });
   }
 
-  private requireProviderBudget(): void {
+  private requireProviderBudget(query?: CanonicalRetrievalQuery): void {
     if (this.providerRequests >= this.limits.maxProviderRequests) {
       const reason = `Code provider request budget exhausted (${this.providerRequests}/${this.limits.maxProviderRequests}). Inspect the session inventory or start a new retrieval session. Raw scanning is not an automatic fallback.`;
       this.lastDecision = { kind: "budget_denied", reason };
       this.diagnostics.push({ code: "provider_request_budget_exhausted", level: "error", message: reason, providerCallRequired: false });
+      if (query !== undefined) this.recordDecision(query, this.lastDecision);
+      this.persistCheckpoint();
       throw new Error(reason);
     }
     this.providerRequests += 1;
@@ -645,10 +731,9 @@ export class CodeService {
     let truncated = initiallyTruncated;
     if (initiallyTruncated) this.noteTruncation("result_limit_truncated", "Provider results exceeded the bounded request limit.", query.digest);
     const scopedRepositories = new Set(query.binding.repositories.map((repository) => repository.repositoryId));
-    const enforceExplicitScope = query.filters.repositoryIds.length > 0;
 
     for (const hit of hits) {
-      if (enforceExplicitScope && !scopedRepositories.has(hit.repositoryId)) {
+      if (!scopedRepositories.has(hit.repositoryId)) {
         truncated = true;
         this.diagnostics.push({ code: "provider_scope_leak_removed", level: "warning", message: `Removed out-of-scope result ${hit.repositoryId}:${hit.path}.`, queryDigest: query.digest });
         continue;
@@ -685,6 +770,7 @@ export class CodeService {
       if (newEntry) this.evidenceEntryKeys.add(entry);
 
       const previous = this.inventoryHits.get(pathKey);
+      if (previous !== undefined) this.telemetry.duplicateResultsRemoved += 1;
       const bounded = previous === undefined ? this.boundHitPreview(hit) : { hit, truncated: false };
       truncated ||= bounded.truncated;
       if (bounded.truncated) this.noteTruncation("evidence_byte_budget_truncated", `Preview bytes were truncated for ${hit.repositoryId}:${hit.path}.`, query.digest);
@@ -746,12 +832,17 @@ export class CodeService {
     for (const relationship of relationships) {
       const key = `${relationship.kind}:${referenceKey(relationship.source)}:${referenceKey(relationship.target)}`;
       if (seen.has(key)) {
+        this.telemetry.duplicateResultsRemoved += 1;
         this.telemetry.duplicateReferencesRemoved += 1;
         continue;
       }
       const existingEntry = this.evidenceEntryKeys.has(`relationship:${key}`);
-      if (existingEntry) this.telemetry.duplicateReferencesRemoved += 1;
-      if (!existingEntry && this.evidenceEntryKeys.size >= this.limits.maxEvidenceEntries) {
+      if (existingEntry) {
+        this.telemetry.duplicateResultsRemoved += 1;
+        this.telemetry.duplicateReferencesRemoved += 1;
+        continue;
+      }
+      if (this.evidenceEntryKeys.size >= this.limits.maxEvidenceEntries) {
         truncated = true;
         this.noteTruncation("evidence_entry_budget_truncated", `Evidence-entry budget ${this.limits.maxEvidenceEntries} excluded a relationship.`, query.digest);
         break;
@@ -799,6 +890,8 @@ export class CodeService {
 
   private recordReuse(query: CanonicalRetrievalQuery, decision: RetrievalReuseDecision, resultCount: number): void {
     if (decision.kind !== "exact_reuse" && decision.kind !== "overlap_reuse" && decision.kind !== "direct_read") return;
+    this.recordDecision(query, decision);
+    this.persistCheckpoint();
     this.ledger.append({
       kind: "code.retrieval_reused",
       actor: "system",
@@ -817,6 +910,8 @@ export class CodeService {
   private recordProviderError(query: CanonicalRetrievalQuery, error: unknown): void {
     const message = errorMessage(error);
     this.diagnostics.push({ code: "provider_error", level: "error", message, queryDigest: query.digest, providerCallRequired: true });
+    this.recordDecision(query, this.lastDecision ?? { kind: "provider_call", reason: "provider call failed before producing evidence" });
+    this.persistCheckpoint();
     this.ledger.append({ kind: "code.retrieval_failed", actor: "system", payload: { sessionId: this.sessionId, queryDigest: query.digest, operation: query.operation, error: message, budget: this.budgetSnapshot() } });
   }
 
@@ -829,6 +924,14 @@ export class CodeService {
     truncated: boolean,
     degraded: boolean,
   ): void {
+    this.recordDecision(query, this.lastDecision ?? { kind: "provider_call", reason: "provider returned bounded evidence" });
+    try {
+      this.persistCheckpoint();
+    } catch (error) {
+      this.hitQueries.delete(query.digest);
+      this.relationshipQueries.delete(query.digest);
+      throw error;
+    }
     this.ledger.append({
       kind,
       actor: "system",
@@ -836,7 +939,6 @@ export class CodeService {
         sessionId: this.sessionId,
         provider: selected.name,
         workspaceId: workspace.id,
-        query: query.normalizedText,
         queryDigest: query.digest,
         operation: query.operation,
         resultCount,
@@ -864,6 +966,181 @@ export class CodeService {
     };
   }
 
+  private compactEvidence(): PersistedRetrievalEvidence[] {
+    const evidence = new Map<string, PersistedRetrievalEvidence>();
+    for (const [pathKey, entry] of this.inventoryHits) {
+      const activeDigests = [...entry.sourceDigests].filter((digest) => this.hitQueries.has(digest)).sort();
+      if (activeDigests.length === 0) continue;
+      const activeQueries = activeDigests.map((digest) => this.hitQueries.get(digest)!);
+      const freshness = activeQueries.every((query) => query.freshness === "current" && !query.degraded)
+        ? "current" as const
+        : "unknown" as const;
+      const { provenance, provenanceObservations, ...unboundedValue } = entry.hit;
+      const value = compactHitValue(unboundedValue);
+      evidence.set(`hit:${pathKey}`, {
+        digest: `hit:${pathKey}`,
+        kind: "hit",
+        queryDigests: activeDigests,
+        value,
+        provenance: uniqueProvenance([
+          { ...compactProvenance(provenance), freshness },
+          ...(provenanceObservations ?? []).map(compactProvenance),
+        ]),
+      });
+    }
+    for (const cached of this.relationshipQueries.values()) {
+      for (const relationship of cached.relationships) {
+        const digest = relationshipEvidenceDigest(relationship);
+        const existing = evidence.get(digest);
+        const { provenance, provenanceObservations, ...unboundedValue } = relationship;
+        const value = compactRelationshipValue(unboundedValue);
+        evidence.set(digest, {
+          digest,
+          kind: "relationship",
+          queryDigests: [...new Set([...(existing?.queryDigests ?? []), cached.query.digest])].sort(),
+          value,
+          provenance: uniqueProvenance([
+            ...(existing?.provenance ?? []),
+            compactProvenance(provenance),
+            ...(provenanceObservations ?? []).map(compactProvenance),
+          ]),
+        });
+      }
+    }
+    return [...evidence.values()].sort((left, right) => left.digest.localeCompare(right.digest));
+  }
+
+  private persistCheckpoint(): void {
+    const evidence = this.compactEvidence();
+    const evidenceForQuery = (queryDigest: string) => evidence
+      .filter((item) => item.queryDigests.includes(queryDigest))
+      .map((item) => item.digest);
+    const requests = [
+      ...[...this.hitQueries.values()].map((cached) => ({
+        query: cached.query,
+        requestDigest: cached.requestDigest,
+        evidenceDigests: evidenceForQuery(cached.query.digest),
+        coveredLimit: cached.coveredLimit,
+        complete: cached.complete,
+        truncated: cached.truncated,
+        degraded: cached.degraded,
+        freshness: cached.freshness,
+        decision: this.decisionFor(cached.query.digest),
+      })),
+      ...[...this.relationshipQueries.values()].map((cached) => ({
+        query: cached.query,
+        requestDigest: cached.requestDigest,
+        evidenceDigests: evidenceForQuery(cached.query.digest),
+        coveredLimit: cached.coveredLimit,
+        complete: cached.complete,
+        truncated: cached.truncated,
+        degraded: cached.degraded,
+        freshness: cached.freshness,
+        decision: this.decisionFor(cached.query.digest),
+      })),
+    ];
+    this.ledger.saveRetrievalCheckpoint({
+      sessionId: this.sessionId,
+      status: "active",
+      startedAt: this.sessionStartedAt,
+      updatedAt: nowIso(),
+      budget: this.budgetSnapshot(),
+      telemetry: { ...this.telemetry },
+      ...(this.lastDecision === undefined ? {} : { lastDecision: this.lastDecision }),
+      requests,
+      evidence,
+      invalidations: this.invalidations.slice(-this.limits.maxEvidenceEntries),
+      diagnostics: this.diagnostics.slice(-this.limits.maxEvidenceEntries),
+      decisions: this.decisions.slice(-this.limits.maxEvidenceEntries),
+    }, this.persistenceLimits);
+  }
+
+  private hydrateCheckpoint(checkpoint: PersistedRetrievalCheckpoint | undefined): void {
+    if (checkpoint === undefined || checkpoint.status !== "active") return;
+    this.sessionStartedAt = checkpoint.startedAt;
+    this.fetched = checkpoint.budget.fetchesUsed;
+    this.retrievedBytes = checkpoint.budget.bytesUsed;
+    this.providerRequests = checkpoint.budget.providerRequestsUsed;
+    this.telemetry = { ...checkpoint.telemetry };
+    this.lastDecision = checkpoint.lastDecision;
+    this.diagnostics = checkpoint.diagnostics.slice(-this.limits.maxEvidenceEntries);
+    this.decisions = checkpoint.decisions.slice(-this.limits.maxEvidenceEntries);
+    this.invalidations = checkpoint.invalidations.slice(-this.limits.maxEvidenceEntries);
+
+    const values = new Map(checkpoint.evidence.map((item) => [item.digest, item]));
+    for (const item of checkpoint.evidence) {
+      if (item.kind !== "hit" || item.provenance.length === 0) continue;
+      const [provenance, ...provenanceObservations] = item.provenance;
+      const hit = {
+        ...(item.value as Omit<CodeSearchHit, "provenance" | "provenanceObservations">),
+        provenance: provenance!,
+        ...(provenanceObservations.length === 0 ? {} : { provenanceObservations }),
+      };
+      const workspaceId = provenance!.workspaceId;
+      const key = inventoryPathKey(workspaceId, hit.repositoryId, hit.path);
+      this.inventoryHits.set(key, { hit, sourceDigests: new Set(item.queryDigests) });
+      this.pathKeys.add(key);
+      this.evidenceEntryKeys.add(`${workspaceId}:${chunkKey(hit)}`);
+      this.referenceKeys.add(referenceKey(hit.reference));
+      this.chunkKeys.add(chunkKey(hit));
+      const symbol = symbolKey(hit);
+      if (symbol !== undefined) this.symbolKeys.add(symbol);
+    }
+    for (const request of checkpoint.requests) {
+      const requestEvidence = request.evidenceDigests.flatMap((digest) => {
+        const item = values.get(digest);
+        return item === undefined ? [] : [item];
+      });
+      if (request.query.operation === "relationships") {
+        const relationships = requestEvidence.flatMap((item) => {
+          if (item.kind !== "relationship" || item.provenance.length === 0) return [];
+          const [provenance, ...provenanceObservations] = item.provenance;
+          return [{
+            ...(item.value as Omit<CodeRelationship, "provenance" | "provenanceObservations">),
+            provenance: provenance!,
+            ...(provenanceObservations.length === 0 ? {} : { provenanceObservations }),
+          }];
+        });
+        this.relationshipQueries.set(request.query.digest, { ...request, relationships });
+      } else {
+        const hits = requestEvidence.flatMap((item) => {
+          if (item.kind !== "hit" || item.provenance.length === 0) return [];
+          const [provenance, ...provenanceObservations] = item.provenance;
+          return [{
+            ...(item.value as Omit<CodeSearchHit, "provenance" | "provenanceObservations">),
+            provenance: provenance!,
+            ...(provenanceObservations.length === 0 ? {} : { provenanceObservations }),
+          }];
+        });
+        this.hitQueries.set(request.query.digest, { ...request, hits });
+      }
+    }
+    for (let index = this.pathKeys.size; index < checkpoint.budget.uniquePathsUsed; index += 1) {
+      this.pathKeys.add(`persisted-path-budget:${index}`);
+    }
+    for (let index = this.evidenceEntryKeys.size; index < checkpoint.budget.evidenceEntriesUsed; index += 1) {
+      this.evidenceEntryKeys.add(`persisted-entry-budget:${index}`);
+    }
+    this.telemetry.uniquePaths = this.pathKeys.size;
+  }
+
+  private decisionFor(queryDigest: string): RetrievalReuseDecision {
+    return this.decisions.findLast((item) => item.queryDigest === queryDigest)?.decision
+      ?? { kind: "provider_call", reason: "persisted query checkpoint" };
+  }
+
+  private recordDecision(query: CanonicalRetrievalQuery, decision: RetrievalReuseDecision): void {
+    this.decisions.push({
+      queryDigest: query.digest,
+      operation: query.operation,
+      workspaceId: query.binding.workspaceId,
+      repositoryIds: query.binding.repositories.map((repository) => repository.repositoryId),
+      decision,
+      decidedAt: nowIso(),
+    });
+    if (this.decisions.length > this.limits.maxEvidenceEntries) this.decisions.splice(0, this.decisions.length - this.limits.maxEvidenceEntries);
+  }
+
   private async waitForActiveIndex(): Promise<void> {
     if (this.activeIndex !== undefined) await this.activeIndex;
   }
@@ -880,6 +1157,7 @@ function emptyTelemetry(): RetrievalTelemetry {
     cacheHits: 0,
     overlapReuses: 0,
     uniquePaths: 0,
+    duplicateResultsRemoved: 0,
     duplicatePathsRemoved: 0,
     duplicateSymbolsRemoved: 0,
     duplicateChunksRemoved: 0,
@@ -894,6 +1172,84 @@ function validateLimits(limits: CodeServiceLimits): void {
   for (const [name, value] of Object.entries(limits)) {
     if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
   }
+}
+
+function validatePersistenceLimits(limits: RetrievalPersistenceLimits): void {
+  for (const [name, value] of Object.entries(limits)) {
+    if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
+  }
+}
+
+function uniqueBindings(bindings: CanonicalRetrievalQuery["binding"][]): CanonicalRetrievalQuery["binding"][] {
+  const values = new Map(bindings.map((binding) => [JSON.stringify(binding), binding]));
+  return [...values.values()];
+}
+
+function relationshipEvidenceDigest(relationship: CodeRelationship): string {
+  return `relationship:${relationship.kind}:${referenceKey(relationship.source)}:${referenceKey(relationship.target)}`;
+}
+
+function createInvalidation(reason: string, affectedQueryDigests: string[]): RetrievalInvalidation {
+  const kind: RetrievalInvalidation["kind"] = reason.includes("workspace")
+    ? "workspace_scope"
+    : reason.includes("provider identity")
+      ? "provider_identity"
+      : reason.includes("index revision")
+        ? "index_revision"
+        : "repository_revision";
+  return { kind, affectedQueryDigests, reason, invalidatedAt: nowIso() };
+}
+
+function compactHitValue(value: CompactHitValue): CompactHitValue {
+  const { summary, preview, atelierObservations, ...rest } = value;
+  return {
+    ...rest,
+    ...(summary === undefined ? {} : { summary: compactText(summary, 1_000) }),
+    ...(preview === undefined ? {} : { preview: compactText(preview, 2_000) }),
+    ...(atelierObservations === undefined ? {} : {
+      atelierObservations: atelierObservations.slice(-8).map((item) => ({
+        ...item,
+        reason: compactText(item.reason, 500),
+      })),
+    }),
+  };
+}
+
+function compactRelationshipValue(value: CompactRelationshipValue): CompactRelationshipValue {
+  const { label, atelierObservations, ...rest } = value;
+  return {
+    ...rest,
+    ...(label === undefined ? {} : { label: compactText(label, 1_000) }),
+    ...(atelierObservations === undefined ? {} : {
+      atelierObservations: atelierObservations.slice(-8).map((item) => ({
+        ...item,
+        reason: compactText(item.reason, 500),
+      })),
+    }),
+  };
+}
+
+function compactProvenance(provenance: CodeProvenance): CodeProvenance {
+  return {
+    ...provenance,
+    query: compactText(provenance.query, 500),
+    requestedFilters: compactRecord(provenance.requestedFilters, 2_000),
+    enforcedFilters: provenance.enforcedFilters.slice(0, 32).map((item) => compactText(item, 200)),
+    postProcessing: provenance.postProcessing.slice(0, 32).map((item) => compactText(item, 200)),
+    ...(provenance.warnings === undefined ? {} : { warnings: provenance.warnings.slice(0, 8).map((item) => compactText(item, 500)) }),
+  };
+}
+
+function compactRecord(value: Record<string, unknown>, maximumBytes: number): Record<string, unknown> {
+  try {
+    return Buffer.byteLength(JSON.stringify(value)) <= maximumBytes ? value : { truncated: true };
+  } catch {
+    return { corrupted: true };
+  }
+}
+
+function compactText(value: string, maximumBytes: number): string {
+  return truncateUtf8(value, maximumBytes).value;
 }
 
 function boundedLimit(value: number | undefined, maximum: number): number {

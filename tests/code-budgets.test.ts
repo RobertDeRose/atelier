@@ -381,6 +381,7 @@ test("Given duplicate chunks and paths, unique path, entry, and byte budgets are
     assert.equal(status.budget.uniquePathsUsed, 1);
     assert.equal(status.budget.evidenceEntriesUsed, 2);
     assert.ok(status.budget.bytesUsed <= 30);
+    assert.ok(status.telemetry.duplicateResultsRemoved >= 1);
     assert.ok(status.telemetry.duplicatePathsRemoved >= 1);
     assert.equal(status.telemetry.truncated, true);
     assert.ok(status.diagnostics.some((diagnostic) => diagnostic.code === "unique_path_budget_truncated"));

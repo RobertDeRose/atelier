@@ -28,6 +28,12 @@ export interface AtelierConfig {
   codeMaxChunkBytes: number;
   codeMaxFetches: number;
   codeMaxTotalBytes: number;
+  codeMaxProviderRequests: number;
+  codeMaxUniquePaths: number;
+  codeMaxEvidenceEntries: number;
+  codeRetainedSessions: number;
+  codeMaxPersistedEntries: number;
+  codeMaxPersistedBytes: number;
 }
 
 interface PartialAtelierConfig {
@@ -53,6 +59,12 @@ interface PartialAtelierConfig {
   codeMaxChunkBytes?: number;
   codeMaxFetches?: number;
   codeMaxTotalBytes?: number;
+  codeMaxProviderRequests?: number;
+  codeMaxUniquePaths?: number;
+  codeMaxEvidenceEntries?: number;
+  codeRetainedSessions?: number;
+  codeMaxPersistedEntries?: number;
+  codeMaxPersistedBytes?: number;
 }
 
 function readJsonConfig(path: string): PartialAtelierConfig {
@@ -104,6 +116,12 @@ export function loadConfig(repositoryRoot: string): AtelierConfig {
     codeMaxChunkBytes: merged.codeMaxChunkBytes ?? 16_000,
     codeMaxFetches: merged.codeMaxFetches ?? 8,
     codeMaxTotalBytes: merged.codeMaxTotalBytes ?? 64_000,
+    codeMaxProviderRequests: merged.codeMaxProviderRequests ?? 8,
+    codeMaxUniquePaths: merged.codeMaxUniquePaths ?? 32,
+    codeMaxEvidenceEntries: merged.codeMaxEvidenceEntries ?? 64,
+    codeRetainedSessions: merged.codeRetainedSessions ?? 4,
+    codeMaxPersistedEntries: merged.codeMaxPersistedEntries ?? 256,
+    codeMaxPersistedBytes: merged.codeMaxPersistedBytes ?? 256_000,
   };
 }
 

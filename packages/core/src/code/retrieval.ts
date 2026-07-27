@@ -1,7 +1,10 @@
 import type {
   CodeFreshness,
   CodeProviderIdentity,
+  CodeProvenance,
+  CodeRelationship,
   CodeSearchFocus,
+  CodeSearchHit,
   CodeSearchMode,
 } from "./types.ts";
 
@@ -137,13 +140,74 @@ export interface RetrievalDiagnostic {
   providerCallRequired?: boolean;
 }
 
+export interface RetrievalDecisionRecord {
+  queryDigest: string;
+  operation: RetrievalOperation;
+  workspaceId: string;
+  repositoryIds: string[];
+  decision: RetrievalReuseDecision;
+  decidedAt: string;
+}
+
+export interface PersistedRetrievalRequest extends CachedQueryCoverage {
+  requestDigest: string;
+  evidenceDigests: string[];
+  decision: RetrievalReuseDecision;
+}
+
+export type CompactHitValue = Omit<CodeSearchHit, "provenance" | "provenanceObservations">;
+export type CompactRelationshipValue = Omit<CodeRelationship, "provenance" | "provenanceObservations">;
+
+export interface PersistedRetrievalEvidence {
+  digest: string;
+  kind: "hit" | "relationship";
+  queryDigests: string[];
+  value: CompactHitValue | CompactRelationshipValue;
+  provenance: CodeProvenance[];
+}
+
+export interface PersistedRetrievalCheckpoint {
+  sessionId: string;
+  status: "active" | "closed";
+  startedAt: string;
+  updatedAt: string;
+  budget: RetrievalBudgetSnapshot;
+  telemetry: RetrievalTelemetry;
+  lastDecision?: RetrievalReuseDecision;
+  requests: PersistedRetrievalRequest[];
+  evidence: PersistedRetrievalEvidence[];
+  invalidations: RetrievalInvalidation[];
+  diagnostics: RetrievalDiagnostic[];
+  decisions: RetrievalDecisionRecord[];
+}
+
+export interface RetrievalPersistenceLimits {
+  maxRetainedSessions: number;
+  maxEntries: number;
+  maxBytes: number;
+}
+
+export interface RetrievalPersistenceStatus {
+  retainedSessionsUsed: number;
+  retainedSessionsLimit: number;
+  entriesUsed: number;
+  entriesLimit: number;
+  bytesUsed: number;
+  bytesLimit: number;
+}
+
 export interface RetrievalSessionStatus {
   sessionId: string;
   lastDecision?: RetrievalReuseDecision;
   budget: RetrievalBudgetSnapshot;
   telemetry: RetrievalTelemetry;
+  persistence: RetrievalPersistenceStatus;
   inventory: RetrievalInventorySummary;
   diagnostics: RetrievalDiagnostic[];
+  invalidations: RetrievalInvalidation[];
+  decisions: RetrievalDecisionRecord[];
+  evidence: PersistedRetrievalEvidence[];
+  bindings: RetrievalRevisionBinding[];
 }
 
 export interface RetrievalTelemetry {
@@ -151,6 +215,7 @@ export interface RetrievalTelemetry {
   cacheHits: number;
   overlapReuses: number;
   uniquePaths: number;
+  duplicateResultsRemoved: number;
   duplicatePathsRemoved: number;
   duplicateSymbolsRemoved: number;
   duplicateChunksRemoved: number;

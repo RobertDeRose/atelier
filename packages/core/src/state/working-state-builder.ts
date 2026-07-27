@@ -99,6 +99,19 @@ export class WorkingStateBuilder {
 
     const retrievalQueries: WorkingState["retrievalQueries"] = [];
     const codeEvidence: WorkingState["codeEvidence"] = [];
+    const initialRetrievalStatus = this.code?.retrievalStatus();
+    const initialRepositoryIds = new Set(request.workspace?.repositories.map((repository) => repository.id) ?? []);
+    const initialEvidenceCount = initialRetrievalStatus?.evidence.filter((item) => {
+      const provenance = item.provenance[0];
+      return provenance !== undefined
+        && provenance.workspaceId === request.workspace?.id
+        && initialRepositoryIds.has(provenance.repositoryId);
+    }).length ?? 0;
+    if (initialEvidenceCount > 0) {
+      retrievalExplanation.push(
+        `Consulted retrieval session ${initialRetrievalStatus!.sessionId} with ${initialEvidenceCount} scoped compact evidence record(s) before executing the repository plan.`,
+      );
+    }
     const seenEvidence = new Set<string>();
     const maximumCodeEvidence = request.maximumCodeEvidence ?? 8;
     if (repositoryPlan.queries.length > 0 && this.code !== undefined && request.workspace !== undefined) {
@@ -126,6 +139,12 @@ export class WorkingStateBuilder {
             `Repository query ${query.purpose} returned ${results.length} result(s)`
             + (degraded ? " in degraded mode." : "."),
           );
+          const retrievalDecision = this.code.retrievalStatus().lastDecision;
+          if (retrievalDecision !== undefined) {
+            retrievalExplanation.push(
+              `Retrieval decision for ${query.purpose}: ${retrievalDecision.kind} — ${retrievalDecision.reason}`,
+            );
+          }
           for (const hit of results) {
             if (codeEvidence.length >= maximumCodeEvidence) break;
             const key = evidenceKey(hit);
@@ -164,6 +183,48 @@ export class WorkingStateBuilder {
     } else if (repositoryPlan.queries.length > 0) {
       omissions.push("Repository retrieval was planned but no code service or workspace was available.");
     }
+
+    const retrievalStatus = this.code?.retrievalStatus();
+    const retrievalRepositoryIds = new Set(request.workspace?.repositories.map((repository) => repository.id) ?? []);
+    const scopedDecisions = retrievalStatus?.decisions.filter((item) =>
+      item.workspaceId === request.workspace?.id
+      && item.repositoryIds.every((repositoryId) => retrievalRepositoryIds.has(repositoryId))) ?? [];
+    const scopedQueryDigests = new Set(scopedDecisions.map((item) => item.queryDigest));
+    const retrievalSession: WorkingState["retrievalSession"] = retrievalStatus === undefined
+      ? undefined
+      : {
+          id: retrievalStatus.sessionId,
+          inventory: retrievalStatus.evidence.flatMap((item) => {
+            if (item.kind !== "hit" || item.provenance.length === 0) return [];
+            const value = item.value as Omit<CodeSearchHit, "provenance" | "provenanceObservations">;
+            const provenance = item.provenance[0]!;
+            if (
+              request.workspace === undefined
+              || provenance.workspaceId !== request.workspace.id
+              || !retrievalRepositoryIds.has(value.repositoryId)
+            ) return [];
+            return [{
+              provider: provenance.provider.name,
+              providerInstance: provenance.provider.instanceId,
+              workspaceId: provenance.workspaceId,
+              repositoryId: value.repositoryId,
+              path: value.path,
+              ...(value.symbol === undefined ? {} : { symbol: value.symbol }),
+              ...(value.startLine === undefined ? {} : { startLine: value.startLine }),
+              ...(value.endLine === undefined ? {} : { endLine: value.endLine }),
+              queryDigests: item.queryDigests,
+              retrievalMethods: value.retrievalMethods,
+              freshness: provenance.freshness ?? (provenance.indexState === "ready" ? "current" : "unknown"),
+            }];
+          }),
+          bindings: retrievalStatus.bindings.filter((binding) => binding.workspaceId === request.workspace?.id),
+          budget: retrievalStatus.budget,
+          telemetry: retrievalStatus.telemetry,
+          persistence: retrievalStatus.persistence,
+          diagnostics: retrievalStatus.diagnostics.filter((item) => item.queryDigest === undefined || scopedQueryDigests.has(item.queryDigest)),
+          invalidations: retrievalStatus.invalidations.filter((item) => item.affectedQueryDigests.some((digest) => scopedQueryDigests.has(digest))),
+          decisions: scopedDecisions,
+        };
 
     const validationEvidence = this.validation?.latestCurrent(request.snapshot).map((item) => ({
       id: item.id,
@@ -211,6 +272,7 @@ export class WorkingStateBuilder {
       manualEdits,
       recentEvents,
       retrievalQueries,
+      ...(retrievalSession === undefined ? {} : { retrievalSession }),
       codeEvidence,
       validationEvidence,
       omissions,
@@ -265,6 +327,41 @@ export class WorkingStateBuilder {
     lines.push("", "## Active permissions");
     if (state.permissions.length === 0) lines.push("", "No mutation permissions are active.");
     for (const grant of state.permissions) lines.push(`- ${grant.permission} (${grant.scope}): ${grant.reason}`);
+
+    if (state.retrievalSession !== undefined) {
+      const session = state.retrievalSession;
+      lines.push(
+        "",
+        "## Retrieval session",
+        "",
+        `- Session: ${session.id}`,
+        `- Provider calls: ${session.telemetry.providerCalls}; cache hits: ${session.telemetry.cacheHits}; overlap reuses: ${session.telemetry.overlapReuses}`,
+        `- Unique paths: ${session.telemetry.uniquePaths}; duplicate results removed: ${session.telemetry.duplicateResultsRemoved}; duplicate paths removed: ${session.telemetry.duplicatePathsRemoved}`,
+        `- Bytes returned: ${session.telemetry.bytesReturned}; truncated: ${session.telemetry.truncated}`,
+        `- Invalidations: ${session.telemetry.invalidations}`,
+        `- Request budget: ${session.budget.providerRequestsUsed}/${session.budget.providerRequestsLimit}; result paths: ${session.budget.uniquePathsUsed}/${session.budget.uniquePathsLimit}; compact entries: ${session.budget.evidenceEntriesUsed}/${session.budget.evidenceEntriesLimit}`,
+        `- Fetch budget: ${session.budget.fetchesUsed}/${session.budget.fetchesLimit}; bytes: ${session.budget.bytesUsed}/${session.budget.bytesLimit}`,
+        `- Persisted sessions: ${session.persistence.retainedSessionsUsed}/${session.persistence.retainedSessionsLimit}; entries: ${session.persistence.entriesUsed}/${session.persistence.entriesLimit}; bytes: ${session.persistence.bytesUsed}/${session.persistence.bytesLimit}`,
+      );
+      if (session.bindings.length > 0) {
+        lines.push("", "Freshness and revision bindings:");
+        for (const binding of session.bindings) {
+          lines.push(`- ${binding.provider.name}/${binding.provider.instanceId} workspace ${binding.workspaceId}; index ${binding.indexRevision ?? "unknown"}; repositories ${binding.repositories.map((item) => `${item.repositoryId}@${item.headCommit}:${item.dirtyFingerprint}`).join(", ")}`);
+        }
+      }
+      if (session.inventory.length > 0) {
+        lines.push("", "Compact evidence inventory:");
+        for (const item of session.inventory) lines.push(`- [${item.freshness}] ${item.provider}:${item.repositoryId}:${item.path}${item.symbol === undefined ? "" : ` (${item.symbol})`}`);
+      }
+      if (session.decisions.length > 0) {
+        lines.push("", "Provider-call and reuse decisions:");
+        for (const item of session.decisions) lines.push(`- ${item.operation}/${item.decision.kind}: ${item.decision.reason}`);
+      }
+      if (session.diagnostics.length > 0) {
+        lines.push("", "Retrieval diagnostics:");
+        for (const item of session.diagnostics) lines.push(`- ${item.code}: ${item.message}`);
+      }
+    }
 
     if (state.retrievalQueries.length > 0) {
       lines.push("", "## Repository retrieval plan");

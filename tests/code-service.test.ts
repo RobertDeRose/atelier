@@ -66,7 +66,7 @@ test("code provider contract supports multi-repository normalized search with pr
   ]);
   const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: provider });
   try {
-    await core.code.ensureIndex({
+    const workspace = {
       id: "workspace",
       name: "workspace",
       roots: [root],
@@ -74,8 +74,9 @@ test("code provider contract supports multi-repository normalized search with pr
         { id: "api", name: "api", root, snapshot: core.repository.snapshot() },
         { id: "ui", name: "ui", root, snapshot: core.repository.snapshot() },
       ],
-    });
-    const results = await core.code.search({ workspace: core.codeWorkspace(), text: "refresh", limit: 10 });
+    };
+    await core.code.ensureIndex(workspace);
+    const results = await core.code.search({ workspace, text: "refresh", limit: 10 });
     assert.equal(results.length, 2);
     assert.equal(results[0]?.provenance.provider.name, "mock");
     assert.equal(results[0]?.provenance.indexState, "ready");

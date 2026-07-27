@@ -1,3 +1,14 @@
+import type {
+  RetrievalBudgetSnapshot,
+  RetrievalDecisionRecord,
+  RetrievalDiagnostic,
+  RetrievalInvalidation,
+  RetrievalPersistenceStatus,
+  RetrievalRevisionBinding,
+  RetrievalTelemetry,
+} from "../code/retrieval.ts";
+import type { CodeFreshness } from "../code/types.ts";
+
 export const ACTION_KINDS = [
   "read.repository",
   "write.file",
@@ -310,6 +321,32 @@ export interface LedgerEvent<TPayload = unknown> {
   payload: TPayload;
 }
 
+export interface WorkingStateRetrievalEvidence {
+  provider: string;
+  providerInstance: string;
+  workspaceId: string;
+  repositoryId: string;
+  path: string;
+  symbol?: string;
+  startLine?: number;
+  endLine?: number;
+  queryDigests: string[];
+  retrievalMethods: string[];
+  freshness: CodeFreshness;
+}
+
+export interface WorkingStateRetrievalSession {
+  id: string;
+  inventory: WorkingStateRetrievalEvidence[];
+  bindings: RetrievalRevisionBinding[];
+  budget: RetrievalBudgetSnapshot;
+  telemetry: RetrievalTelemetry;
+  persistence: RetrievalPersistenceStatus;
+  diagnostics: RetrievalDiagnostic[];
+  invalidations: RetrievalInvalidation[];
+  decisions: RetrievalDecisionRecord[];
+}
+
 export interface WorkingState {
   stateId: string;
   generatedAt: string;
@@ -341,6 +378,7 @@ export interface WorkingState {
     degraded: boolean;
     warnings: string[];
   }>;
+  retrievalSession?: WorkingStateRetrievalSession;
   codeEvidence: Array<{
     provider: string;
     repositoryId: string;

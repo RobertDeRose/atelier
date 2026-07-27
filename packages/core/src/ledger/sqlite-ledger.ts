@@ -9,6 +9,13 @@ import type {
   RepositorySnapshot,
   WorkflowRun,
 } from "../domain/types.ts";
+import type {
+  PersistedRetrievalCheckpoint,
+  PersistedRetrievalEvidence,
+  PersistedRetrievalRequest,
+  RetrievalDiagnostic,
+  RetrievalPersistenceLimits,
+} from "../code/retrieval.ts";
 import { newId, nowIso } from "../util/ids.ts";
 
 interface EventRow {
@@ -137,6 +144,64 @@ export class SqliteLedger {
     this.database
       .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(2, nowIso());
+
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS retrieval_sessions (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        serialized_bytes INTEGER NOT NULL,
+        started_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS retrieval_sessions_status_time
+        ON retrieval_sessions(status, updated_at, id);
+
+      CREATE TABLE IF NOT EXISTS retrieval_requests (
+        session_id TEXT NOT NULL,
+        query_digest TEXT NOT NULL,
+        request_digest TEXT NOT NULL,
+        status TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        serialized_bytes INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(session_id, query_digest),
+        FOREIGN KEY(session_id) REFERENCES retrieval_sessions(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS retrieval_evidence (
+        session_id TEXT NOT NULL,
+        evidence_digest TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        serialized_bytes INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(session_id, evidence_digest),
+        FOREIGN KEY(session_id) REFERENCES retrieval_sessions(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS retrieval_provenance (
+        session_id TEXT NOT NULL,
+        evidence_digest TEXT NOT NULL,
+        observation_index INTEGER NOT NULL,
+        record_json TEXT NOT NULL,
+        serialized_bytes INTEGER NOT NULL,
+        PRIMARY KEY(session_id, evidence_digest, observation_index),
+        FOREIGN KEY(session_id, evidence_digest)
+          REFERENCES retrieval_evidence(session_id, evidence_digest) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS retrieval_invalidations (
+        session_id TEXT NOT NULL,
+        diagnostic_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        serialized_bytes INTEGER NOT NULL,
+        occurred_at TEXT NOT NULL,
+        PRIMARY KEY(session_id, diagnostic_id),
+        FOREIGN KEY(session_id) REFERENCES retrieval_sessions(id) ON DELETE CASCADE
+      );
+    `);
+    this.database
+      .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(3, nowIso());
   }
 
   append<TPayload>(input: {
@@ -302,6 +367,295 @@ export class SqliteLedger {
     return row == null ? undefined : (JSON.parse(row.value_json) as T);
   }
 
+  saveRetrievalCheckpoint(
+    checkpoint: PersistedRetrievalCheckpoint,
+    limits: RetrievalPersistenceLimits,
+  ): void {
+    validatePersistenceLimits(limits);
+    const timestamp = checkpoint.updatedAt;
+    const sessionRecord = {
+      status: checkpoint.status,
+      startedAt: checkpoint.startedAt,
+      updatedAt: checkpoint.updatedAt,
+      budget: checkpoint.budget,
+      telemetry: checkpoint.telemetry,
+      ...(checkpoint.lastDecision === undefined ? {} : { lastDecision: checkpoint.lastDecision }),
+      decisions: checkpoint.decisions,
+    };
+    const sessionJson = JSON.stringify(sessionRecord);
+    const requestRecords = [...checkpoint.requests]
+      .sort((left, right) => left.query.digest.localeCompare(right.query.digest))
+      .map((record) => ({ record, json: JSON.stringify(record) }));
+    const evidenceRecords = [...checkpoint.evidence]
+      .sort((left, right) => left.digest.localeCompare(right.digest))
+      .map((record) => {
+        const { provenance, ...compact } = record;
+        return {
+          record,
+          json: JSON.stringify(compact),
+          provenance: provenance.map((observation) => JSON.stringify(observation)),
+        };
+      });
+    const diagnosticRecords = [
+      ...checkpoint.invalidations.map((record, index) => ({
+        id: `invalidation:${index}:${record.invalidatedAt}`,
+        kind: "invalidation",
+        occurredAt: record.invalidatedAt,
+        json: JSON.stringify(record),
+      })),
+      ...checkpoint.diagnostics.map((record, index) => ({
+        id: `diagnostic:${index}:${checkpoint.updatedAt}`,
+        kind: "diagnostic",
+        occurredAt: checkpoint.updatedAt,
+        json: JSON.stringify(record),
+      })),
+    ];
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(`
+        UPDATE retrieval_sessions SET status = 'closed'
+        WHERE id <> ? AND status = 'active'
+      `).run(checkpoint.sessionId);
+      this.database.prepare(`
+        INSERT INTO retrieval_sessions(id, status, record_json, serialized_bytes, started_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status = excluded.status,
+          record_json = excluded.record_json,
+          serialized_bytes = excluded.serialized_bytes,
+          started_at = excluded.started_at,
+          updated_at = excluded.updated_at
+      `).run(
+        checkpoint.sessionId,
+        checkpoint.status,
+        sessionJson,
+        Buffer.byteLength(sessionJson),
+        checkpoint.startedAt,
+        timestamp,
+      );
+      for (const table of ["retrieval_requests", "retrieval_invalidations", "retrieval_evidence"] as const) {
+        this.database.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(checkpoint.sessionId);
+      }
+
+      let retainedEntries = 0;
+      for (const item of requestRecords) {
+        if (retainedEntries >= limits.maxEntries) break;
+        this.database.prepare(`
+          INSERT INTO retrieval_requests(
+            session_id, query_digest, request_digest, status, record_json, serialized_bytes, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          checkpoint.sessionId,
+          item.record.query.digest,
+          item.record.requestDigest,
+          item.record.complete ? "complete" : "incomplete",
+          item.json,
+          Buffer.byteLength(item.json),
+          timestamp,
+        );
+        retainedEntries += 1;
+      }
+      for (const item of evidenceRecords) {
+        if (retainedEntries >= limits.maxEntries) break;
+        this.database.prepare(`
+          INSERT INTO retrieval_evidence(
+            session_id, evidence_digest, kind, record_json, serialized_bytes, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+          checkpoint.sessionId,
+          item.record.digest,
+          item.record.kind,
+          item.json,
+          Buffer.byteLength(item.json),
+          timestamp,
+        );
+        item.provenance.forEach((json, index) => {
+          this.database.prepare(`
+            INSERT INTO retrieval_provenance(
+              session_id, evidence_digest, observation_index, record_json, serialized_bytes
+            ) VALUES (?, ?, ?, ?, ?)
+          `).run(checkpoint.sessionId, item.record.digest, index, json, Buffer.byteLength(json));
+        });
+        retainedEntries += 1;
+      }
+      for (const item of diagnosticRecords.slice(-limits.maxEntries)) {
+        this.database.prepare(`
+          INSERT INTO retrieval_invalidations(
+            session_id, diagnostic_id, kind, record_json, serialized_bytes, occurred_at
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+          checkpoint.sessionId,
+          item.id,
+          item.kind,
+          item.json,
+          Buffer.byteLength(item.json),
+          item.occurredAt,
+        );
+      }
+
+      this.pruneRetrievalStorage(checkpoint.sessionId, limits);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  loadRetrievalCheckpoint(sessionId: string): PersistedRetrievalCheckpoint | undefined {
+    const session = this.database.prepare("SELECT status, record_json FROM retrieval_sessions WHERE id = ?").get(sessionId) as
+      | { status: PersistedRetrievalCheckpoint["status"]; record_json: string }
+      | undefined;
+    if (session === undefined) return undefined;
+    let metadata: Omit<PersistedRetrievalCheckpoint, "sessionId" | "requests" | "evidence" | "invalidations" | "diagnostics">;
+    try {
+      metadata = JSON.parse(session.record_json) as typeof metadata;
+    } catch {
+      return undefined;
+    }
+
+    const diagnostics: RetrievalDiagnostic[] = [];
+    const invalidations: PersistedRetrievalCheckpoint["invalidations"] = [];
+    const diagnosticRows = this.database.prepare(`
+      SELECT kind, record_json FROM retrieval_invalidations
+      WHERE session_id = ? ORDER BY occurred_at, diagnostic_id
+    `).all(sessionId) as unknown as Array<{ kind: string; record_json: string }>;
+    for (const row of diagnosticRows) {
+      try {
+        if (row.kind === "invalidation") invalidations.push(JSON.parse(row.record_json) as PersistedRetrievalCheckpoint["invalidations"][number]);
+        else diagnostics.push(JSON.parse(row.record_json) as RetrievalDiagnostic);
+      } catch {
+        diagnostics.push({ code: "persisted_diagnostic_corrupted", level: "warning", message: "A persisted retrieval diagnostic was corrupted and omitted." });
+      }
+    }
+
+    const evidence = new Map<string, PersistedRetrievalEvidence>();
+    const evidenceRows = this.database.prepare(`
+      SELECT evidence_digest, record_json FROM retrieval_evidence
+      WHERE session_id = ? ORDER BY evidence_digest
+    `).all(sessionId) as unknown as Array<{ evidence_digest: string; record_json: string }>;
+    for (const row of evidenceRows) {
+      try {
+        const compact = JSON.parse(row.record_json) as Omit<PersistedRetrievalEvidence, "provenance">;
+        const provenanceRows = this.database.prepare(`
+          SELECT record_json FROM retrieval_provenance
+          WHERE session_id = ? AND evidence_digest = ? ORDER BY observation_index
+        `).all(sessionId, row.evidence_digest) as unknown as Array<{ record_json: string }>;
+        if (provenanceRows.length === 0) throw new Error("missing provenance");
+        const provenance = provenanceRows.map((item) => JSON.parse(item.record_json) as PersistedRetrievalEvidence["provenance"][number]);
+        evidence.set(row.evidence_digest, { ...compact, provenance });
+      } catch {
+        diagnostics.push({
+          code: "persisted_evidence_corrupted",
+          level: "warning",
+          message: `Persisted evidence ${row.evidence_digest} was corrupted or incomplete and omitted.`,
+        });
+      }
+    }
+
+    const requestRows = this.database.prepare(`
+      SELECT record_json FROM retrieval_requests WHERE session_id = ? ORDER BY query_digest
+    `).all(sessionId) as unknown as Array<{ record_json: string }>;
+    const requests: PersistedRetrievalRequest[] = [];
+    for (const row of requestRows) {
+      try {
+        const request = JSON.parse(row.record_json) as PersistedRetrievalRequest;
+        const missing = request.evidenceDigests.filter((digest) => !evidence.has(digest));
+        if (missing.length > 0) {
+          diagnostics.push({
+            code: "persisted_evidence_missing",
+            level: "warning",
+            message: `Persisted request ${request.query.digest} lost ${missing.length} evidence record(s) and is not current.`,
+            queryDigest: request.query.digest,
+            providerCallRequired: true,
+          });
+          requests.push({ ...request, complete: false, freshness: "unknown" });
+        } else requests.push(request);
+      } catch {
+        diagnostics.push({ code: "persisted_request_corrupted", level: "warning", message: "A persisted retrieval request was corrupted and omitted." });
+      }
+    }
+
+    return {
+      sessionId,
+      ...metadata,
+      status: session.status,
+      requests,
+      evidence: [...evidence.values()],
+      invalidations,
+      diagnostics,
+    };
+  }
+
+  retrievalStorageStats(): { sessions: number; entries: number; bytes: number } {
+    const sessions = this.scalarCount("SELECT COUNT(*) AS count FROM retrieval_sessions");
+    const entries = this.scalarCount("SELECT COUNT(*) AS count FROM retrieval_requests")
+      + this.scalarCount("SELECT COUNT(*) AS count FROM retrieval_evidence");
+    const bytes = ["retrieval_sessions", "retrieval_requests", "retrieval_evidence", "retrieval_provenance", "retrieval_invalidations"]
+      .reduce((total, table) => total + this.scalarCount(`SELECT COALESCE(SUM(serialized_bytes), 0) AS count FROM ${table}`), 0);
+    return { sessions, entries, bytes };
+  }
+
+  private pruneRetrievalStorage(currentSessionId: string, limits: RetrievalPersistenceLimits): void {
+    const sessions = this.database.prepare(`
+      SELECT id FROM retrieval_sessions ORDER BY updated_at DESC, id DESC
+    `).all() as unknown as Array<{ id: string }>;
+    const retained = new Set([currentSessionId, ...sessions.filter((row) => row.id !== currentSessionId)
+      .slice(0, Math.max(0, limits.maxRetainedSessions - 1)).map((row) => row.id)]);
+    for (const row of sessions) if (!retained.has(row.id)) this.database.prepare("DELETE FROM retrieval_sessions WHERE id = ?").run(row.id);
+
+    while (true) {
+      const stats = this.retrievalStorageStats();
+      if (stats.entries <= limits.maxEntries && stats.bytes <= limits.maxBytes) break;
+      const inactive = this.database.prepare(`
+        SELECT id FROM retrieval_sessions WHERE id <> ? ORDER BY updated_at, id LIMIT 1
+      `).get(currentSessionId) as { id: string } | undefined;
+      if (inactive !== undefined) {
+        this.database.prepare("DELETE FROM retrieval_sessions WHERE id = ?").run(inactive.id);
+        continue;
+      }
+      const evidence = this.database.prepare(`
+        SELECT evidence_digest FROM retrieval_evidence
+        WHERE session_id = ? ORDER BY updated_at, evidence_digest DESC LIMIT 1
+      `).get(currentSessionId) as { evidence_digest: string } | undefined;
+      if (evidence !== undefined) {
+        this.database.prepare("DELETE FROM retrieval_evidence WHERE session_id = ? AND evidence_digest = ?")
+          .run(currentSessionId, evidence.evidence_digest);
+        continue;
+      }
+      const request = this.database.prepare(`
+        SELECT query_digest FROM retrieval_requests
+        WHERE session_id = ? ORDER BY updated_at, query_digest DESC LIMIT 1
+      `).get(currentSessionId) as { query_digest: string } | undefined;
+      if (request !== undefined) {
+        this.database.prepare("DELETE FROM retrieval_requests WHERE session_id = ? AND query_digest = ?")
+          .run(currentSessionId, request.query_digest);
+        continue;
+      }
+      this.database.prepare(`
+        DELETE FROM retrieval_invalidations WHERE session_id = ? AND diagnostic_id = (
+          SELECT diagnostic_id FROM retrieval_invalidations WHERE session_id = ? ORDER BY occurred_at, diagnostic_id LIMIT 1
+        )
+      `).run(currentSessionId, currentSessionId);
+      if (this.retrievalStorageStats().bytes > limits.maxBytes) {
+        const compact = JSON.stringify({
+          status: "active",
+          startedAt: nowIso(),
+          updatedAt: nowIso(),
+          budget: {}, telemetry: {}, decisions: [],
+        });
+        this.database.prepare("UPDATE retrieval_sessions SET record_json = ?, serialized_bytes = ? WHERE id = ?")
+          .run(compact, Buffer.byteLength(compact), currentSessionId);
+      }
+      break;
+    }
+  }
+
+  private scalarCount(sql: string): number {
+    const row = this.database.prepare(sql).get() as { count: number | bigint };
+    return Number(row.count);
+  }
+
   saveGrant(grant: PermissionGrant): void {
     this.database
       .prepare(`
@@ -451,5 +805,11 @@ export class SqliteLedger {
 
   close(): void {
     this.database.close();
+  }
+}
+
+function validatePersistenceLimits(limits: RetrievalPersistenceLimits): void {
+  for (const [name, value] of Object.entries(limits)) {
+    if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
   }
 }

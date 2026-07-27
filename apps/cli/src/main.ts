@@ -210,7 +210,20 @@ async function main(): Promise<void> {
       case "config": {
         if (subcommand !== "validate") throw new Error("Usage: atlr config validate [--json]");
         const issues = core.validateConfiguration();
-        if (flagBoolean(parsed, "json")) asJson({ valid: issues.length === 0, issues, workspace: core.codeWorkspace() });
+        if (flagBoolean(parsed, "json")) asJson({
+          valid: issues.length === 0,
+          issues,
+          workspace: core.codeWorkspace(),
+          retrievalBudgets: {
+            providerRequests: core.config.codeMaxProviderRequests,
+            results: core.config.codeMaxResults,
+            uniquePaths: core.config.codeMaxUniquePaths,
+            compactEntries: core.config.codeMaxEvidenceEntries,
+            retainedSessions: core.config.codeRetainedSessions,
+            persistedEntries: core.config.codeMaxPersistedEntries,
+            persistedBytes: core.config.codeMaxPersistedBytes,
+          },
+        });
         else process.stdout.write(issues.length ? issues.map((issue) => `ERROR: ${issue}`).join("\n") + "\n" : "Configuration valid.\n");
         if (issues.length) process.exitCode = 2;
         return;

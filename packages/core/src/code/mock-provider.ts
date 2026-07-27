@@ -75,20 +75,30 @@ export class MockCodeProvider implements CodeProvider {
   async search(query: CodeSearchQuery): Promise<CodeSearchHit[]> {
     this.lastQueryAt = nowIso();
     const terms = query.text.toLowerCase().split(/\s+/).filter(Boolean);
-    const allowed = new Set(query.repositoryIds ?? []);
+    const allowed = new Set(query.repositoryIds ?? query.workspace.repositories.map((repository) => repository.id));
+    const soleRepositoryId = query.workspace.repositories.length === 1 ? query.workspace.repositories[0]!.id : undefined;
     return this.documents
-      .filter((doc) => allowed.size === 0 || allowed.has(doc.repositoryId))
-      .map((doc) => ({ doc, score: terms.reduce((score, term) => score + occurrences(`${doc.path}\n${doc.content}\n${doc.symbol ?? ""}`.toLowerCase(), term), 0) }))
+      .map((doc) => ({
+        doc,
+        repositoryId: allowed.has(doc.repositoryId)
+          ? doc.repositoryId
+          : doc.repositoryId === "repo"
+            ? soleRepositoryId
+            : undefined,
+        score: terms.reduce((score, term) => score + occurrences(`${doc.path}\n${doc.content}\n${doc.symbol ?? ""}`.toLowerCase(), term), 0),
+      }))
+      .filter((item): item is typeof item & { repositoryId: string } => item.repositoryId !== undefined && allowed.has(item.repositoryId))
       .filter(({ score }) => score > 0)
       .sort((a, b) => b.score - a.score || a.doc.path.localeCompare(b.doc.path))
       .slice(0, query.limit)
-      .map(({ doc, score }, index) => this.hit(query, doc, score, index + 1));
+      .map(({ doc, repositoryId, score }, index) => this.hit(query, doc, repositoryId, score, index + 1));
   }
 
   async read(reference: CodeSearchHit["reference"]): Promise<CodeChunk> {
-    const doc = this.documents.find((item) => item.repositoryId === reference.repositoryId && item.path === reference.path);
+    const doc = this.documents.find((item) => item.repositoryId === reference.repositoryId && item.path === reference.path)
+      ?? this.documents.find((item) => item.path === reference.path);
     if (doc === undefined) throw new Error(`Unknown code reference: ${reference.opaqueId}`);
-    const provenance = this.provenance(reference.repositoryId, "", "lexical");
+    const provenance = this.provenance("unknown", reference.repositoryId, "", "lexical");
     return {
       reference,
       repositoryId: doc.repositoryId,
@@ -117,21 +127,21 @@ export class MockCodeProvider implements CodeProvider {
 
   async close(): Promise<void> {}
 
-  private hit(query: CodeSearchQuery, doc: MockCodeDocument, score: number, rank: number): CodeSearchHit {
+  private hit(query: CodeSearchQuery, doc: MockCodeDocument, repositoryId: string, score: number, rank: number): CodeSearchHit {
     const lines = doc.content.split("\n");
     const matching = lines.findIndex((line) => query.text.toLowerCase().split(/\s+/).some((term) => line.toLowerCase().includes(term)));
     const startLine = Math.max(1, matching + 1);
     const reference = {
       provider: this.name,
       opaqueId: newId("code-ref"),
-      repositoryId: doc.repositoryId,
+      repositoryId,
       path: doc.path,
       startLine,
       endLine: startLine,
     };
     return {
       rank,
-      repositoryId: doc.repositoryId,
+      repositoryId,
       repositoryName: doc.repositoryName,
       path: doc.path,
       startLine,
@@ -142,14 +152,14 @@ export class MockCodeProvider implements CodeProvider {
       providerScore: score,
       preview: lines[matching] ?? lines[0] ?? "",
       reference,
-      provenance: this.provenance(doc.repositoryId, query.text, "lexical"),
+      provenance: this.provenance(query.workspace.id, repositoryId, query.text, "lexical"),
     };
   }
 
-  private provenance(repositoryId: string, query: string, actualMode: "lexical") {
+  private provenance(workspaceId: string, repositoryId: string, query: string, actualMode: "lexical") {
     return {
       provider: { name: this.name, version: "1", instanceId: "mock-local" },
-      workspaceId: "mock-workspace",
+      workspaceId,
       repositoryId,
       requestedMode: actualMode,
       actualMode,
