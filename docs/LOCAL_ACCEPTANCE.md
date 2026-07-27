@@ -95,7 +95,7 @@ Run:
 
 Verify:
 
-- the agent begins with one focused `atlr_code_search`;
+- exactly one focused semantic discovery occurs before repository inspection; if Working State already populated a current inventory, `atlr_code_status` may inspect and reuse it instead of issuing a duplicate `atlr_code_search`;
 - exact unresolved identifiers alone use `atlr_code_symbols`;
 - returned paths are read directly;
 - broad raw scanning occurs only after an explicit unavailable/degraded/failed/empty result;
@@ -104,7 +104,7 @@ Verify:
 
 ### 2. Foreground `ManualEdit`
 
-When the draft settles, verify Pi suspends and opens the configured editor automatically. Directly add, remove, reorder, or change one task/dependency; save and exit.
+When the draft settles, verify Pi suspends and opens the configured editor automatically. Change one task field such as Goal, Scope, Validation, or Completion criteria; keep its stable ID unchanged, then save and exit. A one-task plan with `Depends on: None` does not require inventing another task or dependency.
 
 Verify Pi resumes cleanly and displays:
 
@@ -112,7 +112,7 @@ Verify Pi resumes cleanly and displays:
 - structural additions, removals, reordering, and field changes;
 - parser diagnostics;
 - provider identity and reconciliation digest;
-- create/update/link/unlink/retire operations and conflicts;
+- the exact operation preview and conflicts (a fresh one-task live clone normally shows one `create`; automated acceptance covers create/update/link/unlink/retire convergence);
 - proposed first task.
 
 Do not describe the editor changes again in chat.
@@ -136,7 +136,7 @@ Run `/approve` again against the unchanged reviewed revision and confirm it. Lat
 
 ### 4. Mutation evidence and validation freshness
 
-Allow one bounded source mutation when prompted. Verify `/state` records the mutating tool outcome, before/after repository identity, observed mutation, and changed paths without touching any pre-existing change.
+Allow one bounded source mutation when prompted. Do not deny a later operation merely to create a checkpoint: the agent may retry it. After the successful edit tool result, press Escape (Pi's default interrupt binding) until the agent is idle. Verify `/state` records the mutating tool outcome, before/after repository identity, observed mutation, and changed paths without touching any pre-existing change.
 
 Run these slash commands yourself rather than treating a direct `node --test` invocation as Atelier validation evidence:
 
@@ -149,7 +149,7 @@ Run these slash commands yourself rather than treating a direct `node --test` in
 
 Verify the `acceptance-workflow` selection gives a path-match reason, is required, only focused permission is requested, and the pass is current. A direct test run may be useful implementation feedback but does not satisfy this evidence check.
 
-Perform one further authorized source change. Verify `/evidence` and `/state` show the old pass as stale, not current. Run `/validate focused` again and verify the new pass is current.
+Ask the agent for one further wording-only change to the same comment. Approve that edit, then press Escape after its successful result. Verify `/evidence` and `/state` show the old pass as stale, not current. Run `/validate focused` again and verify the new pass is current.
 
 ### 5. Restart and explicit continuation
 
@@ -177,7 +177,7 @@ Record the live run in the implementing Beads task notes with:
 - any unavailable optional integration;
 - confirmation that the disposable clone was removed.
 
-Never claim live acceptance from the fake-provider fixture. If this session has no interactive TTY or lacks permission to create a disposable clone, record the manual gate as pending and ask the maintainer to run this checklist.
+Never claim live acceptance from the fake-provider fixture. Pi session JSONL does not contain external-editor lifecycle or `ctx.ui.notify` output from Atelier slash commands. Capture authoritative evidence from the disposable clone before cleanup with `atlr status --json`, `atlr state --json`, `atlr evidence --json`, and `atlr ledger tail --limit 250 --json`. If this session has no interactive TTY or lacks permission to create a disposable clone, record the manual gate as pending and ask the maintainer to run this checklist.
 
 Cleanup only the disposable clone after preserving the evidence:
 

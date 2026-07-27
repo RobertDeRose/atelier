@@ -383,10 +383,13 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     await commands.get("cancel")!.handler("acceptance cancellation", context);
     await events.get("session_shutdown")!({}, context);
     const reopened = AtelierCore.open(root);
+    assert.equal(reopened.ledger.listExecutionEvidence({ taskId: grant.taskId }).filter((item) => item.action === "write.file").length, 2);
     const finalState = await reopened.buildWorkingState();
     assert.equal(reopened.mode(), "plan");
     assert.equal(reopened.ledger.getActiveExecutionGrant(), undefined);
     assert.equal(finalState.executionGrant?.status, "revoked");
+    assert.equal(finalState.executionEvidence.filter((item) => item.action === "write.file").length, 2);
+    assert.ok(finalState.focusedValidationSelections.length > 0, "cancelled work retains its focused selection evidence");
     assert.equal((await reopened.taskProvider.get(grant.taskId))?.status, "in_progress");
     assert.equal(reopened.validation.list({ currentSnapshot: reopened.repository.snapshot() })[0]?.status, "passed");
     assert.equal(reopened.validation.list({ currentSnapshot: reopened.repository.snapshot() })[0]?.stale, false);

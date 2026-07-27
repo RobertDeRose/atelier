@@ -81,12 +81,13 @@ export class WorkingStateBuilder {
     const reconciliationTransaction = executionGrant === undefined
       ? (planApproval === undefined ? undefined : this.ledger.getApprovalReconciliationTransaction(planApproval.id))
       : this.ledger.getReconciliationTransaction(executionGrant.reconciliationTransactionId);
-    const executionEvidence = activeTask === undefined
+    const evidenceTaskId = executionGrant?.taskId ?? activeTask?.id;
+    const executionEvidence = evidenceTaskId === undefined
       ? []
-      : this.ledger.listExecutionEvidence({ taskId: activeTask.id, limit: 20 });
-    const focusedValidationSelections = activeTask === undefined
+      : this.ledger.listExecutionEvidence({ taskId: evidenceTaskId, limit: 20 });
+    const focusedValidationSelections = evidenceTaskId === undefined
       ? []
-      : this.validation?.listFocusedSelections({ taskId: activeTask.id, limit: 10 }) ?? [];
+      : this.validation?.listFocusedSelections({ taskId: evidenceTaskId, limit: 10 }) ?? [];
     const recentEvents = this.ledger.listEvents({ limit: request.maximumRecentEvents ?? 30 });
     const durableLimit = request.maximumDurableEvents ?? 20;
     const corrections = this.relevantEvents(

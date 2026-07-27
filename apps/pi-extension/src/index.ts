@@ -452,7 +452,7 @@ function planInstruction(core: AtelierCore, objective: string): string {
   return `[Atelier PLAN MODE]\n\n` +
     `Investigate the repository without modifying source code, dependencies, repository state, or task-provider state. ` +
     `Write or update the implementation plan only at ${core.config.planPath}. ` +
-    "Begin with one focused semantic atlr_code_search query. Inspect its compact inventory before any additional retrieval. " +
+    "Ensure one focused semantic discovery exists before repository inspection. If Working State already contains a current scoped inventory, inspect and reuse it with atlr_code_status instead of duplicating the search; otherwise call atlr_code_search once. Inspect the compact inventory before any additional retrieval. " +
     "Use atlr_code_symbols only for exact identifiers the inventory marks unresolved, and use built-in read for known or returned paths. " +
     "Do not use broad rg, grep, find, fd, tree, or ls discovery unless Atelier reports unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence. Cache hits and budget denial never permit raw fallback. " +
     "Use stable task IDs, explicit dependencies, scope, validation steps, and observable completion criteria. " +
@@ -609,7 +609,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "Run one focused semantic discovery through Atelier, or reuse current scoped evidence without a provider call. Returns provenance, compact inventory, decision, remaining budgets, deduplication, freshness, and truncation.",
     promptSnippet: "Start with one focused semantic discovery, inspect its inventory, then read returned paths directly",
     promptGuidelines: [
-      "Use exactly one focused semantic atlr_code_search for initial discovery before broad raw scans.",
+      "Use exactly one focused semantic discovery before broad raw scans. Call atlr_code_search only when Working State does not already contain current scoped semantic evidence; never duplicate an existing discovery.",
       "Before another search, inspect the returned inventory; Atelier will reuse covered evidence or recommend no provider call.",
       "Use built-in read for every known or returned path. Do not search again merely to inspect a known file.",
       "Raw scanning is allowed only after unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence; budget denial is not fallback permission.",
@@ -869,7 +869,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     const activeContext = core.workingStateBuilder.toMarkdown(state);
     const retrievalInstruction = core.config.codeProvider === "disabled"
       ? "Atelier code intelligence is disabled; use exact built-in read/grep/find operations as needed."
-      : "Efficient provider-first retrieval is enforced: start with one focused semantic atlr_code_search, inspect the returned inventory before another request, use atlr_code_symbols only for identifiers marked unresolved, and use built-in read for known or returned paths. Broad grep/find/rg/ls is allowed only after unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence—not after cache reuse or budget denial.";
+      : "Efficient provider-first retrieval is enforced: ensure one focused semantic discovery exists, reusing a current Working State inventory instead of duplicating it; inspect that inventory before another request, use atlr_code_symbols only for identifiers marked unresolved, and use built-in read for known or returned paths. Broad grep/find/rg/ls is allowed only after unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence—not after cache reuse or budget denial.";
     const modeInstruction = state.mode === "plan"
       ? `Only ${core.config.planPath} may be modified. Task-provider and source mutations are prohibited until approval. Read-only repository investigation never requires approval. ${retrievalInstruction}`
       : state.mode === "investigate"

@@ -113,6 +113,7 @@ test("Pi extension enforces provider-first plan discovery without approving read
   assert.ok(statuses.some((status) => /index (building|ready)/.test(status)), "Pi footer must expose background index state");
   await commands.get("plan")!.handler("investigate planning policy", context);
   assert.match(sentMessages.at(-1) ?? "", /Objective: investigate planning policy/);
+  assert.match(sentMessages.at(-1) ?? "", /reuse it with atlr_code_status instead of duplicating the search/i);
 
   const planWrite = await events.get("tool_call")!({
     toolCallId: "plan-write",
@@ -156,7 +157,8 @@ test("Pi extension enforces provider-first plan discovery without approving read
   assert.equal(confirms.count, 0, "routing denial must not become an approval prompt");
 
   const agentStart = await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
-  assert.match(agentStart?.systemPrompt ?? "", /start with one focused semantic atlr_code_search/i);
+  assert.match(agentStart?.systemPrompt ?? "", /ensure one focused semantic discovery exists/i);
+  assert.match(agentStart?.systemPrompt ?? "", /reusing a current Working State inventory instead of duplicating it/i);
   assert.match(agentStart?.systemPrompt ?? "", /## Retrieval session/);
   assert.deepEqual(activeTools.slice(0, 3), ["atlr_code_search", "atlr_code_symbols", "atlr_code_status"]);
   assert.ok(activeToolUpdates.length >= 1, "Atelier must explicitly activate registered code tools");
