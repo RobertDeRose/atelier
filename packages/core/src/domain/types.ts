@@ -434,6 +434,80 @@ export interface TaskStartTransition {
   executionGrant: ExecutionGrant;
 }
 
+export type ExecutionEvidenceStatus = "started" | "succeeded" | "failed" | "interrupted";
+
+export interface ExecutionEvidence {
+  id: string;
+  toolCallId: string;
+  toolName: string;
+  action: ActionKind;
+  status: ExecutionEvidenceStatus;
+  taskId: string;
+  executionGrantId: string;
+  policyDecisionId: string;
+  permissionGrantId?: string;
+  beforeSnapshot: RepositorySnapshot;
+  afterSnapshot?: RepositorySnapshot;
+  changedPaths: string[];
+  observedMutation: boolean;
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+export interface FocusedValidationSelection {
+  id: string;
+  taskId: string;
+  executionGrantId: string;
+  planHash: string;
+  reconciliationDigest: string;
+  snapshot: RepositorySnapshot;
+  changedPaths: string[];
+  changedSymbols: string[];
+  selected: Array<{ name: string; reason: string; required: boolean }>;
+  noMatch: boolean;
+  createdAt: string;
+}
+
+export interface ValidationEvidenceRecord {
+  id: string;
+  name: string;
+  command: string[];
+  taskId?: string;
+  executionGrantId?: string;
+  planHash?: string;
+  selectionId?: string;
+  snapshotFingerprint: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  exitCode: number;
+  status: "passed" | "failed" | "interrupted";
+  stdout: string;
+  stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+}
+
+export interface ValidationEvidenceSummary {
+  id: string;
+  name: string;
+  status: ValidationEvidenceRecord["status"];
+  durationMs: number;
+  snapshotFingerprint: string;
+  stale: boolean;
+  staleReason?: string;
+}
+
+export interface TaskClosureReadiness {
+  ready: boolean;
+  required: string[];
+  missing: string[];
+  stale: string[];
+  failed: string[];
+  reason: string;
+}
+
 export interface LedgerEvent<TPayload = unknown> {
   id: string;
   kind: string;
@@ -491,7 +565,15 @@ export interface WorkingState {
   approvedPlanHash?: string;
   planTask?: PlanTask;
   executionGrant?: ExecutionGrant;
+  workflowCheckpoint?: WorkflowCheckpoint;
+  planApproval?: PlanApproval;
+  reconciliationTransaction?: ReconciliationTransaction;
   permissions: PermissionGrant[];
+  executionEvidence: ExecutionEvidence[];
+  focusedValidationSelections: FocusedValidationSelection[];
+  currentValidationEvidence: ValidationEvidenceSummary[];
+  staleValidationEvidence: ValidationEvidenceSummary[];
+  taskClosure: TaskClosureReadiness;
   corrections: LedgerEvent[];
   findings: LedgerEvent[];
   manualEdits: LedgerEvent[];

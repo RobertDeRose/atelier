@@ -23,6 +23,7 @@ export interface WorkingStateBuildRequest {
   workspace?: CodeWorkspace;
   plan?: ParsedPlan;
   explicitTaskId?: string;
+  changedPaths?: string[];
   maximumReadyTasks?: number;
   maximumRecentEvents?: number;
   maximumDurableEvents?: number;
@@ -72,6 +73,19 @@ export class WorkingStateBuilder {
     const taskBlockers = taskDependencies.filter((task) => task.status !== "closed");
     const permissions = this.activePermissions(this.ledger.listGrants());
     const executionGrant = this.ledger.getActiveExecutionGrant();
+    const workflowRun = this.ledger.getCurrentWorkflowRun();
+    const planApproval = executionGrant === undefined
+      ? undefined
+      : this.ledger.getPlanApproval(executionGrant.planApprovalId);
+    const reconciliationTransaction = executionGrant === undefined
+      ? undefined
+      : this.ledger.getReconciliationTransaction(executionGrant.reconciliationTransactionId);
+    const executionEvidence = activeTask === undefined
+      ? []
+      : this.ledger.listExecutionEvidence({ taskId: activeTask.id, limit: 20 });
+    const focusedValidationSelections = activeTask === undefined
+      ? []
+      : this.validation?.listFocusedSelections({ taskId: activeTask.id, limit: 10 }) ?? [];
     const recentEvents = this.ledger.listEvents({ limit: request.maximumRecentEvents ?? 30 });
     const durableLimit = request.maximumDurableEvents ?? 20;
     const corrections = this.relevantEvents(
@@ -282,6 +296,14 @@ export class WorkingStateBuilder {
       status: item.status,
       durationMs: item.durationMs,
     })) ?? [];
+    const validationSummaries = this.validation?.summaries(
+      request.snapshot,
+      request.changedPaths ?? [],
+      activeTask?.id,
+    ) ?? { current: [], stale: [] };
+    const taskClosure = executionGrant === undefined || this.validation === undefined
+      ? { ready: false, required: [], missing: [], stale: [], failed: [], reason: "No active execution grant exists." }
+      : this.validation.closureReadiness(request.snapshot, executionGrant.taskId, executionGrant.id);
 
     this.persistTaskSelection(selection, request.snapshot);
     if (request.plan === undefined) {
@@ -317,7 +339,15 @@ export class WorkingStateBuilder {
       ...(approvedPlanHash === undefined ? {} : { approvedPlanHash }),
       ...(planTask === undefined ? {} : { planTask }),
       ...(executionGrant === undefined ? {} : { executionGrant }),
+      ...(workflowRun === undefined ? {} : { workflowCheckpoint: workflowRun.checkpoint }),
+      ...(planApproval === undefined ? {} : { planApproval }),
+      ...(reconciliationTransaction === undefined ? {} : { reconciliationTransaction }),
       permissions,
+      executionEvidence,
+      focusedValidationSelections,
+      currentValidationEvidence: validationSummaries.current,
+      staleValidationEvidence: validationSummaries.stale,
+      taskClosure,
       corrections,
       findings,
       manualEdits,
@@ -346,6 +376,10 @@ export class WorkingStateBuilder {
       `- Execution grant: ${state.executionGrant === undefined
         ? "none"
         : `${state.executionGrant.id} (${state.executionGrant.status}) for ${state.executionGrant.taskId}`}`,
+      `- Workflow checkpoint: ${state.workflowCheckpoint ?? "none"}`,
+      `- Plan approval: ${state.planApproval?.id ?? "none"}`,
+      `- Reconciliation: ${state.reconciliationTransaction?.id ?? "none"}`,
+      `- Task closure: ${state.taskClosure.ready ? "ready" : "blocked"} — ${state.taskClosure.reason}`,
     ];
 
     if (state.planObjective) lines.push(`- Planning objective: ${state.planObjective}`);
@@ -381,6 +415,27 @@ export class WorkingStateBuilder {
     lines.push("", "## Active permissions");
     if (state.permissions.length === 0) lines.push("", "No mutation permissions are active.");
     for (const grant of state.permissions) lines.push(`- ${grant.permission} (${grant.scope}): ${grant.reason}`);
+
+    lines.push("", "## Execution evidence");
+    if (state.executionEvidence.length === 0) lines.push("", "No mutating tool execution evidence is recorded.");
+    for (const item of state.executionEvidence) {
+      lines.push(`- ${item.toolName}/${item.action}: ${item.status}; observed mutation: ${item.observedMutation}; changed paths: ${item.changedPaths.join(", ") || "none"}`);
+    }
+
+    lines.push("", "## Focused validation selection");
+    if (state.focusedValidationSelections.length === 0) lines.push("", "No focused validation selection is recorded.");
+    for (const selection of state.focusedValidationSelections) {
+      lines.push(`- ${selection.id}: ${selection.noMatch ? "no matching focused validations" : selection.selected.map((item) => `${item.name}${item.required ? " (required)" : ""}`).join(", ")}`);
+    }
+
+    if (state.currentValidationEvidence.length > 0) {
+      lines.push("", "## Current validation evidence");
+      for (const item of state.currentValidationEvidence) lines.push(`- ${item.name}: ${item.status} (${item.durationMs} ms)`);
+    }
+    if (state.staleValidationEvidence.length > 0) {
+      lines.push("", "## Stale validation evidence");
+      for (const item of state.staleValidationEvidence) lines.push(`- ${item.name}: ${item.status}; ${item.staleReason ?? "repository fingerprint changed"}`);
+    }
 
     if (state.retrievalSession !== undefined) {
       const session = state.retrievalSession;

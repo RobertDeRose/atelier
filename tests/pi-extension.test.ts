@@ -374,20 +374,31 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
 
   try {
     assert.equal(await events.get("tool_call")!({
+      toolCallId: "edit-routine",
       toolName: "edit",
       input: { path: "src/index.ts" },
     }, context), undefined);
+    await events.get("tool_result")!({
+      toolCallId: "edit-routine",
+      toolName: "edit",
+      input: { path: "src/index.ts" },
+      content: [{ type: "text", text: "updated" }],
+      isError: false,
+    }, context);
     assert.equal(await events.get("tool_call")!({
+      toolCallId: "bash-check",
       toolName: "bash",
       input: { command: "mise run check" },
     }, context), undefined);
     assert.equal(await events.get("tool_call")!({
+      toolCallId: "bash-commit",
       toolName: "bash",
       input: { command: "git commit -am 'finish task'" },
     }, context), undefined);
     assert.equal(confirms.count, 0);
 
     assert.equal(await events.get("tool_call")!({
+      toolCallId: "bash-destructive",
       toolName: "bash",
       input: { command: "rm -rf build" },
     }, context), undefined);

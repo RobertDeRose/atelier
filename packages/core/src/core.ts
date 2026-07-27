@@ -4,14 +4,17 @@ import { loadConfig, type AtelierConfig } from "./config/config.ts";
 import { WorkingStateBuilder } from "./state/working-state-builder.ts";
 import type {
   ActionRequest,
+  ExecutionEvidence,
   ManualEdit,
   ManualEditEditor,
   WorkingState,
   Permission,
   PermissionGrant,
   PolicyDecision,
+  TaskClosureReadiness,
   TaskProviderStatus,
   TaskReconciliation,
+  TaskRecord,
   WorkflowMode,
 } from "./domain/types.ts";
 import { SqliteLedger } from "./ledger/sqlite-ledger.ts";
@@ -121,6 +124,7 @@ export class AtelierCore {
 
   static open(repositoryRoot = process.cwd(), options: {
     taskProvider?: "beads" | "memory" | "none";
+    taskProviderInstance?: TaskProvider;
     codeProvider?: CodeProvider;
     retrievalSessionId?: string;
   } = {}): AtelierCore {
@@ -128,12 +132,13 @@ export class AtelierCore {
     if (options.taskProvider !== undefined) config.taskProvider = options.taskProvider;
     mkdirSync(config.stateDirectory, { recursive: true });
     const ledger = new SqliteLedger(config.databasePath);
-    const taskProvider: TaskProvider =
+    const taskProvider: TaskProvider = options.taskProviderInstance ?? (
       config.taskProvider === "beads"
         ? new BeadsCliTaskProvider({ cwd: config.repositoryRoot, executable: config.beadsCommand })
         : config.taskProvider === "memory"
           ? new InMemoryTaskProvider()
-          : new NoopTaskProvider();
+          : new NoopTaskProvider()
+    );
     return new AtelierCore(config, ledger, taskProvider, options.codeProvider, options.retrievalSessionId);
   }
 
@@ -178,7 +183,7 @@ export class AtelierCore {
     const createdPlan = options.createPlan === false ? false : ensurePlanDocument(this.config.planPath);
     const validationPath = resolve(this.config.stateDirectory, "validation.json");
     if (!existsSync(validationPath)) {
-      writeFileSync(validationPath, `${JSON.stringify({ validations: { check: { command: ["aubr", "check"], description: "Run the repository check suite", approval: "always" } } }, null, 2)}\n`, "utf8");
+      writeFileSync(validationPath, `${JSON.stringify({ validations: { check: { command: ["aubr", "check"], description: "Run the repository check suite", approval: "always", category: "full" } } }, null, 2)}\n`, "utf8");
     }
     this.ledger.append({
       kind: "atelier.initialized",
@@ -233,6 +238,7 @@ export class AtelierCore {
       ...(this.ledger.getActiveExecutionGrant() === undefined
         ? {}
         : { executionGrant: this.ledger.getActiveExecutionGrant()! }),
+      ...(request.action === "task.close" ? { taskClosure: this.taskClosureReadiness() } : {}),
     });
     this.ledger.append({
       kind: "policy.decision",
@@ -285,6 +291,223 @@ export class AtelierCore {
     this.ledger.saveGrant(grant);
     this.ledger.append({ kind: "permission.granted", actor: "user", payload: grant });
     return grant;
+  }
+
+  beginExecutionEvidence(input: {
+    toolCallId: string;
+    toolName: string;
+    request: ActionRequest;
+    policyDecisionId: string;
+    permissionGrantId?: string;
+  }): ExecutionEvidence {
+    if (input.request.action === "read.repository") throw new Error("Read-only tools do not create mutation execution evidence.");
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant === undefined || input.request.taskId !== executionGrant.taskId) {
+      throw new Error("Mutation execution evidence requires the active task execution grant.");
+    }
+    const decisionEvent = this.ledger.listEvents({ kind: "policy.decision", limit: 100 })
+      .find((event) => (event.payload as PolicyDecision).id === input.policyDecisionId);
+    const decision = decisionEvent?.payload as PolicyDecision | undefined;
+    const authorizedSnapshot = decisionEvent?.repositorySnapshot;
+    const currentSnapshot = this.repository.snapshot();
+    if (decision === undefined || decision.result !== "allow" || decision.action !== input.request.action
+      || decisionEvent?.taskId !== executionGrant.taskId
+      || authorizedSnapshot === undefined
+      || authorizedSnapshot.repositoryId !== currentSnapshot.repositoryId
+      || authorizedSnapshot.workspaceId !== currentSnapshot.workspaceId
+      || authorizedSnapshot.headCommit !== currentSnapshot.headCommit
+      || authorizedSnapshot.dirtyFingerprint !== currentSnapshot.dirtyFingerprint) {
+      throw new Error("Mutation execution evidence requires a current matching allow policy decision.");
+    }
+    const matchedPermissionGrantId = decision.matchedRules
+      .find((rule) => rule.startsWith("matched permission grant "))
+      ?.slice("matched permission grant ".length);
+    if (matchedPermissionGrantId === undefined
+      || (input.permissionGrantId !== undefined && input.permissionGrantId !== matchedPermissionGrantId)) {
+      throw new Error("Mutation execution evidence requires the permission grant matched by policy.");
+    }
+    const permissionGrant = this.ledger.listGrants({ includeRevoked: true })
+      .find((grant) => grant.id === matchedPermissionGrantId);
+    if (permissionGrant?.executionGrantId !== executionGrant.id) {
+      throw new Error("Mutation execution evidence permission is not bound to the active execution grant.");
+    }
+    const evidence: ExecutionEvidence = {
+      id: newId("execution-evidence"),
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      action: input.request.action,
+      status: "started",
+      taskId: executionGrant.taskId,
+      executionGrantId: executionGrant.id,
+      policyDecisionId: input.policyDecisionId,
+      permissionGrantId: matchedPermissionGrantId,
+      beforeSnapshot: currentSnapshot,
+      changedPaths: [],
+      observedMutation: false,
+      startedAt: nowIso(),
+    };
+    this.ledger.saveExecutionEvidence(evidence);
+    this.ledger.append({
+      kind: "execution.tool_started",
+      actor: "agent",
+      taskId: evidence.taskId,
+      repositorySnapshot: evidence.beforeSnapshot,
+      payload: { id: evidence.id, toolCallId: evidence.toolCallId, toolName: evidence.toolName, action: evidence.action },
+    });
+    return evidence;
+  }
+
+  completeExecutionEvidence(toolCallId: string, input: {
+    status: "succeeded" | "failed" | "interrupted";
+    error?: string;
+  }): ExecutionEvidence | undefined {
+    const current = this.ledger.getExecutionEvidence(toolCallId);
+    if (current === undefined || current.status !== "started") return current;
+    const afterSnapshot = this.repository.snapshot();
+    const observedMutation = afterSnapshot.dirtyFingerprint !== current.beforeSnapshot.dirtyFingerprint;
+    const changedPaths = observedMutation
+      ? this.repository.changedPaths().filter((path) => path !== ".atelier" && !path.startsWith(".atelier/")).sort()
+      : [];
+    const evidence: ExecutionEvidence = {
+      ...current,
+      status: input.status,
+      afterSnapshot,
+      changedPaths,
+      observedMutation,
+      ...(input.error === undefined ? {} : { error: input.error.slice(0, 4_096) }),
+      finishedAt: nowIso(),
+    };
+    this.ledger.saveExecutionEvidence(evidence);
+    this.ledger.append({
+      kind: `execution.tool_${input.status}`,
+      actor: "tool",
+      taskId: evidence.taskId,
+      repositorySnapshot: afterSnapshot,
+      payload: {
+        id: evidence.id,
+        toolCallId,
+        action: evidence.action,
+        observedMutation,
+        changedPaths,
+        ...(evidence.error === undefined ? {} : { error: evidence.error }),
+      },
+    });
+    return evidence;
+  }
+
+  interruptPendingExecutionEvidence(reason: string): ExecutionEvidence[] {
+    return this.ledger.listExecutionEvidence({ limit: 100 })
+      .filter((item) => item.status === "started")
+      .flatMap((item) => {
+        const completed = this.completeExecutionEvidence(item.toolCallId, { status: "interrupted", error: reason });
+        return completed === undefined ? [] : [completed];
+      });
+  }
+
+  selectFocusedValidation(changedSymbols: string[] = []) {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant === undefined) throw new Error("Focused validation selection requires an active execution grant.");
+    const changedPaths = this.repository.changedPaths()
+      .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/"));
+    this.ledger.setWorkflowCheckpoint("validating");
+    const selection = this.validation.saveFocusedSelection({
+      taskId: executionGrant.taskId,
+      executionGrantId: executionGrant.id,
+      planHash: executionGrant.planHash,
+      reconciliationDigest: executionGrant.reconciliationDigest,
+      snapshot: this.repository.snapshot(),
+      changedPaths,
+      changedSymbols,
+    });
+    this.ledger.append({
+      kind: "validation.focused_selected",
+      actor: "system",
+      taskId: executionGrant.taskId,
+      repositorySnapshot: selection.snapshot,
+      payload: selection,
+    });
+    return selection;
+  }
+
+  async runValidation(name: string, options: { signal?: AbortSignal; selectionId?: string; maxOutputBytes?: number } = {}) {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    const snapshot = this.repository.snapshot();
+    if (executionGrant !== undefined) {
+      const action = this.validation.action(name);
+      const decision = this.evaluate({
+        action,
+        risk: "routine",
+        actor: "agent",
+        taskId: executionGrant.taskId,
+        repositorySnapshot: snapshot,
+        rationale: `Run configured ${action === "validation.focused" ? "focused" : "full-suite"} validation ${name}.`,
+      });
+      if (decision.result !== "allow") throw new Error(decision.reason);
+    }
+    this.ledger.setWorkflowCheckpoint("validating");
+    const evidence = await this.validation.run(name, snapshot, {
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.selectionId === undefined ? {} : { selectionId: options.selectionId }),
+      ...(options.maxOutputBytes === undefined ? {} : { maxOutputBytes: options.maxOutputBytes }),
+      ...(executionGrant === undefined ? {} : {
+        taskId: executionGrant.taskId,
+        executionGrantId: executionGrant.id,
+        planHash: executionGrant.planHash,
+      }),
+    });
+    this.ledger.append({
+      kind: "validation.completed",
+      actor: "tool",
+      ...(executionGrant === undefined ? {} : { taskId: executionGrant.taskId }),
+      repositorySnapshot: snapshot,
+      payload: {
+        id: evidence.id,
+        name,
+        status: evidence.status,
+        durationMs: evidence.durationMs,
+        ...(options.selectionId === undefined ? {} : { selectionId: options.selectionId }),
+      },
+    });
+    return evidence;
+  }
+
+  taskClosureReadiness(): TaskClosureReadiness {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant === undefined) {
+      return { ready: false, required: [], missing: [], stale: [], failed: [], reason: "No active execution grant exists." };
+    }
+    return this.validation.closureReadiness(
+      this.repository.snapshot(),
+      executionGrant.taskId,
+      executionGrant.id,
+    );
+  }
+
+  async closeActiveTask(reason: string): Promise<{ task: TaskRecord; nextReady: TaskRecord[] }> {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant === undefined) throw new Error("No active execution task is available to close.");
+    const readiness = this.taskClosureReadiness();
+    if (!readiness.ready) throw new Error(readiness.reason);
+    const task = await this.taskProvider.close(executionGrant.taskId, reason);
+    this.ledger.append({ kind: "task.closed", actor: "user", taskId: task.id, payload: { reason } });
+    this.execution.cancel(`Task ${task.id} was explicitly closed.`);
+    const mappings = new Set(this.ledger.listTaskMappings()
+      .filter((mapping) => mapping.provider === this.taskProvider.name && mapping.planHash === executionGrant.planHash)
+      .map((mapping) => mapping.providerTaskId));
+    const nextReady = (await this.taskProvider.ready()).filter((candidate) => mappings.has(candidate.id));
+    return { task, nextReady };
+  }
+
+  async observeTaskClosure(): Promise<TaskRecord[]> {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant === undefined) return [];
+    const task = await this.taskProvider.get(executionGrant.taskId);
+    if (task === undefined || task.status !== "closed") return [];
+    this.execution.cancel(`Task ${task.id} was explicitly closed through an authorized tool.`);
+    const mappings = new Set(this.ledger.listTaskMappings()
+      .filter((mapping) => mapping.provider === this.taskProvider.name && mapping.planHash === executionGrant.planHash)
+      .map((mapping) => mapping.providerTaskId));
+    return (await this.taskProvider.ready()).filter((candidate) => mappings.has(candidate.id));
   }
 
   revoke(grantId: string): boolean {
@@ -391,6 +614,8 @@ export class AtelierCore {
     const state = await this.workingStateBuilder.build({
       mode: this.mode(),
       snapshot,
+      changedPaths: this.repository.changedPaths()
+        .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/")),
       workspace: this.codeWorkspace(),
       ...(plan === undefined ? {} : { plan }),
       ...(explicitTaskId === undefined ? {} : { explicitTaskId }),

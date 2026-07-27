@@ -189,6 +189,7 @@ export class ExecutionWorkflowCoordinator {
       const grant = this.executionGrant(approved, transaction.id, task);
       applying = { ...applying, status: "applied", preview: applied, updatedAt: nowIso() };
       this.ledger.activateExecution({ approval: approved, transaction: applying, grant });
+      this.ledger.setWorkflowCheckpoint("executing");
       return { approval: approved, transaction: applying, reconciliation: applied, task, executionGrant: grant };
     } catch (error) {
       this.ledger.failExecutionApplication(accepted, applying, errorMessage(error));
@@ -253,6 +254,7 @@ export class ExecutionWorkflowCoordinator {
       const transaction: ReconciliationTransaction = { ...applying, status: "applied", updatedAt: nowIso() };
       const grant = this.executionGrant(approval, transaction.id, task);
       this.ledger.activateExecution({ approval, transaction, grant });
+      this.ledger.setWorkflowCheckpoint("executing");
       return { task, transaction, executionGrant: grant };
     } catch (error) {
       this.ledger.failExecutionApplication(approval, applying, errorMessage(error));
@@ -294,6 +296,7 @@ export class ExecutionWorkflowCoordinator {
       return undefined;
     }
     this.ledger.restoreExecution(grant);
+    this.ledger.setWorkflowCheckpoint("executing");
     return grant;
   }
 

@@ -4,6 +4,7 @@ import type {
   ActionRequest,
   ExecutionGrant,
   Permission,
+  TaskClosureReadiness,
   PermissionGrant,
   PolicyDecision,
   WorkflowMode,
@@ -53,6 +54,7 @@ export interface PolicyState {
   planPath: string;
   grants: PermissionGrant[];
   executionGrant?: ExecutionGrant;
+  taskClosure?: TaskClosureReadiness;
 }
 
 function pathWithin(path: string, allowedPath: string): boolean {
@@ -164,6 +166,19 @@ export class PolicyEngine {
         [requiredPermission],
         constraints,
         "A valid execution grant for the request task and workspace is required.",
+        requiredPermission,
+      );
+    }
+
+    if (request.action === "task.close" && state.taskClosure?.ready !== true) {
+      matchedRules.push("task closure requires current passing focused validation evidence");
+      return this.decision(
+        request.action,
+        "deny",
+        matchedRules,
+        [requiredPermission],
+        constraints,
+        state.taskClosure?.reason ?? "Task closure validation evidence is unavailable.",
         requiredPermission,
       );
     }

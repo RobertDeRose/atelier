@@ -15,6 +15,7 @@ import {
   type ActionRequest,
   type ManualEditEditor,
   type Permission,
+  type PolicyDecision,
   type RetrievalSessionStatus,
 } from "../../../packages/core/src/index.ts";
 
@@ -237,13 +238,27 @@ function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): A
   };
 }
 
+interface ToolAuthorization {
+  decision: PolicyDecision;
+  permissionGrantId?: string;
+  response?: { block?: boolean; reason?: string };
+}
+
+function matchedPermissionGrantId(decision: PolicyDecision): string | undefined {
+  return decision.matchedRules.find((rule) => rule.startsWith("matched permission grant "))
+    ?.slice("matched permission grant ".length);
+}
+
 async function authorizeTool(
   request: ActionRequest,
   ctx: ExtensionContext,
   core: AtelierCore,
-): Promise<{ block?: boolean; reason?: string } | undefined> {
+): Promise<ToolAuthorization> {
   const decision = core.evaluate(request);
-  if (decision.result === "allow") return undefined;
+  if (decision.result === "allow") {
+    const permissionGrantId = matchedPermissionGrantId(decision);
+    return { decision, ...(permissionGrantId === undefined ? {} : { permissionGrantId }) };
+  }
   if (decision.result === "deny") {
     core.ledger.append({
       kind: "policy.blocked",
@@ -252,13 +267,16 @@ async function authorizeTool(
       ...(request.repositorySnapshot === undefined ? {} : { repositorySnapshot: request.repositorySnapshot }),
       payload: { decisionId: decision.id, action: request.action, reason: decision.reason },
     });
-    return { block: true, reason: decision.reason };
+    return { decision, response: { block: true, reason: decision.reason } };
   }
 
   if (!ctx.hasUI || decision.requiredPermission === undefined) {
     return {
-      block: true,
-      reason: `${decision.reason} Interactive approval is unavailable in ${ctx.mode} mode.`,
+      decision,
+      response: {
+        block: true,
+        reason: `${decision.reason} Interactive approval is unavailable in ${ctx.mode} mode.`,
+      },
     };
   }
 
@@ -278,7 +296,7 @@ async function authorizeTool(
       ...(request.repositorySnapshot === undefined ? {} : { repositorySnapshot: request.repositorySnapshot }),
       payload: { decisionId: decision.id, action: request.action },
     });
-    return { block: true, reason: "The user denied this Atelier operation." };
+    return { decision, response: { block: true, reason: "The user denied this Atelier operation." } };
   }
 
   const grant = core.grant({
@@ -297,9 +315,11 @@ async function authorizeTool(
     ...(request.repositorySnapshot === undefined ? {} : { repositorySnapshot: request.repositorySnapshot }),
     payload: { grantId: grant.id, decisionId: allowed.id, action: request.action },
   });
-  return allowed.result === "allow"
-    ? undefined
-    : { block: true, reason: allowed.reason };
+  return {
+    decision: allowed,
+    permissionGrantId: grant.id,
+    ...(allowed.result === "allow" ? {} : { response: { block: true, reason: allowed.reason } }),
+  };
 }
 
 async function runEditorWithPi(
@@ -713,6 +733,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     ctx.ui.setStatus(STATUS_KEY, undefined);
     stopIndexStatusUpdates?.();
     stopIndexStatusUpdates = undefined;
+    activeCore?.interruptPendingExecutionEvidence("Pi session shut down before tool completion.");
     activeCore?.endRetrievalSession();
     activeCore?.close();
     activeCore = undefined;
@@ -739,9 +760,40 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       };
     }
     const request = requestForTool(event, ctx, core);
-    const result = await authorizeTool(request, ctx, core);
+    const authorization = await authorizeTool(request, ctx, core);
+    if (authorization.response === undefined && request.action !== "read.repository") {
+      try {
+        core.beginExecutionEvidence({
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          request,
+          policyDecisionId: authorization.decision.id,
+          ...(authorization.permissionGrantId === undefined ? {} : { permissionGrantId: authorization.permissionGrantId }),
+        });
+      } catch (error) {
+        return { block: true, reason: `Unable to start durable execution evidence: ${errorMessage(error)}` };
+      }
+    }
     await updateStatus(ctx, core);
-    return result;
+    return authorization.response;
+  });
+
+  pi.on("tool_result", async (event, ctx) => {
+    const core = coreFor(ctx);
+    const pending = core.ledger.getExecutionEvidence(event.toolCallId);
+    if (pending === undefined || pending.status !== "started") return;
+    const text = event.content
+      .filter((item: { type: string; text?: string }): item is { type: "text"; text: string } => item.type === "text" && typeof item.text === "string")
+      .map((item: { type: "text"; text: string }) => item.text)
+      .join("\n");
+    const interrupted = event.isError === true && /abort|cancel|interrupt|signal/i.test(text);
+    const evidence = core.completeExecutionEvidence(event.toolCallId, {
+      status: interrupted ? "interrupted" : event.isError === true ? "failed" : "succeeded",
+      ...(event.isError === true ? { error: text || "Tool execution failed." } : {}),
+    });
+    if (evidence?.action === "task.close" && evidence.status === "succeeded") {
+      await core.observeTaskClosure();
+    }
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
@@ -1017,20 +1069,38 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         ctx.ui.notify(message, "info");
         return;
       }
-      const snapshot = core.repository.snapshot();
       if (name === "plan" || name === "focused") {
-        const changedPaths = core.repository.changedPaths();
+        const changedPaths = core.repository.changedPaths()
+          .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/"));
         const plan = core.validation.planFocused(changedPaths, []);
         if (name === "plan") {
           ctx.ui.notify(plan.length === 0 ? "No focused validations matched." : plan.map((item) => `${item.name}: ${item.reason}`).join("\n"), "info");
           return;
         }
-        const results = plan.map((item) => core.validation.run(item.name, snapshot));
+        const selection = core.selectFocusedValidation();
+        const results = [];
+        for (const item of selection.selected) {
+          const executionGrant = core.ledger.getActiveExecutionGrant();
+          if (executionGrant !== undefined) core.grant({
+            permission: "validation.focused",
+            scope: "operation",
+            taskId: executionGrant.taskId,
+            reason: `Explicit Pi focused validation ${item.name}`,
+          });
+          results.push(await core.runValidation(item.name, { selectionId: selection.id }));
+        }
         ctx.ui.notify(results.length === 0 ? "No focused validations matched." : results.map((item) => `${item.name}: ${item.status} (${item.durationMs} ms)`).join("\n"), results.some((item) => item.status !== "passed") ? "error" : "info");
         return;
       }
-      const evidence = core.validation.run(name, snapshot);
-      core.ledger.append({ kind: "validation.completed", actor: "user", repositorySnapshot: snapshot, payload: { id: evidence.id, name, status: evidence.status, durationMs: evidence.durationMs } });
+      const action = core.validation.action(name);
+      const executionGrant = core.ledger.getActiveExecutionGrant();
+      if (executionGrant !== undefined) core.grant({
+        permission: action === "validation.focused" ? "validation.focused" : "validation.full_suite",
+        scope: "operation",
+        taskId: executionGrant.taskId,
+        reason: `Explicit Pi validation ${name}`,
+      });
+      const evidence = await core.runValidation(name);
       ctx.ui.notify(`${name}: ${evidence.status} (${evidence.durationMs} ms)`, evidence.status === "passed" ? "info" : "error");
     },
   });
@@ -1039,7 +1109,11 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "Show current and stale validation evidence",
     handler: async (_args, ctx) => {
       const core = coreFor(ctx);
-      const items = core.validation.list({ currentSnapshot: core.repository.snapshot() });
+      const items = core.validation.list({
+        currentSnapshot: core.repository.snapshot(),
+        currentChangedPaths: core.repository.changedPaths()
+          .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/")),
+      });
       const message = items.length === 0
         ? "No validation evidence."
         : items.map((item) => `${item.name}: ${item.status} (${item.stale ? "stale" : "current"})`).join("\n");

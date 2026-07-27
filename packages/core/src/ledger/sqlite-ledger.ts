@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { loadDatabaseSync, type SqliteDatabase } from "./sqlite-runtime.ts";
 import type {
   Actor,
+  ExecutionEvidence,
   ExecutionGrant,
   LedgerEvent,
   ManualEdit,
@@ -11,6 +12,7 @@ import type {
   ReconciliationOperationCheckpoint,
   ReconciliationTransaction,
   RepositorySnapshot,
+  WorkflowCheckpoint,
   WorkflowRun,
 } from "../domain/types.ts";
 import type {
@@ -260,6 +262,25 @@ export class SqliteLedger {
     this.database
       .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(5, nowIso());
+
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS execution_evidence (
+        id TEXT PRIMARY KEY,
+        tool_call_id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        execution_grant_id TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS execution_evidence_task_time
+        ON execution_evidence(task_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS execution_evidence_grant_time
+        ON execution_evidence(execution_grant_id, updated_at DESC);
+    `);
+    this.database
+      .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(6, nowIso());
   }
 
   append<TPayload>(input: {
@@ -353,6 +374,21 @@ export class SqliteLedger {
   getCurrentWorkflowRun(): WorkflowRun | undefined {
     const id = this.getState<string>("currentWorkflowRunId");
     return id === undefined ? undefined : this.getWorkflowRun(id);
+  }
+
+  setWorkflowCheckpoint(checkpoint: WorkflowCheckpoint): WorkflowRun | undefined {
+    const current = this.getCurrentWorkflowRun();
+    if (current === undefined || current.checkpoint === checkpoint) return current;
+    const next: WorkflowRun = { ...current, checkpoint, updatedAt: nowIso() };
+    this.database.prepare(`
+      UPDATE workflow_runs SET checkpoint = ?, record_json = ?, updated_at = ? WHERE id = ?
+    `).run(checkpoint, JSON.stringify(next), next.updatedAt, next.id);
+    this.append({
+      kind: "workflow.checkpoint_changed",
+      actor: "system",
+      payload: { workflowRunId: next.id, previous: current.checkpoint, checkpoint },
+    });
+    return next;
   }
 
   getManualEdit(id: string): ManualEdit | undefined {
@@ -752,6 +788,55 @@ export class SqliteLedger {
       WHERE reconciliation_digest = ? ORDER BY operation_id
     `).all(reconciliationDigest) as unknown as Array<{ record_json: string }>;
     return rows.map((row) => JSON.parse(row.record_json) as ReconciliationOperationCheckpoint);
+  }
+
+  saveExecutionEvidence(evidence: ExecutionEvidence): void {
+    const record = JSON.stringify(evidence);
+    this.database.prepare(`
+      INSERT INTO execution_evidence(
+        id, tool_call_id, status, task_id, execution_grant_id, record_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(tool_call_id) DO UPDATE SET
+        status = excluded.status,
+        task_id = excluded.task_id,
+        execution_grant_id = excluded.execution_grant_id,
+        record_json = excluded.record_json,
+        updated_at = excluded.updated_at
+    `).run(
+      evidence.id,
+      evidence.toolCallId,
+      evidence.status,
+      evidence.taskId,
+      evidence.executionGrantId,
+      record,
+      evidence.finishedAt ?? evidence.startedAt,
+    );
+  }
+
+  getExecutionEvidence(toolCallId: string): ExecutionEvidence | undefined {
+    const row = this.database.prepare("SELECT record_json FROM execution_evidence WHERE tool_call_id = ?").get(toolCallId) as
+      | { record_json: string }
+      | undefined;
+    return row === undefined ? undefined : JSON.parse(row.record_json) as ExecutionEvidence;
+  }
+
+  listExecutionEvidence(options: { taskId?: string; executionGrantId?: string; limit?: number } = {}): ExecutionEvidence[] {
+    const clauses: string[] = [];
+    const parameters: Array<string | number> = [];
+    if (options.taskId !== undefined) {
+      clauses.push("task_id = ?");
+      parameters.push(options.taskId);
+    }
+    if (options.executionGrantId !== undefined) {
+      clauses.push("execution_grant_id = ?");
+      parameters.push(options.executionGrantId);
+    }
+    const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
+    parameters.push(options.limit ?? 50);
+    const rows = this.database.prepare(`
+      SELECT record_json FROM execution_evidence ${where} ORDER BY updated_at DESC, id DESC LIMIT ?
+    `).all(...parameters) as unknown as Array<{ record_json: string }>;
+    return rows.map((row) => JSON.parse(row.record_json) as ExecutionEvidence);
   }
 
   savePlanApproval(approval: PlanApproval): void {

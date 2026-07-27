@@ -407,17 +407,29 @@ async function main(): Promise<void> {
       case "validate": {
         if (subcommand === "plan" || subcommand === "focused") {
           const snapshot = core.repository.snapshot();
-          const changedPaths = core.repository.changedPaths();
-          const plan = core.validation.planFocused(changedPaths, []);
+          const changedPaths = core.repository.changedPaths()
+            .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/"));
           if (subcommand === "plan") {
+            const plan = core.validation.planFocused(changedPaths, []);
             if (flagBoolean(parsed, "json")) asJson({ snapshot, changedPaths, validations: plan });
             else if (plan.length === 0) process.stdout.write("No focused validations matched the current changes.\n");
             else for (const item of plan) process.stdout.write(`${item.name}\t${item.reason}\n`);
             return;
           }
-          const evidence = plan.map((item) => ({ selection: item, evidence: core.validation.run(item.name, snapshot) }));
-          for (const item of evidence) core.ledger.append({ kind: "validation.completed", actor: "user", repositorySnapshot: snapshot, payload: { id: item.evidence.id, name: item.evidence.name, status: item.evidence.status, durationMs: item.evidence.durationMs, focused: true } });
-          if (flagBoolean(parsed, "json")) asJson(evidence);
+          const selection = core.selectFocusedValidation();
+          const evidence = [];
+          for (const item of selection.selected) {
+            const executionGrant = core.ledger.getActiveExecutionGrant();
+            if (executionGrant !== undefined) core.grant({
+              permission: "validation.focused",
+              scope: "operation",
+              taskId: executionGrant.taskId,
+              reason: `Explicit CLI focused validation ${item.name}`,
+            });
+            evidence.push({ selection: item, evidence: await core.runValidation(item.name, { selectionId: selection.id }) });
+          }
+          if (flagBoolean(parsed, "json")) asJson({ selection, evidence });
+          else if (selection.noMatch) process.stdout.write("No focused validations matched the current changes.\n");
           else for (const item of evidence) process.stdout.write(`${item.evidence.name}: ${item.evidence.status} (${item.evidence.durationMs} ms)\n`);
           if (evidence.some((item) => item.evidence.status !== "passed")) process.exitCode = 4;
           return;
@@ -431,9 +443,15 @@ async function main(): Promise<void> {
         if (subcommand === "run") {
           const name = rest[0];
           if (!name) throw new Error("Usage: atlr validate run NAME");
-          const snapshot = core.repository.snapshot();
-          const evidence = core.validation.run(name, snapshot);
-          core.ledger.append({ kind: "validation.completed", actor: "user", repositorySnapshot: snapshot, payload: { id: evidence.id, name, status: evidence.status, durationMs: evidence.durationMs } });
+          const action = core.validation.action(name);
+          const executionGrant = core.ledger.getActiveExecutionGrant();
+          if (executionGrant !== undefined) core.grant({
+            permission: action === "validation.focused" ? "validation.focused" : "validation.full_suite",
+            scope: "operation",
+            taskId: executionGrant.taskId,
+            reason: `Explicit CLI validation ${name}`,
+          });
+          const evidence = await core.runValidation(name);
           if (flagBoolean(parsed, "json")) asJson(evidence);
           else process.stdout.write(`${name}: ${evidence.status} (${evidence.durationMs} ms)\n`);
           if (evidence.status !== "passed") process.exitCode = 4;
@@ -446,6 +464,8 @@ async function main(): Promise<void> {
         const evidenceName = flagString(parsed, "name");
         const evidence = core.validation.list({
           currentSnapshot: core.repository.snapshot(),
+          currentChangedPaths: core.repository.changedPaths()
+            .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/")),
           ...(evidenceName === undefined ? {} : { name: evidenceName }),
         });
         if (flagBoolean(parsed, "json")) asJson(evidence);
@@ -666,9 +686,10 @@ async function handleTasks(core: AtelierCore, subcommand: string | undefined, re
       const id = rest[0];
       const reason = flagString(args, "reason");
       if (!id || !reason) throw new Error("Usage: atlr task close ID --reason TEXT");
-      const task = await core.taskProvider.close(id, reason);
-      core.ledger.append({ kind: "task.closed", actor: "user", taskId: task.id, payload: { reason } });
-      asJson(task);
+      const currentTaskId = core.ledger.getState<string>("currentTaskId");
+      if (currentTaskId !== id) throw new Error(`Task ${id} is not the active execution task.`);
+      const result = await core.closeActiveTask(reason);
+      asJson(result);
       return;
     }
     default:

@@ -115,6 +115,56 @@ test("act-mode agent mutation requires both execution authorization and action p
   }).result, "require_approval");
 });
 
+test("focused validation permission never implies full-suite or command permission", () => {
+  const snapshot = {
+    repositoryId: "repository",
+    workspaceId: "workspace",
+    vcs: "git" as const,
+    headCommit: "head",
+    dirtyGeneration: 0,
+    dirtyFingerprint: "clean",
+    indexSchemaVersion: 1,
+  };
+  const focusedGrant: PermissionGrant = {
+    id: "focused-only",
+    executionGrantId: executionGrant.id,
+    permission: "validation.focused",
+    scope: "task",
+    actor: "user",
+    taskId: executionGrant.taskId,
+    repositoryId: executionGrant.repositoryId,
+    reason: "focused only",
+    createdAt: new Date().toISOString(),
+  };
+  const state = { mode: "act" as const, repositoryRoot, planPath, grants: [focusedGrant], executionGrant };
+  const base = { actor: "agent" as const, taskId: executionGrant.taskId, repositorySnapshot: snapshot, risk: "routine" as const, rationale: "validate" };
+  assert.equal(policy.evaluate({ ...base, action: "validation.focused" }, state).result, "allow");
+  assert.equal(policy.evaluate({ ...base, action: "validation.full_suite" }, state).result, "require_approval");
+  assert.equal(policy.evaluate({ ...base, action: "command.execute" }, state).result, "require_approval");
+});
+
+test("task closure is denied until required focused validation is current and passing", () => {
+  const snapshot = {
+    repositoryId: "repository", workspaceId: "workspace", vcs: "git" as const,
+    headCommit: "head", dirtyGeneration: 0, dirtyFingerprint: "clean", indexSchemaVersion: 1,
+  };
+  const closeGrant: PermissionGrant = {
+    id: "close", executionGrantId: executionGrant.id, permission: "task.close", scope: "task",
+    actor: "user", taskId: executionGrant.taskId, repositoryId: executionGrant.repositoryId,
+    reason: "close validated task", createdAt: new Date().toISOString(),
+  };
+  const action = request({ action: "task.close", taskId: executionGrant.taskId, repositorySnapshot: snapshot });
+  const base = { mode: "act" as const, repositoryRoot, planPath, grants: [closeGrant], executionGrant };
+  assert.equal(policy.evaluate(action, {
+    ...base,
+    taskClosure: { ready: false, required: ["focused"], missing: ["focused"], stale: [], failed: [], reason: "missing focused" },
+  }).result, "deny");
+  assert.equal(policy.evaluate(action, {
+    ...base,
+    taskClosure: { ready: true, required: ["focused"], missing: [], stale: [], failed: [], reason: "passing" },
+  }).result, "allow");
+});
+
 test("act mode still requires approval for destructive, external, and unknown operations", () => {
   for (const risk of ["destructive", "external", "unknown"] as const) {
     const decision = policy.evaluate(request({
