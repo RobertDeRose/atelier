@@ -13,7 +13,11 @@ import {
   resolveEditorCommand,
   runInteractiveProcess,
   type ActionKind,
+  type CodeProviderStatus,
+  type CodeSearchHit,
+  type CodeWorkspace,
   type Permission,
+  type RetrievalSessionStatus,
 } from "../../../packages/core/src/index.ts";
 
 interface ParsedArgs {
@@ -62,6 +66,45 @@ function asJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+function retrievalText(retrieval: RetrievalSessionStatus): string {
+  return [
+    `Retrieval session: ${retrieval.sessionId}`,
+    `Decision: ${retrieval.lastDecision?.kind ?? "none"}${retrieval.lastDecision === undefined ? "" : ` — ${retrieval.lastDecision.reason}`}`,
+    `Inventory: ${retrieval.inventory.evidenceCount} entries, ${retrieval.inventory.uniquePathCount} unique paths, freshness ${retrieval.inventory.freshness}`,
+    `Known paths: ${retrieval.inventory.knownPaths.join(", ") || "none"}`,
+    `Resolved symbols: ${retrieval.inventory.resolvedSymbols.join(", ") || "none"}; unresolved: ${retrieval.inventory.unresolvedSymbols.join(", ") || "none"}`,
+    `Remaining provider requests: ${Math.max(0, retrieval.budget.providerRequestsLimit - retrieval.budget.providerRequestsUsed)}`,
+    `Deduplication: ${retrieval.telemetry.duplicateResultsRemoved} results and ${retrieval.telemetry.duplicatePathsRemoved} paths removed`,
+    `Bytes returned: ${retrieval.telemetry.bytesReturned}; truncated: ${retrieval.telemetry.truncated}`,
+  ].join("\n");
+}
+
+function codeJsonPayload(
+  results: CodeSearchHit[],
+  status: CodeProviderStatus,
+  workspace: CodeWorkspace,
+  retrieval: RetrievalSessionStatus,
+) {
+  return {
+    results,
+    decision: retrieval.lastDecision ?? null,
+    telemetry: retrieval.telemetry,
+    inventory: retrieval.inventory,
+    budget: retrieval.budget,
+    diagnostics: retrieval.diagnostics,
+    invalidations: retrieval.invalidations,
+    truncation: { truncated: retrieval.telemetry.truncated },
+    provenance: results.map((result) => result.provenance),
+    scope: {
+      workspaceId: workspace.id,
+      repositoryIds: workspace.repositories.map((repository) => repository.id),
+      provider: status.identity,
+      indexState: status.indexState,
+    },
+    retrieval,
+  };
+}
+
 function commandAvailable(command: string, args: string[] = ["--version"]): { available: boolean; detail: string } {
   const result = spawnSync(command, args, { encoding: "utf8", shell: false, windowsHide: true });
   if (result.error !== undefined) return { available: false, detail: result.error.message };
@@ -75,7 +118,7 @@ function printHelp(): void {
   process.stdout.write(`Atelier prototype
 
 Usage:
-  atlr [--root PATH] <command>
+  atlr [--root PATH] [--retrieval-session ID] <command>
 
 Commands:
   launch [PI_ARGS...]              Launch Pi with the Atelier extension loaded
@@ -134,6 +177,8 @@ async function main(): Promise<void> {
   const parsed = parseArgs(raw);
   const requestedRoot = resolve(flagString(parsed, "root") ?? process.cwd());
   const root = existsSync(requestedRoot) ? realpathSync(requestedRoot) : requestedRoot;
+  const retrievalSessionId = flagString(parsed, "retrieval-session");
+  const coreOpenOptions = retrievalSessionId === undefined ? {} : { retrievalSessionId };
   const [command, subcommand, ...rest] = parsed.positionals;
 
   if (command === undefined || command === "help" || flagBoolean(parsed, "help")) {
@@ -160,7 +205,7 @@ async function main(): Promise<void> {
   }
 
   if (command === "doctor") {
-    const core = AtelierCore.open(root);
+    const core = AtelierCore.open(root, coreOpenOptions);
     try {
       const status = await core.taskProvider.status();
       const editor = (() => {
@@ -186,7 +231,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const core = AtelierCore.open(root);
+  const core = AtelierCore.open(root, coreOpenOptions);
   try {
     switch (command) {
       case "init": {
@@ -437,8 +482,10 @@ async function handleCode(core: AtelierCore, subcommand: string | undefined, res
     return;
   }
   if (subcommand === "status" || subcommand === "doctor") {
-    const status = await core.code.status(provider, core.codeWorkspace());
-    if (flagBoolean(parsed, "json") || subcommand === "doctor") asJson({ workspace: core.codeWorkspace(), status });
+    const workspace = core.codeWorkspace();
+    const status = await core.code.status(provider, workspace);
+    const retrieval = core.code.retrievalStatus();
+    if (flagBoolean(parsed, "json") || subcommand === "doctor") asJson({ workspace, status, retrieval });
     else process.stdout.write([
       `Provider: ${status.identity.name}`,
       `Available: ${status.available}`,
@@ -448,6 +495,8 @@ async function handleCode(core: AtelierCore, subcommand: string | undefined, res
       ...(status.degraded === true ? ["Degraded: true"] : []),
       ...(status.warnings?.map((warning) => `Warning: ${warning}`) ?? []),
       ...(status.detail === undefined ? [] : [`Detail: ${status.detail}`]),
+      "",
+      retrievalText(retrieval),
     ].join("\n") + "\n");
     return;
   }
@@ -473,16 +522,24 @@ async function handleCode(core: AtelierCore, subcommand: string | undefined, res
     if (!query) throw new Error(`Usage: atlr code ${subcommand} QUERY [--provider NAME] [--repo ID] [--limit N] [--mode auto|semantic|hybrid|lexical] [--focus auto|source|tests|docs|all] [--hint IDENTIFIER,...]`);
     const repositoryIds = flagString(parsed, "repo")?.split(",").map((value) => value.trim()).filter(Boolean);
     const limit = Number(flagString(parsed, "limit") ?? "10");
-    const mode = flagString(parsed, "mode") ?? "auto";
+    const mode = flagString(parsed, "mode") ?? (subcommand === "search" ? "semantic" : "auto");
     if (!(["auto", "semantic", "hybrid", "lexical"] as const).includes(mode as "auto" | "semantic" | "hybrid" | "lexical")) throw new Error(`Invalid code search mode: ${mode}`);
     const focus = flagString(parsed, "focus") ?? "auto";
     if (!(["auto", "source", "tests", "docs", "all"] as const).includes(focus as "auto" | "source" | "tests" | "docs" | "all")) throw new Error(`Invalid code search focus: ${focus}`);
     const literalHints = flagString(parsed, "hint")?.split(",").map((value) => value.trim()).filter(Boolean);
+    const workspace = core.codeWorkspace();
     const results = subcommand === "search"
-      ? await core.code.search({ workspace: core.codeWorkspace(), text: query, mode: mode as "auto" | "semantic" | "hybrid" | "lexical", focus: focus as "auto" | "source" | "tests" | "docs" | "all", ...(literalHints === undefined ? {} : { literalHints }), ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 })
-      : await core.code.symbols({ workspace: core.codeWorkspace(), text: query, ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 });
-    if (flagBoolean(parsed, "json")) asJson(results);
-    else for (const hit of results) process.stdout.write(`${hit.repositoryName}:${hit.path}${hit.startLine === undefined ? "" : `:${hit.startLine}`}\t${hit.symbol ?? ""}\t${hit.preview ?? ""}\t[${hit.provenance.provider.name}/${hit.provenance.indexState}]\n`);
+      ? await core.code.search({ workspace, text: query, mode: mode as "auto" | "semantic" | "hybrid" | "lexical", focus: focus as "auto" | "source" | "tests" | "docs" | "all", ...(literalHints === undefined ? {} : { literalHints }), ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 })
+      : await core.code.symbols({ workspace, text: query, ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 });
+    const status = await core.code.status(provider, workspace);
+    const retrieval = core.code.retrievalStatus();
+    if (flagBoolean(parsed, "json")) asJson(codeJsonPayload(results, status, workspace, retrieval));
+    else {
+      for (const hit of results) process.stdout.write(`${hit.repositoryName}:${hit.path}${hit.startLine === undefined ? "" : `:${hit.startLine}`}\t${hit.symbol ?? ""}\t${hit.preview ?? ""}\t[${hit.provenance.provider.name}/${hit.provenance.indexState}]\n`);
+      if (results.length > 0) process.stdout.write("Use built-in read for returned paths; do not search again to inspect known files.\n");
+      if (retrieval.lastDecision?.kind === "no_provider_call") process.stdout.write(`No provider call: ${retrieval.lastDecision.reason}\n`);
+      process.stdout.write(`${retrievalText(retrieval)}\n`);
+    }
     return;
   }
   throw new Error("Usage: atlr code <providers|status|index|search|symbols|related|doctor>");

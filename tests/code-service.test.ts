@@ -127,10 +127,11 @@ test("repeated Working State builds reuse one provider request at the same revis
     core.beginPlan("Update `CodeService` retrieval sessions");
 
     await core.buildWorkingState();
-    await core.buildWorkingState();
+    const repeated = await core.buildWorkingState();
 
     assert.equal(provider.searchCalls, 1);
-    assert.equal(core.code.retrievalStatus().telemetry.cacheHits, 1);
+    assert.equal(core.code.retrievalStatus().telemetry.cacheHits, 0);
+    assert.ok(repeated.retrievalExplanation.some((item) => item.includes("no_provider_call")), "unneeded exact phases must be denied without provider dispatch");
   } finally {
     core.close();
     rmSync(root, { recursive: true, force: true });

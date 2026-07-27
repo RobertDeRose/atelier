@@ -108,7 +108,7 @@ export interface CodeProvenance {
 }
 
 export interface AtelierRetrievalObservation {
-  kind: "provider_call" | "exact_reuse" | "overlap_reuse" | "direct_read" | "invalidated" | "unsupported" | "budget_denied" | "deduplicated";
+  kind: "provider_call" | "exact_reuse" | "overlap_reuse" | "direct_read" | "no_provider_call" | "invalidated" | "unsupported" | "budget_denied" | "deduplicated";
   queryDigest: string;
   reason: string;
   observedAt: string;

@@ -15,6 +15,7 @@ import {
   type ActionRequest,
   type ManualEditEditor,
   type Permission,
+  type RetrievalSessionStatus,
 } from "../../../packages/core/src/index.ts";
 
 const STATUS_KEY = "atlr";
@@ -65,16 +66,61 @@ function codeHitText(hit: Awaited<ReturnType<AtelierCore["code"]["search"]>>[num
   return `${hit.rank}. ${location}${symbol}${score}${preview ? `\n${preview}` : ""}`;
 }
 
-function codeToolError(error: unknown): { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> } {
+function retrievalText(retrieval: RetrievalSessionStatus): string {
+  const remainingRequests = Math.max(0, retrieval.budget.providerRequestsLimit - retrieval.budget.providerRequestsUsed);
+  const remainingPaths = Math.max(0, retrieval.budget.uniquePathsLimit - retrieval.budget.uniquePathsUsed);
+  const inventory = retrieval.inventory.knownPaths.length === 0
+    ? "empty"
+    : retrieval.inventory.knownPaths.join(", ");
+  return [
+    `Retrieval session: ${retrieval.sessionId}`,
+    `Decision: ${retrieval.lastDecision?.kind ?? "none"}${retrieval.lastDecision === undefined ? "" : ` — ${retrieval.lastDecision.reason}`}`,
+    `Inventory: ${retrieval.inventory.evidenceCount} compact entries · ${retrieval.inventory.uniquePathCount} unique paths · freshness ${retrieval.inventory.freshness}`,
+    `Known paths: ${inventory}`,
+    `Resolved symbols: ${retrieval.inventory.resolvedSymbols.join(", ") || "none"}`,
+    `Unresolved symbols: ${retrieval.inventory.unresolvedSymbols.join(", ") || "none"}`,
+    `Remaining provider requests: ${remainingRequests}; remaining unique paths: ${remainingPaths}`,
+    `Deduplication: ${retrieval.telemetry.duplicateResultsRemoved} results · ${retrieval.telemetry.duplicatePathsRemoved} paths · ${retrieval.telemetry.duplicateReferencesRemoved} references removed`,
+    `Bytes returned: ${retrieval.telemetry.bytesReturned}; truncated: ${retrieval.telemetry.truncated}`,
+  ].join("\n");
+}
+
+function codeToolError(
+  error: unknown,
+  core: AtelierCore | undefined = activeCore,
+): { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> } {
   const message = errorMessage(error);
+  const retrieval = core?.code.retrievalStatus();
   return {
-    content: [{ type: "text", text: `Atelier code intelligence failed: ${message}` }],
-    details: { error: message },
+    content: [{
+      type: "text",
+      text: `Atelier code intelligence failed: ${message}`
+        + (retrieval === undefined ? "" : `\n\n${retrievalText(retrieval)}`),
+    }],
+    details: {
+      error: message,
+      ...(retrieval === undefined ? {} : { retrieval }),
+    },
   };
+}
+
+function providerFailureAllowsRawFallback(core: AtelierCore): boolean {
+  const retrieval = core.code.retrievalStatus();
+  if (
+    retrieval.lastDecision?.kind === "budget_denied"
+    || retrieval.lastDecision?.kind === "no_provider_call"
+    || retrieval.lastDecision?.kind === "unsupported"
+  ) return false;
+  return true;
+}
+
+export interface AtelierExtensionOptions {
+  openCore?: (repositoryRoot: string) => AtelierCore;
 }
 
 let activeCore: AtelierCore | undefined;
 let activeRoot: string | undefined;
+let activeCoreFactory: (repositoryRoot: string) => AtelierCore = (repositoryRoot) => AtelierCore.open(repositoryRoot);
 let reviewInProgress = false;
 let providerDiscoveryAttempted = false;
 let rawDiscoveryFallbackAllowed = false;
@@ -107,8 +153,9 @@ function isBroadRawDiscovery(event: any): boolean {
 function coreFor(ctx: ExtensionContext): AtelierCore {
   const root = resolve(ctx.cwd);
   if (activeCore !== undefined && activeRoot === root) return activeCore;
+  activeCore?.endRetrievalSession();
   activeCore?.close();
-  activeCore = AtelierCore.open(root);
+  activeCore = activeCoreFactory(root);
   activeRoot = root;
   resetDiscoveryRouting();
   return activeCore;
@@ -381,8 +428,9 @@ function planInstruction(core: AtelierCore, objective: string): string {
   return `[Atelier PLAN MODE]\n\n` +
     `Investigate the repository without modifying source code, dependencies, repository state, or task-provider state. ` +
     `Write or update the implementation plan only at ${core.config.planPath}. ` +
-    "Begin repository discovery with the active atlr_code_search tool and use atlr_code_symbols for identifier lookup. " +
-    "Read exact returned files afterward. Do not use broad rg, grep, find, fd, tree, or ls discovery unless Atelier reports unavailable, degraded, failed, or empty provider evidence. " +
+    "Begin with one focused semantic atlr_code_search query. Inspect its compact inventory before any additional retrieval. " +
+    "Use atlr_code_symbols only for exact identifiers the inventory marks unresolved, and use built-in read for known or returned paths. " +
+    "Do not use broad rg, grep, find, fd, tree, or ls discovery unless Atelier reports unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence. Cache hits and budget denial never permit raw fallback. " +
     "Use stable task IDs, explicit dependencies, scope, validation steps, and observable completion criteria. " +
     "Do not ask the user to describe textual plan edits after the draft; Atelier will open the plan in their configured editor. " +
     `When the draft is complete, stop.\n\nObjective: ${objective || "Create an implementation plan for the current request."}`;
@@ -463,14 +511,15 @@ async function approveAndReconcile(
   );
 }
 
-export default function atelierExtension(pi: ExtensionAPI): void {
+export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExtensionOptions = {}): void {
+  activeCoreFactory = options.openCore ?? ((repositoryRoot) => AtelierCore.open(repositoryRoot));
   pi.registerTool({
     name: "atlr_code_status",
     label: "Atelier Code Status",
-    description: "Inspect the configured Atelier code-intelligence provider, capabilities, and index state without modifying the repository.",
-    promptSnippet: "Inspect Atelier code-provider health before falling back to raw repository scanning",
+    description: "Inspect provider health plus the current retrieval session inventory, freshness, decisions, remaining budgets, deduplication, and truncation before requesting more evidence or considering raw scanning.",
+    promptSnippet: "Inspect Atelier provider health and the compact evidence inventory before any additional retrieval",
     promptGuidelines: [
-      "Use atlr_code_status when atlr_code_search fails or reports unavailable, unhealthy, stale, or degraded provider state.",
+      "Inspect the returned inventory before another search. Raw scanning is available only for unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence—not for cache hits or budget denial.",
     ],
     parameters: objectSchema({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
@@ -478,6 +527,16 @@ export default function atelierExtension(pi: ExtensionAPI): void {
         const core = coreFor(ctx);
         const workspace = core.codeWorkspace();
         const status = await core.code.status(undefined, workspace);
+        const retrieval = core.code.retrievalStatus();
+        const providerAllowsFallback = status.available === false
+          || status.healthy === false
+          || status.indexState === "stale"
+          || status.indexState === "failed"
+          || status.degraded === true;
+        if (providerAllowsFallback) {
+          providerDiscoveryAttempted = true;
+          rawDiscoveryFallbackAllowed = true;
+        }
         const text = [
           `Provider: ${status.identity.name}${status.identity.version ? ` ${status.identity.version}` : ""}`,
           `Available: ${status.available}`,
@@ -486,8 +545,10 @@ export default function atelierExtension(pi: ExtensionAPI): void {
           `Capabilities: ${status.capabilities.join(", ") || "none"}`,
           ...(status.warnings?.map((warning) => `Warning: ${warning}`) ?? []),
           ...(status.detail === undefined ? [] : [`Detail: ${status.detail}`]),
+          "",
+          retrievalText(retrieval),
         ].join("\n");
-        return { content: [{ type: "text", text }], details: { status, workspaceId: workspace.id } };
+        return { content: [{ type: "text", text }], details: { status, workspaceId: workspace.id, retrieval } };
       } catch (error) {
         rawDiscoveryFallbackAllowed = true;
         return codeToolError(error);
@@ -498,11 +559,13 @@ export default function atelierExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "atlr_code_search",
     label: "Atelier Code Search",
-    description: "Search the configured Atelier workspace through the accepted code-intelligence provider with bounded results and provenance.",
-    promptSnippet: "Search repository implementation, tests, and documentation through Atelier code intelligence",
+    description: "Run one focused semantic discovery through Atelier, or reuse current scoped evidence without a provider call. Returns provenance, compact inventory, decision, remaining budgets, deduplication, freshness, and truncation.",
+    promptSnippet: "Start with one focused semantic discovery, inspect its inventory, then read returned paths directly",
     promptGuidelines: [
-      "You MUST use atlr_code_search as the first repository-discovery step before broad grep, find, rg, ls, or directory-wide reads.",
-      "Use built-in read after atlr_code_search identifies an exact file or range; use raw grep/find only when Atelier explicitly reports unavailable, degraded, or no usable evidence.",
+      "Use exactly one focused semantic atlr_code_search for initial discovery before broad raw scans.",
+      "Before another search, inspect the returned inventory; Atelier will reuse covered evidence or recommend no provider call.",
+      "Use built-in read for every known or returned path. Do not search again merely to inspect a known file.",
+      "Raw scanning is allowed only after unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence; budget denial is not fallback permission.",
     ],
     parameters: objectSchema({
       query: stringSchema("Natural-language or identifier-oriented code search query."),
@@ -520,26 +583,37 @@ export default function atelierExtension(pi: ExtensionAPI): void {
           workspace,
           text: input.query,
           ...(input.focus === undefined ? {} : { focus: input.focus }),
-          ...(input.mode === undefined ? {} : { mode: input.mode }),
+          mode: input.mode ?? "semantic",
           ...(input.limit === undefined ? {} : { limit: input.limit }),
         });
         const status = await core.code.status(undefined, workspace);
-        rawDiscoveryFallbackAllowed = results.length === 0 || status.available === false || status.healthy === false ||
-          status.degraded === true || results.some((hit) => hit.provenance.degraded === true);
-        const text = results.length === 0
+        const retrieval = core.code.retrievalStatus();
+        const genuinelyEmpty = results.length === 0
+          && (retrieval.lastDecision?.kind === "provider_call" || retrieval.lastDecision?.kind === "invalidated");
+        rawDiscoveryFallbackAllowed = genuinelyEmpty || status.available === false || status.healthy === false ||
+          status.indexState === "stale" || status.indexState === "failed" || status.degraded === true ||
+          results.some((hit) => hit.provenance.degraded === true);
+        const readGuidance = results.length === 0
+          ? ""
+          : `\n\nNext: use built-in read for the returned path${results.length === 1 ? "" : "s"}; do not issue another search to inspect known files.`;
+        const text = (results.length === 0
           ? `No Atelier code matches for: ${input.query}\nProvider: ${status.identity.name} · index ${status.indexState}`
           : [
               `Atelier code search: ${input.query}`,
               `Provider: ${status.identity.name} · index ${status.indexState} · ${results.length} result(s)`,
               "",
               ...results.map(codeHitText),
-            ].join("\n");
+            ].join("\n"))
+          + readGuidance
+          + `\n\n${retrievalText(retrieval)}`;
         return {
           content: [{ type: "text", text }],
           details: {
             query: input.query,
             provider: status.identity,
             indexState: status.indexState,
+            status,
+            retrieval,
             results: results.map((hit) => ({
               rank: hit.rank,
               repositoryId: hit.repositoryId,
@@ -550,12 +624,15 @@ export default function atelierExtension(pi: ExtensionAPI): void {
               symbol: hit.symbol,
               reference: hit.reference,
               provenance: hit.provenance,
+              provenanceObservations: hit.provenanceObservations,
+              atelierObservations: hit.atelierObservations,
             })),
           },
         };
       } catch (error) {
-        rawDiscoveryFallbackAllowed = true;
-        return codeToolError(error);
+        const core = activeCore;
+        rawDiscoveryFallbackAllowed = core === undefined ? true : providerFailureAllowsRawFallback(core);
+        return codeToolError(error, core);
       }
     },
   });
@@ -563,10 +640,11 @@ export default function atelierExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "atlr_code_symbols",
     label: "Atelier Symbol Search",
-    description: "Find symbol definitions and references through the configured Atelier code-intelligence provider.",
-    promptSnippet: "Find code symbols through Atelier instead of broad text scanning",
+    description: "Resolve an exact identifier only when the current scoped inventory marks it unresolved after semantic discovery. Resolved or unplanned identifiers avoid a provider call.",
+    promptSnippet: "Use exact symbol lookup only for identifiers marked unresolved in the current inventory",
     promptGuidelines: [
-      "Use atlr_code_symbols for function, class, type, command, and module discovery before raw symbol grep.",
+      "Do not call atlr_code_symbols before one focused semantic discovery.",
+      "Call it only for an identifier listed under unresolved symbols; use built-in read for returned definition paths.",
     ],
     parameters: objectSchema({
       query: stringSchema("Symbol name or identifier fragment."),
@@ -583,14 +661,25 @@ export default function atelierExtension(pi: ExtensionAPI): void {
           text: input.query,
           ...(input.limit === undefined ? {} : { limit: input.limit }),
         });
-        rawDiscoveryFallbackAllowed = results.length === 0;
-        const text = results.length === 0
-          ? `No Atelier symbols matched: ${input.query}`
-          : results.map(codeHitText).join("\n\n");
+        const status = await core.code.status(undefined, workspace);
+        const retrieval = core.code.retrievalStatus();
+        rawDiscoveryFallbackAllowed = retrieval.lastDecision?.kind === "no_provider_call"
+          || retrieval.lastDecision?.kind === "exact_reuse"
+          ? false
+          : results.length === 0 || status.available === false || status.healthy === false
+            || status.indexState === "stale" || status.indexState === "failed" || status.degraded === true;
+        const text = (results.length === 0
+          ? retrieval.lastDecision?.kind === "no_provider_call"
+            ? `No symbol provider call: ${retrieval.lastDecision.reason}`
+            : `No Atelier symbols matched: ${input.query}`
+          : `${results.map(codeHitText).join("\n\n")}\n\nNext: use built-in read for the returned definition path.`)
+          + `\n\n${retrievalText(retrieval)}`;
         return {
           content: [{ type: "text", text }],
           details: {
             query: input.query,
+            status,
+            retrieval,
             results: results.map((hit) => ({
               rank: hit.rank,
               repositoryId: hit.repositoryId,
@@ -601,18 +690,22 @@ export default function atelierExtension(pi: ExtensionAPI): void {
               symbol: hit.symbol,
               reference: hit.reference,
               provenance: hit.provenance,
+              provenanceObservations: hit.provenanceObservations,
+              atelierObservations: hit.atelierObservations,
             })),
           },
         };
       } catch (error) {
-        rawDiscoveryFallbackAllowed = true;
-        return codeToolError(error);
+        const core = activeCore;
+        rawDiscoveryFallbackAllowed = core === undefined ? true : providerFailureAllowsRawFallback(core);
+        return codeToolError(error, core);
       }
     },
   });
   pi.on("session_start", async (_event, ctx) => {
     resetDiscoveryRouting();
     const core = coreFor(ctx);
+    core.beginRetrievalSession();
     ensureCodeToolsActive(pi, core);
     stopIndexStatusUpdates?.();
     stopIndexStatusUpdates = core.code.onIndexStatus(() => {
@@ -632,6 +725,7 @@ export default function atelierExtension(pi: ExtensionAPI): void {
     ctx.ui.setStatus(STATUS_KEY, undefined);
     stopIndexStatusUpdates?.();
     stopIndexStatusUpdates = undefined;
+    activeCore?.endRetrievalSession();
     activeCore?.close();
     activeCore = undefined;
     activeRoot = undefined;
@@ -650,8 +744,10 @@ export default function atelierExtension(pi: ExtensionAPI): void {
       return {
         block: true,
         reason: providerDiscoveryAttempted
-          ? "Atelier code intelligence returned usable evidence. Read the exact returned paths instead of broad grep/find scanning."
-          : "Plan mode requires provider-first discovery. Call atlr_code_search or atlr_code_symbols before broad grep/find/rg/ls scanning.",
+          ? core.code.retrievalStatus().lastDecision?.kind === "budget_denied"
+            ? "Atelier retrieval budget was denied. Inspect and reuse the current inventory; budget exhaustion does not permit raw scanning."
+            : "Atelier code intelligence returned usable evidence. Read the exact returned paths instead of broad grep/find scanning."
+          : "Plan mode requires provider-first discovery. Call atlr_code_search before broad grep/find/rg/ls scanning.",
       };
     }
     const request = requestForTool(event, ctx, core);
@@ -661,19 +757,29 @@ export default function atelierExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
-    resetDiscoveryRouting();
     const core = coreFor(ctx);
     ensureCodeToolsActive(pi, core);
     const state = await core.buildWorkingState();
+    const retrieval = core.code.retrievalStatus();
+    if (state.retrievalQueries.length > 0 || retrieval.decisions.length > 0) {
+      providerDiscoveryAttempted = true;
+      rawDiscoveryFallbackAllowed = retrieval.lastDecision?.kind === "budget_denied"
+        || retrieval.lastDecision?.kind === "no_provider_call"
+        || retrieval.lastDecision?.kind === "exact_reuse"
+        ? false
+        : state.codeEvidence.length === 0
+          || state.retrievalQueries.some((query) => query.degraded)
+          || state.codeEvidence.some((item) => item.degraded || item.indexState === "stale" || item.indexState === "failed");
+    }
     const activeContext = core.workingStateBuilder.toMarkdown(state);
     const retrievalInstruction = core.config.codeProvider === "disabled"
       ? "Atelier code intelligence is disabled; use exact built-in read/grep/find operations as needed."
-      : "Provider-first retrieval is enforced: you MUST call atlr_code_search before broad repository discovery and atlr_code_symbols before broad identifier scans. Read exact returned files afterward. Broad grep/find/rg/ls is allowed only after Atelier reports unavailable, degraded, or no usable evidence.";
+      : "Efficient provider-first retrieval is enforced: start with one focused semantic atlr_code_search, inspect the returned inventory before another request, use atlr_code_symbols only for identifiers marked unresolved, and use built-in read for known or returned paths. Broad grep/find/rg/ls is allowed only after unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence—not after cache reuse or budget denial.";
     const modeInstruction = state.mode === "plan"
       ? `Only ${core.config.planPath} may be modified. Task-provider and source mutations are prohibited until approval. Read-only repository investigation never requires approval. ${retrievalInstruction}`
       : state.mode === "investigate"
-        ? "Investigate only. Any mutation requires a distinct Atelier approval."
-        : "Implement only the selected task and approved scope. Routine changes, validations, task updates, and local commits inside the active repository are approved by default. Ask only before destructive operations, external side effects, publication, or work outside the repository. Do not report implementation complete with uncommitted changes: run the appropriate validation and create a local Jujutsu change or Git commit before stopping.";
+        ? `Investigate only. Any mutation requires a distinct Atelier approval. ${retrievalInstruction}`
+        : `Implement only the selected task and approved scope. Routine changes, validations, task updates, and local commits inside the active repository are approved by default. Ask only before destructive operations, external side effects, publication, or work outside the repository. Do not report implementation complete with uncommitted changes: run the appropriate validation and create a local Jujutsu change or Git commit before stopping. ${retrievalInstruction}`;
     return {
       systemPrompt: `${event.systemPrompt}\n\n## Atelier enforced working state\n\n${modeInstruction}\n\n${activeContext}`,
     };
@@ -820,6 +926,11 @@ export default function atelierExtension(pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       const core = coreFor(ctx);
       const status = await core.code.status(undefined, core.codeWorkspace());
+      const retrieval = core.code.retrievalStatus();
+      if (!status.available || !status.healthy || status.indexState === "stale" || status.indexState === "failed" || status.degraded === true) {
+        providerDiscoveryAttempted = true;
+        rawDiscoveryFallbackAllowed = true;
+      }
       ctx.ui.notify([
         `Provider: ${status.identity.name}`,
         `Available: ${status.available}`,
@@ -827,6 +938,8 @@ export default function atelierExtension(pi: ExtensionAPI): void {
         `Index: ${status.indexState}`,
         `Capabilities: ${status.capabilities.join(", ") || "none"}`,
         ...(status.detail === undefined ? [] : [`Detail: ${status.detail}`]),
+        "",
+        retrievalText(retrieval),
       ].join("\n"), "info");
     },
   });
@@ -849,10 +962,19 @@ export default function atelierExtension(pi: ExtensionAPI): void {
         return;
       }
       const core = coreFor(ctx);
-      const results = await core.code.search({ workspace: core.codeWorkspace(), text: query, limit: 10 });
-      const message = results.length === 0
+      providerDiscoveryAttempted = true;
+      const workspace = core.codeWorkspace();
+      const results = await core.code.search({ workspace, text: query, mode: "semantic", limit: 10 });
+      const status = await core.code.status(undefined, workspace);
+      const retrieval = core.code.retrievalStatus();
+      rawDiscoveryFallbackAllowed = (results.length === 0
+        && (retrieval.lastDecision?.kind === "provider_call" || retrieval.lastDecision?.kind === "invalidated"))
+        || !status.available || !status.healthy || status.indexState === "stale" || status.indexState === "failed"
+        || status.degraded === true || results.some((item) => item.provenance.degraded === true);
+      const message = (results.length === 0
         ? "No code matches."
-        : results.map((item) => `${item.repositoryName}:${item.path}${item.startLine === undefined ? "" : `:${item.startLine}`}\n${item.preview ?? ""} [${item.provenance.provider.name}/${item.provenance.indexState}]`).join("\n\n");
+        : `${results.map((item) => `${item.repositoryName}:${item.path}${item.startLine === undefined ? "" : `:${item.startLine}`}\n${item.preview ?? ""} [${item.provenance.provider.name}/${item.provenance.indexState}]`).join("\n\n")}\n\nUse built-in read for returned paths.`)
+        + `\n\n${retrievalText(retrieval)}`;
       ctx.ui.notify(message, "info");
     },
   });
@@ -866,10 +988,21 @@ export default function atelierExtension(pi: ExtensionAPI): void {
         return;
       }
       const core = coreFor(ctx);
-      const results = await core.code.symbols({ workspace: core.codeWorkspace(), text: query, limit: 20 });
-      const message = results.length === 0
-        ? "No symbols matched."
-        : results.map((item) => `${item.symbol ?? "symbol"} ${item.repositoryName}:${item.path}${item.startLine === undefined ? "" : `:${item.startLine}`}`).join("\n");
+      providerDiscoveryAttempted = true;
+      const workspace = core.codeWorkspace();
+      const results = await core.code.symbols({ workspace, text: query, limit: 20 });
+      const status = await core.code.status(undefined, workspace);
+      const retrieval = core.code.retrievalStatus();
+      rawDiscoveryFallbackAllowed = retrieval.lastDecision?.kind !== "no_provider_call"
+        && retrieval.lastDecision?.kind !== "exact_reuse"
+        && (results.length === 0 || !status.available || !status.healthy || status.indexState === "stale"
+          || status.indexState === "failed" || status.degraded === true);
+      const message = (results.length === 0
+        ? retrieval.lastDecision?.kind === "no_provider_call"
+          ? `No symbol provider call: ${retrieval.lastDecision.reason}`
+          : "No symbols matched."
+        : `${results.map((item) => `${item.symbol ?? "symbol"} ${item.repositoryName}:${item.path}${item.startLine === undefined ? "" : `:${item.startLine}`}`).join("\n")}\n\nUse built-in read for returned paths.`)
+        + `\n\n${retrievalText(retrieval)}`;
       ctx.ui.notify(message, "info");
     },
   });
@@ -926,6 +1059,10 @@ export default function atelierExtension(pi: ExtensionAPI): void {
     },
   });
 
+}
+
+export default function atelierExtension(pi: ExtensionAPI): void {
+  registerAtelierExtension(pi);
 }
 
 function errorMessage(error: unknown): string {

@@ -135,6 +135,7 @@ export class CodeService {
   private readonly evidenceEntryKeys = new Set<string>();
   private readonly referenceKeys = new Set<string>();
   private readonly symbolKeys = new Set<string>();
+  private readonly unresolvedSymbolKeys = new Set<string>();
   private readonly chunkKeys = new Set<string>();
   private diagnostics: RetrievalDiagnostic[] = [];
   private decisions: RetrievalDecisionRecord[] = [];
@@ -192,13 +193,20 @@ export class CodeService {
     this.evidenceEntryKeys.clear();
     this.referenceKeys.clear();
     this.symbolKeys.clear();
+    this.unresolvedSymbolKeys.clear();
     this.chunkKeys.clear();
     this.diagnostics = [];
     this.decisions = [];
     this.invalidations = [];
     this.lastDecision = undefined;
     this.telemetry = emptyTelemetry();
+    this.persistCheckpoint();
     return sessionId;
+  }
+
+  endRetrievalSession(): string {
+    this.persistCheckpoint("closed");
+    return this.sessionId;
   }
 
   retrievalStatus(): RetrievalSessionStatus {
@@ -228,9 +236,16 @@ export class CodeService {
       inventory: {
         sessionId: this.sessionId,
         queryCount: this.hitQueries.size + this.relationshipQueries.size,
+        semanticDiscoveryComplete: [...this.hitQueries.values()].some((cached) =>
+          cached.query.operation === "search"
+          && cached.complete
+          && !cached.truncated
+          && !cached.degraded
+          && cached.freshness === "current"),
         evidenceCount: this.evidenceEntryKeys.size,
         uniquePathCount: this.pathKeys.size,
         resolvedSymbols: [...new Set(activeHits.flatMap((hit) => hit.symbol === undefined ? [] : [hit.symbol]))].sort(),
+        unresolvedSymbols: [...new Set([...this.unresolvedSymbolKeys].map((key) => key.slice(key.lastIndexOf("\0") + 1)))].sort(),
         knownPaths: [...new Set(activeHits.map((hit) => hit.path))].sort(),
         freshness,
         budget,
@@ -243,6 +258,27 @@ export class CodeService {
         ...this.hitQueries.values(),
         ...this.relationshipQueries.values(),
       ].map((entry) => entry.query.binding)),
+      semanticDiscoveryBindings: uniqueBindings([...this.hitQueries.values()]
+        .filter((cached) => cached.query.operation === "search"
+          && cached.complete
+          && !cached.truncated
+          && !cached.degraded
+          && cached.freshness === "current")
+        .map((cached) => cached.query.binding)),
+      unresolvedSymbolScopes: [...this.unresolvedSymbolKeys].flatMap((key) => {
+        const separator = key.lastIndexOf("\0");
+        if (separator < 0) return [];
+        try {
+          const binding = JSON.parse(key.slice(0, separator)) as CanonicalRetrievalQuery["binding"];
+          return [{
+            workspaceId: binding.workspaceId,
+            repositoryIds: binding.repositories.map((repository) => repository.repositoryId),
+            symbol: key.slice(separator + 1),
+          }];
+        } catch {
+          return [];
+        }
+      }),
     };
   }
 
@@ -363,6 +399,7 @@ export class CodeService {
     }
     const degraded = status.degraded === true || results.some((hit) => hit.provenance.degraded === true);
     const bounded = this.ingestHits(query, options.workspace, results.slice(0, limit), results.length > limit);
+    this.updateSymbolResolution(query, bounded.hits, options.literalHints);
     this.cacheHitQuery(query, bounded.hits, !bounded.truncated, bounded.truncated, degraded, cacheFreshness(status));
     const output = this.returnHits(bounded.hits, query, this.lastDecision!);
     this.recordCompletion("code.search_completed", selected, options.workspace, query, output.length, bounded.truncated, degraded);
@@ -460,14 +497,53 @@ export class CodeService {
       filters: options.repositoryIds === undefined ? {} : { repositoryIds: options.repositoryIds },
       requestedLimit: limit,
     });
+    if (
+      status.available === false
+      || status.healthy === false
+      || status.indexState === "stale"
+      || status.indexState === "failed"
+      || status.degraded === true
+    ) {
+      const reason = `Code provider ${selected.name} is unavailable, unhealthy, stale, failed, or degraded; current symbol evidence was invalidated.`;
+      this.evictBinding(query);
+      this.lastDecision = { kind: "invalidated", reason };
+      this.telemetry.invalidations += 1;
+      this.invalidations.push(createInvalidation(reason, [query.digest]));
+      this.diagnostics.push({ code: "provider_unavailable", level: "error", message: reason, queryDigest: query.digest, providerCallRequired: false });
+      this.recordDecision(query, this.lastDecision);
+      this.persistCheckpoint();
+      throw new Error(reason);
+    }
     const reusable = this.reuseHits(query, status);
     if (reusable !== undefined) return this.returnHits(reusable, query, this.lastDecision!);
-    const overlap = statusAllowsReuse(status) ? this.overlapHits(query) : [];
-    if (overlap.length > 0) {
+    const resolved = statusAllowsReuse(status)
+      ? this.currentInventoryHits(query, (hit) => hit.symbol === query.normalizedText)
+      : [];
+    if (resolved.length > 0) {
       this.telemetry.overlapReuses += 1;
-      this.lastDecision = { kind: "overlap_reuse", reason: "current scoped inventory explicitly resolves the requested symbol" };
-      this.cacheHitQuery(query, overlap, true, false, false, cacheFreshness(status));
-      return this.returnHits(overlap, query, this.lastDecision);
+      this.lastDecision = { kind: "overlap_reuse", reason: "current scoped inventory already resolves this identifier; no symbol provider call is needed" };
+      this.cacheHitQuery(query, resolved, true, false, false, cacheFreshness(status));
+      return this.returnHits(resolved, query, this.lastDecision);
+    }
+    const unresolvedKey = scopedSymbolKey(query, query.normalizedText);
+    const discoveryComplete = this.semanticDiscoveryComplete(query);
+    if (!discoveryComplete || !this.unresolvedSymbolKeys.has(unresolvedKey)) {
+      this.lastDecision = {
+        kind: "no_provider_call",
+        reason: discoveryComplete
+          ? `Identifier ${query.normalizedText} is not marked unresolved in the current scoped inventory.`
+          : "Run one focused semantic discovery first; symbol lookup is allowed only for identifiers that remain unresolved.",
+      };
+      this.diagnostics.push({
+        code: "symbol_lookup_not_required",
+        level: "info",
+        message: this.lastDecision.reason,
+        queryDigest: query.digest,
+        providerCallRequired: false,
+      });
+      this.recordDecision(query, this.lastDecision);
+      this.persistCheckpoint();
+      return [];
     }
     if (!status.capabilities.includes("symbol.search")) {
       this.lastDecision = { kind: "unsupported", reason: `Code provider ${selected.name} does not support symbol.search.` };
@@ -488,8 +564,9 @@ export class CodeService {
       this.recordProviderError(query, error);
       throw error;
     }
-    const degraded = status.degraded === true || results.some((hit) => hit.provenance.degraded === true);
+    const degraded = results.some((hit) => hit.provenance.degraded === true);
     const bounded = this.ingestHits(query, options.workspace, results.slice(0, limit), results.length > limit);
+    this.updateSymbolResolution(query, bounded.hits, [query.normalizedText]);
     this.cacheHitQuery(query, bounded.hits, !bounded.truncated, bounded.truncated, degraded, cacheFreshness(status));
     const output = this.returnHits(bounded.hits, query, this.lastDecision!);
     this.recordCompletion("code.symbols_completed", selected, options.workspace, query, output.length, bounded.truncated, degraded);
@@ -624,9 +701,14 @@ export class CodeService {
     return undefined;
   }
 
+  private evictBinding(query: CanonicalRetrievalQuery): void {
+    this.clearUnresolvedForBinding(query);
+    for (const [digest, cached] of this.hitQueries) if (sameBinding(cached.query, query)) this.hitQueries.delete(digest);
+    for (const [digest, cached] of this.relationshipQueries) if (sameBinding(cached.query, query)) this.relationshipQueries.delete(digest);
+  }
+
   private invalidateCachedQuery(query: CanonicalRetrievalQuery, reason: string): void {
-    this.hitQueries.delete(query.digest);
-    this.relationshipQueries.delete(query.digest);
+    this.evictBinding(query);
     this.lastDecision = { kind: "invalidated", reason };
     this.telemetry.invalidations += 1;
     this.invalidations.push(createInvalidation(reason, [query.digest]));
@@ -650,8 +732,7 @@ export class CodeService {
       return;
     }
     const reason = bindingDifference(previous.query, query);
-    this.hitQueries.delete(previous.query.digest);
-    this.relationshipQueries.delete(previous.query.digest);
+    this.evictBinding(previous.query);
     this.lastDecision = { kind: "invalidated", reason };
     this.telemetry.invalidations += 1;
     this.invalidations.push(createInvalidation(reason, [previous.query.digest]));
@@ -675,8 +756,7 @@ export class CodeService {
     return this.currentInventoryHits(
       query,
       (hit) => hit.symbol === query.normalizedText,
-      (source) => source.query.operation === "symbols"
-        && source.complete
+      (source) => source.complete
         && !source.truncated
         && !source.degraded
         && source.freshness === "current",
@@ -966,6 +1046,36 @@ export class CodeService {
     };
   }
 
+  private clearUnresolvedForBinding(query: CanonicalRetrievalQuery): void {
+    const prefix = `${retrievalBindingKey(query)}\0`;
+    for (const key of this.unresolvedSymbolKeys) if (key.startsWith(prefix)) this.unresolvedSymbolKeys.delete(key);
+  }
+
+  private semanticDiscoveryComplete(query: CanonicalRetrievalQuery): boolean {
+    return [...this.hitQueries.values()].some((cached) =>
+      cached.query.operation === "search"
+      && sameBinding(cached.query, query)
+      && cached.complete
+      && !cached.truncated
+      && !cached.degraded
+      && cached.freshness === "current");
+  }
+
+  private updateSymbolResolution(
+    query: CanonicalRetrievalQuery,
+    hits: CodeSearchHit[],
+    explicitIdentifiers: string[] | undefined,
+  ): void {
+    const resolved = new Set(hits.flatMap((hit) => hit.symbol === undefined ? [] : [hit.symbol]));
+    const candidates = identifierCandidates(query.normalizedText, explicitIdentifiers);
+    for (const symbol of resolved) this.unresolvedSymbolKeys.delete(scopedSymbolKey(query, symbol));
+    for (const candidate of candidates) {
+      const key = scopedSymbolKey(query, candidate);
+      if (resolved.has(candidate)) this.unresolvedSymbolKeys.delete(key);
+      else this.unresolvedSymbolKeys.add(key);
+    }
+  }
+
   private compactEvidence(): PersistedRetrievalEvidence[] {
     const evidence = new Map<string, PersistedRetrievalEvidence>();
     for (const [pathKey, entry] of this.inventoryHits) {
@@ -1010,7 +1120,7 @@ export class CodeService {
     return [...evidence.values()].sort((left, right) => left.digest.localeCompare(right.digest));
   }
 
-  private persistCheckpoint(): void {
+  private persistCheckpoint(status: PersistedRetrievalCheckpoint["status"] = "active"): void {
     const evidence = this.compactEvidence();
     const evidenceForQuery = (queryDigest: string) => evidence
       .filter((item) => item.queryDigests.includes(queryDigest))
@@ -1041,7 +1151,7 @@ export class CodeService {
     ];
     this.ledger.saveRetrievalCheckpoint({
       sessionId: this.sessionId,
-      status: "active",
+      status,
       startedAt: this.sessionStartedAt,
       updatedAt: nowIso(),
       budget: this.budgetSnapshot(),
@@ -1114,6 +1224,15 @@ export class CodeService {
         });
         this.hitQueries.set(request.query.digest, { ...request, hits });
       }
+    }
+    for (const cached of this.hitQueries.values()) {
+      this.updateSymbolResolution(
+        cached.query,
+        cached.hits,
+        cached.query.operation === "symbols"
+          ? [cached.query.normalizedText]
+          : cached.query.filters.literalHints,
+      );
     }
     for (let index = this.pathKeys.size; index < checkpoint.budget.uniquePathsUsed; index += 1) {
       this.pathKeys.add(`persisted-path-budget:${index}`);
@@ -1384,6 +1503,37 @@ function pathCandidates(text: string): string[] {
 
 function isIdentifier(text: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(text);
+}
+
+const NON_SYMBOL_IDENTIFIERS = new Set([
+  "code", "file", "implementation", "path", "plan", "produce", "provider", "repository", "state", "task", "test", "working",
+]);
+
+function identifierCandidates(text: string, explicit: string[] | undefined): string[] {
+  const quoted = [...text.matchAll(/`([^`]+)`/g)].flatMap((match) => match[1] === undefined ? [] : [match[1]]);
+  const explicitIdentifiers = [...(explicit ?? []), ...quoted]
+    .filter((value) => isIdentifier(value)
+      && !value.includes("/")
+      && !value.includes(".")
+      && !NON_SYMBOL_IDENTIFIERS.has(value.toLowerCase()));
+  const inferred = (text.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []).filter(isCodeShapedIdentifier);
+  return [...new Set([...explicitIdentifiers, ...inferred])];
+}
+
+function isCodeShapedIdentifier(value: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value)
+    && (value.includes("_")
+      || value.includes("$")
+      || /[a-z0-9][A-Z]/.test(value)
+      || /^[A-Z][A-Z0-9_]{2,}$/.test(value));
+}
+
+function retrievalBindingKey(query: CanonicalRetrievalQuery): string {
+  return JSON.stringify(query.binding);
+}
+
+function scopedSymbolKey(query: CanonicalRetrievalQuery, symbol: string): string {
+  return `${retrievalBindingKey(query)}\0${symbol}`;
 }
 
 function normalizePath(path: string): string {

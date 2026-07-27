@@ -90,9 +90,11 @@ export interface EvidenceIdentity {
 export interface RetrievalInventorySummary {
   sessionId: string;
   queryCount: number;
+  semanticDiscoveryComplete: boolean;
   evidenceCount: number;
   uniquePathCount: number;
   resolvedSymbols: string[];
+  unresolvedSymbols: string[];
   knownPaths: string[];
   freshness: CodeFreshness;
   budget: RetrievalBudgetSnapshot;
@@ -103,6 +105,7 @@ export type RetrievalReuseDecisionKind =
   | "exact_reuse"
   | "overlap_reuse"
   | "direct_read"
+  | "no_provider_call"
   | "invalidated"
   | "unsupported"
   | "budget_denied";
@@ -196,6 +199,12 @@ export interface RetrievalPersistenceStatus {
   bytesLimit: number;
 }
 
+export interface ScopedUnresolvedSymbol {
+  workspaceId: string;
+  repositoryIds: string[];
+  symbol: string;
+}
+
 export interface RetrievalSessionStatus {
   sessionId: string;
   lastDecision?: RetrievalReuseDecision;
@@ -208,6 +217,8 @@ export interface RetrievalSessionStatus {
   decisions: RetrievalDecisionRecord[];
   evidence: PersistedRetrievalEvidence[];
   bindings: RetrievalRevisionBinding[];
+  semanticDiscoveryBindings: RetrievalRevisionBinding[];
+  unresolvedSymbolScopes: ScopedUnresolvedSymbol[];
 }
 
 export interface RetrievalTelemetry {

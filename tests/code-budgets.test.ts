@@ -277,8 +277,9 @@ test("Given inventoried paths and symbols, direct-read and safe overlap decision
   const { code, ledger, provider } = service();
   try {
     await code.search({ workspace: workspace(), text: "service", repositoryIds: ["a"], limit: 5 });
-    await code.symbols({ workspace: workspace(), text: "CodeService", repositoryIds: ["a"], limit: 5 });
-    assert.equal(provider.symbolCalls.length, 1, "semantic evidence alone must not masquerade as complete symbol coverage");
+    const alreadyResolved = await code.symbols({ workspace: workspace(), text: "CodeService", repositoryIds: ["a"], limit: 5 });
+    assert.equal(provider.symbolCalls.length, 0, "resolved semantic evidence must suppress redundant symbol lookup");
+    assert.equal(alreadyResolved[0]?.atelierObservations?.at(-1)?.kind, "overlap_reuse");
 
     const symbol = await code.search({ workspace: workspace(), text: "CodeService", repositoryIds: ["a"], limit: 5 });
     assert.equal(provider.searchCalls.length, 1);
@@ -328,10 +329,11 @@ test("Given an unsupported capability, Atelier rejects before consuming provider
   provider.capabilities = provider.capabilities.filter((capability) => capability !== "symbol.search");
   const { code, ledger } = service(provider);
   try {
-    await assert.rejects(code.symbols({ workspace: workspace(), text: "Unknown", limit: 5 }), /does not support symbol.search/i);
+    await code.search({ workspace: workspace(), text: "UnknownSymbol", literalHints: ["UnknownSymbol"], limit: 5 });
+    await assert.rejects(code.symbols({ workspace: workspace(), text: "UnknownSymbol", limit: 5 }), /does not support symbol.search/i);
     assert.equal(provider.symbolCalls.length, 0);
     assert.equal(code.retrievalStatus().lastDecision?.kind, "unsupported");
-    assert.equal(code.retrievalStatus().budget.providerRequestsUsed, 0);
+    assert.equal(code.retrievalStatus().budget.providerRequestsUsed, 1);
   } finally { await code.close(); ledger.close(); }
 });
 
@@ -423,17 +425,18 @@ test("Complete fetched chunks reuse only while repository and index bindings rem
 });
 
 test("Symbols and relationships share request accounting and exact reuse", async () => {
-  const { code, ledger, provider } = service(undefined, { maxProviderRequests: 2 });
+  const { code, ledger, provider } = service(undefined, { maxProviderRequests: 3 });
   try {
-    await code.symbols({ workspace: workspace(), text: "Unknown", repositoryIds: ["a"], limit: 5 });
-    await code.symbols({ workspace: workspace(), text: "Unknown", repositoryIds: ["a"], limit: 5 });
+    await code.search({ workspace: workspace(), text: "UnknownSymbol", literalHints: ["UnknownSymbol"], repositoryIds: ["a"], limit: 5 });
+    await code.symbols({ workspace: workspace(), text: "UnknownSymbol", repositoryIds: ["a"], limit: 5 });
+    await code.symbols({ workspace: workspace(), text: "UnknownSymbol", repositoryIds: ["a"], limit: 5 });
     const reference = { provider: provider.name, opaqueId: "source", repositoryId: "a", path: "src/source.ts" };
     const query = { workspace: workspace(), reference, kinds: ["references" as const], depth: 1, limit: 5 };
     await code.relationships(query);
     await code.relationships(query);
     assert.equal(provider.symbolCalls.length, 1);
     assert.equal(provider.relationshipCalls.length, 1);
-    assert.equal(code.retrievalStatus().budget.providerRequestsUsed, 2);
+    assert.equal(code.retrievalStatus().budget.providerRequestsUsed, 3);
   } finally { await code.close(); ledger.close(); }
 });
 

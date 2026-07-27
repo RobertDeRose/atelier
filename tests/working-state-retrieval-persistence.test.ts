@@ -46,7 +46,7 @@ test("a fresh Core reconstructs a bounded current retrieval session after compac
   try {
     first.initialize();
     await codeProvider.ensureIndex(first.codeWorkspace());
-    first.beginPlan("Update `WorkingStateBuilder` compactEvidenceInventory");
+    first.beginPlan("Update `WorkingStateBuilder`");
     const initial = await first.buildWorkingState();
     assert.equal(codeProvider.searchCalls, 1);
     assert.equal(initial.retrievalSession?.id, "pi-session-a");
@@ -68,11 +68,12 @@ test("a fresh Core reconstructs a bounded current retrieval session after compac
   try {
     const reconstructed = await reopened.buildWorkingState();
     assert.equal(codeProvider.searchCalls, 1, "valid persisted evidence should satisfy the repeated build");
-    assert.ok((reconstructed.retrievalSession?.telemetry.cacheHits ?? 0) >= 1);
+    assert.equal(reconstructed.retrievalSession?.telemetry.providerCalls, 1);
+    assert.equal(reconstructed.retrievalSession?.telemetry.cacheHits, 0, "inventory planning should avoid even an exact cache-query round trip");
     assert.equal(reconstructed.retrievalSession?.inventory.length, 1);
     assert.match(reopened.workingStateBuilder.toMarkdown(reconstructed), /## Retrieval session/);
     assert.match(reopened.workingStateBuilder.toMarkdown(reconstructed), /Provider calls: 1/);
-    assert.ok(reconstructed.retrievalSession?.decisions.some((item) => item.decision.kind === "exact_reuse"));
+    assert.ok(reconstructed.retrievalExplanation.some((item) => item.includes("Consulted retrieval session")));
 
     await codeProvider.ensureIndex(reopened.codeWorkspace());
     const reindexed = await reopened.buildWorkingState();
@@ -91,7 +92,7 @@ test("new sessions do not reuse old evidence and repository drift invalidates cu
   try {
     first.initialize();
     await codeProvider.ensureIndex(first.codeWorkspace());
-    first.beginPlan("Update `WorkingStateBuilder` compactEvidenceInventory");
+    first.beginPlan("Update `WorkingStateBuilder`");
     await first.buildWorkingState();
   } finally { first.close(); }
 

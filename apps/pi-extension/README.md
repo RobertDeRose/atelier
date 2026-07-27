@@ -2,6 +2,26 @@
 
 This extension provides the interactive Atelier shell behavior for Pi.
 
+## Efficient code retrieval
+
+Each Pi session owns one bounded Atelier retrieval session. The same compact evidence
+inventory survives agent turns and conversational compaction, then closes during
+`session_shutdown`.
+
+The enforced sequence is:
+
+1. Run one focused semantic `atlr_code_search` discovery.
+2. Inspect the inventory and reuse decision included in that response.
+3. Use `atlr_code_symbols` only for identifiers listed as unresolved.
+4. Use Pi's built-in `read` tool for known or returned paths.
+5. Use broad raw scanning only when Atelier reports unavailable, unhealthy, stale,
+   degraded, failed, or genuinely empty provider evidence.
+
+Cache reuse, request-budget denial, and agent preference do not enable raw scanning.
+Every code-tool response reports the session inventory, freshness, remaining budgets,
+deduplication, returned bytes, truncation, and the latest provider-call or reuse
+decision.
+
 ## Commands
 
 The slash commands mirror the `atlr` CLI verbs:
@@ -12,20 +32,27 @@ The slash commands mirror the `atlr` CLI verbs:
 - `atlr approve` → `/approve`
 - `atlr ready` → `/ready [task-id]`
 - `atlr state` → `/state`
-- `atlr index` → `/index`
-- `atlr search` → `/search <query>`
-- `atlr validate` → `/validate [name]`
+- `atlr code status` → `/code-status`
+- `atlr code index` → `/code-index`
+- `atlr code search` → `/code-search <query>`
+- `atlr code symbols` → `/code-symbols <identifier>`
+- `atlr changed` → `/changed`
+- `atlr validate plan` → `/validate plan`
+- `atlr validate focused` → `/validate focused`
 - `atlr evidence` → `/evidence`
 
 Pi command names use hyphens because Pi registers one command token after `/`.
 
 ## Hooks
 
-- `session_start`: opens Atelier state and updates status.
-- `session_shutdown`: closes SQLite state.
-- `tool_call`: classifies and gates actions before execution.
-- `before_agent_start`: injects deterministic Atelier Working State.
-- `session_before_compact`: supplies task-backed reconstruction rather than a free-form authoritative summary.
+- `session_start`: opens Atelier state, starts one retrieval session, and updates status.
+- `session_shutdown`: closes the retrieval session and SQLite state.
+- `tool_call`: classifies and gates actions before execution, including provider-first
+  raw-discovery routing.
+- `before_agent_start`: injects deterministic Atelier Working State and its compact
+  retrieval inventory.
+- `session_before_compact`: supplies task-backed reconstruction rather than a free-form
+  authoritative summary.
 - Approved act-mode work auto-allows routine repository-scoped edits, validation,
   task updates, and local commits. Destructive, external, unknown, publication,
   and out-of-repository effects still prompt.
@@ -35,8 +62,7 @@ Pi command names use hyphens because Pi registers one command token after `/`.
 
 ## Editor handoff
 
-The extension uses Pi's custom UI lifecycle to stop the TUI, run the editor as a direct foreground child with inherited standard streams, restart the TUI, and request a render. It does not invoke a shell and does not emit alternate-screen control sequences.
-- `atlr symbols` → `/symbols <query>`
-- `atlr changed` → `/changed`
-- `atlr validate plan` → `/validate plan`
-- `atlr validate focused` → `/validate focused`
+The extension uses Pi's custom UI lifecycle to stop the TUI, run the editor as a direct
+foreground child with inherited standard streams, restart the TUI, and request a
+render. It does not invoke a shell and does not emit alternate-screen control
+sequences.

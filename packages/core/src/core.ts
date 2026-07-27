@@ -315,6 +315,16 @@ export class AtelierCore {
     return reconciler.apply(plan, preview);
   }
 
+  beginRetrievalSession(sessionId?: string): string {
+    return sessionId === undefined
+      ? this.code.beginRetrievalSession()
+      : this.code.beginRetrievalSession(sessionId);
+  }
+
+  endRetrievalSession(): string {
+    return this.code.endRetrievalSession();
+  }
+
   codeWorkspace(): CodeWorkspace {
     const snapshot = this.repository.snapshot();
     return loadCodeWorkspace(this.config.repositoryRoot, snapshot);

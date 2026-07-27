@@ -190,7 +190,11 @@ function runProvider(task: Task, provider: ProviderName): Run {
   }> = [];
   try {
     const value = JSON.parse(result.stdout) as unknown;
-    rows = Array.isArray(value) ? value as typeof rows : [];
+    rows = Array.isArray(value)
+      ? value as typeof rows
+      : typeof value === "object" && value !== null && Array.isArray((value as { results?: unknown }).results)
+        ? (value as { results: typeof rows }).results
+        : [];
   } catch { /* retain raw output */ }
   const paths: string[] = [];
   for (const row of rows) if (typeof row.path === "string") pushUnique(paths, normalizePath(row.path));

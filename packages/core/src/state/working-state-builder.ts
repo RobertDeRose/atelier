@@ -12,7 +12,8 @@ import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
 import type { TaskProvider } from "../tasks/task-provider.ts";
 import type { ValidationService } from "../validation/validation-service.ts";
 import type { CodeService } from "../code/service.ts";
-import type { CodeSearchFocus, CodeSearchHit, CodeWorkspace } from "../code/types.ts";
+import type { CodeProviderStatus, CodeSearchFocus, CodeSearchHit, CodeWorkspace } from "../code/types.ts";
+import type { RetrievalRevisionBinding } from "../code/retrieval.ts";
 import { RepositoryStatePlanner } from "./repository-state-planner.ts";
 import { newId, nowIso } from "../util/ids.ts";
 
@@ -88,12 +89,42 @@ export class WorkingStateBuilder {
       durableLimit,
     );
 
+    const planningRetrieval = this.code?.retrievalStatus();
+    let planningCodeStatus: CodeProviderStatus | undefined;
+    if (this.code !== undefined && request.workspace !== undefined) {
+      try {
+        planningCodeStatus = await this.code.status(undefined, request.workspace);
+      } catch (error) {
+        omissions.push(`Code provider status unavailable: ${errorMessage(error)}`);
+      }
+    }
+    const planningRepositoryIds = new Set(request.workspace?.repositories.map((repository) => repository.id) ?? []);
+    const scopedPlanningEvidence = planningRetrieval?.evidence.filter((item) => {
+      const provenance = item.provenance[0];
+      return provenance !== undefined
+        && provenance.workspaceId === request.workspace?.id
+        && planningRepositoryIds.has(provenance.repositoryId);
+    }) ?? [];
+    const semanticDiscoveryComplete = request.workspace !== undefined && planningCodeStatus !== undefined
+      ? planningRetrieval?.semanticDiscoveryBindings.some((binding) =>
+          bindingMatchesWorkspace(binding, request.workspace!, planningCodeStatus!)) ?? false
+      : false;
     const repositoryPlan = this.repositoryStatePlanner.plan({
       mode: request.mode,
       ...(planObjective === undefined ? {} : { planObjective }),
       ...(activeTask === undefined ? {} : { activeTask }),
       ...(planTask === undefined ? {} : { planTask }),
       ...(request.plan === undefined ? {} : { plan: request.plan }),
+      ...(planningRetrieval === undefined ? {} : {
+        evidence: {
+          semanticDiscoveryComplete,
+          resolvedIdentifiers: [...new Set(scopedPlanningEvidence.flatMap((item) =>
+            item.kind === "hit" && "symbol" in item.value && typeof item.value.symbol === "string"
+              ? [item.value.symbol]
+              : []))],
+          knownPaths: scopedPlanningEvidence.flatMap((item) => item.kind === "hit" ? [(item.value as { path: string }).path] : []),
+        },
+      }),
     });
     retrievalExplanation.push(...repositoryPlan.explanation);
 
@@ -117,13 +148,20 @@ export class WorkingStateBuilder {
     if (repositoryPlan.queries.length > 0 && this.code !== undefined && request.workspace !== undefined) {
       for (const query of repositoryPlan.queries) {
         try {
-          const results = await this.code.search({
-            workspace: request.workspace,
-            text: query.text,
-            focus: providerFocus(query.focus),
-            ...(query.literalHints.length === 0 ? {} : { literalHints: query.literalHints }),
-            limit: query.limit,
-          });
+          const results = query.operation === "search"
+            ? await this.code.search({
+                workspace: request.workspace,
+                text: query.text,
+                mode: "semantic",
+                focus: providerFocus(query.focus),
+                ...(query.literalHints.length === 0 ? {} : { literalHints: query.literalHints }),
+                limit: query.limit,
+              })
+            : await this.code.symbols({
+                workspace: request.workspace,
+                text: query.text,
+                limit: query.limit,
+              });
           const warnings = [...new Set(results.flatMap((hit) => hit.provenance.warnings ?? []))];
           const degraded = results.some((hit) => hit.provenance.degraded === true);
           retrievalQueries.push({
@@ -190,33 +228,44 @@ export class WorkingStateBuilder {
       item.workspaceId === request.workspace?.id
       && item.repositoryIds.every((repositoryId) => retrievalRepositoryIds.has(repositoryId))) ?? [];
     const scopedQueryDigests = new Set(scopedDecisions.map((item) => item.queryDigest));
+    const scopedInventory: NonNullable<WorkingState["retrievalSession"]>["inventory"] = retrievalStatus?.evidence.flatMap((item) => {
+      if (item.kind !== "hit" || item.provenance.length === 0) return [];
+      const value = item.value as Omit<CodeSearchHit, "provenance" | "provenanceObservations">;
+      const provenance = item.provenance[0]!;
+      if (
+        request.workspace === undefined
+        || provenance.workspaceId !== request.workspace.id
+        || !retrievalRepositoryIds.has(value.repositoryId)
+      ) return [];
+      return [{
+        provider: provenance.provider.name,
+        providerInstance: provenance.provider.instanceId,
+        workspaceId: provenance.workspaceId,
+        repositoryId: value.repositoryId,
+        path: value.path,
+        ...(value.symbol === undefined ? {} : { symbol: value.symbol }),
+        ...(value.startLine === undefined ? {} : { startLine: value.startLine }),
+        ...(value.endLine === undefined ? {} : { endLine: value.endLine }),
+        queryDigests: item.queryDigests,
+        retrievalMethods: value.retrievalMethods,
+        freshness: provenance.freshness ?? (provenance.indexState === "ready" ? "current" : "unknown"),
+      }];
+    }) ?? [];
+    const scopedUnresolvedSymbols = retrievalStatus?.unresolvedSymbolScopes
+      .filter((item) => item.workspaceId === request.workspace?.id
+        && item.repositoryIds.every((repositoryId) => retrievalRepositoryIds.has(repositoryId)))
+      .map((item) => item.symbol) ?? [];
     const retrievalSession: WorkingState["retrievalSession"] = retrievalStatus === undefined
       ? undefined
       : {
           id: retrievalStatus.sessionId,
-          inventory: retrievalStatus.evidence.flatMap((item) => {
-            if (item.kind !== "hit" || item.provenance.length === 0) return [];
-            const value = item.value as Omit<CodeSearchHit, "provenance" | "provenanceObservations">;
-            const provenance = item.provenance[0]!;
-            if (
-              request.workspace === undefined
-              || provenance.workspaceId !== request.workspace.id
-              || !retrievalRepositoryIds.has(value.repositoryId)
-            ) return [];
-            return [{
-              provider: provenance.provider.name,
-              providerInstance: provenance.provider.instanceId,
-              workspaceId: provenance.workspaceId,
-              repositoryId: value.repositoryId,
-              path: value.path,
-              ...(value.symbol === undefined ? {} : { symbol: value.symbol }),
-              ...(value.startLine === undefined ? {} : { startLine: value.startLine }),
-              ...(value.endLine === undefined ? {} : { endLine: value.endLine }),
-              queryDigests: item.queryDigests,
-              retrievalMethods: value.retrievalMethods,
-              freshness: provenance.freshness ?? (provenance.indexState === "ready" ? "current" : "unknown"),
-            }];
-          }),
+          inventory: scopedInventory,
+          knownPaths: [...new Set(scopedInventory.map((item) => item.path))].sort(),
+          resolvedSymbols: [...new Set(scopedInventory.flatMap((item) => item.symbol === undefined ? [] : [item.symbol]))].sort(),
+          unresolvedSymbols: [...new Set(scopedUnresolvedSymbols)].sort(),
+          freshness: scopedInventory.length === 0
+            ? "unknown"
+            : scopedInventory.every((item) => item.freshness === "current") ? "current" : "possibly_stale",
           bindings: retrievalStatus.bindings.filter((binding) => binding.workspaceId === request.workspace?.id),
           budget: retrievalStatus.budget,
           telemetry: retrievalStatus.telemetry,
@@ -342,6 +391,10 @@ export class WorkingStateBuilder {
         `- Request budget: ${session.budget.providerRequestsUsed}/${session.budget.providerRequestsLimit}; result paths: ${session.budget.uniquePathsUsed}/${session.budget.uniquePathsLimit}; compact entries: ${session.budget.evidenceEntriesUsed}/${session.budget.evidenceEntriesLimit}`,
         `- Fetch budget: ${session.budget.fetchesUsed}/${session.budget.fetchesLimit}; bytes: ${session.budget.bytesUsed}/${session.budget.bytesLimit}`,
         `- Persisted sessions: ${session.persistence.retainedSessionsUsed}/${session.persistence.retainedSessionsLimit}; entries: ${session.persistence.entriesUsed}/${session.persistence.entriesLimit}; bytes: ${session.persistence.bytesUsed}/${session.persistence.bytesLimit}`,
+        `- Inventory freshness: ${session.freshness}`,
+        `- Known paths: ${session.knownPaths.join(", ") || "none"}`,
+        `- Resolved symbols: ${session.resolvedSymbols.join(", ") || "none"}`,
+        `- Unresolved symbols: ${session.unresolvedSymbols.join(", ") || "none"}`,
       );
       if (session.bindings.length > 0) {
         lines.push("", "Freshness and revision bindings:");
@@ -548,6 +601,31 @@ export class WorkingStateBuilder {
       },
     });
   }
+}
+
+function bindingMatchesWorkspace(
+  binding: RetrievalRevisionBinding,
+  workspace: CodeWorkspace,
+  status: CodeProviderStatus,
+): boolean {
+  if (!status.available || !status.healthy || status.indexState !== "ready" || status.degraded === true || status.indexRevision === undefined) return false;
+  if (binding.workspaceId !== workspace.id) return false;
+  if (JSON.stringify(binding.provider) !== JSON.stringify(status.identity)) return false;
+  if (binding.indexRevision !== status.indexRevision) return false;
+  if (binding.repositories.length !== workspace.repositories.length) return false;
+  return binding.repositories.every((repository) => {
+    const current = workspace.repositories.find((item) => item.id === repository.repositoryId)?.snapshot;
+    return current !== undefined
+      && repository.snapshotRepositoryId === current.repositoryId
+      && repository.workspaceId === current.workspaceId
+      && repository.vcs === current.vcs
+      && repository.headCommit === current.headCommit
+      && repository.changeId === current.changeId
+      && repository.operationId === current.operationId
+      && repository.dirtyGeneration === current.dirtyGeneration
+      && repository.dirtyFingerprint === current.dirtyFingerprint
+      && repository.indexSchemaVersion === current.indexSchemaVersion;
+  });
 }
 
 function providerFocus(focus: WorkingState["retrievalQueries"][number]["focus"]): CodeSearchFocus {

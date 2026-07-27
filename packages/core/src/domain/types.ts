@@ -338,6 +338,10 @@ export interface WorkingStateRetrievalEvidence {
 export interface WorkingStateRetrievalSession {
   id: string;
   inventory: WorkingStateRetrievalEvidence[];
+  knownPaths: string[];
+  resolvedSymbols: string[];
+  unresolvedSymbols: string[];
+  freshness: CodeFreshness;
   bindings: RetrievalRevisionBinding[];
   budget: RetrievalBudgetSnapshot;
   telemetry: RetrievalTelemetry;
