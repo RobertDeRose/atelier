@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.2
+# Build Report — Atelier 0.14.0-alpha.3
 
 ## Result
 
@@ -30,7 +30,8 @@ The release corrects the stop-ship authorization and trust defects identified at
 - explicit provider-observation failures;
 - staged and untracked Git evidence;
 - session-owned Pi state and awaited asynchronous shutdown;
-- external runtime state and observational diagnostics.
+- external runtime state and observational diagnostics;
+- collision-free Pi command registration: Pi retains `/trust`, while Atelier uses `/atelier-trust`.
 
 The complete traceability matrix is `docs/REVIEW_CORRECTIONS.md`.
 
@@ -53,5 +54,5 @@ is environment-dependent.
 
 ## Release classification
 
-`0.14.0-alpha.2` is a trusted-repository, interactive alpha. It does not provide an operating-system
+`0.14.0-alpha.3` is a trusted-repository, interactive alpha. It does not provide an operating-system
 sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0-alpha.3 — 2026-07-27
+
+- rename Atelier's Pi trust command from `/trust` to `/atelier-trust` so it no longer collides with Pi's built-in project-trust command
+- preserve `atlr trust ...` for CLI trust management and document the distinct Pi and Atelier trust boundaries
+- add a regression assertion that the extension never registers Pi's reserved `/trust` command
+
 ## 0.14.0-alpha.2 — 2026-07-27
 
 ```text

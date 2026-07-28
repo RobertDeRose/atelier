@@ -1,4 +1,4 @@
-# Migration Report — Atelier 0.14.0-alpha.2
+# Migration Report — Atelier 0.14.0-alpha.3
 
 ## Summary
 
@@ -21,6 +21,12 @@ atlr config validate
 Trust is now explicit and stored outside the repository. Review `.atelier/config.json`,
 `.atelier/validation.json`, and `.atelier/workspace.json` before trusting a repository because trust
 permits their configured providers, validators, and editor command to execute.
+
+## Pi command migration
+
+Pi reserves `/trust` for Pi-owned project-resource trust. Atelier 0.14.0-alpha.3 therefore renames its
+interactive command to `/atelier-trust`. The CLI remains `atlr trust ...`; no trust-store migration is
+required.
 
 ## Runtime-state move
 

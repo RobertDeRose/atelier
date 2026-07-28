@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.2
+# Local Acceptance Workflow — 0.14.0-alpha.3
 
 This is the maintainer gate for the trusted plan-to-commit workflow. Deterministic acceptance is
 mandatory. Live external-provider acceptance is separate because it depends on installed tools and an
@@ -87,6 +87,9 @@ If the validation manifest has no required check, configure one before continuin
 ```sh
 atlr launch
 ```
+
+Verify startup reports no extension-command conflict. Pi owns `/trust`; Atelier exposes `/atelier-trust`
+for its separate external trust record. The non-interactive CLI remains `atlr trust ...`.
 
 ### 1. Plan and review
 

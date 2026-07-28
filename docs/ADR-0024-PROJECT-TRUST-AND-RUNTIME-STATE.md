@@ -9,6 +9,8 @@ A repository can control provider commands, validation commands, editor commands
 
 ## Decision
 
+Pi host trust and Atelier trust are intentionally distinct. Pi's built-in `/trust` controls Pi-owned `.pi` resources; Atelier uses `/atelier-trust` (or `atlr trust ...`) for the external record that gates `.atelier` configuration and provider execution.
+
 Atelier stores project and additional-workspace trust decisions outside the repository. Before trust, repository configuration is ignored, executable providers are replaced by non-executing providers, validation and editor launch are unavailable, and background indexing does not start. Project paths must remain inside the trusted project. Durable runtime state and SQLite storage live under the external Atelier state directory; `.atelier` contains only reviewable project documents.
 
 `doctor` is observational: it reads configuration text for diagnostics without opening the ledger or starting providers.

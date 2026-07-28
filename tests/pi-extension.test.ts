@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension/src/index.ts";
-import { AtelierCore, InMemoryTaskProvider, MockCodeProvider, SqliteLedger } from "../packages/core/src/index.ts";
+import {
+  AtelierCore,
+  InMemoryTaskProvider,
+  MockCodeProvider,
+  projectTrustStatus,
+  revokeProjectTrust,
+  SqliteLedger,
+} from "../packages/core/src/index.ts";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -56,6 +63,45 @@ function fakeContext(
   } as unknown as ExtensionCommandContext;
 }
 
+test("Pi reserves /trust while Atelier exposes a working /atelier-trust command", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const commands = new Map<string, RegisteredCommand>();
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void {
+      events.set(name, handler);
+    },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getActiveTools(): string[] { return ["read", "bash", "edit", "write"]; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+
+  atelierExtension(fakePi);
+  assert.equal(commands.has("trust"), false, "Pi's built-in /trust command must remain unshadowed");
+  assert.ok(commands.has("atelier-trust"));
+
+  const root = createTemporaryRepository("atlr-pi-trust-command-");
+  revokeProjectTrust(root);
+  const notifications: string[] = [];
+  const confirms = { count: 0 };
+  const context = fakeContext(root, confirms, [], { notifications });
+  try {
+    await events.get("session_start")!({}, context);
+    assert.equal(projectTrustStatus(root).trusted, false);
+    assert.ok(notifications.some((message) => /Use \/atelier-trust\./.test(message)));
+
+    await commands.get("atelier-trust")!.handler("", context);
+    assert.equal(confirms.count, 1);
+    assert.equal(projectTrustStatus(root).trusted, true);
+    assert.ok(notifications.some((message) => message === `Trusted ${root}.`));
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    revokeProjectTrust(root);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Pi extension keeps provider-first discovery advisory while confining typed reads and prompting for shell", async () => {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const commands = new Map<string, RegisteredCommand>();
@@ -90,9 +136,10 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   ]) {
     assert.ok(events.has(event), `missing event ${event}`);
   }
-  for (const command of ["trust", "status", "plan", "review", "approve", "execute", "cancel", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence", "review-diff", "commit", "close"]) {
+  for (const command of ["atelier-trust", "status", "plan", "review", "approve", "execute", "cancel", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence", "review-diff", "commit", "close"]) {
     assert.ok(commands.has(command), `missing command ${command}`);
   }
+  assert.equal(commands.has("trust"), false, "Pi reserves /trust; Atelier must not register a conflicting command");
   for (const tool of ["atlr_code_status", "atlr_code_search", "atlr_code_symbols"]) {
     assert.ok(tools.has(tool), `missing agent tool ${tool}`);
   }

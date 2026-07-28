@@ -613,7 +613,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         ctx.ui.notify(`Execution resume failed closed: ${errorMessage(error)}`, "error");
       }
     } else {
-      ctx.ui.notify(`Atelier project trust is required before repository reads or provider startup: ${core.config.repositoryRoot}. Use /trust.`, "warning");
+      ctx.ui.notify(`Atelier project trust is required before repository reads or provider startup: ${core.config.repositoryRoot}. Use /atelier-trust.`, "warning");
     }
     await updateStatus(ctx, core);
     if (core.config.projectTrusted && core.config.codeProvider !== "disabled") {
@@ -761,7 +761,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     await reviewPlan(ctx, core);
   });
 
-  pi.registerCommand("trust", {
+  pi.registerCommand("atelier-trust", {
     description: "Create the external Atelier trust decision for this project",
     handler: async (_args, ctx) => {
       const status = projectTrustStatus(ctx.cwd);
