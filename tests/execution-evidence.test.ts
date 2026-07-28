@@ -30,19 +30,6 @@ async function activeCore(prefix: string): Promise<{ root: string; core: Atelier
   const prepared = await core.execution.prepare();
   const started = await core.execution.approveAndApply(prepared.approval.id, true);
   assert.ok(started.task);
-  core.grant({
-    permission: "file.write",
-    scope: "task",
-    taskId: started.task.id,
-    paths: [root],
-    reason: "record observed repository mutations",
-  });
-  core.grant({
-    permission: "validation.focused",
-    scope: "task",
-    taskId: started.task.id,
-    reason: "run required focused checks",
-  });
   return { root, core };
 }
 
@@ -96,7 +83,7 @@ test("authorized tool attempts record observed success, failure, interruption, a
     assert.equal(interrupted[0]?.status, "interrupted");
     assert.equal(core.ledger.listExecutionEvidence({ taskId: grant.taskId }).length, 3);
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -107,6 +94,7 @@ test("focused validation gates closure, becomes stale after mutation, reruns, an
   try {
     mkdirSync(join(root, "src"), { recursive: true });
     writeFileSync(join(root, "src", "feature.ts"), "export const feature = 1;\n", "utf8");
+    core.commitActiveTask("feat: add task feature");
     const selection = core.selectFocusedValidation(["Feature"]);
     assert.deepEqual(selection.selected.map((item) => item.name), ["focused"]);
     assert.equal(core.taskClosureReadiness().ready, false);
@@ -114,13 +102,18 @@ test("focused validation gates closure, becomes stale after mutation, reruns, an
 
     const pass = await core.runValidation("focused", { selectionId: selection.id });
     assert.equal(pass.status, "passed");
+    await core.runValidation("full");
+    core.reviewFinalDiff(core.previewFinalDiff().diffHash);
     assert.equal(core.taskClosureReadiness().ready, true);
 
     writeFileSync(join(root, "src", "feature.ts"), "export const feature = 2;\n", "utf8");
     assert.equal(core.taskClosureReadiness().ready, false);
-    assert.match(core.taskClosureReadiness().reason, /stale focused/i);
+    assert.match(core.taskClosureReadiness().reason, /stale focused|diff has not been reviewed|not clean/i);
+    core.commitActiveTask("fix: refine task feature");
     const refreshed = core.selectFocusedValidation(["Feature"]);
     await core.runValidation("focused", { selectionId: refreshed.id });
+    await core.runValidation("full");
+    core.reviewFinalDiff(core.previewFinalDiff().diffHash);
     assert.equal(core.taskClosureReadiness().ready, true);
 
     const activeGrant = core.ledger.getActiveExecutionGrant();
@@ -144,7 +137,7 @@ test("focused validation gates closure, becomes stale after mutation, reruns, an
     const activeGrantId = activeGrant.id;
     const activeTaskId = activeGrant.taskId;
     const taskProvider = core.taskProvider;
-    core.close();
+    await core.close();
     reopened = AtelierCore.open(root, { taskProviderInstance: taskProvider, codeProvider: new DisabledCodeProvider() });
     const state = await reopened.buildWorkingState(activeTaskId);
     assert.equal(state.executionGrant?.id, activeGrantId);
@@ -157,8 +150,8 @@ test("focused validation gates closure, becomes stale after mutation, reruns, an
     assert.equal(state.taskClosure.ready, true);
     assert.match(reopened.workingStateBuilder.toMarkdown(state), /Current validation evidence/);
   } finally {
-    reopened?.close();
-    try { core.close(); } catch { /* already closed */ }
+    if (reopened !== undefined) await reopened.close();
+    try { await core.close(); } catch { /* already closed */ }
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -169,8 +162,13 @@ test("task closure requires current focused passes, invalidates execution, and e
     mkdirSync(join(root, "src"), { recursive: true });
     writeFileSync(join(root, "src", "close.ts"), "export const close = true;\n", "utf8");
     const selection = core.selectFocusedValidation();
-    await assert.rejects(core.closeActiveTask("not validated"), /missing focused/i);
-    await core.runValidation("focused", { selectionId: selection.id });
+    await assert.rejects(core.closeActiveTask("not validated"), /missing full|diff has not been reviewed|local commit/i);
+    core.commitActiveTask("feat: add closable task change");
+    const currentSelection = core.selectFocusedValidation();
+    assert.deepEqual(currentSelection.selected.map((item) => item.name), ["focused"]);
+    await core.runValidation("focused", { selectionId: currentSelection.id });
+    await core.runValidation("full");
+    core.reviewFinalDiff(core.previewFinalDiff().diffHash);
     const result = await core.closeActiveTask("validated explicitly");
     assert.equal(result.task.status, "closed");
     assert.equal(core.ledger.getActiveExecutionGrant(), undefined);
@@ -191,7 +189,7 @@ test("task closure requires current focused passes, invalidates execution, and e
     assert.equal(state.executionGrant?.status, "revoked");
     assert.match(state.nextAction, /execute.*approved-plan task/i);
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

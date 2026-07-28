@@ -1,4 +1,4 @@
-# ADR-0016: Explicitly activate Atelier code tools in Pi
+# ADR-0023: Explicitly activate Atelier code tools in Pi
 
 - **Status:** Accepted
 - **Date:** 2026-07-25

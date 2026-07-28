@@ -24,6 +24,13 @@ export class ProviderError extends AdeError {
   }
 }
 
+export class RepositoryObservationError extends AdeError {
+  constructor(message: string, details?: unknown) {
+    super("repository_observation_error", message, details);
+    this.name = "RepositoryObservationError";
+  }
+}
+
 export class PlanValidationError extends AdeError {
   constructor(message: string, details?: unknown) {
     super("plan_validation_error", message, details);

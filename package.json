@@ -1,7 +1,7 @@
 {
   "name": "atelier-prototype",
-  "version": "0.11.0",
-  "description": "Runnable initial TypeScript implementation of Atelier, an Agentic Development Environment",
+  "version": "0.14.0-alpha.1",
+  "description": "Atelier, a durable and policy-aware Agentic Development Environment runtime",
   "type": "module",
   "private": true,
   "engines": {
@@ -11,13 +11,17 @@
     "atlr": "./bin/atlr.mjs"
   },
   "scripts": {
-    "atlr": "node --no-warnings --experimental-strip-types apps/cli/src/main.ts",
+    "atlr": "node ./bin/atlr.mjs",
+    "atlr:dev": "node --no-warnings --experimental-strip-types apps/cli/src/main.ts",
     "doctor": "aubr atlr -- doctor",
     "typecheck": "tsc --noEmit",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "check:metadata": "node --no-warnings --experimental-strip-types scripts/check-release-metadata.ts",
     "test": "node --no-warnings --experimental-strip-types --test tests/*.test.ts",
     "test:coverage": "node --no-warnings --experimental-strip-types --experimental-test-coverage --test tests/*.test.ts",
     "smoke": "bash ./scripts/smoke.sh",
-    "check": "aubr typecheck && aubr test && aubr smoke",
+    "check": "npm run check:metadata && npm run typecheck && npm test && npm run smoke",
+    "prepack": "npm run build",
     "test:codesearch": "aubr test:codesearch:live",
     "test:codesearch:live": "bash ./scripts/probe-codesearch.sh",
     "evaluate:code": "node --no-warnings --experimental-strip-types scripts/evaluate-code.ts",
@@ -28,11 +32,13 @@
     "setup:octocode": "node --no-warnings --experimental-strip-types scripts/setup-octocode-development.ts",
     "evaluate:code:octocode": "node --no-warnings --experimental-strip-types scripts/evaluate-code.ts --providers octocode",
     "evaluate:code:all": "node --no-warnings --experimental-strip-types scripts/evaluate-code.ts --providers codesearch,octocode",
-    "launch": "node --no-warnings --experimental-strip-types apps/cli/src/main.ts launch"
+    "launch:dev": "node --no-warnings --experimental-strip-types apps/cli/src/main.ts launch",
+    "launch": "node ./bin/atlr.mjs launch",
+    "pretest": "npm run build"
   },
   "pi": {
     "extensions": [
-      "./apps/pi-extension/src/index.ts"
+      "./dist/apps/pi-extension/src/index.js"
     ]
   },
   "peerDependencies": {
@@ -48,5 +54,24 @@
     "typescript": "^7"
   },
   "dependencies": {},
-  "packageManager": "aube@1.29.1"
+  "packageManager": "aube@1.29.1",
+  "main": "./dist/packages/core/src/index.js",
+  "types": "./dist/packages/core/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/packages/core/src/index.d.ts",
+      "import": "./dist/packages/core/src/index.js"
+    },
+    "./pi-extension": {
+      "types": "./dist/apps/pi-extension/src/index.d.ts",
+      "import": "./dist/apps/pi-extension/src/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "README.md",
+    "LICENSE",
+    "docs/"
+  ]
 }

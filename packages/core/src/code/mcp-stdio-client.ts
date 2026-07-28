@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { newId } from "../util/ids.ts";
+import { ATELIER_VERSION } from "../version.ts";
 
 interface JsonRpcSuccess<T> { jsonrpc: "2.0"; id: string | number; result: T }
 interface JsonRpcFailure { jsonrpc: "2.0"; id: string | number; error: { code: number; message: string; data?: unknown } }
@@ -70,7 +71,7 @@ export class McpStdioClient {
       capabilities: {},
       clientInfo: {
         name: options.clientName ?? "atelier",
-        version: options.clientVersion ?? "0.9.0",
+        version: options.clientVersion ?? ATELIER_VERSION,
       },
     });
     if (!result || typeof result.protocolVersion !== "string" || !result.serverInfo || typeof result.serverInfo.name !== "string") {

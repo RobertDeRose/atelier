@@ -1,4 +1,4 @@
-import type { RepositorySnapshot } from "../domain/types.ts";
+import type { RepositorySnapshot } from "../repository/snapshot.ts";
 import { sha256 } from "../util/hash.ts";
 import type {
   CachedQueryCoverage,

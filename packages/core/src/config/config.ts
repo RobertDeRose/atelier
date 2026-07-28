@@ -1,11 +1,21 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { ConfigurationError } from "../domain/errors.ts";
+import { isProjectTrusted } from "../security/project-trust.ts";
+import { isPathWithin } from "../security/path-boundary.ts";
+import { sha256 } from "../util/hash.ts";
 import { splitCommandLine } from "../util/command-line.ts";
 
 export interface AtelierConfig {
   repositoryRoot: string;
+  projectTrusted: boolean;
+  projectDirectory: string;
+  projectConfigPath: string;
+  validationPath: string;
+  workspacePath: string;
+  runtimeDirectory: string;
+  /** @deprecated Runtime state directory alias retained for API compatibility. */
   stateDirectory: string;
   databasePath: string;
   planPath: string;
@@ -34,9 +44,11 @@ export interface AtelierConfig {
   codeRetainedSessions: number;
   codeMaxPersistedEntries: number;
   codeMaxPersistedBytes: number;
+  providerFirstRetrieval: "advisory" | "off";
 }
 
-interface PartialAtelierConfig {
+export interface PartialAtelierConfig {
+  runtimeDirectory?: string;
   stateDirectory?: string;
   databasePath?: string;
   planPath?: string;
@@ -65,12 +77,31 @@ interface PartialAtelierConfig {
   codeRetainedSessions?: number;
   codeMaxPersistedEntries?: number;
   codeMaxPersistedBytes?: number;
+  providerFirstRetrieval?: AtelierConfig["providerFirstRetrieval"];
+}
+
+function canonicalRoot(path: string): string {
+  const root = resolve(path);
+  return existsSync(root) ? realpathSync.native(root) : root;
+}
+
+export function userConfigPath(): string {
+  return resolve(process.env.ATLR_USER_CONFIG ?? join(homedir(), ".config", "atelier", "config.json"));
+}
+
+export function defaultRuntimeDirectory(repositoryRoot: string): string {
+  const stateHome = resolve(process.env.ATLR_STATE_HOME ?? process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"));
+  return join(stateHome, "atelier", "repositories", sha256(canonicalRoot(repositoryRoot)).slice(0, 24));
 }
 
 function readJsonConfig(path: string): PartialAtelierConfig {
   if (!existsSync(path)) return {};
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as PartialAtelierConfig;
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("configuration must be a JSON object");
+    }
+    return parsed as PartialAtelierConfig;
   } catch (error) {
     throw new ConfigurationError(`Unable to parse Atelier configuration: ${path}`, { error });
   }
@@ -81,34 +112,91 @@ function mergeConfig(base: PartialAtelierConfig, override: PartialAtelierConfig)
 }
 
 function resolveFromRoot(root: string, value: string): string {
-  return isAbsolute(value) ? value : resolve(root, value);
+  return isAbsolute(value) ? resolve(value) : resolve(root, value);
 }
 
-export function loadConfig(repositoryRoot: string): AtelierConfig {
-  const root = resolve(repositoryRoot);
-  const userConfig = readJsonConfig(join(homedir(), ".config", "atelier", "config.json"));
-  const repositoryConfig = readJsonConfig(join(root, ".atelier", "config.json"));
+function requireProjectPath(root: string, value: string, field: string): string {
+  const path = resolveFromRoot(root, value);
+  if (!isPathWithin(path, root, "write")) {
+    throw new ConfigurationError(`${field} must remain inside the trusted project root: ${path}`);
+  }
+  return path;
+}
+
+function requireExternalRuntimePath(root: string, value: string, field: string): string {
+  const path = resolve(value);
+  if (isPathWithin(path, root, "write")) {
+    throw new ConfigurationError(`${field} must remain outside the project root: ${path}`);
+  }
+  return path;
+}
+
+function validateChoice<T extends string>(value: T, allowed: readonly T[], field: string): T {
+  if (!allowed.includes(value)) throw new ConfigurationError(`${field} must be one of: ${allowed.join(", ")}`);
+  return value;
+}
+
+export function loadConfig(repositoryRoot: string, options: { projectTrusted?: boolean } = {}): AtelierConfig {
+  const root = canonicalRoot(repositoryRoot);
+  const projectTrusted = options.projectTrusted ?? isProjectTrusted(root);
+  const projectDirectory = resolve(root, ".atelier");
+  const projectConfigPath = resolve(projectDirectory, "config.json");
+  const userConfig = readJsonConfig(userConfigPath());
+  // Repository-controlled configuration is data only after an out-of-repository trust decision.
+  const repositoryConfig = projectTrusted ? readJsonConfig(projectConfigPath) : {};
   const merged = mergeConfig(userConfig, repositoryConfig);
-  const stateDirectory = resolveFromRoot(root, merged.stateDirectory ?? ".atelier");
+
+  // Runtime paths are user-owned. Repository configuration can never redirect the ledger or caches.
+  const runtimeValue = userConfig.runtimeDirectory ?? userConfig.stateDirectory;
+  const runtimeDirectory = requireExternalRuntimePath(
+    root,
+    runtimeValue ?? defaultRuntimeDirectory(root),
+    "runtimeDirectory",
+  );
+  const databasePath = requireExternalRuntimePath(
+    root,
+    userConfig.databasePath ?? join(runtimeDirectory, "atelier.db"),
+    "databasePath",
+  );
+  const planPath = requireProjectPath(root, merged.planPath ?? ".atelier/PLAN.md", "planPath");
+  const validationPath = resolve(projectDirectory, "validation.json");
+  const workspacePath = resolve(projectDirectory, "workspace.json");
+
+  const repositoryProvider = validateChoice(merged.repositoryProvider ?? "auto", ["auto", "jj", "git"] as const, "repositoryProvider");
+  const taskProvider = validateChoice(merged.taskProvider ?? "beads", ["beads", "memory", "none"] as const, "taskProvider");
+  const codeProvider = validateChoice(merged.codeProvider ?? "codesearch", ["disabled", "mock", "codesearch", "octocode"] as const, "codeProvider");
+  const codeMode = validateChoice(merged.codeMode ?? "auto", ["auto", "local", "client"] as const, "codeMode");
+  const providerFirstRetrieval = validateChoice(merged.providerFirstRetrieval ?? "advisory", ["advisory", "off"] as const, "providerFirstRetrieval");
+
+  const octocodeConfigPath = (() => {
+    if (userConfig.octocodeConfigPath !== undefined) return resolveFromRoot(root, userConfig.octocodeConfigPath);
+    return requireProjectPath(root, repositoryConfig.octocodeConfigPath ?? ".atelier/octocode-config.toml", "octocodeConfigPath");
+  })();
 
   const editor = process.env.ATLR_EDITOR ?? merged.editor;
   return {
     repositoryRoot: root,
-    stateDirectory,
-    databasePath: resolveFromRoot(root, merged.databasePath ?? join(stateDirectory, "atelier.db")),
-    planPath: resolveFromRoot(root, merged.planPath ?? join(stateDirectory, "PLAN.md")),
+    projectTrusted,
+    projectDirectory,
+    projectConfigPath,
+    validationPath,
+    workspacePath,
+    runtimeDirectory,
+    stateDirectory: runtimeDirectory,
+    databasePath,
+    planPath,
     ...(editor === undefined ? {} : { editor }),
-    taskProvider: merged.taskProvider ?? "beads",
+    taskProvider,
     beadsCommand: merged.beadsCommand ?? "bd",
-    repositoryProvider: merged.repositoryProvider ?? "auto",
+    repositoryProvider,
     jjCommand: merged.jjCommand ?? "jj",
     indexSchemaVersion: merged.indexSchemaVersion ?? 1,
     longRunningThresholdMs: merged.longRunningThresholdMs ?? 300_000,
-    codeProvider: merged.codeProvider ?? "codesearch",
+    codeProvider,
     codeCommand: merged.codeCommand ?? "codesearch",
     octocodeCommand: merged.octocodeCommand ?? "octocode",
-    octocodeConfigPath: resolveFromRoot(root, merged.octocodeConfigPath ?? join(stateDirectory, "octocode-config.toml")),
-    codeMode: merged.codeMode ?? "auto",
+    octocodeConfigPath,
+    codeMode,
     codeTimeoutMs: merged.codeTimeoutMs ?? 60_000,
     codeIndexTimeoutMs: merged.codeIndexTimeoutMs ?? 300_000,
     codeMaxResults: merged.codeMaxResults ?? 10,
@@ -122,6 +210,7 @@ export function loadConfig(repositoryRoot: string): AtelierConfig {
     codeRetainedSessions: merged.codeRetainedSessions ?? 4,
     codeMaxPersistedEntries: merged.codeMaxPersistedEntries ?? 256,
     codeMaxPersistedBytes: merged.codeMaxPersistedBytes ?? 256_000,
+    providerFirstRetrieval,
   };
 }
 
@@ -143,16 +232,19 @@ function readPiExternalEditor(repositoryRoot: string, projectTrusted: boolean): 
         return parsed.externalEditor;
       }
     } catch {
-      // Pi will report malformed Pi settings itself. Atelier simply falls through.
+      // Pi reports malformed Pi settings itself. Atelier does not execute them.
     }
   }
   return undefined;
 }
 
-export function resolveEditorCommand(config: AtelierConfig, projectTrusted = false): EditorCommand {
+export function resolveEditorCommand(config: AtelierConfig, piProjectTrusted = false): EditorCommand {
+  if (!config.projectTrusted) {
+    throw new ConfigurationError(`Trust the project before launching an editor: ${config.repositoryRoot}`);
+  }
   const candidates: Array<[string | undefined, EditorCommand["source"]]> = [
     [config.editor, "atlr"],
-    [readPiExternalEditor(config.repositoryRoot, projectTrusted), "pi"],
+    [readPiExternalEditor(config.repositoryRoot, piProjectTrusted), "pi"],
     [process.env.VISUAL, "VISUAL"],
     [process.env.EDITOR, "EDITOR"],
     [platform() === "win32" ? "notepad" : "nano", "fallback"],

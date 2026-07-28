@@ -9,7 +9,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
+import { createTemporaryRepository, testDatabasePath, VALID_PLAN } from "./fixtures.ts";
 
 interface RegisteredTool {
   name: string;
@@ -56,7 +56,7 @@ function fakeContext(
   } as unknown as ExtensionCommandContext;
 }
 
-test("Pi extension enforces provider-first plan discovery without approving read-only commands", async () => {
+test("Pi extension keeps provider-first discovery advisory while confining typed reads and prompting for shell", async () => {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const commands = new Map<string, RegisteredCommand>();
   const tools = new Map<string, RegisteredTool>();
@@ -90,7 +90,7 @@ test("Pi extension enforces provider-first plan discovery without approving read
   ]) {
     assert.ok(events.has(event), `missing event ${event}`);
   }
-  for (const command of ["status", "plan", "review", "approve", "execute", "cancel", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence"]) {
+  for (const command of ["trust", "status", "plan", "review", "approve", "execute", "cancel", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence", "review-diff", "commit", "close"]) {
     assert.ok(commands.has(command), `missing command ${command}`);
   }
   for (const tool of ["atlr_code_status", "atlr_code_search", "atlr_code_symbols"]) {
@@ -107,7 +107,8 @@ test("Pi extension enforces provider-first plan discovery without approving read
   }));
   const confirms = { count: 0 };
   const statuses: string[] = [];
-  const context = fakeContext(root, confirms, statuses);
+  const notifications: string[] = [];
+  const context = fakeContext(root, confirms, statuses, { notifications });
   await events.get("session_start")!({}, context);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(statuses.some((status) => /index (building|ready)/.test(status)), "Pi footer must expose background index state");
@@ -121,7 +122,7 @@ test("Pi extension enforces provider-first plan discovery without approving read
     input: { path: join(root, ".atelier", "PLAN.md") },
   }, context);
   assert.equal(planWrite, undefined, "the designated plan write must not require an act-mode execution grant");
-  const ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+  const ledger = new SqliteLedger(testDatabasePath(root));
   assert.equal(ledger.getExecutionEvidence("plan-write"), undefined, "ManualEdit, not execution evidence, records plan drafting");
   ledger.close();
   assert.equal(confirms.count, 0, "the designated plan write is permitted directly in plan mode");
@@ -131,7 +132,13 @@ test("Pi extension enforces provider-first plan discovery without approving read
     input: { command: "git log -3 --oneline && printf 'status\\n' && git status --short" },
   }, context);
   assert.equal(readOnlyCompound, undefined);
-  assert.equal(confirms.count, 0, "read-only plan commands must not request approval");
+  assert.equal(confirms.count, 1, "generic shell remains unconfined even when its command appears read-only");
+  const shellLedger = new SqliteLedger(testDatabasePath(root));
+  const shellDecision = shellLedger.listEvents({ kind: "policy.decision", limit: 20 })
+    .map((event) => event.payload as { action?: string; result?: string })
+    .find((decision) => decision.action === "command.execute" && decision.result === "allow");
+  shellLedger.close();
+  assert.ok(shellDecision, "generic Pi shell must be authorized as command.execute even when classification is read-only");
 
 
   for (const command of [
@@ -139,26 +146,25 @@ test("Pi extension enforces provider-first plan discovery without approving read
     "rg -n -i 'demo|walkthrough|showcase|golden path' --glob '!node_modules/**' . | head -300",
     "find apps packages tests scripts docs -maxdepth 4 -type f | sort",
   ]) {
-    const blocked = await events.get("tool_call")!({
+    const allowed = await events.get("tool_call")!({
       toolName: "bash",
       input: { command },
     }, context);
-    assert.equal(blocked?.block, true, `expected provider-first block for: ${command}`);
-    assert.match(blocked?.reason ?? "", /provider-first discovery/i);
+    assert.equal(allowed, undefined, `provider-first discovery must remain advisory for: ${command}`);
   }
-  assert.equal(confirms.count, 0, "provider routing must never request approval");
+  assert.equal(confirms.count, 4, "each unconfined shell operation requires one explicit approval");
+  assert.ok(notifications.some((message) => /Atelier advisory: prefer current provider evidence/i.test(message)));
 
-  const blockedRawScan = await events.get("tool_call")!({
+  const allowedRawScan = await events.get("tool_call")!({
     toolName: "bash",
     input: { command: "find examples -type f 2>/dev/null; rg -n 'policy' packages | head -20" },
   }, context);
-  assert.equal(blockedRawScan?.block, true);
-  assert.match(blockedRawScan?.reason ?? "", /provider-first discovery/i);
-  assert.equal(confirms.count, 0, "routing denial must not become an approval prompt");
+  assert.equal(allowedRawScan, undefined);
+  assert.equal(confirms.count, 5);
 
   const agentStart = await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
-  assert.match(agentStart?.systemPrompt ?? "", /ensure one focused semantic discovery exists/i);
-  assert.match(agentStart?.systemPrompt ?? "", /reusing a current Working State inventory instead of duplicating it/i);
+  assert.match(agentStart?.systemPrompt ?? "", /Provider-first retrieval is advisory/i);
+  assert.match(agentStart?.systemPrompt ?? "", /Raw repository inspection remains available/i);
   assert.match(agentStart?.systemPrompt ?? "", /## Retrieval session/);
   assert.deepEqual(activeTools.slice(0, 3), ["atlr_code_search", "atlr_code_symbols", "atlr_code_status"]);
   assert.ok(activeToolUpdates.length >= 1, "Atelier must explicitly activate registered code tools");
@@ -175,11 +181,12 @@ test("Pi extension enforces provider-first plan discovery without approving read
   assert.match(search.content[0]?.text ?? "", /No Atelier code matches/);
 
   const allowedFallback = await events.get("tool_call")!({
-    toolName: "bash",
-    input: { command: "find examples -type f 2>/dev/null; rg -n 'policy' packages | head -20" },
+    toolCallId: "typed-fallback",
+    toolName: "find",
+    input: { path: root, pattern: "*.ts" },
   }, context);
   assert.equal(allowedFallback, undefined);
-  assert.equal(confirms.count, 0);
+  assert.equal(confirms.count, 5, "typed reads within the trusted root do not inherit shell approvals");
 
   await events.get("session_shutdown")!({}, context);
 });
@@ -303,8 +310,7 @@ test("Pi code tools retain one retrieval session and enforce inventory-first dec
     const denied = await execute("atlr_code_search", { query: "One request beyond budget" });
     assert.equal((denied.details as any).retrieval.lastDecision.kind, "budget_denied");
     const rawAfterBudget = await events.get("tool_call")!({ toolName: "bash", input: { command: "rg -n KnownSymbol ." } }, context);
-    assert.equal(rawAfterBudget?.block, true);
-    assert.match(rawAfterBudget?.reason ?? "", /budget|inventory/i);
+    assert.equal(rawAfterBudget, undefined, "budget exhaustion does not create a raw-discovery dead end");
 
     const status = await execute("atlr_code_status", {});
     assert.equal((status.details as any).retrieval.sessionId, sessionId);
@@ -317,7 +323,7 @@ test("Pi code tools retain one retrieval session and enforce inventory-first dec
   } finally {
     await events.get("session_shutdown")!({}, context);
     if (sessionId) {
-      const ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+      const ledger = new SqliteLedger(testDatabasePath(root));
       assert.equal(ledger.loadRetrievalCheckpoint(sessionId)?.status, "closed");
       ledger.close();
     }
@@ -445,7 +451,7 @@ test("Pi /execute activates an explicitly requested later approved-plan task", a
   assert.ok(first.task);
   await provider.close(first.task.id, "completed");
   setup.execution.cancel(`Task ${first.task.id} was explicitly closed.`);
-  setup.close();
+  await setup.close();
   const requested = (await provider.ready()).find((task) => task.planTaskId === "ATLR-002");
   assert.ok(requested);
 
@@ -499,7 +505,7 @@ test("Pi focused validation passes the current abort signal and records interrup
   const prepared = await setup.execution.prepare();
   const started = await setup.execution.approveAndApply(prepared.approval.id, true);
   assert.ok(started.task);
-  setup.close();
+  await setup.close();
   mkdirSync(join(root, "src"), { recursive: true });
   writeFileSync(join(root, "src", "abort.ts"), "export const abort = true;\n", "utf8");
 
@@ -521,10 +527,11 @@ test("Pi focused validation passes the current abort signal and records interrup
 
 test("Pi act mode requires execution-linked permissions and still prompts for destructive commands", async () => {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const commands = new Map<string, RegisteredCommand>();
   const sentMessages: string[] = [];
   const fakePi = {
     on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
-    registerCommand(): void {},
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
     registerTool(): void {},
     getActiveTools(): string[] { return []; },
     setActiveTools(): void {},
@@ -547,14 +554,11 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
   const prepared = await setup.execution.prepare();
   const started = await setup.execution.approveAndApply(prepared.approval.id, true);
   assert.ok(started.task);
-  setup.grant({ permission: "file.write", scope: "task", taskId: started.task.id, paths: [join(root, "src")], reason: "edit source" });
-  setup.grant({ permission: "validation.full_suite", scope: "task", taskId: started.task.id, reason: "run checks" });
-  setup.grant({ permission: "command.long_running", scope: "task", taskId: started.task.id, reason: "run approved commands" });
-  setup.grant({ permission: "repository.change.create", scope: "task", taskId: started.task.id, reason: "commit task" });
-  setup.close();
+  await setup.close();
   const confirms = { count: 0 };
   const statuses: string[] = [];
-  const context = fakeContext(root, confirms, statuses);
+  const confirmationBodies: string[] = [];
+  const context = fakeContext(root, confirms, statuses, { confirmationBodies });
 
   try {
     assert.equal(await events.get("tool_call")!({
@@ -593,25 +597,75 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
       toolName: "bash",
       input: { command: "git commit -am 'finish task'" },
     }, context), undefined);
-    assert.equal(confirms.count, 0);
+    assert.equal(confirms.count, 2, "each generic shell command requires a single-operation approval");
 
     assert.equal(await events.get("tool_call")!({
       toolCallId: "bash-destructive",
       toolName: "bash",
       input: { command: "rm -rf build" },
     }, context), undefined);
-    assert.equal(confirms.count, 1);
+    assert.equal(confirms.count, 3);
 
     writeFileSync(join(root, "completion-guard.ts"), "export const pending = true;\n");
+    await commands.get("review-diff")!.handler("", context);
+    assert.match(confirmationBodies.at(-1) ?? "", /completion-guard\.ts/);
+    assert.match(confirmationBodies.at(-1) ?? "", /Diff SHA-256:/);
+    assert.equal(confirms.count, 4, "Pi must display and confirm the exact diff before recording review");
     await events.get("agent_settled")!({}, context);
     assert.match(sentMessages.at(-1) ?? "", /completion guard/i);
-    assert.match(sentMessages.at(-1) ?? "", /Git commit/);
+    assert.match(sentMessages.at(-1) ?? "", /local commit|finalized change/i);
   } finally {
     await events.get("session_shutdown")!({}, context);
-    const ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+    const ledger = new SqliteLedger(testDatabasePath(root));
     assert.equal(ledger.getExecutionEvidence("edit-routine")?.status, "succeeded");
     assert.equal(ledger.getExecutionEvidence("edit-failed")?.status, "failed");
     ledger.close();
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Pi keeps independent repository state for concurrent sessions and closes each session explicitly", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const commands = new Map<string, RegisteredCommand>();
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getActiveTools(): string[] { return []; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+  registerAtelierExtension(fakePi);
+
+  const firstRoot = createTemporaryRepository("atlr-pi-session-first-");
+  const secondRoot = createTemporaryRepository("atlr-pi-session-second-");
+  for (const root of [firstRoot, secondRoot]) {
+    writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+      taskProvider: "none",
+      repositoryProvider: "git",
+      codeProvider: "disabled",
+    }), "utf8");
+  }
+  const first = Object.assign(fakeContext(firstRoot, { count: 0 }), { sessionManager: {} });
+  const second = Object.assign(fakeContext(secondRoot, { count: 0 }), { sessionManager: {} });
+
+  try {
+    await events.get("session_start")!({}, first);
+    await events.get("session_start")!({}, second);
+    await commands.get("plan")!.handler("first-session-only objective", first);
+
+    const firstPrompt = await events.get("before_agent_start")!({ systemPrompt: "base" }, first);
+    const secondPrompt = await events.get("before_agent_start")!({ systemPrompt: "base" }, second);
+    assert.match(firstPrompt.systemPrompt, /Only .*PLAN\.md may be modified/);
+    assert.match(secondPrompt.systemPrompt, /Investigate only/);
+    assert.doesNotMatch(secondPrompt.systemPrompt, /first-session-only objective/);
+
+    await events.get("session_shutdown")!({}, first);
+    const survivingPrompt = await events.get("before_agent_start")!({ systemPrompt: "base" }, second);
+    assert.match(survivingPrompt.systemPrompt, /Investigate only/);
+  } finally {
+    await events.get("session_shutdown")!({}, second);
+    rmSync(firstRoot, { recursive: true, force: true });
+    rmSync(secondRoot, { recursive: true, force: true });
   }
 });

@@ -13,10 +13,10 @@ import { AtelierCore } from "../packages/core/src/core.ts";
 import { SqliteLedger } from "../packages/core/src/ledger/sqlite-ledger.ts";
 import { parsePlanFile } from "../packages/core/src/planning/plan-parser.ts";
 import { PlanReconciler } from "../packages/core/src/planning/plan-reconciler.ts";
-import type { RepositoryProvider, RepositoryProviderStatus } from "../packages/core/src/repository/repository-provider.ts";
+import type { RepositoryCommitResult, RepositoryProvider, RepositoryProviderStatus } from "../packages/core/src/repository/repository-provider.ts";
 import { InMemoryTaskProvider } from "../packages/core/src/tasks/in-memory-task-provider.ts";
 import { ExecutionWorkflowCoordinator } from "../packages/core/src/workflow/execution-workflow-coordinator.ts";
-import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
+import { createTemporaryRepository, testDatabasePath, VALID_PLAN } from "./fixtures.ts";
 
 class MutableRepository implements RepositoryProvider {
   readonly name = "git" as const;
@@ -32,8 +32,13 @@ class MutableRepository implements RepositoryProvider {
   status(): RepositoryProviderStatus { return { provider: "git", available: true, repository: true }; }
   snapshot(): RepositorySnapshot { return structuredClone(this.current); }
   changedPaths(): string[] { return []; }
+  changedPathsFrom(): string[] { return []; }
   diff(): string { return ""; }
+  diffFrom(): string { return ""; }
   listFiles(): string[] { return []; }
+  commit(message: string): RepositoryCommitResult {
+    return { message, changedPaths: [], snapshot: this.snapshot() };
+  }
 }
 
 class RecordingProvider extends InMemoryTaskProvider {
@@ -81,11 +86,13 @@ function setup(prefix: string, provider = new RecordingProvider()): {
   provider: RecordingProvider;
   repository: MutableRepository;
   coordinator: ExecutionWorkflowCoordinator;
+  databasePath: string;
 } {
   const root = createTemporaryRepository(prefix);
   const planPath = join(root, ".atelier", "PLAN.md");
   writeFileSync(planPath, VALID_PLAN, "utf8");
-  const ledger = new SqliteLedger(join(root, ".atelier", "execution.db"));
+  const databasePath = testDatabasePath(root).replace(/atelier\.db$/, "execution.db");
+  const ledger = new SqliteLedger(databasePath);
   const plan = parsePlanFile(planPath);
   ledger.setState("reviewedPlanHash", plan.hash);
   ledger.setState("workflowMode", "plan");
@@ -95,7 +102,8 @@ function setup(prefix: string, provider = new RecordingProvider()): {
     ledger,
     provider,
     repository,
-    coordinator: new ExecutionWorkflowCoordinator({ planPath, ledger, provider, repository }),
+    databasePath,
+    coordinator: new ExecutionWorkflowCoordinator({ planPath, ledger, provider, repository, repositoryRoot: root }),
   };
 }
 
@@ -130,6 +138,10 @@ test("approval rechecks and serializes against an execution grant that became ac
       provider: { name: context.provider.name, version: "1" },
       workspaceId: context.repository.current.workspaceId,
       repositoryId: context.repository.current.repositoryId,
+      repositorySnapshot: prepared.approval.repositorySnapshot,
+      repositoryBindings: prepared.approval.repositoryBindings,
+      retrievalBindings: prepared.approval.retrievalBindings,
+      capabilityDigest: prepared.approval.capabilityDigest,
       taskId: "other-task",
       planTaskId: "OTHER",
       issuedAt: "2026-01-01T00:00:00.000Z",
@@ -163,7 +175,7 @@ test("successful exact approval reconciles, claims, then atomically enters act m
     assert.equal(result.executionGrant?.taskId, result.task?.id);
     assert.equal(context.ledger.getState("workflowMode"), "act");
     assert.equal(context.ledger.getState("currentTaskId"), result.task?.id);
-    assert.equal(context.ledger.listGrants().length, 0, "execution authorization conveys no action permission");
+    assert.equal(context.ledger.listGrants().length, prepared.approval.capabilities.length, "approval atomically installs the typed task capability bundle");
   } finally {
     context.ledger.close();
     rmSync(context.root, { recursive: true, force: true });
@@ -260,26 +272,26 @@ test("one-operation permissions are consumed at authorization before operation o
     const started = await core.execution.approveAndApply(prepared.approval.id, true);
     assert.ok(started.task);
     const permission = core.grant({
-      permission: "file.write",
+      permission: "command.execute",
       scope: "operation",
       taskId: started.task.id,
-      paths: [join(root, "src")],
-      reason: "single attempted write",
+      reason: "single unconfined shell operation",
     });
     const decision = core.evaluate({
-      action: "write.file",
-      risk: "routine",
+      action: "command.execute",
+      risk: "unknown",
       actor: "agent",
       taskId: started.task.id,
       repositorySnapshot: core.repository.snapshot(),
-      paths: [join(root, "src", "index.ts")],
+      command: ["custom-command"],
+      boundary: "unconfined",
       rationale: "operation may later succeed, fail, or be interrupted",
     });
     assert.equal(decision.result, "allow");
     assert.equal(core.ledger.listGrants().some((grant) => grant.id === permission.id), false);
     assert.equal(core.ledger.listGrants({ includeRevoked: true }).find((grant) => grant.id === permission.id)?.revokedAt !== undefined, true);
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -293,12 +305,13 @@ test("restart preserves a valid grant and invalidates stale plan, provider, work
     const taskId = started.executionGrant.taskId;
     context.ledger.close();
 
-    const reopened = new SqliteLedger(join(context.root, ".atelier", "execution.db"));
+    const reopened = new SqliteLedger(context.databasePath);
     const resumed = new ExecutionWorkflowCoordinator({
       planPath: join(context.root, ".atelier", "PLAN.md"),
       ledger: reopened,
       provider: context.provider,
       repository: context.repository,
+      repositoryRoot: context.root,
     });
     try {
       if (drift === "plan") writeFileSync(join(context.root, ".atelier", "PLAN.md"), VALID_PLAN.replace("guarded core", "changed core"), "utf8");
@@ -339,12 +352,13 @@ test("restart fails an applying transaction closed and a fresh confirmation reco
     await context.provider.claim(first.id);
     context.ledger.close();
 
-    const reopened = new SqliteLedger(join(context.root, ".atelier", "execution.db"));
+    const reopened = new SqliteLedger(context.databasePath);
     const coordinator = new ExecutionWorkflowCoordinator({
       planPath: join(context.root, ".atelier", "PLAN.md"),
       ledger: reopened,
       provider: context.provider,
       repository: context.repository,
+      repositoryRoot: context.root,
     });
     try {
       assert.equal(await coordinator.resume(), undefined);
@@ -437,6 +451,45 @@ test("starting an explicitly requested later task works after explicit closure r
     );
   } finally {
     context.ledger.close();
+    rmSync(context.root, { recursive: true, force: true });
+  }
+});
+
+
+test("legacy execution records without an exact capability bundle fail closed on resume", async () => {
+  const context = setup("atlr-execution-legacy-capabilities-");
+  try {
+    const prepared = await context.coordinator.prepare();
+    const started = await context.coordinator.approveAndApply(prepared.approval.id, true);
+    assert.ok(started.executionGrant);
+    for (const [table, id] of [
+      ["plan_approvals", started.approval.id],
+      ["execution_grants", started.executionGrant.id],
+    ] as const) {
+      const row = context.ledger.database.prepare(`SELECT record_json FROM ${table} WHERE id = ?`).get(id) as { record_json: string };
+      const record = JSON.parse(row.record_json) as Record<string, unknown>;
+      delete record.capabilityDigest;
+      if (table === "plan_approvals") delete record.capabilities;
+      context.ledger.database.prepare(`UPDATE ${table} SET record_json = ? WHERE id = ?`).run(JSON.stringify(record), id);
+    }
+    context.ledger.close();
+
+    const reopened = new SqliteLedger(context.databasePath);
+    const coordinator = new ExecutionWorkflowCoordinator({
+      planPath: join(context.root, ".atelier", "PLAN.md"),
+      ledger: reopened,
+      provider: context.provider,
+      repository: context.repository,
+      repositoryRoot: context.root,
+    });
+    try {
+      assert.equal(await coordinator.resume(), undefined);
+      assert.match(reopened.listExecutionGrants()[0]?.invalidationReason ?? "", /capability bundle/i);
+      assert.equal(reopened.listGrants().length, 0);
+    } finally {
+      reopened.close();
+    }
+  } finally {
     rmSync(context.root, { recursive: true, force: true });
   }
 });

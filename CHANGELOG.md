@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.14.0-alpha.1 — 2026-07-27
+
+```text
+fix(safety): make reviewed execution truthful and fail closed
+
+- require external project trust before repository-controlled commands can start
+- move runtime state outside the repository and make doctor observational
+- treat generic shell as unconfined, single-operation approval only
+- add symlink-safe typed path confinement and an adversarial command corpus
+- bind exact approval to source, every workspace root, retrieval revisions, and typed capabilities
+- atomically install task capabilities while excluding arbitrary shell execution
+- enforce required validation, exact final-diff review, a local change, and clean closure state
+- make Git/Jujutsu observation failure explicit and include staged/untracked Git evidence
+- isolate Pi sessions and await asynchronous provider shutdown
+- emit stable JavaScript/declarations, unify release metadata, and add deterministic/live CI gates
+- correct ADR identifiers and document all 29 review recommendations
+```
+
 ## 0.13.0 — 2026-07-27
 
 ```text
@@ -169,7 +187,7 @@ docs(code): decide the Octocode provider role
 - accept codesearch as the continuing default retrieval provider
 - reject Octocode for default semantic repository retrieval
 - retain Octocode for explicit signatures, structural search, and GraphRAG experiments
-- record the provider decision and structural promotion gate in ADR-0012
+- record the provider decision and structural promotion gate in ADR-0021
 - stop the Octocode ranking-repair loop without new workflow evidence
 ```
 

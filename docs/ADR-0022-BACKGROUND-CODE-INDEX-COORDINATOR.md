@@ -1,4 +1,4 @@
-# ADR-0016: Coordinate background code indexing
+# ADR-0022: Coordinate background code indexing
 
 Status: accepted
 

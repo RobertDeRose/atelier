@@ -1,7 +1,9 @@
-# Atelier runtime state
-.atelier/
+# Legacy in-repository runtime state (new runtime state lives under ATLR_STATE_HOME/XDG state)
 .atelier/*.db
 .atelier/*.db-*
+.atelier/runtime/
+
+# Generated provider probe and evaluation artifacts
 .atelier/codesearch-probe/
 .atelier/octocode-probe/
 .atelier/evaluation/
@@ -23,6 +25,7 @@ atelier-octocode-knowledge.tar.xz
 
 # JavaScript dependencies and generated output
 node_modules/
+dist/
 coverage/
 *.log
 .DS_Store

@@ -5,6 +5,7 @@ import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus, type ResolvedCodeSearchFocus } from "./focus.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
+import { ATELIER_VERSION } from "../version.ts";
 import type {
   CodeCapability,
   CodeChunk,
@@ -273,7 +274,7 @@ export class OctocodeProvider implements CodeProvider {
     const existing = this.clients.get(repositoryId);
     if (existing) return existing;
     const client = new McpStdioClient(this.command, ["mcp", "--path", root], { cwd: root, timeoutMs: this.timeoutMs, environment: this.environment });
-    const initialized = await client.initialize({ clientVersion: "0.9.0" });
+    const initialized = await client.initialize({ clientVersion: ATELIER_VERSION });
     const version = initialized.serverInfo.version ?? this.detectVersion();
     this.identity = { name: "octocode", instanceId: "octocode:experimental", ...(version ? { version } : {}) };
     const tools = new Map((await client.listTools()).map((tool) => [tool.name, tool]));

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { AtelierCore, DisabledCodeProvider } from "../packages/core/src/index.ts";
+import { AtelierCore, DisabledCodeProvider, trustProject } from "../packages/core/src/index.ts";
 
 function validationRoot(prefix: string, validations: Record<string, unknown>): string {
   const root = mkdtempSync(join(tmpdir(), prefix));
@@ -12,6 +12,7 @@ function validationRoot(prefix: string, validations: Record<string, unknown>): s
   mkdirSync(join(root, ".atelier"));
   writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({ validations }));
   writeFileSync(join(root, "source.txt"), "one\n");
+  trustProject(root);
   return root;
 }
 
@@ -36,7 +37,7 @@ test("validation evidence is asynchronous, snapshot-qualified, and explains stal
     const rerun = await core.validation.run("pass", core.repository.snapshot());
     assert.equal(rerun.status, "passed");
     assert.equal(core.validation.list({ currentSnapshot: core.repository.snapshot() })[0]?.stale, false);
-  } finally { core.close(); }
+  } finally { await core.close(); }
 });
 
 test("validation persists failed and interrupted outcomes with bounded output and no child process", async () => {
@@ -70,10 +71,10 @@ test("validation persists failed and interrupted outcomes with bounded output an
     const childPid = Number(readFileSync(pidPath, "utf8"));
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.throws(() => process.kill(childPid, 0));
-  } finally { core.close(); }
+  } finally { await core.close(); }
 });
 
-test("focused validation selection is explainable, persisted, and never promotes no-match to full suite", () => {
+test("focused validation selection is explainable, persisted, and never promotes no-match to full suite", async () => {
   const root = validationRoot("atelier-focused-validation-", {
     types: { command: [process.execPath, "-e", "process.exit(0)"], paths: ["src/**/*.ts"], focused: true, required: true },
     state: { command: [process.execPath, "-e", "process.exit(0)"], symbols: ["WorkingState*"], focused: true },
@@ -114,5 +115,5 @@ test("focused validation selection is explainable, persisted, and never promotes
     assert.equal(empty.noMatch, true);
     assert.deepEqual(empty.selected, []);
     assert.equal(core.validation.listFocusedSelections({ taskId: "task" })[0]?.id, empty.id);
-  } finally { core.close(); }
+  } finally { await core.close(); }
 });

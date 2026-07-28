@@ -23,6 +23,7 @@ import type {
   RetrievalPersistenceLimits,
 } from "../code/retrieval.ts";
 import { newId, nowIso } from "../util/ids.ts";
+import { repositoryRevisionBinding } from "../repository/revision-binding.ts";
 
 interface EventRow {
   id: string;
@@ -40,6 +41,37 @@ interface WorkflowRunRow {
 
 interface ManualEditRow {
   record_json: string;
+}
+
+const LEGACY_CAPABILITY_DIGEST = "legacy-capability-bundle-unsupported";
+
+function normalizePlanApproval(record: string): PlanApproval {
+  const parsed = JSON.parse(record) as PlanApproval & Partial<PlanApproval>;
+  return {
+    ...parsed,
+    repositoryBindings: Array.isArray(parsed.repositoryBindings)
+      ? parsed.repositoryBindings
+      : [repositoryRevisionBinding(parsed.repositoryId, parsed.repositorySnapshot)],
+    retrievalBindings: Array.isArray(parsed.retrievalBindings) ? parsed.retrievalBindings : [],
+    capabilities: Array.isArray(parsed.capabilities) ? parsed.capabilities : [],
+    capabilityDigest: typeof parsed.capabilityDigest === "string"
+      ? parsed.capabilityDigest
+      : LEGACY_CAPABILITY_DIGEST,
+  };
+}
+
+function normalizeExecutionGrant(record: string): ExecutionGrant {
+  const parsed = JSON.parse(record) as ExecutionGrant & Partial<ExecutionGrant>;
+  return {
+    ...parsed,
+    repositoryBindings: Array.isArray(parsed.repositoryBindings)
+      ? parsed.repositoryBindings
+      : [repositoryRevisionBinding(parsed.repositoryId, parsed.repositorySnapshot)],
+    retrievalBindings: Array.isArray(parsed.retrievalBindings) ? parsed.retrievalBindings : [],
+    capabilityDigest: typeof parsed.capabilityDigest === "string"
+      ? parsed.capabilityDigest
+      : LEGACY_CAPABILITY_DIGEST,
+  };
 }
 
 interface PermissionRow {
@@ -281,6 +313,27 @@ export class SqliteLedger {
     this.database
       .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(6, nowIso());
+
+    const migration7 = this.database.prepare("SELECT 1 AS present FROM schema_migrations WHERE version = 7").get() as
+      | { present: number }
+      | undefined;
+    if (migration7 === undefined) {
+      const timestamp = nowIso();
+      this.database.exec("BEGIN IMMEDIATE");
+      try {
+        this.database.prepare(`
+          UPDATE permission_grants SET revoked_at = COALESCE(revoked_at, ?)
+          WHERE scope NOT IN ('operation', 'task', 'repository')
+        `).run(timestamp);
+        this.database
+          .prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)")
+          .run(7, timestamp);
+        this.database.exec("COMMIT");
+      } catch (error) {
+        this.database.exec("ROLLBACK");
+        throw error;
+      }
+    }
   }
 
   append<TPayload>(input: {
@@ -855,12 +908,12 @@ export class SqliteLedger {
     const row = this.database.prepare("SELECT record_json FROM plan_approvals WHERE id = ?").get(id) as
       | { record_json: string }
       | undefined;
-    return row === undefined ? undefined : JSON.parse(row.record_json) as PlanApproval;
+    return row === undefined ? undefined : normalizePlanApproval(row.record_json);
   }
 
   listPlanApprovals(): PlanApproval[] {
     const rows = this.database.prepare("SELECT record_json FROM plan_approvals ORDER BY updated_at DESC, id DESC").all() as unknown as Array<{ record_json: string }>;
-    return rows.map((row) => JSON.parse(row.record_json) as PlanApproval);
+    return rows.map((row) => normalizePlanApproval(row.record_json));
   }
 
   saveReconciliationTransaction(transaction: ReconciliationTransaction): void {
@@ -991,19 +1044,23 @@ export class SqliteLedger {
     const row = this.database.prepare("SELECT record_json FROM execution_grants WHERE status = 'active' LIMIT 1").get() as
       | { record_json: string }
       | undefined;
-    return row === undefined ? undefined : JSON.parse(row.record_json) as ExecutionGrant;
+    return row === undefined ? undefined : normalizeExecutionGrant(row.record_json);
   }
 
   listExecutionGrants(): ExecutionGrant[] {
     const rows = this.database.prepare("SELECT record_json FROM execution_grants ORDER BY updated_at DESC, id DESC").all() as unknown as Array<{ record_json: string }>;
-    return rows.map((row) => JSON.parse(row.record_json) as ExecutionGrant);
+    return rows.map((row) => normalizeExecutionGrant(row.record_json));
   }
 
   activateExecution(input: {
     approval: PlanApproval;
     transaction: ReconciliationTransaction;
     grant: ExecutionGrant;
+    permissionGrants: PermissionGrant[];
   }): void {
+    if (input.permissionGrants.some((grant) => grant.executionGrantId !== input.grant.id || grant.taskId !== input.grant.taskId)) {
+      throw new Error("Every task capability grant must be bound to the execution grant and active task.");
+    }
     const approvalJson = JSON.stringify(input.approval);
     const transactionJson = JSON.stringify(input.transaction);
     const grantJson = JSON.stringify(input.grant);
@@ -1042,6 +1099,15 @@ export class SqliteLedger {
         INSERT INTO execution_grants(id, status, task_id, record_json, updated_at) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET status = excluded.status, task_id = excluded.task_id, record_json = excluded.record_json, updated_at = excluded.updated_at
       `).run(input.grant.id, input.grant.status, input.grant.taskId, grantJson, input.grant.issuedAt);
+      for (const permissionGrant of input.permissionGrants) {
+        this.saveGrant(permissionGrant);
+        this.insertEvent(this.createEvent({
+          kind: "permission.granted",
+          actor: "user",
+          taskId: input.grant.taskId,
+          payload: permissionGrant,
+        }));
+      }
       this.upsertState("approvedPlanHash", JSON.stringify(input.approval.planHash), input.grant.issuedAt);
       this.upsertState("currentPlanApprovalId", JSON.stringify(input.approval.id), input.grant.issuedAt);
       this.upsertState("currentExecutionGrantId", JSON.stringify(input.grant.id), input.grant.issuedAt);
@@ -1146,7 +1212,7 @@ export class SqliteLedger {
         grant.taskId ?? null,
         grant.repositoryId ?? null,
         grant.paths === undefined ? null : JSON.stringify(grant.paths),
-        grant.commandPrefix === undefined ? null : JSON.stringify(grant.commandPrefix),
+        null,
         grant.reason,
         grant.createdAt,
         grant.expiresAt ?? null,
@@ -1174,9 +1240,6 @@ export class SqliteLedger {
       ...(row.task_id === null ? {} : { taskId: row.task_id }),
       ...(row.repository_id === null ? {} : { repositoryId: row.repository_id }),
       ...(row.paths_json === null ? {} : { paths: JSON.parse(row.paths_json) as string[] }),
-      ...(row.command_prefix_json === null
-        ? {}
-        : { commandPrefix: JSON.parse(row.command_prefix_json) as string[] }),
       reason: row.reason,
       createdAt: row.created_at,
       ...(row.expires_at === null ? {} : { expiresAt: row.expires_at }),

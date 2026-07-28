@@ -6,10 +6,17 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ACTION_KINDS,
+  ATELIER_VERSION,
   AtelierCore,
   PERMISSIONS,
+  approveWorkspaceRoot,
   classifyShellCommand,
   ensurePlanDocument,
+  loadConfig,
+  projectTrustStatus,
+  revokeProjectTrust,
+  revokeWorkspaceRoot,
+  trustProject,
   parsePlanFile,
   resolveEditorCommand,
   runInteractiveProcess,
@@ -120,16 +127,20 @@ function commandAvailable(command: string, args: string[] = ["--version"]): { av
 }
 
 function printHelp(): void {
-  process.stdout.write(`Atelier prototype
+  process.stdout.write(`Atelier ${ATELIER_VERSION}
 
 Usage:
   atlr [--root PATH] [--retrieval-session ID] <command>
 
 Commands:
   launch [PI_ARGS...]              Launch Pi with the Atelier extension loaded
-  init [--beads] [--stealth]       Initialize .atelier state and a plan document
+  trust [status|add|revoke]         Manage the external project trust decision
+  trust workspace <add|revoke> PATH Approve additional multi-repository roots
+  init [--beads] [--stealth]       Initialize project configuration and a plan document
   repo status [--json]             Show the selected repository provider and identity
-  doctor                            Check Node, editor, VCS, and Beads availability
+  repo review-diff [--json]        Record review of the exact current task diff
+  repo commit --message TEXT       Create the required local commit/change
+  doctor                            Inspect configuration without creating state or starting providers
   status [--json]                   Show workflow, plan, task-provider, and repository state
   mode <investigate|plan|act>       Change the guarded workflow mode
   plan [OBJECTIVE]                  Enter plan mode and create the plan document if missing
@@ -171,7 +182,7 @@ Code search options:
   --hint IDENTIFIER[,IDENTIFIER...] Exact identifiers for bounded lexical augmentation
 
 Permission grant options:
-  --scope operation|turn|task|session|repository
+  --scope operation|task|repository
   --task ID
   --path PATH                       Repeat by using comma-separated paths
   --reason TEXT
@@ -189,6 +200,10 @@ async function main(): Promise<void> {
   const coreOpenOptions = retrievalSessionId === undefined ? {} : { retrievalSessionId };
   const [command, subcommand, ...rest] = parsed.positionals;
 
+  if (flagBoolean(parsed, "version")) {
+    process.stdout.write(`${ATELIER_VERSION}\n`);
+    return;
+  }
   if (command === undefined || command === "help" || flagBoolean(parsed, "help")) {
     printHelp();
     return;
@@ -197,7 +212,9 @@ async function main(): Promise<void> {
   if (command === "launch") {
     const commandIndex = raw.indexOf("launch");
     const piArgs = commandIndex === -1 ? [] : raw.slice(commandIndex + 1);
-    const extensionPath = fileURLToPath(new URL("../../pi-extension/src/index.ts", import.meta.url));
+    const builtExtension = fileURLToPath(new URL("../../pi-extension/src/index.js", import.meta.url));
+    const sourceExtension = fileURLToPath(new URL("../../pi-extension/src/index.ts", import.meta.url));
+    const extensionPath = existsSync(builtExtension) ? builtExtension : sourceExtension;
     const result = spawnSync("pi", ["--extension", extensionPath, ...piArgs], {
       cwd: root,
       env: { ...process.env, ATELIER_ROOT: root },
@@ -212,30 +229,62 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (command === "doctor") {
-    const core = AtelierCore.open(root, coreOpenOptions);
-    try {
-      const status = await core.taskProvider.status();
-      const editor = (() => {
-        try {
-          return resolveEditorCommand(core.config, false);
-        } catch (error) {
-          return { error: error instanceof Error ? error.message : String(error) };
-        }
-      })();
-      asJson({
-        node: { version: process.version, supported: Number(process.versions.node.split(".")[0]) >= 24 },
-        git: commandAvailable("git"),
-        jj: commandAvailable("jj"),
-        beads: status,
-        pi: commandAvailable("pi"),
-        editor,
-        code: await core.code.status(undefined, core.codeWorkspace()),
-        repositoryRoot: root,
-      });
-    } finally {
-      core.close();
+  if (command === "trust") {
+    const action = subcommand ?? "add";
+    if (action === "status") {
+      asJson(projectTrustStatus(root));
+      return;
     }
+    if (action === "workspace") {
+      const workspaceAction = rest[0];
+      const workspaceRoot = rest[1];
+      if (!workspaceRoot || !["add", "revoke"].includes(workspaceAction ?? "")) {
+        throw new Error("Usage: atlr trust workspace <add|revoke> PATH --yes");
+      }
+      if (!await explicitConfirmation(parsed, `${workspaceAction === "add" ? "Approve" : "Revoke"} workspace root ${resolve(workspaceRoot)}?`)) {
+        process.stdout.write("Workspace trust change cancelled.\n");
+        return;
+      }
+      const record = workspaceAction === "add"
+        ? approveWorkspaceRoot(root, workspaceRoot)
+        : revokeWorkspaceRoot(root, workspaceRoot);
+      asJson(record);
+      return;
+    }
+    if (!["add", "revoke"].includes(action)) throw new Error("Usage: atlr trust [status|add|revoke] [--yes]");
+    if (!await explicitConfirmation(parsed, `${action === "add" ? "Trust" : "Revoke trust for"} project ${root}?`)) {
+      process.stdout.write("Project trust change cancelled.\n");
+      return;
+    }
+    if (action === "add") asJson({ trusted: true, record: trustProject(root), storePath: projectTrustStatus(root).storePath });
+    else asJson({ trusted: false, revoked: revokeProjectTrust(root), root, storePath: projectTrustStatus(root).storePath });
+    return;
+  }
+
+  if (command === "doctor") {
+    const trust = projectTrustStatus(root);
+    const config = loadConfig(root, { projectTrusted: trust.trusted });
+    const editor = trust.trusted ? (() => {
+      try { return resolveEditorCommand(config, false); }
+      catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
+    })() : { disabled: true, reason: "Project is not trusted; repository editor configuration was not loaded." };
+    asJson({
+      observational: true,
+      node: { version: process.version, supported: Number(process.versions.node.split(".")[0]) >= 24 },
+      git: commandAvailable("git"),
+      jj: commandAvailable("jj"),
+      pi: commandAvailable("pi"),
+      trust,
+      editor,
+      configuredProviders: trust.trusted ? {
+        repository: config.repositoryProvider,
+        tasks: config.taskProvider,
+        code: config.codeProvider,
+      } : { repository: "disabled", tasks: "disabled", code: "disabled" },
+      projectConfigPath: config.projectConfigPath,
+      runtimeDirectory: config.runtimeDirectory,
+      repositoryRoot: root,
+    });
     return;
   }
 
@@ -283,20 +332,40 @@ async function main(): Promise<void> {
       }
 
       case "repo": {
-        if (subcommand !== "status") throw new Error("Usage: atlr repo status [--json]");
-        const provider = core.repository.status();
-        const snapshot = core.repository.snapshot();
-        if (flagBoolean(parsed, "json")) asJson({ provider, snapshot });
-        else process.stdout.write([
-          `Provider: ${provider.provider}`,
-          `Available: ${provider.available}`,
-          `Repository: ${provider.repository}`,
-          `Workspace: ${snapshot.workspaceId}`,
-          ...(snapshot.vcs === "jj"
-            ? [`Change: ${snapshot.changeId ?? "unknown"}`, `Commit: ${snapshot.headCommit}`, `Operation: ${snapshot.operationId ?? "unknown"}`]
-            : [`Git commit: ${snapshot.headCommit}`]),
-        ].join("\n") + "\n");
-        return;
+        if (subcommand === "status") {
+          const provider = core.repository.status();
+          const snapshot = core.repository.snapshot();
+          if (flagBoolean(parsed, "json")) asJson({ provider, snapshot });
+          else process.stdout.write([
+            `Provider: ${provider.provider}`,
+            `Available: ${provider.available}`,
+            `Repository: ${provider.repository}`,
+            `Workspace: ${snapshot.workspaceId}`,
+            ...(snapshot.vcs === "jj"
+              ? [`Change: ${snapshot.changeId ?? "unknown"}`, `Commit: ${snapshot.headCommit}`, `Operation: ${snapshot.operationId ?? "unknown"}`]
+              : [`Git commit: ${snapshot.headCommit}`]),
+          ].join("\n") + "\n");
+          return;
+        }
+        if (subcommand === "review-diff") {
+          const preview = core.previewFinalDiff();
+          if (!flagBoolean(parsed, "json")) {
+            process.stdout.write(`${preview.diff.trimEnd()}\n\n`);
+          }
+          const review = core.reviewFinalDiff(preview.diffHash);
+          if (flagBoolean(parsed, "json")) asJson({ preview, review });
+          else process.stdout.write(`Reviewed ${review.changedPaths.length} changed path(s); diff ${review.diffHash}.\n`);
+          return;
+        }
+        if (subcommand === "commit") {
+          const message = flagString(parsed, "message") ?? rest.join(" ").trim();
+          if (!message) throw new Error("Usage: atlr repo commit --message TEXT");
+          const result = core.commitActiveTask(message);
+          if (flagBoolean(parsed, "json")) asJson(result);
+          else process.stdout.write(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}\n`);
+          return;
+        }
+        throw new Error("Usage: atlr repo <status|review-diff|commit>");
       }
 
       case "status": {
@@ -395,11 +464,15 @@ async function main(): Promise<void> {
         const shellCommand = rest.join(" ");
         const classification = classifyShellCommand(shellCommand);
         const decision = core.evaluate({
-          action: classification.action,
+          // The classifier is explanatory only for arbitrary shell. Policy
+          // always treats the command as unconfined executable code.
+          action: "command.execute",
+          risk: classification.risk,
           actor: "user",
           repositorySnapshot: core.repository.snapshot(),
           command: [shellCommand],
-          rationale: classification.rationale.join("; "),
+          boundary: "unconfined",
+          rationale: `${classification.rationale.join("; ")} Generic shell is always authorized as unconfined command execution.`,
         });
         asJson({ classification, decision });
         return;
@@ -445,13 +518,6 @@ async function main(): Promise<void> {
           const selection = core.selectFocusedValidation();
           const evidence = [];
           for (const item of selection.selected) {
-            const executionGrant = core.ledger.getActiveExecutionGrant();
-            if (executionGrant !== undefined) core.grant({
-              permission: "validation.focused",
-              scope: "operation",
-              taskId: executionGrant.taskId,
-              reason: `Explicit CLI focused validation ${item.name}`,
-            });
             evidence.push({ selection: item, evidence: await core.runValidation(item.name, { selectionId: selection.id }) });
           }
           if (flagBoolean(parsed, "json")) asJson({ selection, evidence });
@@ -469,14 +535,6 @@ async function main(): Promise<void> {
         if (subcommand === "run") {
           const name = rest[0];
           if (!name) throw new Error("Usage: atlr validate run NAME");
-          const action = core.validation.action(name);
-          const executionGrant = core.ledger.getActiveExecutionGrant();
-          if (executionGrant !== undefined) core.grant({
-            permission: action === "validation.focused" ? "validation.focused" : "validation.full_suite",
-            scope: "operation",
-            taskId: executionGrant.taskId,
-            reason: `Explicit CLI validation ${name}`,
-          });
           const evidence = await core.runValidation(name);
           if (flagBoolean(parsed, "json")) asJson(evidence);
           else process.stdout.write(`${name}: ${evidence.status} (${evidence.durationMs} ms)\n`);
@@ -516,7 +574,7 @@ async function main(): Promise<void> {
         throw new Error(`Unknown command: ${command}`);
     }
   } finally {
-    core.close();
+    await core.close();
   }
 }
 
@@ -833,15 +891,15 @@ async function handlePermissions(core: AtelierCore, subcommand: string | undefin
       if (!permission || !PERMISSIONS.includes(permission as Permission)) {
         throw new Error(`Permission must be one of: ${PERMISSIONS.join(", ")}`);
       }
-      const scope = flagString(args, "scope") ?? "session";
-      if (!(["operation", "turn", "task", "session", "repository"] as const).includes(scope as never)) {
+      const scope = flagString(args, "scope") ?? "operation";
+      if (!(["operation", "task", "repository"] as const).includes(scope as never)) {
         throw new Error("Invalid grant scope.");
       }
       const paths = flagString(args, "path")?.split(",").map((path) => path.trim()).filter(Boolean);
       const taskId = flagString(args, "task");
       const grant = core.grant({
         permission: permission as Permission,
-        scope: scope as "operation" | "turn" | "task" | "session" | "repository",
+        scope: scope as "operation" | "task" | "repository",
         reason: flagString(args, "reason") ?? "Explicit CLI grant",
         ...(taskId === undefined ? {} : { taskId }),
         ...(paths === undefined ? {} : { paths }),

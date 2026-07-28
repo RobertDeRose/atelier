@@ -11,7 +11,9 @@ import {
   classifyShellCommand,
   ensurePlanDocument,
   hashFile,
+  projectTrustStatus,
   resolveEditorCommand,
+  trustProject,
   type ActionRequest,
   type ManualEditEditor,
   type Permission,
@@ -88,7 +90,7 @@ function retrievalText(retrieval: RetrievalSessionStatus): string {
 
 function codeToolError(
   error: unknown,
-  core: AtelierCore | undefined = activeCore,
+  core?: AtelierCore,
 ): { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> } {
   const message = errorMessage(error);
   const retrieval = core?.code.retrievalStatus();
@@ -105,27 +107,35 @@ function codeToolError(
   };
 }
 
-function providerFailureAllowsRawFallback(core: AtelierCore): boolean {
-  const retrieval = core.code.retrievalStatus();
-  if (
-    retrieval.lastDecision?.kind === "budget_denied"
-    || retrieval.lastDecision?.kind === "no_provider_call"
-    || retrieval.lastDecision?.kind === "unsupported"
-  ) return false;
-  return true;
-}
-
 export interface AtelierExtensionOptions {
   openCore?: (repositoryRoot: string) => AtelierCore;
 }
 
-let activeCore: AtelierCore | undefined;
-let activeRoot: string | undefined;
 let activeCoreFactory: (repositoryRoot: string) => AtelierCore = (repositoryRoot) => AtelierCore.open(repositoryRoot);
-let reviewInProgress = false;
-let providerDiscoveryAttempted = false;
-let rawDiscoveryFallbackAllowed = false;
-let stopIndexStatusUpdates: (() => void) | undefined;
+
+interface ExtensionSessionState {
+  core?: AtelierCore;
+  root?: string;
+  reviewInProgress: boolean;
+  advisorySent: boolean;
+  stopIndexStatusUpdates?: () => void;
+}
+
+const SESSION_STATES = new WeakMap<object, ExtensionSessionState>();
+
+function sessionKey(ctx: ExtensionContext): object {
+  const extended = ctx as ExtensionContext & { sessionManager?: object; session?: object };
+  return extended.sessionManager ?? extended.session ?? ctx;
+}
+
+function sessionState(ctx: ExtensionContext): ExtensionSessionState {
+  const key = sessionKey(ctx);
+  const existing = SESSION_STATES.get(key);
+  if (existing !== undefined) return existing;
+  const created: ExtensionSessionState = { reviewInProgress: false, advisorySent: false };
+  SESSION_STATES.set(key, created);
+  return created;
+}
 
 function uniqueToolNames(names: readonly string[]): string[] {
   return [...new Set(names)];
@@ -140,11 +150,6 @@ function ensureCodeToolsActive(pi: ExtensionAPI, core: AtelierCore): void {
   pi.setActiveTools(uniqueToolNames([...CODE_AGENT_TOOLS, ...active]));
 }
 
-function resetDiscoveryRouting(): void {
-  providerDiscoveryAttempted = false;
-  rawDiscoveryFallbackAllowed = false;
-}
-
 function isBroadRawDiscovery(event: any): boolean {
   if (["grep", "find", "ls"].includes(event.toolName)) return true;
   if (event.toolName !== "bash" || typeof event.input?.command !== "string") return false;
@@ -152,14 +157,32 @@ function isBroadRawDiscovery(event: any): boolean {
 }
 
 function coreFor(ctx: ExtensionContext): AtelierCore {
+  const state = sessionState(ctx);
   const root = resolve(ctx.cwd);
-  if (activeCore !== undefined && activeRoot === root) return activeCore;
-  activeCore?.endRetrievalSession();
-  activeCore?.close();
-  activeCore = activeCoreFactory(root);
-  activeRoot = root;
-  resetDiscoveryRouting();
-  return activeCore;
+  if (state.core !== undefined && state.root === root) return state.core;
+  if (state.core !== undefined) {
+    throw new Error(
+      `The Pi session root changed from ${state.root ?? "unknown"} to ${root}. `
+      + "Start a new session so Atelier can close the prior repository state before opening another root.",
+    );
+  }
+  state.core = activeCoreFactory(root);
+  state.root = root;
+  state.reviewInProgress = false;
+  state.advisorySent = false;
+  return state.core;
+}
+
+async function replaceCore(ctx: ExtensionContext): Promise<AtelierCore> {
+  const state = sessionState(ctx);
+  if (state.core !== undefined) {
+    state.core.interruptPendingExecutionEvidence("Pi replaced the active Atelier core.");
+    state.core.endRetrievalSession();
+    await state.core.close();
+  }
+  delete state.core;
+  delete state.root;
+  return coreFor(ctx);
 }
 
 async function updateStatus(ctx: ExtensionContext, core = coreFor(ctx)): Promise<void> {
@@ -179,6 +202,13 @@ async function updateStatus(ctx: ExtensionContext, core = coreFor(ctx)): Promise
     ctx.ui.setStatus(STATUS_KEY, "Atelier unavailable");
     ctx.ui.notify(errorMessage(error), "error");
   }
+}
+
+function toolReadPaths(event: any, ctx: ExtensionContext): string[] {
+  const candidates = [event.input?.path, event.input?.directory, event.input?.cwd]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  const paths = candidates.length === 0 ? [ctx.cwd] : candidates;
+  return [...new Set(paths.map((path) => resolve(ctx.cwd, path)))];
 }
 
 function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): ActionRequest {
@@ -202,7 +232,11 @@ function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): A
     return {
       ...base,
       action: "read.repository",
-      rationale: `Pi ${event.toolName} tool is read-only.`,
+      paths: event.toolName.startsWith("atlr_code_")
+        ? core.codeWorkspace().roots
+        : toolReadPaths(event, ctx),
+      boundary: "typed",
+      rationale: `Pi ${event.toolName} tool performs a typed repository read.`,
     };
   }
 
@@ -215,7 +249,8 @@ function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): A
       action: "write.file",
       risk: "routine",
       ...(path === undefined ? {} : { paths: [path] }),
-      rationale: `Pi ${event.toolName} tool modifies a file.`,
+      boundary: "typed",
+      rationale: `Pi ${event.toolName} tool modifies a file through a typed path.`,
     };
   }
 
@@ -224,10 +259,14 @@ function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): A
     const classification = classifyShellCommand(command);
     return {
       ...base,
-      action: classification.action,
+      // Classification supplies diagnostics only. Generic shell is always an
+      // executable operation so a parser miss cannot bypass execution grants
+      // or durable tool evidence by presenting the command as a repository read.
+      action: "command.execute",
       risk: classification.risk,
       command: [command],
-      rationale: classification.rationale.join("; "),
+      boundary: "unconfined",
+      rationale: `${classification.rationale.join("; ")} Generic shell is always authorized as unconfined command execution.`,
     };
   }
 
@@ -235,6 +274,7 @@ function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore): A
     ...base,
     action: "command.execute",
     risk: "unknown",
+    boundary: "unconfined",
     rationale: `Custom tool ${String(event.toolName)} is not declared read-only to Atelier.`,
   };
 }
@@ -374,8 +414,9 @@ async function reviewPlan(
   ctx: ExtensionContext,
   core: AtelierCore,
 ): Promise<void> {
-  if (reviewInProgress) return;
-  reviewInProgress = true;
+  const extensionState = sessionState(ctx);
+  if (extensionState.reviewInProgress) return;
+  extensionState.reviewInProgress = true;
   core.ledger.setState("planAutoReviewPending", false);
   let startedManualEditId: string | undefined;
   try {
@@ -444,7 +485,7 @@ async function reviewPlan(
     });
     ctx.ui.notify(errorMessage(error), "error");
   } finally {
-    reviewInProgress = false;
+    extensionState.reviewInProgress = false;
   }
 }
 
@@ -454,7 +495,7 @@ function planInstruction(core: AtelierCore, objective: string): string {
     `Write or update the implementation plan only at ${core.config.planPath}. ` +
     "Ensure one focused semantic discovery exists before repository inspection. If Working State already contains a current scoped inventory, inspect and reuse it with atlr_code_status instead of duplicating the search; otherwise call atlr_code_search once. Inspect the compact inventory before any additional retrieval. " +
     "Use atlr_code_symbols only for exact identifiers the inventory marks unresolved, and use built-in read for known or returned paths. " +
-    "Do not use broad rg, grep, find, fd, tree, or ls discovery unless Atelier reports unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence. Cache hits and budget denial never permit raw fallback. " +
+    "Prefer provider evidence before broad rg, grep, find, fd, tree, or ls discovery, but use exact raw inspection when provider evidence is insufficient or the request requires it. " +
     "Use stable task IDs, explicit dependencies, scope, validation steps, and observable completion criteria. " +
     "Do not ask the user to describe textual plan edits after the draft; Atelier will open the plan in their configured editor. " +
     `When the draft is complete, stop.\n\nObjective: ${objective || "Create an implementation plan for the current request."}`;
@@ -550,8 +591,8 @@ async function approveAndReconcile(
     await updateStatus(ctx, core);
     pi.sendUserMessage(
       `[Atelier] Plan revision ${transition.approval.planHash} is approved and task ${transition.task?.id ?? "unknown"} is active. ` +
-        `Execution grant ${transition.executionGrant?.id ?? "unknown"} authorizes only this task/workspace and conveys no action permission. ` +
-        "Inspect current source, stay within scope, and obtain independently required permissions for mutations.",
+        `Execution grant ${transition.executionGrant?.id ?? "unknown"} installs the reviewed typed task capability bundle. ` +
+        "Typed in-repository writes, declared validations, task updates, and one local change are authorized for this task; generic shell, external effects, publication, and out-of-root access still require separate approval.",
     );
   } catch (error) {
     ctx.ui.notify(errorMessage(error), "error");
@@ -566,24 +607,15 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "Inspect provider health plus the current retrieval session inventory, freshness, decisions, remaining budgets, deduplication, and truncation before requesting more evidence or considering raw scanning.",
     promptSnippet: "Inspect Atelier provider health and the compact evidence inventory before any additional retrieval",
     promptGuidelines: [
-      "Inspect the returned inventory before another search. Raw scanning is available only for unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence—not for cache hits or budget denial.",
+      "Inspect the returned inventory before another search. Prefer provider evidence first, but raw inspection remains available through typed reads or an explicitly approved shell operation; budget denial does not grant shell permission.",
     ],
     parameters: objectSchema({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const core = coreFor(ctx);
       try {
-        const core = coreFor(ctx);
         const workspace = core.codeWorkspace();
         const status = await core.code.status(undefined, workspace);
         const retrieval = core.code.retrievalStatus();
-        const providerAllowsFallback = status.available === false
-          || status.healthy === false
-          || status.indexState === "stale"
-          || status.indexState === "failed"
-          || status.degraded === true;
-        if (providerAllowsFallback) {
-          providerDiscoveryAttempted = true;
-          rawDiscoveryFallbackAllowed = true;
-        }
         const text = [
           `Provider: ${status.identity.name}${status.identity.version ? ` ${status.identity.version}` : ""}`,
           `Available: ${status.available}`,
@@ -597,8 +629,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         ].join("\n");
         return { content: [{ type: "text", text }], details: { status, workspaceId: workspace.id, retrieval } };
       } catch (error) {
-        rawDiscoveryFallbackAllowed = true;
-        return codeToolError(error);
+        return codeToolError(error, core);
       }
     },
   });
@@ -612,7 +643,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       "Use exactly one focused semantic discovery before broad raw scans. Call atlr_code_search only when Working State does not already contain current scoped semantic evidence; never duplicate an existing discovery.",
       "Before another search, inspect the returned inventory; Atelier will reuse covered evidence or recommend no provider call.",
       "Use built-in read for every known or returned path. Do not search again merely to inspect a known file.",
-      "Raw scanning is allowed only after unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence; budget denial is not fallback permission.",
+      "Prefer provider evidence before broad raw scanning. Raw inspection remains available through typed reads or an explicitly approved shell operation; budget denial does not grant shell permission.",
     ],
     parameters: objectSchema({
       query: stringSchema("Natural-language or identifier-oriented code search query."),
@@ -621,11 +652,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       limit: integerSchema("Maximum results to return.", 1, 20),
     }, ["query"]),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const core = coreFor(ctx);
       try {
         const input = params as { query: string; focus?: "auto" | "source" | "tests" | "docs" | "all"; mode?: "auto" | "lexical" | "semantic" | "hybrid"; limit?: number };
-        const core = coreFor(ctx);
         const workspace = core.codeWorkspace();
-        providerDiscoveryAttempted = true;
         const results = await core.code.search({
           workspace,
           text: input.query,
@@ -635,11 +665,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         });
         const status = await core.code.status(undefined, workspace);
         const retrieval = core.code.retrievalStatus();
-        const genuinelyEmpty = results.length === 0
-          && (retrieval.lastDecision?.kind === "provider_call" || retrieval.lastDecision?.kind === "invalidated");
-        rawDiscoveryFallbackAllowed = genuinelyEmpty || status.available === false || status.healthy === false ||
-          status.indexState === "stale" || status.indexState === "failed" || status.degraded === true ||
-          results.some((hit) => hit.provenance.degraded === true);
         const readGuidance = results.length === 0
           ? ""
           : `\n\nNext: use built-in read for the returned path${results.length === 1 ? "" : "s"}; do not issue another search to inspect known files.`;
@@ -677,8 +702,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           },
         };
       } catch (error) {
-        const core = activeCore;
-        rawDiscoveryFallbackAllowed = core === undefined ? true : providerFailureAllowsRawFallback(core);
         return codeToolError(error, core);
       }
     },
@@ -698,11 +721,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       limit: integerSchema("Maximum symbol results to return.", 1, 20),
     }, ["query"]),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const core = coreFor(ctx);
       try {
         const input = params as { query: string; limit?: number };
-        const core = coreFor(ctx);
         const workspace = core.codeWorkspace();
-        providerDiscoveryAttempted = true;
         const results = await core.code.symbols({
           workspace,
           text: input.query,
@@ -710,11 +732,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         });
         const status = await core.code.status(undefined, workspace);
         const retrieval = core.code.retrievalStatus();
-        rawDiscoveryFallbackAllowed = retrieval.lastDecision?.kind === "no_provider_call"
-          || retrieval.lastDecision?.kind === "exact_reuse"
-          ? false
-          : results.length === 0 || status.available === false || status.healthy === false
-            || status.indexState === "stale" || status.indexState === "failed" || status.degraded === true;
         const text = (results.length === 0
           ? retrieval.lastDecision?.kind === "no_provider_call"
             ? `No symbol provider call: ${retrieval.lastDecision.reason}`
@@ -743,30 +760,31 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           },
         };
       } catch (error) {
-        const core = activeCore;
-        rawDiscoveryFallbackAllowed = core === undefined ? true : providerFailureAllowsRawFallback(core);
         return codeToolError(error, core);
       }
     },
   });
   pi.on("session_start", async (_event, ctx) => {
-    resetDiscoveryRouting();
+    const extensionState = sessionState(ctx);
+    extensionState.advisorySent = false;
     const core = coreFor(ctx);
-    core.beginRetrievalSession();
-    ensureCodeToolsActive(pi, core);
-    stopIndexStatusUpdates?.();
-    stopIndexStatusUpdates = core.code.onIndexStatus(() => {
-      void updateStatus(ctx, core);
-    });
-    try {
-      await core.execution.resume();
-    } catch (error) {
-      ctx.ui.notify(`Execution resume failed closed: ${errorMessage(error)}`, "error");
+    if (core.config.projectTrusted) {
+      core.beginRetrievalSession();
+      ensureCodeToolsActive(pi, core);
+      extensionState.stopIndexStatusUpdates?.();
+      extensionState.stopIndexStatusUpdates = core.code.onIndexStatus(() => {
+        void updateStatus(ctx, core);
+      });
+      try {
+        await core.execution.resume();
+      } catch (error) {
+        ctx.ui.notify(`Execution resume failed closed: ${errorMessage(error)}`, "error");
+      }
+    } else {
+      ctx.ui.notify(`Atelier project trust is required before repository reads or provider startup: ${core.config.repositoryRoot}. Use /trust.`, "warning");
     }
     await updateStatus(ctx, core);
-    if (core.config.codeProvider !== "disabled") {
-      // Indexing is deliberately detached from session startup. CodeService owns
-      // the single in-flight operation; searches and /code-index join it.
+    if (core.config.projectTrusted && core.config.codeProvider !== "disabled") {
       void core.code.ensureIndex(core.codeWorkspace()).catch((error) => {
         ctx.ui.notify(`Code indexing failed: ${errorMessage(error)}`, "error");
       });
@@ -775,33 +793,34 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
 
   pi.on("session_shutdown", async (_event, ctx) => {
     ctx.ui.setStatus(STATUS_KEY, undefined);
-    stopIndexStatusUpdates?.();
-    stopIndexStatusUpdates = undefined;
-    activeCore?.interruptPendingExecutionEvidence("Pi session shut down before tool completion.");
-    activeCore?.endRetrievalSession();
-    activeCore?.close();
-    activeCore = undefined;
-    activeRoot = undefined;
-    reviewInProgress = false;
-    resetDiscoveryRouting();
+    const extensionState = sessionState(ctx);
+    extensionState.stopIndexStatusUpdates?.();
+    delete extensionState.stopIndexStatusUpdates;
+    extensionState.core?.interruptPendingExecutionEvidence("Pi session shut down before tool completion.");
+    extensionState.core?.endRetrievalSession();
+    if (extensionState.core !== undefined) await extensionState.core.close();
+    delete extensionState.core;
+    delete extensionState.root;
+    extensionState.reviewInProgress = false;
+    extensionState.advisorySent = false;
   });
 
   pi.on("tool_call", async (event, ctx) => {
     const core = coreFor(ctx);
-    if (
-      core.mode() === "plan" &&
-      core.config.codeProvider !== "disabled" &&
-      isBroadRawDiscovery(event) &&
-      (!providerDiscoveryAttempted || !rawDiscoveryFallbackAllowed)
-    ) {
-      return {
-        block: true,
-        reason: providerDiscoveryAttempted
-          ? core.code.retrievalStatus().lastDecision?.kind === "budget_denied"
-            ? "Atelier retrieval budget was denied. Inspect and reuse the current inventory; budget exhaustion does not permit raw scanning."
-            : "Atelier code intelligence returned usable evidence. Read the exact returned paths instead of broad grep/find scanning."
-          : "Plan mode requires provider-first discovery. Call atlr_code_search before broad grep/find/rg/ls scanning.",
-      };
+    const extensionState = sessionState(ctx);
+    if (core.mode() === "plan"
+      && core.config.providerFirstRetrieval === "advisory"
+      && core.config.codeProvider !== "disabled"
+      && isBroadRawDiscovery(event)
+      && !extensionState.advisorySent) {
+      extensionState.advisorySent = true;
+      core.ledger.append({
+        kind: "retrieval.raw_discovery_advisory",
+        actor: "system",
+        repositorySnapshot: core.repository.snapshot(),
+        payload: { toolName: event.toolName, guidance: "Prefer current code-provider evidence or a focused provider query before broad raw discovery." },
+      });
+      ctx.ui.notify("Atelier advisory: prefer current provider evidence or one focused code query before broad raw discovery. This is guidance, not an authorization block.", "warning");
     }
     const request = requestForTool(event, ctx, core);
     const authorization = await authorizeTool(request, ctx, core);
@@ -809,6 +828,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       authorization.response === undefined
       && request.action !== "read.repository"
       && !isDesignatedPlanWrite(request, core)
+      && core.ledger.getActiveExecutionGrant() !== undefined
     ) {
       try {
         core.beginExecutionEvidence({
@@ -856,25 +876,15 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     ensureCodeToolsActive(pi, core);
     const state = await core.buildWorkingState();
     const retrieval = core.code.retrievalStatus();
-    if (state.retrievalQueries.length > 0 || retrieval.decisions.length > 0) {
-      providerDiscoveryAttempted = true;
-      rawDiscoveryFallbackAllowed = retrieval.lastDecision?.kind === "budget_denied"
-        || retrieval.lastDecision?.kind === "no_provider_call"
-        || retrieval.lastDecision?.kind === "exact_reuse"
-        ? false
-        : state.codeEvidence.length === 0
-          || state.retrievalQueries.some((query) => query.degraded)
-          || state.codeEvidence.some((item) => item.degraded || item.indexState === "stale" || item.indexState === "failed");
-    }
     const activeContext = core.workingStateBuilder.toMarkdown(state);
     const retrievalInstruction = core.config.codeProvider === "disabled"
       ? "Atelier code intelligence is disabled; use exact built-in read/grep/find operations as needed."
-      : "Efficient provider-first retrieval is enforced: ensure one focused semantic discovery exists, reusing a current Working State inventory instead of duplicating it; inspect that inventory before another request, use atlr_code_symbols only for identifiers marked unresolved, and use built-in read for known or returned paths. Broad grep/find/rg/ls is allowed only after unavailable, unhealthy, stale, degraded, failed, or genuinely empty provider evidence—not after cache reuse or budget denial.";
+      : "Provider-first retrieval is advisory: prefer current scoped evidence or one focused semantic query, inspect the compact inventory before another request, and read known paths directly. Raw repository inspection remains available when provider evidence is insufficient or the user requests it.";
     const modeInstruction = state.mode === "plan"
-      ? `Only ${core.config.planPath} may be modified. Task-provider and source mutations are prohibited until approval. Read-only repository investigation never requires approval. ${retrievalInstruction}`
+      ? `Only ${core.config.planPath} may be modified. Task-provider and source mutations are prohibited until approval. Typed repository reads inside approved roots do not require approval; generic shell remains unconfined and requires one-operation approval. ${retrievalInstruction}`
       : state.mode === "investigate"
         ? `Investigate only. Any mutation requires a distinct Atelier approval. ${retrievalInstruction}`
-        : `Implement only the selected task and approved scope. Routine changes, validations, task updates, and local commits inside the active repository are approved by default. Ask only before destructive operations, external side effects, publication, or work outside the repository. Do not report implementation complete with uncommitted changes: run the appropriate validation and create a local Jujutsu change or Git commit before stopping. ${retrievalInstruction}`;
+        : `Implement only the selected task and reviewed capability bundle. Typed in-repository writes, declared validations, task updates, and one local change are authorized for the active task. Generic shell is unconfined and always requires one-operation approval; destructive operations, external effects, publication, and out-of-root access also require separate approval. Completion requires the authoritative validation, final-diff-review, local-change, and clean-repository predicate. ${retrievalInstruction}`;
     return {
       systemPrompt: `${event.systemPrompt}\n\n## Atelier enforced working state\n\n${modeInstruction}\n\n${activeContext}`,
     };
@@ -902,28 +912,86 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   pi.on("agent_settled", async (_event, ctx) => {
     const core = coreFor(ctx);
     if (core.mode() === "act") {
-      const status = await core.status();
-      const changedPaths = core.repository.changedPaths()
-        .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/"));
-      if (status.currentTaskId !== undefined && changedPaths.length > 0) {
-        const fingerprint = core.repository.snapshot().dirtyFingerprint;
-        if (core.ledger.getState<string>("completionGuardFingerprint") !== fingerprint) {
-          core.ledger.setState("completionGuardFingerprint", fingerprint);
-          pi.sendUserMessage(
-            `[Atelier completion guard] ${status.currentTaskId} still has ${changedPaths.length} uncommitted repository change(s). ` +
-              "Do not report completion yet. Run the required validation, inspect the final diff, then create a local Jujutsu change or Git commit containing only the approved task work. " +
-              "Publication still requires explicit approval.",
-          );
-        }
-      } else {
-        core.ledger.deleteState("completionGuardFingerprint");
+      const readiness = core.taskClosureReadiness();
+      const grant = core.ledger.getActiveExecutionGrant();
+      if (grant !== undefined && !readiness.ready) {
+        pi.sendUserMessage(
+          `[Atelier completion guard] Task ${grant.taskId} is not complete: ${readiness.reason} ` +
+            "Continue until the authoritative predicate passes, or use /cancel to stop execution explicitly.",
+          { deliverAs: "followUp" },
+        );
       }
       return;
     }
-    if (core.mode() !== "plan" || reviewInProgress) return;
+    if (core.mode() !== "plan" || sessionState(ctx).reviewInProgress) return;
     if (core.ledger.getState<boolean>("planAutoReviewPending") !== true) return;
     if (!existsSync(core.config.planPath)) return;
     await reviewPlan(ctx, core);
+  });
+
+  pi.registerCommand("trust", {
+    description: "Create the external Atelier trust decision for this project",
+    handler: async (_args, ctx) => {
+      const status = projectTrustStatus(ctx.cwd);
+      if (status.trusted) {
+        ctx.ui.notify(`Project is already trusted: ${status.root}`, "info");
+        return;
+      }
+      const confirmed = await ctx.ui.confirm(
+        "Trust Atelier project",
+        `Trust ${status.root}? Repository configuration may then start configured task, VCS, validation, editor, and code-provider commands. The trust record is stored outside the repository at ${status.storePath}.`,
+      );
+      if (!confirmed) return;
+      trustProject(status.root);
+      const core = await replaceCore(ctx);
+      core.beginRetrievalSession();
+      ensureCodeToolsActive(pi, core);
+      await updateStatus(ctx, core);
+      ctx.ui.notify(`Trusted ${status.root}.`, "info");
+    },
+  });
+
+  pi.registerCommand("review-diff", {
+    description: "Display and record review of the exact current task diff",
+    handler: async (_args, ctx) => {
+      const core = coreFor(ctx);
+      const preview = core.previewFinalDiff();
+      const approved = await ctx.ui.confirm(
+        "Review exact Atelier task diff",
+        `${preview.diff.trimEnd()}
+
+Changed paths: ${preview.changedPaths.join(", ")}
+Diff SHA-256: ${preview.diffHash}
+
+Record this exact diff as reviewed?`,
+      );
+      if (!approved) {
+        ctx.ui.notify("Final diff review was not recorded.", "warning");
+        return;
+      }
+      const review = core.reviewFinalDiff(preview.diffHash);
+      ctx.ui.notify(`Reviewed ${review.changedPaths.length} path(s); diff ${review.diffHash}.`, "info");
+    },
+  });
+
+  pi.registerCommand("commit", {
+    description: "Create the required local task commit or finalized Jujutsu change",
+    handler: async (args, ctx) => {
+      const message = args.trim();
+      if (!message) { ctx.ui.notify("Usage: /commit MESSAGE", "warning"); return; }
+      const result = coreFor(ctx).commitActiveTask(message);
+      ctx.ui.notify(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}`, "info");
+    },
+  });
+
+  pi.registerCommand("close", {
+    description: "Close the active task after the authoritative completion predicate passes",
+    handler: async (args, ctx) => {
+      const reason = args.trim() || "Completed with current Atelier evidence.";
+      const result = await coreFor(ctx).closeActiveTask(reason);
+      ctx.ui.notify(`Closed ${result.task.id}; ${result.nextReady.length} approved-plan task(s) are ready.`, "info");
+      await updateStatus(ctx);
+    },
   });
 
   pi.registerCommand("status", {
@@ -1065,8 +1133,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const status = await core.code.status(undefined, core.codeWorkspace());
       const retrieval = core.code.retrievalStatus();
       if (!status.available || !status.healthy || status.indexState === "stale" || status.indexState === "failed" || status.degraded === true) {
-        providerDiscoveryAttempted = true;
-        rawDiscoveryFallbackAllowed = true;
       }
       ctx.ui.notify([
         `Provider: ${status.identity.name}`,
@@ -1099,15 +1165,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         return;
       }
       const core = coreFor(ctx);
-      providerDiscoveryAttempted = true;
       const workspace = core.codeWorkspace();
       const results = await core.code.search({ workspace, text: query, mode: "semantic", limit: 10 });
       const status = await core.code.status(undefined, workspace);
       const retrieval = core.code.retrievalStatus();
-      rawDiscoveryFallbackAllowed = (results.length === 0
-        && (retrieval.lastDecision?.kind === "provider_call" || retrieval.lastDecision?.kind === "invalidated"))
-        || !status.available || !status.healthy || status.indexState === "stale" || status.indexState === "failed"
-        || status.degraded === true || results.some((item) => item.provenance.degraded === true);
       const message = (results.length === 0
         ? "No code matches."
         : `${results.map((item) => `${item.repositoryName}:${item.path}${item.startLine === undefined ? "" : `:${item.startLine}`}\n${item.preview ?? ""} [${item.provenance.provider.name}/${item.provenance.indexState}]`).join("\n\n")}\n\nUse built-in read for returned paths.`)
@@ -1125,15 +1186,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         return;
       }
       const core = coreFor(ctx);
-      providerDiscoveryAttempted = true;
       const workspace = core.codeWorkspace();
       const results = await core.code.symbols({ workspace, text: query, limit: 20 });
       const status = await core.code.status(undefined, workspace);
       const retrieval = core.code.retrievalStatus();
-      rawDiscoveryFallbackAllowed = retrieval.lastDecision?.kind !== "no_provider_call"
-        && retrieval.lastDecision?.kind !== "exact_reuse"
-        && (results.length === 0 || !status.available || !status.healthy || status.indexState === "stale"
-          || status.indexState === "failed" || status.degraded === true);
       const message = (results.length === 0
         ? retrieval.lastDecision?.kind === "no_provider_call"
           ? `No symbol provider call: ${retrieval.lastDecision.reason}`
@@ -1180,13 +1236,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         const selection = core.selectFocusedValidation();
         const results = [];
         for (const item of selection.selected) {
-          const executionGrant = core.ledger.getActiveExecutionGrant();
-          if (executionGrant !== undefined) core.grant({
-            permission: "validation.focused",
-            scope: "operation",
-            taskId: executionGrant.taskId,
-            reason: `Explicit Pi focused validation ${item.name}`,
-          });
           const signal = contextSignal(ctx);
           results.push(await core.runValidation(item.name, {
             selectionId: selection.id,
@@ -1196,14 +1245,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         ctx.ui.notify(results.length === 0 ? "No focused validations matched." : results.map((item) => `${item.name}: ${item.status} (${item.durationMs} ms)`).join("\n"), results.some((item) => item.status !== "passed") ? "error" : "info");
         return;
       }
-      const action = core.validation.action(name);
-      const executionGrant = core.ledger.getActiveExecutionGrant();
-      if (executionGrant !== undefined) core.grant({
-        permission: action === "validation.focused" ? "validation.focused" : "validation.full_suite",
-        scope: "operation",
-        taskId: executionGrant.taskId,
-        reason: `Explicit Pi validation ${name}`,
-      });
       const signal = contextSignal(ctx);
       const evidence = await core.runValidation(name, signal === undefined ? {} : { signal });
       ctx.ui.notify(`${name}: ${evidence.status} (${evidence.durationMs} ms)`, evidence.status === "passed" ? "info" : "error");

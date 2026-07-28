@@ -1,4 +1,6 @@
-import type { RepositorySnapshot } from "../domain/types.ts";
+import type { RepositorySnapshot } from "../repository/snapshot.ts";
+import type { CodeFreshness, CodeProviderIdentity } from "../domain/code-identity.ts";
+export type { CodeFreshness, CodeProviderIdentity } from "../domain/code-identity.ts";
 
 export const CODE_CAPABILITIES = [
   "index.repository",
@@ -25,7 +27,6 @@ export type CodeCapability = (typeof CODE_CAPABILITIES)[number];
 export type CodeSearchMode = "auto" | "lexical" | "semantic" | "hybrid";
 export type CodeSearchFocus = "auto" | "source" | "tests" | "docs" | "all";
 export type CodeIndexState = "missing" | "building" | "ready" | "stale" | "failed" | "unknown";
-export type CodeFreshness = "current" | "possibly_stale" | "known_stale" | "unknown";
 
 export interface CodeWorkspace {
   id: string;
@@ -42,11 +43,6 @@ export interface CodeWorkspace {
   }>;
 }
 
-export interface CodeProviderIdentity {
-  name: string;
-  version?: string;
-  instanceId: string;
-}
 
 export interface CodeProviderStatus {
   identity: CodeProviderIdentity;

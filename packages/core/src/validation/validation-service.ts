@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
-import type { SqliteDatabase } from "../ledger/sqlite-runtime.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { arch, platform } from "node:os";
+import { resolve } from "node:path";
 import type {
   FocusedValidationSelection,
   RepositorySnapshot,
@@ -9,12 +9,13 @@ import type {
   ValidationEvidenceRecord,
   ValidationEvidenceSummary,
 } from "../domain/types.ts";
+import type { SqliteDatabase } from "../ledger/sqlite-runtime.ts";
+import { sha256 } from "../util/hash.ts";
 import { nowIso, newId } from "../util/ids.ts";
 
 export interface ValidationDefinition {
   command: string[];
   description?: string;
-  approval?: "never" | "always";
   longRunningAfterMs?: number;
   focused?: boolean;
   category?: "focused" | "full";
@@ -23,7 +24,15 @@ export interface ValidationDefinition {
   symbols?: string[];
 }
 
+export interface ValidationClosurePolicy {
+  requireValidation: boolean;
+  requireFinalDiffReview: boolean;
+  requireLocalChange: boolean;
+  requireCleanGit: boolean;
+}
+
 export interface ValidationManifest {
+  closurePolicy?: Partial<ValidationClosurePolicy>;
   validations: Record<string, ValidationDefinition>;
 }
 
@@ -35,33 +44,48 @@ export interface FocusedValidationCandidate {
   required: boolean;
 }
 
+const DEFAULT_CLOSURE_POLICY: ValidationClosurePolicy = {
+  requireValidation: true,
+  requireFinalDiffReview: true,
+  requireLocalChange: true,
+  requireCleanGit: true,
+};
+
 export class ValidationService {
   private readonly root: string;
   private readonly database: SqliteDatabase;
   private readonly manifestPath: string;
+  private readonly trusted: boolean;
 
-  constructor(options: { root: string; database: SqliteDatabase; manifestPath?: string }) {
+  constructor(options: { root: string; database: SqliteDatabase; manifestPath?: string; trusted?: boolean }) {
     this.root = resolve(options.root);
     this.database = options.database;
-    this.manifestPath = resolve(this.root, options.manifestPath ?? ".atelier/validation.json");
+    this.manifestPath = resolve(options.manifestPath ?? resolve(this.root, ".atelier", "validation.json"));
+    this.trusted = options.trusted ?? true;
     this.migrate();
   }
 
   manifest(): ValidationManifest {
-    if (!existsSync(this.manifestPath)) return { validations: {} };
+    if (!this.trusted) return { closurePolicy: DEFAULT_CLOSURE_POLICY, validations: {} };
+    if (!existsSync(this.manifestPath)) return { closurePolicy: DEFAULT_CLOSURE_POLICY, validations: {} };
     const parsed = JSON.parse(readFileSync(this.manifestPath, "utf8")) as ValidationManifest;
-    if (parsed === null || typeof parsed !== "object" || parsed.validations === null || typeof parsed.validations !== "object") {
+    if (parsed === null || typeof parsed !== "object" || parsed.validations === null || typeof parsed.validations !== "object" || Array.isArray(parsed.validations)) {
       throw new Error(`Invalid validation manifest: ${this.manifestPath}`);
     }
-    for (const [name, definition] of Object.entries(parsed.validations)) {
-      if (!Array.isArray(definition.command) || definition.command.length === 0 || !definition.command.every((item) => typeof item === "string")) {
-        throw new Error(`Validation ${name} must define a non-empty string-array command.`);
-      }
-      if (definition.category !== undefined && definition.category !== "focused" && definition.category !== "full") {
-        throw new Error(`Validation ${name} has invalid category ${String(definition.category)}.`);
+    if (parsed.closurePolicy !== undefined && (parsed.closurePolicy === null || typeof parsed.closurePolicy !== "object" || Array.isArray(parsed.closurePolicy))) {
+      throw new Error(`Validation closurePolicy must be an object: ${this.manifestPath}`);
+    }
+    for (const [field, value] of Object.entries(parsed.closurePolicy ?? {})) {
+      if (!Object.hasOwn(DEFAULT_CLOSURE_POLICY, field) || typeof value !== "boolean") {
+        throw new Error(`Validation closurePolicy.${field} must be a supported boolean field.`);
       }
     }
+    for (const [name, definition] of Object.entries(parsed.validations)) validateDefinition(name, definition);
     return parsed;
+  }
+
+  closurePolicy(): ValidationClosurePolicy {
+    return { ...DEFAULT_CLOSURE_POLICY, ...(this.manifest().closurePolicy ?? {}) };
   }
 
   definition(name: string): ValidationDefinition | undefined {
@@ -94,6 +118,7 @@ export class ValidationService {
   }
 
   saveFocusedSelection(input: Omit<FocusedValidationSelection, "id" | "selected" | "noMatch" | "createdAt">): FocusedValidationSelection {
+    this.requireTrusted();
     const selected = this.planFocused(input.changedPaths, input.changedSymbols);
     const selection: FocusedValidationSelection = {
       id: newId("validation-selection"),
@@ -116,6 +141,7 @@ export class ValidationService {
       JSON.stringify(selection),
       selection.createdAt,
     );
+    this.prune();
     return selection;
   }
 
@@ -151,10 +177,13 @@ export class ValidationService {
       maxOutputBytes?: number;
     } = {},
   ): Promise<ValidationEvidence> {
+    this.requireTrusted();
     const definition = this.manifest().validations[name];
     if (definition === undefined) throw new Error(`Unknown validation: ${name}`);
     const [executable, ...args] = definition.command;
     if (executable === undefined) throw new Error(`Validation ${name} has no executable.`);
+    const environment = validationEnvironment();
+    const environmentFingerprint = this.environmentFingerprint(name, definition, environment);
     const startedAt = nowIso();
     const started = Date.now();
     const maximum = Math.max(1, options.maxOutputBytes ?? 50 * 1024);
@@ -169,6 +198,7 @@ export class ValidationService {
         ...(options.planHash === undefined ? {} : { planHash: options.planHash }),
         ...(options.selectionId === undefined ? {} : { selectionId: options.selectionId }),
         snapshotFingerprint: snapshot.dirtyFingerprint,
+        environmentFingerprint,
         startedAt,
         finishedAt: nowIso(),
         durationMs: 0,
@@ -184,7 +214,7 @@ export class ValidationService {
     return new Promise<ValidationEvidence>((resolvePromise) => {
       const child = spawn(executable, args, {
         cwd: this.root,
-        env: process.env,
+        env: environment,
         shell: false,
         windowsHide: true,
         detached: process.platform !== "win32",
@@ -246,13 +276,14 @@ export class ValidationService {
           ...(options.planHash === undefined ? {} : { planHash: options.planHash }),
           ...(options.selectionId === undefined ? {} : { selectionId: options.selectionId }),
           snapshotFingerprint: snapshot.dirtyFingerprint,
+          environmentFingerprint,
           startedAt,
           finishedAt: nowIso(),
           durationMs: Date.now() - started,
           exitCode,
           status: interrupted ? "interrupted" : exitCode === 0 ? "passed" : "failed",
-          stdout: stdout.toString("utf8"),
-          stderr: finalStderr.toString("utf8"),
+          stdout: redactOutput(stdout.toString("utf8")),
+          stderr: redactOutput(finalStderr.toString("utf8")),
           stdoutTruncated,
           stderrTruncated,
         });
@@ -285,29 +316,30 @@ export class ValidationService {
     const rows = this.database.prepare(`SELECT * FROM validation_evidence ${where} ORDER BY started_at DESC, id DESC LIMIT ?`).all(...parameters);
     return (rows as unknown as Array<Record<string, unknown>>).map((row) => {
       const evidence = evidenceFromRow(row);
-      const stale = options.currentSnapshot !== undefined
+      const definition = this.trusted ? this.definition(evidence.name) : undefined;
+      const currentEnvironment = definition === undefined
+        ? undefined
+        : this.environmentFingerprint(evidence.name, definition, validationEnvironment());
+      const repositoryStale = options.currentSnapshot !== undefined
         && options.currentSnapshot.dirtyFingerprint !== evidence.snapshotFingerprint;
-      return {
-        ...evidence,
-        stale,
-        ...(stale ? {
-          staleReason: `Repository fingerprint changed from ${evidence.snapshotFingerprint} to ${options.currentSnapshot!.dirtyFingerprint}`
-            + `${(options.currentChangedPaths?.length ?? 0) === 0 ? "" : `; newer changed paths: ${options.currentChangedPaths!.join(", ")}`}.`,
-        } : {}),
-      };
+      const environmentStale = currentEnvironment !== undefined
+        && evidence.environmentFingerprint !== currentEnvironment;
+      const stale = repositoryStale || environmentStale;
+      const reasons = [
+        repositoryStale
+          ? `Repository fingerprint changed from ${evidence.snapshotFingerprint} to ${options.currentSnapshot!.dirtyFingerprint}`
+            + `${(options.currentChangedPaths?.length ?? 0) === 0 ? "" : `; newer changed paths: ${options.currentChangedPaths!.join(", ")}`}`
+          : "",
+        environmentStale ? "Validation command or execution environment changed." : "",
+      ].filter(Boolean);
+      return { ...evidence, stale, ...(stale ? { staleReason: `${reasons.join("; ")}.` } : {}) };
     });
   }
 
   latestCurrent(snapshot: RepositorySnapshot): ValidationEvidence[] {
-    const rows = this.database.prepare(`
-      SELECT v.* FROM validation_evidence v
-      INNER JOIN (
-        SELECT name, MAX(started_at) AS latest FROM validation_evidence
-        WHERE snapshot_fingerprint = ? GROUP BY name
-      ) latest ON latest.name = v.name AND latest.latest = v.started_at
-      WHERE v.snapshot_fingerprint = ? ORDER BY v.name
-    `).all(snapshot.dirtyFingerprint, snapshot.dirtyFingerprint) as unknown as Array<Record<string, unknown>>;
-    return rows.map(evidenceFromRow);
+    return this.list({ currentSnapshot: snapshot, limit: 200 })
+      .filter((item) => !item.stale)
+      .filter((item, index, all) => all.findIndex((candidate) => candidate.name === item.name) === index);
   }
 
   summaries(snapshot: RepositorySnapshot, changedPaths: string[], taskId?: string): {
@@ -338,34 +370,52 @@ export class ValidationService {
   }
 
   closureReadiness(snapshot: RepositorySnapshot, taskId: string, executionGrantId: string): TaskClosureReadiness {
+    const manifest = this.manifest();
+    const policy = this.closurePolicy();
     const selection = this.listFocusedSelections({ taskId, executionGrantId, limit: 1 })[0];
-    if (selection === undefined) {
-      return { ready: false, required: [], missing: [], stale: [], failed: [], reason: "No focused validation selection is recorded for the active task." };
-    }
-    const required = selection.selected.filter((item) => item.required).map((item) => item.name).sort();
+    const selectedRequired = selection?.selected.filter((item) => item.required).map((item) => item.name) ?? [];
+    const fullRequired = Object.entries(manifest.validations)
+      .filter(([, definition]) => definition.required === true && definition.category === "full")
+      .map(([name]) => name);
+    const required = [...new Set([...selectedRequired, ...fullRequired])].sort();
     const missing: string[] = [];
     const stale: string[] = [];
     const failed: string[] = [];
+
+    if (policy.requireValidation && required.length === 0) {
+      return {
+        ready: false,
+        validationReady: false,
+        required: [],
+        missing: ["configured required validation"],
+        stale: [],
+        failed: [],
+        reason: "Task closure requires at least one configured required validation; none applies to the active task.",
+      };
+    }
+
     for (const name of required) {
-      const evidence = this.list({ name, taskId, limit: 20 })
-        .find((item) => item.executionGrantId === executionGrantId && item.selectionId === selection.id);
+      const focused = selectedRequired.includes(name);
+      const evidence = this.list({ name, taskId, limit: 50, currentSnapshot: snapshot })
+        .find((item) => item.executionGrantId === executionGrantId
+          && (!focused || item.selectionId === selection?.id));
       if (evidence === undefined) missing.push(name);
-      else if (evidence.snapshotFingerprint !== snapshot.dirtyFingerprint) stale.push(name);
+      else if (evidence.stale) stale.push(name);
       else if (evidence.status !== "passed") failed.push(name);
     }
-    const selectionStale = selection.snapshot.dirtyFingerprint !== snapshot.dirtyFingerprint;
-    if (selectionStale) {
-      for (const name of required) if (!stale.includes(name)) stale.push(name);
+    if (selection !== undefined && selection.snapshot.dirtyFingerprint !== snapshot.dirtyFingerprint) {
+      for (const name of selectedRequired) if (!stale.includes(name)) stale.push(name);
     }
-    const ready = missing.length === 0 && stale.length === 0 && failed.length === 0;
+    const ready = !policy.requireValidation || (required.length > 0 && missing.length === 0 && stale.length === 0 && failed.length === 0);
     return {
       ready,
+      validationReady: ready,
       required,
       missing,
       stale: stale.sort(),
       failed,
       reason: ready
-        ? required.length === 0 ? "Focused selection has no required checks." : "All required focused validations are current and passing."
+        ? "All required validations are current and passing under the current environment."
         : `Task closure blocked: ${[
             missing.length === 0 ? "" : `missing ${missing.join(", ")}`,
             stale.length === 0 ? "" : `stale ${stale.join(", ")}`,
@@ -374,13 +424,28 @@ export class ValidationService {
     };
   }
 
+  private environmentFingerprint(name: string, definition: ValidationDefinition, environment: NodeJS.ProcessEnv): string {
+    const lockfiles = ["package-lock.json", "mise.lock", "flake.lock", "Cargo.lock", "uv.lock", "pnpm-lock.yaml", "yarn.lock"]
+      .filter((path) => existsSync(resolve(this.root, path)))
+      .map((path) => `${path}:${sha256(readFileSync(resolve(this.root, path)))}`);
+    return sha256(JSON.stringify({
+      name,
+      command: definition.command,
+      node: process.version,
+      platform: platform(),
+      arch: arch(),
+      path: environment.PATH ?? "",
+      lockfiles,
+    }));
+  }
+
   private persistEvidence(evidence: ValidationEvidence): ValidationEvidence {
     this.database.prepare(`
       INSERT INTO validation_evidence(
         id, name, command_json, task_id, execution_grant_id, plan_hash, selection_id,
-        snapshot_fingerprint, started_at, finished_at, duration_ms, exit_code, status,
+        snapshot_fingerprint, environment_fingerprint, started_at, finished_at, duration_ms, exit_code, status,
         stdout, stderr, stdout_truncated, stderr_truncated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       evidence.id,
       evidence.name,
@@ -390,6 +455,7 @@ export class ValidationService {
       evidence.planHash ?? null,
       evidence.selectionId ?? null,
       evidence.snapshotFingerprint,
+      evidence.environmentFingerprint ?? null,
       evidence.startedAt,
       evidence.finishedAt,
       evidence.durationMs,
@@ -400,7 +466,25 @@ export class ValidationService {
       evidence.stdoutTruncated ? 1 : 0,
       evidence.stderrTruncated ? 1 : 0,
     );
+    this.prune();
     return evidence;
+  }
+
+  private prune(): void {
+    this.database.prepare(`
+      DELETE FROM validation_evidence WHERE id NOT IN (
+        SELECT id FROM validation_evidence ORDER BY started_at DESC, id DESC LIMIT 200
+      )
+    `).run();
+    this.database.prepare(`
+      DELETE FROM focused_validation_selections WHERE id NOT IN (
+        SELECT id FROM focused_validation_selections ORDER BY created_at DESC, id DESC LIMIT 100
+      )
+    `).run();
+  }
+
+  private requireTrusted(): void {
+    if (!this.trusted) throw new Error(`Trust the project before executing repository validations: ${this.root}`);
   }
 
   private migrate(): void {
@@ -414,6 +498,7 @@ export class ValidationService {
         plan_hash TEXT,
         selection_id TEXT,
         snapshot_fingerprint TEXT NOT NULL,
+        environment_fingerprint TEXT,
         started_at TEXT NOT NULL,
         finished_at TEXT NOT NULL,
         duration_ms INTEGER NOT NULL,
@@ -447,12 +532,41 @@ export class ValidationService {
       ["execution_grant_id", "TEXT"],
       ["plan_hash", "TEXT"],
       ["selection_id", "TEXT"],
+      ["environment_fingerprint", "TEXT"],
       ["stdout_truncated", "INTEGER NOT NULL DEFAULT 0"],
       ["stderr_truncated", "INTEGER NOT NULL DEFAULT 0"],
     ] as const) {
       if (!columns.some((column) => column.name === name)) {
         this.database.exec(`ALTER TABLE validation_evidence ADD COLUMN ${name} ${declaration}`);
       }
+    }
+  }
+}
+
+function validateDefinition(name: string, definition: ValidationDefinition): void {
+  if (definition === null || typeof definition !== "object" || Array.isArray(definition)) {
+    throw new Error(`Validation ${name} must be an object.`);
+  }
+  if (Object.hasOwn(definition as object, "approval")) {
+    throw new Error(`Validation ${name} uses removed field approval; authorization is controlled by Atelier policy.`);
+  }
+  if (!Array.isArray(definition.command) || definition.command.length === 0 || !definition.command.every((item) => typeof item === "string" && item.length > 0)) {
+    throw new Error(`Validation ${name} must define a non-empty string-array command.`);
+  }
+  if (definition.category !== undefined && definition.category !== "focused" && definition.category !== "full") {
+    throw new Error(`Validation ${name} has invalid category ${String(definition.category)}.`);
+  }
+  for (const field of ["focused", "required"] as const) {
+    if (definition[field] !== undefined && typeof definition[field] !== "boolean") {
+      throw new Error(`Validation ${name}.${field} must be boolean.`);
+    }
+  }
+  if (definition.longRunningAfterMs !== undefined && (!Number.isFinite(definition.longRunningAfterMs) || definition.longRunningAfterMs <= 0)) {
+    throw new Error(`Validation ${name}.longRunningAfterMs must be positive.`);
+  }
+  for (const field of ["paths", "symbols"] as const) {
+    if (definition[field] !== undefined && (!Array.isArray(definition[field]) || !definition[field]!.every((item) => typeof item === "string" && item.length > 0))) {
+      throw new Error(`Validation ${name}.${field} must be a string array.`);
     }
   }
 }
@@ -467,6 +581,7 @@ function evidenceFromRow(row: Record<string, unknown>): ValidationEvidence {
     ...(typeof row.plan_hash === "string" ? { planHash: row.plan_hash } : {}),
     ...(typeof row.selection_id === "string" ? { selectionId: row.selection_id } : {}),
     snapshotFingerprint: row.snapshot_fingerprint as string,
+    ...(typeof row.environment_fingerprint === "string" ? { environmentFingerprint: row.environment_fingerprint } : {}),
     startedAt: row.started_at as string,
     finishedAt: row.finished_at as string,
     durationMs: Number(row.duration_ms),
@@ -477,6 +592,25 @@ function evidenceFromRow(row: Record<string, unknown>): ValidationEvidence {
     stdoutTruncated: Number(row.stdout_truncated ?? 0) !== 0,
     stderrTruncated: Number(row.stderr_truncated ?? 0) !== 0,
   };
+}
+
+function validationEnvironment(): NodeJS.ProcessEnv {
+  const allowed = new Set([
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP",
+    "LANG", "TERM", "COLORTERM", "NO_COLOR", "CI",
+    ...Object.keys(process.env).filter((key) => key.startsWith("LC_")),
+    ...(process.env.ATLR_VALIDATION_ENV_ALLOWLIST ?? "").split(",").map((item) => item.trim()).filter(Boolean),
+  ]);
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => allowed.has(key)));
+}
+
+function redactOutput(value: string): string {
+  let output = value;
+  for (const [name, secret] of Object.entries(process.env)) {
+    if (!secret || secret.length < 8 || !/(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL)/i.test(name)) continue;
+    output = output.split(secret).join("[REDACTED]");
+  }
+  return output;
 }
 
 function terminateProcess(child: ChildProcess, signal: NodeJS.Signals): void {

@@ -1,0 +1,38 @@
+name: Live provider conformance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [jj, codesearch]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install: true
+          cache: true
+      - run: aube install --frozen-lockfile
+      - run: aubr build
+      - run: scripts/live-conformance.sh "${{ matrix.target }}"
+
+  locally-provisioned-tools:
+    runs-on: [self-hosted, atelier-live]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [beads, pi-bun]
+    steps:
+      - uses: actions/checkout@v4
+      - run: aube install --frozen-lockfile
+      - run: aubr build
+      - run: scripts/live-conformance.sh "${{ matrix.target }}"

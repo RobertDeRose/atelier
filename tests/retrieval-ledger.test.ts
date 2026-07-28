@@ -142,7 +142,7 @@ test("version-two ledgers migrate retrieval inventory in place without altering 
     assert.equal((reopened.database.prepare("SELECT COUNT(*) AS count FROM manual_edits").get() as { count: number }).count, 1);
     assert.equal((reopened.database.prepare("SELECT COUNT(*) AS count FROM validation_evidence").get() as { count: number }).count, 1);
     const versions = reopened.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ version: number }>;
-    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
     reopened.saveRetrievalCheckpoint(checkpoint("session-a", "2026-01-01T00:00:00.000Z"), persistenceLimits);
     assert.equal(reopened.loadRetrievalCheckpoint("session-a")?.evidence.length, 1);
   } finally {

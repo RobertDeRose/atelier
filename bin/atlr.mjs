@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const entry = fileURLToPath(new URL("../apps/cli/src/main.ts", import.meta.url));
-const result = spawnSync(
-  process.execPath,
-  ["--no-warnings", "--experimental-strip-types", entry, ...process.argv.slice(2)],
-  { stdio: "inherit" },
-);
-
-process.exit(result.status ?? 1);
+const entryUrl = new URL("../dist/apps/cli/src/main.js", import.meta.url);
+const entry = fileURLToPath(entryUrl);
+if (!existsSync(entry)) {
+  process.stderr.write("atlr: built CLI is missing; run `npm run build` before using the package launcher.\n");
+  process.exitCode = 1;
+} else {
+  await import(entryUrl.href);
+}

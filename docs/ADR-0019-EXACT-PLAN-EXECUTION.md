@@ -1,6 +1,6 @@
 # ADR-0019: Exact Reviewed-Plan Approval and Task-Scoped Execution
 
-- Status: Accepted
+- Status: superseded in part by ADR-0025 and ADR-0027 for capability and revision-binding details
 - Date: 2026-07-27
 
 ## Context

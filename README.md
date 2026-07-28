@@ -1,362 +1,346 @@
 # Atelier
 
-Atelier is an Agentic Development Environment (ADE): a local-first software workshop that combines guarded agent workflows, manually reviewed plans, durable Beads task state, Jujutsu-first repository identity, evidence-backed validation, and replaceable external code-intelligence providers.
+Atelier is a local-first Agentic Development Environment control plane for Pi. The CLI is `atlr`.
+Atelier owns reviewed-plan execution, task reconciliation, authorization, durable evidence,
+validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
+codesearch, Octocode, and validation commands retain their native responsibilities.
 
-The project is **Atelier**. The CLI is **`atlr`**. ADE is the product category.
+Current release: **0.14.0-alpha.1**.
 
-## Current workflow scope
+## Current status
 
-Plan review is restart-safe and records durable `ManualEdit` lifecycle evidence plus deterministic structural diffs. Exact preparation binds the reviewed plan hash to provider, reconciliation, repository, and workspace identity. Rejection performs no provider mutation; approval rechecks the exact preview before reconciling and claiming one approved-plan task.
+This release is intended for interactive use in explicitly trusted repositories. It is not a shell
+sandbox and does not claim that arbitrary shell commands are confined to a repository. Generic shell
+execution is classified as an unconfined boundary and requires a one-operation approval. Routine
+approved-task work is approval-free only through typed Atelier/Pi tools whose paths and effects can be
+checked.
 
-Approved act-mode work is repository-scoped by default. Routine edits, writes, validations, task updates, dependency changes, and local Git/Jujutsu commits no longer produce one approval dialog per operation. Destructive commands, external effects, publication, unknown commands, and explicit paths outside the active repository still require approval. Mutating implementation tools record durable success, failure, or interruption evidence. Designated plan-document writes instead remain in plan mode and are captured by the subsequent `ManualEdit`; they do not require a nonexistent act-mode execution grant.
+Do not use this alpha for unattended execution or arbitrary cloned repositories. Trust is a deliberate
+user decision stored outside the repository.
 
-Focused validation is snapshot-qualified. A later repository fingerprint makes prior passing evidence stale and prevents task closure until rerun. When an agent settles with uncommitted task changes, Atelier requires validation, final diff review, and a local commit before completion.
+## Delivered workflow
 
-The supported interactive entry point remains:
+Atelier currently provides:
 
-```bash
-mise run launch
-```
+- durable `ManualEdit` plan review with exact plan hashes and structural diffs;
+- preview-before-mutation task-provider reconciliation;
+- exact approval bound to source revisions, every approved workspace repository, retrieval revisions,
+  provider identity, reconciliation digest, and a typed task-capability bundle;
+- atomic task claim, execution activation, and capability installation;
+- restart-safe execution, invalidation, permission, mutation, validation, and retrieval evidence;
+- an authoritative task-closure predicate requiring current required validations, an exact final-diff
+  review, a local commit/change, and the configured clean-repository state;
+- Jujutsu-first and Git-compatible repository providers;
+- Beads, memory, and disabled task providers;
+- codesearch, Octocode, mock, and disabled code providers;
+- CLI and Pi integration.
+
+The fuzzy file palette, project tree, Yazi/skim adapters, and richer Helix-native IDE surfaces remain
+future work. They are intentionally gated on the guarded workflow rather than being treated as current
+features.
 
 ## Requirements
 
-- mise for the development toolchain
-- Node.js 24.18.0 (installed and pinned by mise)
-- Aube 1.29.1 (installed by mise)
-- Git for compatibility mode
-- Jujutsu (`jj`) for the primary repository model
-- Beads (`bd`) for persistent task state, unless disabled
-- A configured editor
-- `codesearch` 1.1.x for the default Code provider, or `codeProvider: "disabled"`
+The supported development toolchain is pinned by the repository:
 
-## Install and verify
+- Node.js 24.18.0;
+- Aube and the tools declared through mise;
+- TypeScript 7 through the lockfile/toolchain;
+- Jujutsu, Beads, and codesearch for their corresponding live integrations;
+- Bun and Pi for the interactive extension path.
 
-```bash
+Git can be used as the repository compatibility provider. Optional providers are not required for the
+deterministic fixture suite.
+
+## Install and build
+
+```sh
 mise install
 mise run install
-mise run check
+npm run build
+node ./bin/atlr.mjs --version
+npm run check
 ```
 
-`mise install` provisions the versions pinned in `mise.toml` and `mise.lock`: Node, Aube, Jujutsu, jjui, codesearch, and Octocode. `mise run install` performs a frozen Aube install from the committed `package-lock.json`. Use `aubr <script>` for direct package-script execution.
+`bin/atlr.mjs` launches built JavaScript from `dist/`. Development-only source execution remains
+available as `npm run atlr:dev -- ...` and `npm run launch:dev`.
 
-Run the CLI directly:
+The package publishes built JavaScript and declarations through:
 
-```bash
-node ./bin/atlr.mjs help
+```text
+dist/packages/core/src/index.js
+dist/packages/core/src/index.d.ts
+dist/apps/pi-extension/src/index.js
 ```
 
-Launch the interactive Atelier shell:
+## Project trust
 
-```bash
-mise run launch
-```
+Repository-owned configuration is ignored until the user trusts the project:
 
-Forward Pi arguments after `--`:
-
-```bash
-mise run launch -- --model <model-pattern>
-```
-
-## Initial setup
-
-```bash
+```sh
+atlr trust status
+atlr trust add --yes
 atlr init
-atlr doctor
-atlr repo status
+```
+
+The trust record is stored under the user state directory, normally:
+
+```text
+~/.local/state/atelier/trusted-projects.json
+```
+
+`ATLR_TRUST_STORE` can override that location, but the trust store must remain outside the project.
+Before trust, Atelier does not start repository-configured VCS, task, validation, editor, or code-provider
+commands. `atlr doctor` is observational: it does not open the ledger, start providers, or create project
+state.
+
+Revoke trust with:
+
+```sh
+atlr trust revoke --yes
+```
+
+## Project files and runtime state
+
+Shareable project data lives under `.atelier/`:
+
+```text
+.atelier/config.json       project configuration
+.atelier/PLAN.md           reviewed plan
+.atelier/validation.json   validation and closure policy
+.atelier/workspace.json    optional multi-repository workspace
+```
+
+Runtime state is user-owned and outside the repository. By default it is stored at:
+
+```text
+${XDG_STATE_HOME:-~/.local/state}/atelier/repositories/<root-hash>/atelier.db
+```
+
+`ATLR_STATE_HOME` or user configuration can relocate runtime state. Repository configuration cannot
+redirect the ledger or caches. Legacy `.atelier/*.db` files are ignored, but `.atelier/config.json`,
+`PLAN.md`, `validation.json`, and `workspace.json` are intentionally trackable.
+
+## Exact plan-to-task workflow
+
+A normal CLI workflow is:
+
+```sh
+atlr trust add --yes
+atlr init --beads
+atlr plan "describe the objective"
+atlr review
+atlr plan prepare --json
+atlr approve --approval APPROVAL_ID --digest RECONCILIATION_DIGEST --yes
 atlr status
 ```
 
-Atelier stores repository-local state under `.atelier/`.
+Preparation records and approval rechecks:
 
-## Core workflow
+- the exact reviewed plan hash;
+- task-provider name and version;
+- the complete reconciliation digest and conflicts;
+- the primary source snapshot;
+- revision bindings for every approved workspace repository;
+- retrieval provider/index bindings used by the plan;
+- the typed task-capability bundle and its digest.
 
-```bash
-atlr plan "implement the requested feature"
-atlr review
-atlr plan prepare --json
-atlr approve --approval <id> --digest <digest> --yes
-atlr state
-atlr validate plan
-atlr validate focused
-atlr task close <provider-task-id> --reason "validated outcome"
-atlr execute [next-provider-task-id] --yes
-# or stop without closing the task
-atlr cancel --reason "operator stopped execution"
+Rejection performs no provider mutation. Approval reconciles the provider, verifies convergence, claims
+one approved-plan ready task, and atomically installs the execution grant plus its typed capabilities.
+A later approved task still requires explicit activation:
+
+```sh
+atlr execute TASK_ID --yes
 ```
 
-`atlr plan reconcile` is preview-only; provider mutation is available only through an exact prepared approval. In an interactive terminal, `atlr approve` can ask for confirmation after displaying the exact transaction. Non-interactive use requires the matching approval ID, reconciliation digest, and `--yes`.
+Cancellation revokes the active execution and linked permissions without silently closing the task:
 
-The reviewed Markdown plan and its durable `ManualEdit` evidence form the scope baseline. Beads is its executable task projection. Jujutsu is the primary local repository model. An execution grant authorizes one task/workspace but grants no action permission. Working State—not conversation or compaction—reconstructs approval, task, permissions, mutation evidence, validation freshness, and the next action after restart.
-
-## Code provider commands
-
-The user-facing namespace is `code` because an Atelier workspace may contain one repository, a monorepo, or several coordinated repositories.
-
-```bash
-atlr code providers
-atlr code status
-atlr code doctor
-atlr code index
-atlr code search "where is device authentication handled?"
-atlr code search --mode lexical CodesearchProvider
-atlr code search --mode semantic "where is authentication handled?"
-atlr code search --focus source "where is provider selection implemented?"
-atlr code search --focus tests "which tests verify normalization?"
-atlr code search --hint createCodeProvider,CodeProviderRegistry "how is the provider selected?"
-atlr code symbols AuthSession
+```sh
+atlr cancel --reason "why execution stopped"
 ```
 
-Provider and repository filters are available where supported:
+## Authorization model
 
-```bash
-atlr code search --provider codesearch --repo api,auth "token refresh"
-```
+Plan approval is not blanket command authorization.
 
-Search mode may be `auto`, `semantic`, `hybrid`, or `lexical`. Search focus may be `auto`, `source`, `tests`, `docs`, or `all`. Automatic focus recognizes implementation-, test-, documentation-, and mixed implementation/test questions. Focused automatic and hybrid searches overfetch compact semantic metadata and may issue bounded literal provider queries only for exact `--hint` identifiers or identifiers already expressed in code-like or quoted form. Atelier fuses evidence by repository path, preserves `providerRank`, records `retrievalMethods`, diversifies files, and applies the user-visible retrieval limit afterward. Broad natural-language literal extraction is reserved for degraded fallback when codesearch reports an operational semantic/vector failure. Explicit `--mode semantic` never hides that failure.
+The approved task receives only typed capabilities such as repository-scoped file writes, declared
+validation execution, task updates, task closure, and local commit/change creation. A typed operation is
+allowed only when its resolved real path remains inside the approved root and its task, repository, and
+execution bindings match.
 
-Unsupported provider capabilities must be reported explicitly. Atelier does not silently discard filters or hide fallback-provider semantics.
+Generic shell commands use the `unconfined` boundary. They never inherit typed task capabilities, even
+when a classifier recognizes a read-like command. Each unconfined shell operation requires an explicit
+single-operation grant. Destructive, network, publication, unknown, and out-of-scope effects remain
+approval-gated or denied according to policy.
 
-### Retrieval economy and freshness
+Atelier resolves existing paths and the nearest existing ancestor for new paths. Symlink escapes do not
+satisfy repository confinement. This path check protects typed operations; it is not an operating-system
+sandbox for arbitrary child processes.
 
-Atelier owns a bounded retrieval session rather than relying on conversational memory. Start with one focused semantic search, inspect the returned inventory, resolve only identifiers listed as unresolved, and read known paths directly. Equivalent canonical requests at the same provider, repository, and index revisions reuse evidence without another provider dispatch. Repository, provider, or index changes invalidate affected evidence; historical provenance remains visible but cannot be labeled current.
-
-`atlr code status` and every code search response report provider calls, cache hits, overlap reuse, unique paths, duplicate identities removed, bytes returned, truncation, invalidations, repository scopes, and remaining budgets. Pass `--retrieval-session ID` to reuse one explicit session across separate CLI invocations. Pi creates and closes this session automatically.
-
-## Pi commands
-
-Pi commands omit the redundant `atlr-` prefix. Workflow commands remain short:
+The durable model now exposes only meaningful grant scopes:
 
 ```text
-/status
-/plan <objective>
+operation   consumed when one authorization is attempted
+task        bound to the active execution/task
+repository  bound to a trusted repository identity
+```
+
+Legacy `turn` and `session` grants are revoked during migration.
+
+## Validation and task closure
+
+`.atelier/validation.json` declares argument-array commands and the closure policy. A minimal manifest:
+
+```json
+{
+  "closurePolicy": {
+    "requireValidation": true,
+    "requireFinalDiffReview": true,
+    "requireLocalChange": true,
+    "requireCleanGit": true
+  },
+  "validations": {
+    "check": {
+      "command": ["npm", "run", "check"],
+      "category": "full",
+      "required": true
+    }
+  }
+}
+```
+
+When `requireValidation` is true, configuration and task closure require at least one applicable
+validation with `required: true`. The removed `approval` field is rejected rather than silently ignored.
+Validation output is bounded and redacted, execution is abort-aware, and evidence includes repository
+and environment fingerprints. Repository, command, toolchain, platform, architecture, PATH, or lockfile
+drift makes prior evidence stale.
+
+A typical completion sequence is:
+
+```sh
+atlr repo commit --message "feat: implement approved task"
+atlr validate plan
+atlr validate focused
+# or: atlr validate run check
+atlr repo review-diff
+atlr task close TASK_ID --reason "implemented and verified"
+```
+
+`repo review-diff` prints the exact task diff, hashes it, then records review only if the diff is still
+unchanged. Task closure is blocked unless all configured requirements are current. A reminder in the UI
+is not treated as completion authority; the same predicate is used by CLI, Pi, Working State, and task
+closure.
+
+## Repository providers
+
+Jujutsu is preferred and Git is the compatibility provider. Repository observations are explicit:
+provider command failures throw a degraded/error state and are never converted into an empty path list
+or clean diff. Git diff evidence includes staged and unstaged changes, while baseline diff evidence also
+includes untracked source files.
+
+```sh
+atlr repo status --json
+atlr changed --json
+```
+
+## Multi-repository workspaces
+
+An additional workspace root must be separately approved outside repository configuration:
+
+```sh
+atlr trust workspace add ../another-repository --yes
+```
+
+Then declare it in `.atelier/workspace.json`. Each repository receives a real VCS snapshot. Exact
+approval and resume bind every root independently; drift in a secondary repository invalidates the
+execution rather than reusing stale retrieval evidence.
+
+Remove an approved secondary root with:
+
+```sh
+atlr trust workspace revoke ../another-repository --yes
+```
+
+## Code intelligence
+
+Atelier owns the provider-neutral contract, budgets, normalized evidence, provenance, freshness, and
+reuse. External providers own indexing and retrieval.
+
+```sh
+atlr code providers --json
+atlr code status --provider codesearch
+atlr code index --provider codesearch
+atlr code search "where is execution approval implemented" --mode hybrid
+atlr code symbols ExecutionWorkflowCoordinator
+```
+
+Provider-first retrieval is advisory, not an authorization gate. Atelier presents provider tools first
+and records degraded/fallback decisions, but typed reads and explicitly approved shell inspection remain
+available when provider evidence is incomplete, wrong, excluded, or budget-limited.
+
+Retrieval evidence is isolated by provider, workspace, repository scope, source revision, and provider
+index revision. Equivalent current evidence can be reused; revision drift invalidates it.
+
+## Pi integration
+
+Launch the supported interactive path with:
+
+```sh
+atlr launch
+# or
+mise run launch
+```
+
+Core slash commands include:
+
+```text
+/trust
+/plan
 /review
 /approve
-/execute [task-id]
-/cancel [reason]
-/ready
+/execute
+/cancel
+/status
 /state
-/changed
-/validate plan
-/validate focused
-/evidence
-```
-
-Code commands use the `code-` namespace because Pi slash commands cannot express a two-level CLI command naturally:
-
-```text
 /code-status
 /code-index
-/code-search <query>
-/code-symbols <query>
+/code-search
+/code-symbols
+/changed
+/validate
+/evidence
+/commit
+/review-diff
+/close
 ```
 
-The agent receives the corresponding read-only tools directly:
+Each Pi session owns its own Atelier Core, repository root, review state, retrieval session, and index
+coordination. Shutdown awaits provider disposal before closing SQLite. Compaction receives a projection
+of durable Working State; conversation text remains non-authoritative.
 
-```text
-atlr_code_status
-atlr_code_search
-atlr_code_symbols
+## Checks and conformance
+
+Deterministic CI runs on the pinned Node version and executes:
+
+```sh
+npm ci
+npm run check
+npm pack --dry-run
 ```
 
-In plan mode, provider-first discovery is enforced. The agent reads exact paths returned by Atelier and
-uses broad raw scanning only after the provider reports no usable evidence or an explicit degraded or
-unavailable condition. Read-only commands never require an approval prompt.
-
-After plan approval, routine work inside the active repository is also approval-free.
-Atelier prompts for destructive operations, external effects, publication, unknown
-commands, or out-of-repository paths. The act-mode completion guard prevents a task
-with uncommitted repository changes from being reported as complete.
-
-Each slash command has a command-palette description. The initial plan draft opens in the configured editor automatically when the agent settles. Pi suspends its TUI while the foreground editor owns the terminal, then displays `ManualEdit` hashes, structural changes, diagnostics, and reconciliation readiness without asking the user to restate edits.
-
-## Local acceptance
-
-The deterministic end-to-end fixture uses a temporary Git repository, foreground fake editor, persistent fake Beads CLI, configured focused validation, and fake Pi harness. It proves create/update/link/unlink/retire reconciliation, rejection without mutation, exact approval, task claim, independent operation permission, post-tool evidence, stale validation, rerun, cancellation, shutdown, and resume without live optional services.
-
-Run automated acceptance:
-
-```bash
-node --no-warnings --experimental-strip-types --test tests/acceptance-workflow.test.ts
-bash scripts/smoke.sh
-mise run check
-```
-
-The smoke script forces Git, disabled code intelligence, and temporary state; it does not use live Pi, Beads, Jujutsu, codesearch, network access, or the caller's repository. See [the local acceptance guide](docs/LOCAL_ACCEPTANCE.md) for the final disposable Jujutsu-first `mise run launch` walkthrough and evidence checklist.
-
-Launch the extension through Atelier during development:
-
-```bash
-mise run launch
-# equivalent CLI form
-mise run atlr -- launch
-```
-
-Direct Pi loading remains available for loader debugging, but `mise run launch` is the supported path because it sets the repository root and extension path consistently:
-
-```bash
-pi -e ./apps/pi-extension/src/index.ts
-```
-
-## Code architecture
-
-```text
-Atelier workflow or agent
-        |
-        v
-CodeService
-        |
-        +-- CodeProviderRegistry
-        +-- capability negotiation
-        +-- normalized results
-        +-- provenance and staleness
-        +-- Working State projection
-        |
-        +-- codesearch adapter      [implemented]
-        +-- Octocode adapter        [experimental structural only]
-        +-- mock provider           [implemented]
-        +-- disabled provider       [implemented]
-```
-
-The common interface supports:
-
-- repository and multi-repository indexing;
-- incremental and revision-aware index capabilities;
-- lexical, semantic, and hybrid search;
-- symbol search, definitions, and references;
-- import, call, dependency, and general relationships;
-- fetch-on-demand and reranking.
-
-Providers advertise capabilities as data. Atelier does not spread provider-name checks through workflow code.
-
-## MCP foundation
-
-`McpStdioClient` provides a managed JSON-RPC stdio boundary with:
-
-- direct argument-array process launch;
-- no shell interpolation;
-- request timeouts;
-- process-exit detection;
-- stderr capture limits;
-- graceful termination;
-- pending-request failure propagation.
-
-The codesearch adapter performs MCP initialization, tool discovery, capability mapping, result normalization, index-state interpretation, fetch-on-demand, and direct argument-array indexing. Pi starts one background indexing operation at session launch. The Code service coalesces startup and `/code-index` requests, makes retrieval wait for the active operation, and publishes its state in the Pi footer. Local indexing first closes and waits for the self-contained MCP process, then runs the real repair/update command and verifies that the vector store reports `Indexed: Yes` before reconnecting and accepting MCP `ready`. Status checks do not reconnect MCP while the coordinator owns the writer lifecycle. This avoids competing Tantivy writers. Serve-backed client mode retains `index add` registration because the service owns indexing and lock coordination.
-
-The repository-local `.codesearchignore` defines the searchable corpus. Atelier fingerprints it together with `.gitignore`, `.osgrepignore`, and the provider version. A changed fingerprint triggers one force rebuild; unchanged inputs retain incremental indexing. Generated real-provider fixtures are therefore available to tests without becoming search evidence.
-
-## Multi-repository workspace model
-
-A `CodeWorkspace` contains:
-
-- a stable workspace ID and name;
-- one or more roots;
-- one or more repository identities;
-- a Jujutsu- or Git-qualified snapshot for each repository.
-
-Search results retain both workspace and repository identity so Working State can explain where evidence came from.
-
-## Provenance
-
-Every normalized result can record:
-
-- provider name, version, and instance;
-- workspace and repository;
-- requested and actual search modes;
-- query and retrieval time;
-- index state;
-- requested and enforced filters;
-- adapter-side post-processing;
-- reranking status;
-- a fetchable provider reference.
-
-Provider output is evidence, not authority. Critical results should still be verified against current source.
-
-## ManualEdit terminology
-
-Atelier records a durable **ManualEdit** lifecycle when an artifact is reviewed through an editor or another user-controlled tool. Working State remains authoritative over conversational compaction.
-
-## Validation
-
-```bash
-atlr validate list
-atlr validate plan
-atlr validate focused
-atlr validate run check
-atlr evidence
-```
-
-Validation evidence remains qualified by repository snapshot and becomes stale after relevant working-copy changes.
+`npm run check` performs release-metadata checks, type checking, all deterministic tests, a stable build,
+and the smoke workflow. Environment-dependent live conformance is separate and manually dispatchable for
+real Jujutsu, codesearch, Beads, and Pi/Bun installations. Fixture conformance is never represented as a
+live provider result.
 
 ## Current limitations
 
-- Atelier development uses a project-local Octocode FastEmbed configuration; other installations may require cloud embedding credentials or their own local model configuration.
-- Octocode relationship support remains capability-gated and is available only when its MCP server advertises `graphrag`.
-- No persistent Atelier daemon or JSON-RPC service boundary.
-- Codesearch remains the accepted default; Octocode promotion depends on the comparative retrieval and graph evaluation captured by the next live collector run.
-- Jujutsu live conformance still requires a real supported `jj` binary.
-
-Configure the provider in `.atelier/config.json`:
-
-```json
-{
-  "codeProvider": "codesearch",
-  "codeCommand": "codesearch",
-  "codeMode": "auto",
-  "codeTimeoutMs": 60000,
-  "codeIndexTimeoutMs": 300000
-}
-```
-
-`auto` uses `codesearch mcp`; `local` forces the local repository index; `client` requires a running multi-repository `codesearch serve` instance. See `docs/CODE_INTELLIGENCE.md` and `docs/IMPLEMENTATION_PLAN.md` for the next stages.
-
-## Multi-repository code workspace
-
-Define `.atelier/workspace.json` when a task spans multiple repositories:
-
-```json
-{
-  "name": "product",
-  "repositories": [
-    { "id": "api", "path": "../api", "role": "backend", "codesearchProject": "api" },
-    { "id": "ui", "path": "../ui", "role": "frontend", "codesearchProject": "ui" }
-  ]
-}
-```
-
-Validate it with `atlr config validate`. Code retrieval is bounded by provider-neutral limits in `.atelier/config.json`: `codeMaxResults`, `codeMaxPreviewBytes`, `codeMaxChunkBytes`, `codeMaxFetches`, `codeMaxTotalBytes`, `codeMaxProviderRequests`, `codeMaxUniquePaths`, and `codeMaxEvidenceEntries`. Restart persistence is independently bounded by `codeRetainedSessions`, `codeMaxPersistedEntries`, and `codeMaxPersistedBytes`.
-
-## Real codesearch probe
-
-On a machine with codesearch installed, run:
-
-```bash
-mise run test:codesearch:live
-```
-
-The live task is intentionally separate from `mise run check`; ordinary tests inject disabled, mock, or process-compatible fake providers and never start codesearch. The probe writes a self-contained report under `.atelier/codesearch-probe`, records vector statistics before and after repair, requires the HNSW index to be built, waits for the raw MCP index to become ready, captures complete tool schemas and raw provider responses, separately exercises semantic, hybrid, literal, and automatic search, captures codesearch doctor/statistics and index-store metadata, and exercises symbols, fetch, outline, impact, edit, and reindex behavior, and produces `CONFORMANCE.md` plus `conformance.json`.
-
-
-## Codesearch conformance and evaluation
-
-Use `mise run collect:codesearch` on a development machine to gather the complete live-provider contract, optional tools, fetch behavior, reindex behavior, and comparative evaluation. The collector now always normalizes available fixtures and creates `atelier-codesearch-knowledge.tar.xz`, even when conformance reports failures; it then exits with the retained conformance status. `mise run fixtures:codesearch` normalizes a prior probe independently and fails clearly when the probe is empty. See `docs/CODESEARCH_EVALUATION.md` and the first live report in `docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md`.
-
-## Code providers
-
-Codesearch is the accepted default provider. Octocode is available as an experimental second provider for graph-oriented evaluation.
-
-```bash
-atlr code providers
-atlr code search --provider codesearch "where is provider selection implemented?"
-atlr code search --provider octocode "where is provider selection implemented?"
-mise run collect:octocode
-```
-
-The development bootstrap installs Octocode 0.14.0 through mise and configures project-local FastEmbed models. The live collector now verifies the full MCP contract, refreshes both provider indexes, and runs the same benchmark against baseline, codesearch, and Octocode.
-
-```bash
-mise run evaluate:code:octocode
-mise run evaluate:code:all
-mise run collect:octocode
-```
-
-Octocode development uses a project-local `.atelier/octocode-config.toml` with local FastEmbed models and non-LLM GraphRAG. `mise run install` creates it without changing the user-wide Octocode configuration. Atelier writes and verifies the managed TOML directly because Octocode 0.14.0 does not consistently honor `OCTOCODE_CONFIG_PATH` in its `config` command. Indexing uses the supported bare `octocode index` command. See `docs/OCTOCODE_INTEGRATION.md` and `docs/OCTOCODE_EVALUATION.md` for the contract and decision gate.
+- Generic shell execution is unconfined and individually approved; no OS sandbox is delivered.
+- Trusting a project permits its declared providers, validators, and editor command to execute.
+- Live provider conformance depends on locally available external tools and is separate from deterministic
+  CI.
+- Multi-repository source/retrieval revision correctness is delivered, but richer coordinated editing UX
+  remains limited.
+- `session_before_compact` reconstructs durable Working State into Pi compaction; compaction has not yet
+  been eliminated entirely.
+- The IDE-facing palette, tree, navigator, and dedicated diff surfaces are not yet implemented.

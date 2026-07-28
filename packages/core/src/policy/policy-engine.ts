@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import type {
   ActionKind,
   ActionRequest,
@@ -9,6 +8,7 @@ import type {
   PolicyDecision,
   WorkflowMode,
 } from "../domain/types.ts";
+import { isPathWithin, sameAccessPath, type PathAccess } from "../security/path-boundary.ts";
 import { newId } from "../util/ids.ts";
 
 const ACTION_PERMISSION: Record<ActionKind, Permission> = {
@@ -37,30 +37,27 @@ const ROUTINE_ACT_ACTIONS = new Set<ActionKind>([
   "write.multiple_files",
   "dependency.modify",
   "repository.change.create",
-  "repository.workspace.create",
   "task.create",
   "task.update",
   "task.link",
   "task.close",
   "validation.focused",
   "validation.full_suite",
-  "command.execute",
-  "command.long_running",
 ]);
 
 export interface PolicyState {
   mode: WorkflowMode;
+  projectTrusted: boolean;
   repositoryRoot: string;
+  repositoryReadRoots?: string[];
   planPath: string;
   grants: PermissionGrant[];
   executionGrant?: ExecutionGrant;
   taskClosure?: TaskClosureReadiness;
 }
 
-function pathWithin(path: string, allowedPath: string): boolean {
-  const candidate = resolve(path);
-  const allowed = resolve(allowedPath);
-  return candidate === allowed || candidate.startsWith(`${allowed}/`);
+function accessFor(permission: Permission): PathAccess {
+  return permission === "repository.read" ? "read" : "write";
 }
 
 function executionMatches(request: ActionRequest, grant: ExecutionGrant | undefined): boolean {
@@ -71,35 +68,33 @@ function executionMatches(request: ActionRequest, grant: ExecutionGrant | undefi
     && request.repositorySnapshot.repositoryId === grant.repositoryId;
 }
 
-function grantMatches(request: ActionRequest, grant: PermissionGrant, state: PolicyState, permission: Permission): boolean {
+function grantMatches(request: ActionRequest, grant: PermissionGrant, permission: Permission): boolean {
   if (grant.revokedAt !== undefined) return false;
   if (grant.expiresAt !== undefined && Date.parse(grant.expiresAt) <= Date.now()) return false;
   if (grant.permission !== permission) return false;
+  if (request.boundary === "unconfined" && grant.scope !== "operation") return false;
   if (grant.taskId !== undefined && grant.taskId !== request.taskId) return false;
-  if (
-    grant.repositoryId !== undefined &&
-    grant.repositoryId !== request.repositorySnapshot?.repositoryId
-  ) {
-    return false;
-  }
+  if (grant.repositoryId !== undefined && grant.repositoryId !== request.repositorySnapshot?.repositoryId) return false;
   if (grant.paths !== undefined) {
-    if (request.paths === undefined
-      || !request.paths.every((path) => grant.paths?.some((allowed) => pathWithin(path, allowed)))) {
-      return false;
-    }
-  }
-  if (grant.commandPrefix !== undefined) {
-    if (request.command === undefined
-      || !grant.commandPrefix.every((part, index) => request.command?.[index] === part)) {
-      return false;
-    }
-  }
-  if (grant.scope === "operation") {
-    // Operation grants are consumed by the caller; matching is still valid here.
+    if (request.paths === undefined || request.paths.length === 0) return false;
+    const access = accessFor(permission);
+    if (!request.paths.every((path) => grant.paths?.some((allowed) => isPathWithin(path, allowed, access)))) return false;
   }
   if (grant.scope === "task" && request.taskId === undefined) return false;
   if (grant.scope === "repository" && request.repositorySnapshot === undefined) return false;
   return true;
+}
+
+function pathsWithinRepository(request: ActionRequest, repositoryRoot: string): boolean {
+  if (request.paths === undefined || request.paths.length === 0) return false;
+  const access: PathAccess = request.action === "read.repository" ? "read" : "write";
+  return request.paths.every((path) => isPathWithin(path, repositoryRoot, access));
+}
+
+function readPathsWithinApprovedRoots(request: ActionRequest, state: PolicyState): boolean {
+  if (request.paths === undefined || request.paths.length === 0) return false;
+  const roots = state.repositoryReadRoots?.length ? state.repositoryReadRoots : [state.repositoryRoot];
+  return request.paths.every((path) => roots.some((root) => isPathWithin(path, root, "read")));
 }
 
 export class PolicyEngine {
@@ -108,31 +103,48 @@ export class PolicyEngine {
     const matchedRules: string[] = [];
     const constraints: string[] = [];
 
-    if (request.action === "read.repository") {
-      matchedRules.push("read-only repository operations are allowed by default");
-      return this.decision(request.action, "allow", matchedRules, [], constraints, "Read-only investigation is allowed.", requiredPermission);
-    }
-
-    if (state.mode === "plan" && request.action === "write.file") {
-      const paths = request.paths ?? [];
-      if (paths.length > 0 && paths.every((path) => resolve(path) === resolve(state.planPath))) {
-        matchedRules.push("plan mode permits writes to the designated plan document");
-        constraints.push(`writes are restricted to ${state.planPath}`);
-        return this.decision(request.action, "allow", matchedRules, [], constraints, "Plan document write allowed.", requiredPermission);
-      }
-      matchedRules.push("plan mode denies source-code writes by default");
+    if (!state.projectTrusted) {
+      matchedRules.push("repository operations are disabled until an external project trust decision exists");
       return this.decision(
         request.action,
         "deny",
         matchedRules,
         [requiredPermission],
         constraints,
-        "Plan mode only permits mutation of the designated plan document.",
+        "Trust this project before Atelier reads files or executes repository-controlled tools.",
+        requiredPermission,
+      );
+    }
+
+    if (request.action === "read.repository" && request.boundary !== "unconfined" && readPathsWithinApprovedRoots(request, state)) {
+      const roots = state.repositoryReadRoots?.length ? state.repositoryReadRoots : [state.repositoryRoot];
+      matchedRules.push("typed repository reads are allowed inside externally approved real-path boundaries");
+      constraints.push(`resolved paths must remain within ${roots.join(", ")}`);
+      return this.decision(request.action, "allow", matchedRules, [], constraints, "Repository-scoped typed read allowed.", requiredPermission);
+    }
+
+    if (state.mode === "plan" && request.action === "write.file") {
+      const paths = request.paths ?? [];
+      if (request.boundary !== "unconfined" && paths.length > 0
+        && paths.every((path) => sameAccessPath(path, state.planPath, "write"))) {
+        matchedRules.push("plan mode permits typed writes to the designated plan document");
+        constraints.push(`writes are restricted to ${state.planPath}`);
+        return this.decision(request.action, "allow", matchedRules, [], constraints, "Plan document write allowed.", requiredPermission);
+      }
+      matchedRules.push("plan mode denies source and unconfined writes");
+      return this.decision(
+        request.action,
+        "deny",
+        matchedRules,
+        [requiredPermission],
+        constraints,
+        "Plan mode only permits typed mutation of the designated plan document.",
         requiredPermission,
       );
     }
 
     if (state.mode === "plan" && [
+      "write.multiple_files",
       "dependency.modify",
       "repository.change.create",
       "repository.workspace.create",
@@ -156,7 +168,7 @@ export class PolicyEngine {
       );
     }
 
-    const executionRequired = state.mode === "act" && request.actor === "agent";
+    const executionRequired = state.mode === "act" && request.actor === "agent" && request.action !== "read.repository";
     if (executionRequired && !executionMatches(request, state.executionGrant)) {
       matchedRules.push("act-mode agent mutation requires a valid task-scoped execution grant");
       return this.decision(
@@ -171,34 +183,47 @@ export class PolicyEngine {
     }
 
     if (request.action === "task.close" && state.taskClosure?.ready !== true) {
-      matchedRules.push("task closure requires current passing focused validation evidence");
+      matchedRules.push("task closure requires the authoritative completion predicate");
       return this.decision(
         request.action,
         "deny",
         matchedRules,
         [requiredPermission],
         constraints,
-        state.taskClosure?.reason ?? "Task closure validation evidence is unavailable.",
+        state.taskClosure?.reason ?? "Task closure evidence is unavailable.",
         requiredPermission,
       );
     }
 
     const grant = state.grants.find((candidate) =>
       (!executionRequired || candidate.executionGrantId === state.executionGrant?.id)
-      && grantMatches(request, candidate, state, requiredPermission));
+      && grantMatches(request, candidate, requiredPermission));
     if (grant !== undefined) {
       matchedRules.push(`matched permission grant ${grant.id}`);
-      if (grant.paths !== undefined) constraints.push(`paths constrained to ${grant.paths.join(", ")}`);
+      if (grant.paths !== undefined) constraints.push(`real paths constrained to ${grant.paths.join(", ")}`);
+      if (request.boundary === "unconfined") constraints.push("unconfined shell permission is single-operation only");
       return this.decision(request.action, "allow", matchedRules, [], constraints, `Allowed by ${grant.scope} grant.`, requiredPermission);
     }
 
+    if (request.boundary === "unconfined") {
+      matchedRules.push("generic shell execution is unconfined and never inherits task or repository grants");
+      return this.decision(
+        request.action,
+        "require_approval",
+        matchedRules,
+        [requiredPermission],
+        constraints,
+        "Unconfined shell execution requires a distinct single-operation approval.",
+        requiredPermission,
+      );
+    }
+
     if (state.mode === "act" && request.actor !== "agent" && request.risk === "routine" && ROUTINE_ACT_ACTIONS.has(request.action)) {
-      const paths = request.paths ?? [];
-      if (paths.length > 0 && !paths.every((path) => pathWithin(path, state.repositoryRoot))) {
-        matchedRules.push("routine act-mode mutations are limited to the active repository");
-        constraints.push(`paths must remain within ${state.repositoryRoot}`);
+      if (request.paths !== undefined && request.paths.length > 0 && !pathsWithinRepository(request, state.repositoryRoot)) {
+        matchedRules.push("routine act-mode mutations are limited to the real active repository boundary");
+        constraints.push(`resolved paths must remain within ${state.repositoryRoot}`);
       } else {
-        matchedRules.push("approved act mode permits routine repository-scoped work by default");
+        matchedRules.push("an explicit user action permits routine typed work in act mode");
         constraints.push(`operation is constrained to ${state.repositoryRoot}`);
         return this.decision(
           request.action,
@@ -206,19 +231,15 @@ export class PolicyEngine {
           matchedRules,
           [],
           constraints,
-          "Routine work in the active repository is allowed by default.",
+          "Explicit routine user operation allowed.",
           requiredPermission,
         );
       }
     }
 
-    if (request.risk === "destructive") {
-      matchedRules.push("destructive operations always require explicit approval");
-    } else if (request.risk === "external") {
-      matchedRules.push("external side effects and publication require explicit approval");
-    } else if (request.risk === "unknown") {
-      matchedRules.push("operations with unknown effects require explicit approval");
-    }
+    if (request.risk === "destructive") matchedRules.push("destructive operations require explicit approval");
+    else if (request.risk === "external") matchedRules.push("external side effects and publication require explicit approval");
+    else if (request.risk === "unknown") matchedRules.push("operations with unknown effects require explicit approval");
 
     matchedRules.push(`no active ${requiredPermission} grant matched`);
     return this.decision(

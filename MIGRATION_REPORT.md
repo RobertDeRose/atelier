@@ -1,95 +1,96 @@
-# Migration Report — v0.13.0
+# Migration Report — Atelier 0.14.0-alpha.1
 
 ## Summary
 
-Atelier migrates the repository-local SQLite ledger automatically on open. The current schema adds durable retrieval sessions, exact plan approvals/reconciliation transactions, execution and permission grants, mutating-tool evidence, and focused-validation selection/evidence while preserving prior workflow and `ManualEdit` records.
+This release intentionally tightens trust, authorization, runtime-state, validation, and exact-approval
+semantics. SQLite schema migration 7 is automatic. Existing plans, task mappings, provider task state,
+retrieval evidence, and workflow history remain readable, but unsafe legacy authorization is not carried
+forward.
 
-No manual import, task recreation, provider reindex, or plan conversion is required.
-
-## Preserve these assets
-
-Do not remove, recreate, clean, or import over:
-
-- `.atelier/PLAN.md` — the reviewed human scope artifact;
-- `.atelier/atelier.db` (or configured `databasePath`) — approvals, mappings, grants, evidence, and restart state;
-- `.beads/` and the configured `TaskProvider` state — task status and dependency authority;
-- `.codesearch.db`, configured codesearch service state, or Octocode indexes — provider-owned retrieval state;
-- `.atelier/config.json`, `.atelier/workspace.json`, and `.atelier/validation.json`;
-- legitimate tracked or untracked working-copy changes;
-- Jujutsu changes, operation history, workspaces, and bookmarks.
-
-`.beads/issues.jsonl` remains a passive Beads export, not the normal synchronization or migration protocol. Do not run `bd import` as an Atelier upgrade step.
-
-## Command changes
-
-Direct reconciliation mutation and direct task claim are no longer supported workflow paths.
-
-Old or unsafe forms:
+## Required upgrade steps
 
 ```sh
-atlr plan reconcile --apply
-atlr task claim <id>
-atlr approve --approval <id>
+mise install
+mise run install
+npm run build
+atlr trust status
+atlr trust add --yes
+atlr config validate
 ```
 
-Current exact forms:
+Trust is now explicit and stored outside the repository. Review `.atelier/config.json`,
+`.atelier/validation.json`, and `.atelier/workspace.json` before trusting a repository because trust
+permits their configured providers, validators, and editor command to execute.
+
+## Runtime-state move
+
+New runtime state defaults to:
+
+```text
+${XDG_STATE_HOME:-~/.local/state}/atelier/repositories/<root-hash>/atelier.db
+```
+
+Repository configuration cannot override the runtime directory or database path. A user-level config or
+`ATLR_STATE_HOME` can do so. Existing repository-local `.atelier/atelier.db` is not imported
+automatically; preserve it as a backup and explicitly place/copy it at the externally configured
+`databasePath` only when its provenance is trusted.
+
+Project files remain under `.atelier/` and are now intentionally trackable:
+
+- `.atelier/PLAN.md`;
+- `.atelier/config.json`;
+- `.atelier/validation.json`;
+- `.atelier/workspace.json`.
+
+## Authorization migration
+
+- Grant scopes are now only `operation`, `task`, and `repository`.
+- Migration 7 revokes legacy `turn` and `session` grants.
+- Legacy execution/approval records without an exact capability digest fail closed on resume and require
+  a fresh plan preparation and approval.
+- Exact approval atomically installs typed task capabilities.
+- Generic shell never inherits those capabilities and requires one-operation approval.
+- A project must be trusted before execution, provider startup, validation, editor launch, or indexing.
+
+No migration should fabricate a capability digest or reactivate a revoked legacy grant.
+
+## Validation migration
+
+The obsolete validation field `approval` is rejected. Remove it from `.atelier/validation.json`.
+Authorization is controlled by Atelier policy and capabilities.
+
+When `closurePolicy.requireValidation` is true, configure at least one applicable check with
+`required: true`; otherwise `atlr config validate` and task closure fail. Current closure can also require:
+
+- exact final-diff review;
+- a local Git commit or finalized Jujutsu change;
+- a clean repository state.
+
+Prior validation evidence can become stale after repository, command, environment, platform, runtime, or
+lockfile drift.
+
+## Multi-repository migration
+
+Every secondary root in `.atelier/workspace.json` requires an external approval:
 
 ```sh
-atlr review
-atlr plan prepare --json
-atlr approve --approval <id> --digest <reconciliation-digest> --yes
-atlr task start [id] --yes
-# equivalent later-task command
-atlr execute [id] --yes
-atlr cancel --reason "operator stopped execution"
+atlr trust workspace add /absolute/path/to/repository --yes
 ```
 
-`atlr plan reconcile` is preview-only. Interactive CLI approval may confirm after displaying the exact transaction; non-interactive approval requires ID, digest, and `--yes`.
+Unapproved roots are rejected. Each approved root receives a real repository snapshot; secondary drift
+invalidates exact execution and retrieval reuse.
 
-Pi adds `/execute [task-id]` and `/cancel [reason]`. `/approve` displays the full plan hash, provider identity, operation details, retirements, and proposed first task. `/validate plan` persists and displays an explainable focused selection; `/validate focused` runs only those checks with the independent focused-validation permission.
+## Provider and diagnostic behavior
 
-## Restart procedure
+Repository provider command failures are no longer interpreted as clean state. Diagnose them explicitly.
+`atlr doctor` no longer opens the ledger or starts providers, so use `atlr repo status`, `atlr code doctor`,
+or provider-native commands after trust for live checks.
 
-1. Finish or interrupt any running command without deleting state.
-2. Exit the old Pi process so it releases SQLite and provider processes.
-3. Update the checkout without cleaning legitimate working-copy changes.
-4. Run the normal automated checks.
-5. Restart through the supported entry point:
+Provider-first retrieval is advisory. Existing provider indexes remain provider-owned and can be reused
+when their source/index bindings are current.
 
-   ```sh
-   mise run launch
-   ```
+## Rollback
 
-6. Run `/status` and `/state`.
-
-A valid active execution resumes only when plan hash, provider identity, reconciliation, repository/workspace identity, task mapping, and in-progress task status remain valid. Drift revokes or invalidates the grant and returns to plan mode. Atelier never silently preserves an invalid execution.
-
-A fresh Pi session reconstructs authoritative state from SQLite, the repository, and the task provider. Conversation history, Pi custom entries, and compaction summaries are not migration inputs.
-
-## Existing active work
-
-- A valid task-scoped execution grant resumes with its linked permissions and evidence.
-- A revoked or invalidated grant remains non-active.
-- `/cancel` leaves the provider task in progress; resume it only through a fresh exact transaction, or explicitly close/defer it in the provider.
-- Explicit task closure revokes the prior grant and exposes later approved-plan ready work without starting it.
-- Validation passes remain current only for an exact matching repository fingerprint. Expect a focused rerun after relevant source changes.
-- Pending mutating-tool evidence is marked interrupted during Pi shutdown rather than promoted to success.
-
-## Provider behavior
-
-Codesearch remains the default Code provider. Existing provider indexes are not parsed, rewritten, or migrated by Atelier. Repository or index revision drift invalidates affected retrieval evidence; it does not require deleting the index. Octocode remains optional and capability-gated.
-
-Beads remains the default `TaskProvider`, invoked through its public JSON CLI. Atelier never mutates Beads database tables directly.
-
-## Validation after upgrade
-
-Automated portable checks:
-
-```sh
-node --no-warnings --experimental-strip-types --test tests/acceptance-workflow.test.ts
-node --no-warnings --experimental-strip-types --test tests/smoke-cleanup.test.ts
-bash scripts/smoke.sh
-mise run check
-```
-
-The ordinary suite requires no live Pi, Beads, Jujutsu, codesearch, Octocode, or network access. Complete the optional live-maintainer gate from a disposable Jujutsu workspace using `docs/LOCAL_ACCEPTANCE.md`; never use the primary workspace as test data.
+Back up the external runtime directory before opening it with this release. A rollback must not restore
+legacy grants as active. Preserve project documents, task-provider state, VCS state, and provider indexes;
+do not delete or recreate them merely to make an old binary accept the workspace.

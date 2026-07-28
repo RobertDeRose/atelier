@@ -41,7 +41,7 @@ test("atlr launch starts Pi with the Atelier extension and forwards Pi arguments
     assert.equal(recorded.cwd, canonicalRoot);
     assert.equal(recorded.atelierRoot, canonicalRoot);
     assert.equal(recorded.args[0], "--extension");
-    assert.match(recorded.args[1] ?? "", /apps\/pi-extension\/src\/index\.ts$/);
+    assert.match(recorded.args[1] ?? "", /apps\/pi-extension\/src\/index\.(?:ts|js)$/);
     assert.deepEqual(recorded.args.slice(2), ["--model", "test-model"]);
   } finally {
     rmSync(root, { recursive: true, force: true });

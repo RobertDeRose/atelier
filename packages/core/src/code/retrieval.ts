@@ -8,28 +8,32 @@ import type {
   CodeSearchMode,
 } from "./types.ts";
 
-export type RetrievalOperation = "search" | "symbols" | "relationships";
+import type { RepositoryRevisionBinding, RetrievalRevisionBinding } from "../repository/revision-binding.ts";
+export type { RepositoryRevisionBinding, RetrievalRevisionBinding } from "../repository/revision-binding.ts";
+
+import type {
+  RetrievalBudgetSnapshot,
+  RetrievalDecisionRecord,
+  RetrievalDiagnostic,
+  RetrievalInvalidation,
+  RetrievalOperation,
+  RetrievalPersistenceStatus,
+  RetrievalReuseDecision,
+  RetrievalTelemetry,
+} from "../domain/retrieval-state.ts";
+export type {
+  RetrievalBudgetSnapshot,
+  RetrievalDecisionRecord,
+  RetrievalDiagnostic,
+  RetrievalInvalidation,
+  RetrievalOperation,
+  RetrievalPersistenceStatus,
+  RetrievalReuseDecision,
+  RetrievalReuseDecisionKind,
+  RetrievalTelemetry,
+} from "../domain/retrieval-state.ts";
+
 export type RetrievalEvidenceKind = "path" | "symbol" | "chunk" | "reference";
-
-export interface RepositoryRevisionBinding {
-  repositoryId: string;
-  snapshotRepositoryId: string;
-  workspaceId: string;
-  vcs: "jj" | "git" | "none";
-  headCommit: string;
-  changeId?: string;
-  operationId?: string;
-  dirtyGeneration: number;
-  dirtyFingerprint: string;
-  indexSchemaVersion: number;
-}
-
-export interface RetrievalRevisionBinding {
-  workspaceId: string;
-  provider: CodeProviderIdentity;
-  indexRevision?: string;
-  repositories: RepositoryRevisionBinding[];
-}
 
 export interface CanonicalReferenceFilter {
   provider: string;
@@ -100,58 +104,6 @@ export interface RetrievalInventorySummary {
   budget: RetrievalBudgetSnapshot;
 }
 
-export type RetrievalReuseDecisionKind =
-  | "provider_call"
-  | "exact_reuse"
-  | "overlap_reuse"
-  | "direct_read"
-  | "no_provider_call"
-  | "invalidated"
-  | "unsupported"
-  | "budget_denied";
-
-export interface RetrievalReuseDecision {
-  kind: RetrievalReuseDecisionKind;
-  reason: string;
-}
-
-export interface RetrievalBudgetSnapshot {
-  providerRequestsUsed: number;
-  providerRequestsLimit: number;
-  uniquePathsUsed: number;
-  uniquePathsLimit: number;
-  evidenceEntriesUsed: number;
-  evidenceEntriesLimit: number;
-  fetchesUsed: number;
-  fetchesLimit: number;
-  bytesUsed: number;
-  bytesLimit: number;
-}
-
-export interface RetrievalInvalidation {
-  kind: "repository_revision" | "index_revision" | "provider_identity" | "workspace_scope";
-  affectedQueryDigests: string[];
-  reason: string;
-  invalidatedAt: string;
-}
-
-export interface RetrievalDiagnostic {
-  code: string;
-  level: "info" | "warning" | "error";
-  message: string;
-  queryDigest?: string;
-  providerCallRequired?: boolean;
-}
-
-export interface RetrievalDecisionRecord {
-  queryDigest: string;
-  operation: RetrievalOperation;
-  workspaceId: string;
-  repositoryIds: string[];
-  decision: RetrievalReuseDecision;
-  decidedAt: string;
-}
-
 export interface PersistedRetrievalRequest extends CachedQueryCoverage {
   requestDigest: string;
   evidenceDigests: string[];
@@ -190,15 +142,6 @@ export interface RetrievalPersistenceLimits {
   maxBytes: number;
 }
 
-export interface RetrievalPersistenceStatus {
-  retainedSessionsUsed: number;
-  retainedSessionsLimit: number;
-  entriesUsed: number;
-  entriesLimit: number;
-  bytesUsed: number;
-  bytesLimit: number;
-}
-
 export interface ScopedUnresolvedSymbol {
   workspaceId: string;
   repositoryIds: string[];
@@ -219,21 +162,6 @@ export interface RetrievalSessionStatus {
   bindings: RetrievalRevisionBinding[];
   semanticDiscoveryBindings: RetrievalRevisionBinding[];
   unresolvedSymbolScopes: ScopedUnresolvedSymbol[];
-}
-
-export interface RetrievalTelemetry {
-  providerCalls: number;
-  cacheHits: number;
-  overlapReuses: number;
-  uniquePaths: number;
-  duplicateResultsRemoved: number;
-  duplicatePathsRemoved: number;
-  duplicateSymbolsRemoved: number;
-  duplicateChunksRemoved: number;
-  duplicateReferencesRemoved: number;
-  bytesReturned: number;
-  truncated: boolean;
-  invalidations: number;
 }
 
 export interface CachedQueryCoverage {

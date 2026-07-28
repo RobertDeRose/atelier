@@ -1,6 +1,6 @@
 # ADR-0017: Plan reads and provider-first code tools
 
-- **Status:** Accepted
+- **Status:** Superseded in part by ADR-0025 and the advisory retrieval policy in 0.14.0-alpha.1
 - **Date:** 2026-07-25
 
 ## Context

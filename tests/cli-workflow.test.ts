@@ -16,8 +16,8 @@ function run(root: string, args: string[]) {
 }
 
 function installFakeBeads(root: string): string {
-  const executable = join(root, "fake-bd.mjs");
-  const statePath = join(root, ".fake-bd-state.json");
+  const executable = join(root, ".atelier", "fake-bd.mjs");
+  const statePath = join(root, ".atelier", "fake-bd-state.json");
   writeFileSync(executable, `#!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);

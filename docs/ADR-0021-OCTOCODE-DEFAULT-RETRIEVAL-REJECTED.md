@@ -1,4 +1,4 @@
-# ADR-0012: Reject Octocode for default repository retrieval
+# ADR-0021: Reject Octocode for default repository retrieval
 
 - Status: Rejected for default retrieval; retained as experimental structural provider
 - Date: 2026-07-23

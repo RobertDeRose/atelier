@@ -1,3 +1,4 @@
+export * from "./version.ts";
 export * from "./config/config.ts";
 export * from "./state/working-state-builder.ts";
 export * from "./state/repository-state-planner.ts";
@@ -45,3 +46,12 @@ export * from "./code/codesearch-provider.ts";
 export * from "./code/octocode-provider.ts";
 
 export * from "./code/workspace.ts";
+export * from "./domain/code-identity.ts";
+export * from "./domain/retrieval-state.ts";
+export * from "./repository/snapshot.ts";
+export * from "./repository/revision-binding.ts";
+export * from "./repository/directory-repository-provider.ts";
+export * from "./security/path-boundary.ts";
+export * from "./security/project-trust.ts";
+export * from "./workflow/execution-baseline.ts";
+export * from "./repository/source-path.ts";

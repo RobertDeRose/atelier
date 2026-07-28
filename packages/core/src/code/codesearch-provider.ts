@@ -7,6 +7,7 @@ import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, rankCodePathsByFocus, resolveCodeSearchFocus } from "./focus.ts";
+import { ATELIER_VERSION } from "../version.ts";
 import type {
   CodeCapability,
   CodeChunk,
@@ -493,7 +494,7 @@ export class CodesearchProvider implements CodeProvider {
       timeoutMs: this.timeoutMs,
       ...(this.environment === undefined ? {} : { environment: this.environment }),
     });
-    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: "0.8.5" });
+    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: ATELIER_VERSION });
     this.identity = {
       name: "codesearch",
       ...(initialized.serverInfo.version === undefined ? {} : { version: initialized.serverInfo.version }),

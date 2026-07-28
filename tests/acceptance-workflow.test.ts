@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AtelierCore, SqliteLedger, parsePlanFile } from "../packages/core/src/index.ts";
 import { registerAtelierExtension as registerPiExtension } from "../apps/pi-extension/src/index.ts";
-import { createTemporaryRepository } from "./fixtures.ts";
+import { createTemporaryRepository, testDatabasePath } from "./fixtures.ts";
 
 interface RegisteredCommand {
   handler(args: string, ctx: ExtensionCommandContext): Promise<void>;
@@ -225,13 +225,13 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
   seed.ledger.setTaskMapping("ATLR-A", "beads", "bd-a", oldPlan.hash);
   seed.ledger.setTaskMapping("ATLR-B", "beads", "bd-b", oldPlan.hash);
   seed.ledger.setTaskMapping("ATLR-C", "beads", "bd-c", oldPlan.hash);
-  seed.close();
+  await seed.close();
 
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const commands = new Map<string, RegisteredCommand>();
   const notifications: string[] = [];
   const sentMessages: string[] = [];
-  const confirmations = [false, true, true, true];
+  const confirmations = [false, true];
   let confirmationCount = 0;
   let stopped = 0;
   let started = 0;
@@ -281,7 +281,7 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
       input: { path: join(root, ".atelier", "PLAN.md") },
     }, context);
     assert.equal(planDraftRequest, undefined, "plan drafting must not require an act-mode execution grant");
-    let ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+    let ledger = new SqliteLedger(testDatabasePath(root));
     assert.equal(ledger.getExecutionEvidence("acceptance-plan-write"), undefined, "ManualEdit owns plan mutation evidence");
     ledger.close();
     await events.get("agent_settled")!({}, context);
@@ -295,7 +295,7 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     assert.equal(mutationLog(fake.logPath).length, 0, "preview must not mutate provider state");
     await commands.get("approve")!.handler("", context);
     assert.equal(mutationLog(fake.logPath).length, 0, "rejected exact approval must not mutate provider state");
-    ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+    ledger = new SqliteLedger(testDatabasePath(root));
     assert.equal(ledger.getActiveExecutionGrant(), undefined);
     assert.equal(ledger.getState("workflowMode"), "plan");
     ledger.close();
@@ -311,11 +311,13 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     const providerState = JSON.parse(readFileSync(fake.statePath, "utf8")) as { tasks: Record<string, { notes?: string }> };
     assert.equal(Object.values(providerState.tasks).filter((task) => task.notes?.includes("Atelier plan task: ATLR-D")).length, 1);
 
-    ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+    ledger = new SqliteLedger(testDatabasePath(root));
     const grant = ledger.getActiveExecutionGrant();
     assert.ok(grant);
     assert.equal(ledger.getState("workflowMode"), "act");
-    assert.equal(ledger.listGrants().length, 0, "execution grant must not imply a mutation permission");
+    const capabilities = ledger.listGrants();
+    assert.ok(capabilities.length >= 7, "exact approval must create the reviewed task capability bundle");
+    assert.ok(capabilities.every((item) => item.scope === "task" && item.executionGrantId === grant.id));
     assert.equal(ledger.getTaskMapping("ATLR-D")?.providerTaskId === undefined, false);
     ledger.close();
 
@@ -327,12 +329,11 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
       input: { path: "src/accepted.ts" },
     }, context);
     assert.equal(firstRequest, undefined);
-    assert.equal(confirmationCount, 3, "the first mutation requires an independent permission decision");
-    ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
-    const firstPermission = ledger.listGrants({ includeRevoked: true })
-      .find((item) => item.permission === "file.write" && item.scope === "operation");
-    assert.equal(firstPermission?.executionGrantId, grant.id);
-    assert.ok(firstPermission?.revokedAt, "one-operation permission is consumed at authorization");
+    assert.equal(confirmationCount, 2, "typed task writes use the exact approved capability bundle");
+    ledger = new SqliteLedger(testDatabasePath(root));
+    const fileCapability = ledger.listGrants()
+      .find((item) => item.permission === "file.write" && item.scope === "task");
+    assert.equal(fileCapability?.executionGrantId, grant.id);
     ledger.close();
     writeFileSync(join(root, "src", "accepted.ts"), "export const accepted = 1;\n", "utf8");
     await events.get("tool_result")!({
@@ -354,7 +355,7 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
       input: { path: "src/accepted.ts" },
     }, context);
     assert.equal(secondRequest, undefined);
-    assert.equal(confirmationCount, 4, "the consumed permission cannot authorize a later mutation");
+    assert.equal(confirmationCount, 2, "the task capability authorizes later typed writes without another prompt");
     writeFileSync(join(root, "src", "accepted.ts"), "export const accepted = 2;\n", "utf8");
     await events.get("tool_result")!({
       toolCallId: "acceptance-write-2",
@@ -393,7 +394,7 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     assert.equal((await reopened.taskProvider.get(grant.taskId))?.status, "in_progress");
     assert.equal(reopened.validation.list({ currentSnapshot: reopened.repository.snapshot() })[0]?.status, "passed");
     assert.equal(reopened.validation.list({ currentSnapshot: reopened.repository.snapshot() })[0]?.stale, false);
-    reopened.close();
+    await reopened.close();
   } finally {
     try { await events.get("session_shutdown")?.({}, context); } catch { /* already closed */ }
     rmSync(root, { recursive: true, force: true });

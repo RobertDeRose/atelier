@@ -2,6 +2,12 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { loadConfig } from "../packages/core/src/config/config.ts";
+import { trustProject } from "../packages/core/src/security/project-trust.ts";
+
+const TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), `atlr-test-state-${process.pid}-`));
+process.env.ATLR_STATE_HOME = join(TEST_STATE_ROOT, "runtime");
+process.env.ATLR_TRUST_STORE = join(TEST_STATE_ROOT, "trusted-projects.json");
 
 export const VALID_PLAN = `# Atelier Test Plan
 
@@ -78,8 +84,8 @@ export function createTemporaryRepository(prefix = "atlr-test-"): string {
     `${JSON.stringify(
       {
         planPath: ".atelier/PLAN.md",
-        databasePath: ".atelier/atelier.db",
         taskProvider: "memory",
+        codeProvider: "disabled",
       },
       null,
       2,
@@ -88,5 +94,19 @@ export function createTemporaryRepository(prefix = "atlr-test-"): string {
   );
   const git = spawnSync("git", ["init", "--quiet"], { cwd: root, encoding: "utf8", shell: false });
   if (git.status !== 0) throw new Error(git.stderr || "Unable to initialize test Git repository");
+  for (const [key, value] of [["user.name", "Atelier Tests"], ["user.email", "atelier-tests@example.invalid"]] as const) {
+    const configured = spawnSync("git", ["config", key, value], { cwd: root, encoding: "utf8", shell: false });
+    if (configured.status !== 0) throw new Error(configured.stderr || `Unable to configure test Git ${key}`);
+  }
+  writeFileSync(join(root, "README.md"), "# Atelier test repository\n", "utf8");
+  const committed = spawnSync("git", ["add", "README.md"], { cwd: root, encoding: "utf8", shell: false });
+  if (committed.status !== 0) throw new Error(committed.stderr || "Unable to stage test repository baseline");
+  const initial = spawnSync("git", ["commit", "--quiet", "-m", "test: initialize repository"], { cwd: root, encoding: "utf8", shell: false });
+  if (initial.status !== 0) throw new Error(initial.stderr || "Unable to commit test repository baseline");
+  trustProject(root);
   return root;
+}
+
+export function testDatabasePath(root: string): string {
+  return loadConfig(root).databasePath;
 }

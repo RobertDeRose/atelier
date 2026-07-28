@@ -1,3 +1,4 @@
+import { ATELIER_VERSION } from "../packages/core/src/version.ts";
 #!/usr/bin/env -S node --experimental-strip-types
 import { resolve } from "node:path";
 import { McpStdioClient, type McpToolCallResult } from "../packages/core/src/index.ts";
@@ -8,7 +9,7 @@ const pollIntervalMs = Number(process.env.ATLR_CODE_POLL_INTERVAL_MS ?? 1_000);
 const client = new McpStdioClient("codesearch", ["mcp"], { cwd: root, timeoutMs: 60_000 });
 
 try {
-  const initialize = await client.initialize({ clientName: "atelier-probe", clientVersion: "0.8.5" });
+  const initialize = await client.initialize({ clientName: "atelier-probe", clientVersion: ATELIER_VERSION });
   const tools = await client.listTools();
   const toolNames = new Set(tools.map((tool) => tool.name));
   const statusHistory: Array<{ observedAt: string; state: string; response: McpToolCallResult }> = [];

@@ -4,10 +4,12 @@ import type {
   RetrievalDiagnostic,
   RetrievalInvalidation,
   RetrievalPersistenceStatus,
-  RetrievalRevisionBinding,
   RetrievalTelemetry,
-} from "../code/retrieval.ts";
-import type { CodeFreshness } from "../code/types.ts";
+} from "./retrieval-state.ts";
+import type { CodeFreshness } from "./code-identity.ts";
+import type { RepositoryRevisionBinding, RetrievalRevisionBinding } from "../repository/revision-binding.ts";
+import type { RepositorySnapshot } from "../repository/snapshot.ts";
+export type { RepositorySnapshot } from "../repository/snapshot.ts";
 
 export const ACTION_KINDS = [
   "read.repository",
@@ -56,20 +58,10 @@ export const PERMISSIONS = [
 export type Permission = (typeof PERMISSIONS)[number];
 export type Actor = "user" | "agent" | "tool" | "system";
 export type WorkflowMode = "investigate" | "plan" | "act";
-export type GrantScope = "operation" | "turn" | "task" | "session" | "repository";
+export type GrantScope = "operation" | "task" | "repository";
+export type ExecutionBoundary = "typed" | "sandboxed" | "unconfined";
 export type OperationRisk = "routine" | "destructive" | "external" | "unknown";
 
-export interface RepositorySnapshot {
-  repositoryId: string;
-  workspaceId: string;
-  vcs: "jj" | "git" | "none";
-  headCommit: string;
-  changeId?: string;
-  operationId?: string;
-  dirtyGeneration: number;
-  dirtyFingerprint: string;
-  indexSchemaVersion: number;
-}
 
 export interface ActionRequest {
   action: ActionKind;
@@ -81,6 +73,7 @@ export interface ActionRequest {
   command?: string[];
   estimatedDurationMs?: number;
   requestedPermissions?: Permission[];
+  boundary?: ExecutionBoundary;
   rationale: string;
 }
 
@@ -93,7 +86,6 @@ export interface PermissionGrant {
   taskId?: string;
   repositoryId?: string;
   paths?: string[];
-  commandPrefix?: string[];
   reason: string;
   createdAt: string;
   expiresAt?: string;
@@ -369,6 +361,12 @@ export interface TaskReconciliation {
 
 export type PlanApprovalStatus = "prepared" | "accepted" | "approved" | "rejected" | "invalidated" | "cancelled";
 
+export interface ExecutionCapability {
+  permission: Permission;
+  paths?: string[];
+  reason: string;
+}
+
 export interface PlanApproval {
   id: string;
   status: PlanApprovalStatus;
@@ -378,6 +376,11 @@ export interface PlanApproval {
   provider: TaskProviderIdentity;
   workspaceId: string;
   repositoryId: string;
+  repositorySnapshot: RepositorySnapshot;
+  repositoryBindings: RepositoryRevisionBinding[];
+  retrievalBindings: RetrievalRevisionBinding[];
+  capabilities: ExecutionCapability[];
+  capabilityDigest: string;
   preparedAt: string;
   decidedAt?: string;
   invalidationReason?: string;
@@ -410,6 +413,10 @@ export interface ExecutionGrant {
   provider: TaskProviderIdentity;
   workspaceId: string;
   repositoryId: string;
+  repositorySnapshot: RepositorySnapshot;
+  repositoryBindings: RepositoryRevisionBinding[];
+  retrievalBindings: RetrievalRevisionBinding[];
+  capabilityDigest: string;
   taskId: string;
   planTaskId: string;
   issuedAt: string;
@@ -455,6 +462,26 @@ export interface ExecutionEvidence {
   finishedAt?: string;
 }
 
+export interface FinalDiffPreview {
+  taskId: string;
+  executionGrantId: string;
+  baselineHeadCommit: string;
+  changedPaths: string[];
+  diff: string;
+  diffHash: string;
+}
+
+export interface FinalDiffReview {
+  id: string;
+  taskId: string;
+  executionGrantId: string;
+  baselineHeadCommit: string;
+  snapshot: RepositorySnapshot;
+  changedPaths: string[];
+  diffHash: string;
+  reviewedAt: string;
+}
+
 export interface FocusedValidationSelection {
   id: string;
   taskId: string;
@@ -478,6 +505,7 @@ export interface ValidationEvidenceRecord {
   planHash?: string;
   selectionId?: string;
   snapshotFingerprint: string;
+  environmentFingerprint?: string;
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -505,6 +533,10 @@ export interface TaskClosureReadiness {
   missing: string[];
   stale: string[];
   failed: string[];
+  validationReady?: boolean;
+  finalDiffReviewed?: boolean;
+  localChangeCreated?: boolean;
+  repositoryStateAcceptable?: boolean;
   reason: string;
 }
 
@@ -574,6 +606,7 @@ export interface WorkingState {
   currentValidationEvidence: ValidationEvidenceSummary[];
   staleValidationEvidence: ValidationEvidenceSummary[];
   taskClosure: TaskClosureReadiness;
+  finalDiffReview?: FinalDiffReview;
   nextAction: string;
   corrections: LedgerEvent[];
   findings: LedgerEvent[];

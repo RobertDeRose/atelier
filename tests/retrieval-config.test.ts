@@ -68,9 +68,33 @@ test("configuration validation rejects non-positive and impossible retrieval bud
   }
 });
 
+test("configuration validation requires a required check when closure requires validation", async () => {
+  const root = createTemporaryRepository("atlr-validation-config-required-");
+  const validationPath = join(root, ".atelier", "validation.json");
+  writeFileSync(validationPath, `${JSON.stringify({
+    closurePolicy: { requireValidation: true },
+    validations: { optional: { command: ["node", "--version"], required: false } },
+  }, null, 2)}\n`, "utf8");
+  const core = AtelierCore.open(root, { taskProvider: "memory" });
+  try {
+    assert.ok(core.validateConfiguration().some((issue) => issue.includes("at least one validation with required: true")));
+    writeFileSync(validationPath, `${JSON.stringify({
+      closurePolicy: { requireValidation: false },
+      validations: { optional: { command: ["node", "--version"], required: false } },
+    }, null, 2)}\n`, "utf8");
+    assert.ok(!core.validateConfiguration().some((issue) => issue.includes("at least one validation with required: true")));
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("CLI configuration output reports effective retrieval budgets", () => {
   const root = createTemporaryRepository("atlr-retrieval-config-cli-");
   try {
+    writeFileSync(join(root, ".atelier", "validation.json"), `${JSON.stringify({
+      validations: { required: { command: ["node", "--version"], required: true, category: "full" } },
+    }, null, 2)}\n`, "utf8");
     const result = spawnSync(process.execPath, [
       "--no-warnings",
       "--experimental-strip-types",

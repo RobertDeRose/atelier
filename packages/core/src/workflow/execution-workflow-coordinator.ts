@@ -8,18 +8,35 @@ import type {
   TaskRecord,
   TaskStartTransition,
 } from "../domain/types.ts";
+import {
+  repositoryBindingMismatch,
+  sameRepositoryBindings,
+  type RepositoryRevisionBinding,
+  type RetrievalRevisionBinding,
+} from "../repository/revision-binding.ts";
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
 import { parsePlanFile } from "../planning/plan-parser.ts";
 import { PlanReconciler } from "../planning/plan-reconciler.ts";
 import type { RepositoryProvider } from "../repository/repository-provider.ts";
 import type { TaskProvider } from "../tasks/task-provider.ts";
 import { newId, nowIso } from "../util/ids.ts";
+import {
+  createExecutionCapabilities,
+  executionCapabilityDigest,
+  permissionGrantsForExecution,
+  permissionGrantsMatchCapabilities,
+  sameRetrievalBindings,
+  sourceBaselineMismatch,
+} from "./execution-baseline.ts";
 
 export interface ExecutionWorkflowCoordinatorOptions {
   planPath: string;
   ledger: SqliteLedger;
   provider: TaskProvider;
   repository: RepositoryProvider;
+  repositoryRoot: string;
+  repositoryBindings?: () => RepositoryRevisionBinding[];
+  retrievalBindings?: () => RetrievalRevisionBinding[];
 }
 
 function providerIdentity(name: string, version: string | undefined): TaskProviderIdentity {
@@ -39,12 +56,18 @@ export class ExecutionWorkflowCoordinator {
   private readonly ledger: SqliteLedger;
   private readonly provider: TaskProvider;
   private readonly repository: RepositoryProvider;
+  private readonly repositoryRoot: string;
+  private readonly repositoryBindings: () => RepositoryRevisionBinding[];
+  private readonly retrievalBindings: () => RetrievalRevisionBinding[];
 
   constructor(options: ExecutionWorkflowCoordinatorOptions) {
     this.planPath = options.planPath;
     this.ledger = options.ledger;
     this.provider = options.provider;
     this.repository = options.repository;
+    this.repositoryRoot = options.repositoryRoot;
+    this.repositoryBindings = options.repositoryBindings ?? (() => []);
+    this.retrievalBindings = options.retrievalBindings ?? (() => []);
   }
 
   async initializeProvider(confirmed: boolean): Promise<boolean> {
@@ -82,6 +105,9 @@ export class ExecutionWorkflowCoordinator {
 
     const reconciliation = await new PlanReconciler(this.provider, this.ledger).preview(plan);
     const snapshot = this.repository.snapshot();
+    const repositoryBindings = this.repositoryBindings();
+    const retrievalBindings = this.retrievalBindings();
+    const capabilities = createExecutionCapabilities(this.repositoryRoot);
     const timestamp = nowIso();
     const approval: PlanApproval = {
       id: newId("approval"),
@@ -92,6 +118,11 @@ export class ExecutionWorkflowCoordinator {
       provider: reconciliation.provider,
       workspaceId: snapshot.workspaceId,
       repositoryId: snapshot.repositoryId,
+      repositorySnapshot: snapshot,
+      repositoryBindings,
+      retrievalBindings,
+      capabilities,
+      capabilityDigest: executionCapabilityDigest(capabilities),
       preparedAt: timestamp,
     };
     const transaction: ReconciliationTransaction = {
@@ -118,6 +149,11 @@ export class ExecutionWorkflowCoordinator {
         reconciliationDigest: reconciliation.digest,
         operationCount: reconciliation.operations.length,
         conflicts: reconciliation.conflicts,
+        repositorySnapshot: snapshot,
+        repositoryBindingCount: repositoryBindings.length,
+        retrievalBindingCount: retrievalBindings.length,
+        capabilities,
+        capabilityDigest: approval.capabilityDigest,
       },
     });
     return { approval, transaction, reconciliation };
@@ -146,7 +182,15 @@ export class ExecutionWorkflowCoordinator {
     const plan = parsePlanFile(this.planPath);
     const current = await new PlanReconciler(this.provider, this.ledger).preview(plan);
     const snapshot = this.repository.snapshot();
-    const mismatch = this.preparationMismatch(approval, plan.hash, current.provider, current.digest, snapshot);
+    const mismatch = this.preparationMismatch(
+      approval,
+      plan.hash,
+      current.provider,
+      current.digest,
+      snapshot,
+      this.repositoryBindings(),
+      this.retrievalBindings(),
+    );
     if (mismatch !== undefined) {
       this.invalidatePreparation(approval, transaction, mismatch);
       throw new Error(`Execution state changed after preparation: ${mismatch}`);
@@ -184,11 +228,27 @@ export class ExecutionWorkflowCoordinator {
       if (converged.conflicts.length > 0 || converged.operations.length > 0) {
         throw new Error("Reconciliation did not converge after apply.");
       }
+      const sourceDrift = sourceBaselineMismatch(approval.repositorySnapshot, this.repository.snapshot());
+      if (sourceDrift !== undefined) {
+        throw new Error(`Source state changed while applying task reconciliation: ${sourceDrift}.`);
+      }
+      const workspaceDrift = repositoryBindingMismatch(approval.repositoryBindings, this.repositoryBindings());
+      if (workspaceDrift !== undefined) {
+        throw new Error(`Workspace source state changed while applying task reconciliation: ${workspaceDrift}.`);
+      }
+      if (!sameRetrievalBindings(approval.retrievalBindings, this.retrievalBindings())) {
+        throw new Error("Retrieval revision bindings changed while applying task reconciliation.");
+      }
       const task = await this.claimReadyTask(plan.hash, plan.tasks.map((item) => item.id));
       const approved: PlanApproval = { ...accepted, status: "approved" };
       const grant = this.executionGrant(approved, transaction.id, task);
       applying = { ...applying, status: "applied", preview: applied, updatedAt: nowIso() };
-      this.ledger.activateExecution({ approval: approved, transaction: applying, grant });
+      this.ledger.activateExecution({
+        approval: approved,
+        transaction: applying,
+        grant,
+        permissionGrants: permissionGrantsForExecution(grant, approved.capabilities),
+      });
       this.ledger.setWorkflowCheckpoint("executing");
       return { approval: approved, transaction: applying, reconciliation: applied, task, executionGrant: grant };
     } catch (error) {
@@ -216,6 +276,7 @@ export class ExecutionWorkflowCoordinator {
     const plan = parsePlanFile(this.planPath);
     const preview = await new PlanReconciler(this.provider, this.ledger).preview(plan);
     if (plan.hash !== approval.planHash || !sameProvider(preview.provider, approval.provider)
+      || executionCapabilityDigest(approval.capabilities) !== approval.capabilityDigest
       || preview.conflicts.length > 0 || preview.operations.length > 0) {
       const reason = "Plan or provider reconciliation changed before later task activation.";
       this.ledger.invalidateExecutionGrant(previous.id, { status: "invalidated", reason });
@@ -255,8 +316,20 @@ export class ExecutionWorkflowCoordinator {
     try {
       const task = await this.claimReadyTask(plan.hash, plan.tasks.map((item) => item.id), requestedTaskId);
       const transaction: ReconciliationTransaction = { ...applying, status: "applied", updatedAt: nowIso() };
-      const grant = this.executionGrant(approval, transaction.id, task);
-      this.ledger.activateExecution({ approval, transaction, grant });
+      const grant = this.executionGrant(
+        approval,
+        transaction.id,
+        task,
+        this.repository.snapshot(),
+        this.repositoryBindings(),
+        this.retrievalBindings(),
+      );
+      this.ledger.activateExecution({
+        approval,
+        transaction,
+        grant,
+        permissionGrants: permissionGrantsForExecution(grant, approval.capabilities),
+      });
       this.ledger.setWorkflowCheckpoint("executing");
       return { task, transaction, executionGrant: grant };
     } catch (error) {
@@ -321,12 +394,18 @@ export class ExecutionWorkflowCoordinator {
     provider: TaskProviderIdentity,
     reconciliationDigest: string,
     snapshot: ReturnType<RepositoryProvider["snapshot"]>,
+    repositoryBindings: RepositoryRevisionBinding[],
+    retrievalBindings: RetrievalRevisionBinding[],
   ): string | undefined {
     if (approval.planHash !== planHash) return "plan hash changed";
     if (!sameProvider(approval.provider, provider)) return "provider identity changed";
     if (approval.reconciliationDigest !== reconciliationDigest) return "reconciliation digest changed";
-    if (approval.workspaceId !== snapshot.workspaceId) return "workspace changed";
-    if (approval.repositoryId !== snapshot.repositoryId) return "repository changed";
+    const sourceMismatch = sourceBaselineMismatch(approval.repositorySnapshot, snapshot);
+    if (sourceMismatch !== undefined) return sourceMismatch;
+    const workspaceMismatch = repositoryBindingMismatch(approval.repositoryBindings, repositoryBindings);
+    if (workspaceMismatch !== undefined) return workspaceMismatch;
+    if (!sameRetrievalBindings(approval.retrievalBindings, retrievalBindings)) return "retrieval revision bindings changed";
+    if (executionCapabilityDigest(approval.capabilities) !== approval.capabilityDigest) return "execution capability bundle changed";
     return undefined;
   }
 
@@ -391,7 +470,14 @@ export class ExecutionWorkflowCoordinator {
     return { ...claimed, planTaskId };
   }
 
-  private executionGrant(approval: PlanApproval, transactionId: string, task: TaskRecord): ExecutionGrant {
+  private executionGrant(
+    approval: PlanApproval,
+    transactionId: string,
+    task: TaskRecord,
+    repositorySnapshot = approval.repositorySnapshot,
+    repositoryBindings = approval.repositoryBindings,
+    retrievalBindings = approval.retrievalBindings,
+  ): ExecutionGrant {
     if (task.planTaskId === undefined) throw new Error(`Task ${task.id} has no approved plan identity.`);
     return {
       id: newId("execution"),
@@ -401,8 +487,12 @@ export class ExecutionWorkflowCoordinator {
       planHash: approval.planHash,
       reconciliationDigest: approval.reconciliationDigest,
       provider: approval.provider,
-      workspaceId: approval.workspaceId,
-      repositoryId: approval.repositoryId,
+      workspaceId: repositorySnapshot.workspaceId,
+      repositoryId: repositorySnapshot.repositoryId,
+      repositorySnapshot,
+      repositoryBindings,
+      retrievalBindings,
+      capabilityDigest: approval.capabilityDigest,
       taskId: task.id,
       planTaskId: task.planTaskId,
       issuedAt: nowIso(),
@@ -414,6 +504,12 @@ export class ExecutionWorkflowCoordinator {
     if (approval === undefined || approval.status !== "approved") return "Plan approval is unavailable or changed.";
     const plan = parsePlanFile(this.planPath);
     if (plan.hash !== grant.planHash || approval.planHash !== grant.planHash) return "Plan hash changed after execution approval.";
+    if (grant.capabilityDigest !== approval.capabilityDigest
+      || executionCapabilityDigest(approval.capabilities) !== approval.capabilityDigest
+      || (grant.status === "active"
+        && !permissionGrantsMatchCapabilities(this.ledger.listGrants(), grant, approval.capabilities))) {
+      return "Execution capability bundle changed or is incomplete during execution resume.";
+    }
     const status = await this.provider.status();
     if (!status.available || !status.initialized) return "Task provider is unavailable during execution resume.";
     if (!sameProvider(grant.provider, providerIdentity(this.provider.name, status.version))) return "Task provider identity changed during execution resume.";
@@ -425,6 +521,24 @@ export class ExecutionWorkflowCoordinator {
     const snapshot = this.repository.snapshot();
     if (snapshot.workspaceId !== grant.workspaceId) return "Workspace changed during execution resume.";
     if (snapshot.repositoryId !== grant.repositoryId) return "Repository changed during execution resume.";
+    const exactSource = sourceBaselineMismatch(grant.repositorySnapshot, snapshot) === undefined;
+    const currentRepositoryBindings = this.repositoryBindings();
+    const primaryRepositoryId = grant.repositorySnapshot.repositoryId;
+    const stableExpected = grant.repositoryBindings.filter((binding) => binding.snapshotRepositoryId !== primaryRepositoryId);
+    const stableActual = currentRepositoryBindings.filter((binding) => binding.snapshotRepositoryId !== primaryRepositoryId);
+    if (!sameRepositoryBindings(stableExpected, stableActual)) {
+      return "A secondary workspace repository changed during execution.";
+    }
+    if (exactSource && !sameRetrievalBindings(grant.retrievalBindings, this.retrievalBindings())) {
+      return "Retrieval revision bindings changed before any approved task mutation was observed.";
+    }
+    if (!exactSource && grant.repositorySnapshot.vcs !== "none" && grant.repositorySnapshot.headCommit !== "unborn") {
+      try {
+        this.repository.diffFrom(grant.repositorySnapshot.headCommit);
+      } catch {
+        return "Approved source baseline is no longer reachable during execution resume.";
+      }
+    }
     const mapping = this.ledger.getTaskMapping(grant.planTaskId);
     if (mapping === undefined || mapping.provider !== this.provider.name || mapping.providerTaskId !== grant.taskId
       || mapping.planHash !== grant.planHash) return "Approved task mapping changed during execution resume.";

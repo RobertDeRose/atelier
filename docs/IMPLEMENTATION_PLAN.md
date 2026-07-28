@@ -1,3 +1,13 @@
+# Atelier Implementation Plan
+
+> **Current release: 0.14.0-alpha.1 (2026-07-27).** The guarded vertical workflow is the release
+> authority. Repository trust is external; generic shell is unconfined and individually approved;
+> exact approval binds source, all workspace roots, retrieval revisions, reconciliation, and typed
+> task capabilities; closure requires current required validation, exact final-diff review, a local
+> change, and configured clean state. Provider-first retrieval is advisory. IDE-facing expansion is
+> paused until this workflow remains reliable. Historical release notes below describe earlier states
+> and are superseded where they conflict with ADR-0024 through ADR-0027.
+
 > **v0.13.0 local acceptance:** The delivered CLI/Pi workflow now uses exact reviewed-plan approval, convergent provider reconciliation, task-scoped execution grants, post-tool mutation evidence, focused-validation freshness, deterministic restart reconstruction, and a portable end-to-end acceptance fixture. See ADR-0019 and `LOCAL_ACCEPTANCE.md`.
 
 > **v0.10.4 plan investigation:** Read-only shell compounds are now classified segment by segment, and Pi exposes provider-first code search and symbol tools directly to the agent. Broad raw discovery is an explicit provider fallback. See ADR-0017.
@@ -6,9 +16,9 @@
 
 > **v0.10.2 Pi runtime correction:** Pi executes extensions inside Bun, so Atelier now selects `bun:sqlite` in the Pi shell and `node:sqlite` in Node consumers behind one ledger interface. Existing roots are canonicalized before launch. See ADR-0015.
 
-> **v0.10.6 background indexing:** Pi now starts one coordinated background code-index operation. Concurrent index requests coalesce, retrieval waits for the active operation, and the Pi footer shows index lifecycle state without reconnecting MCP during local writer ownership. See ADR-0016.
+> **v0.10.6 background indexing:** Pi now starts one coordinated background code-index operation. Concurrent index requests coalesce, retrieval waits for the active operation, and the Pi footer shows index lifecycle state without reconnecting MCP during local writer ownership. See ADR-0022.
 
-> **v0.11.0 approved local execution:** Approved act-mode work now defaults routine in-repository edits, validation, task updates, dependency changes, and local commits to allowed. Destructive, external, unknown, publication, and out-of-repository effects remain approval-gated. A completion guard prevents selected-task work from ending with uncommitted changes. Plan reviews now persist restart-safe ManualEdit lifecycle records and structural diffs. See ADR-0018.
+> **Historical v0.11.0 note (superseded by ADR-0025 and ADR-0026):** the former classifier-driven approval-free model and advisory completion guard are no longer current behavior.
 
 > **v0.10.1 shell launch:** Atelier now provides `atlr launch` and `mise run launch`. The Pi extension dependency graph no longer contains a static `node:sqlite` import; SQLite is resolved at runtime through `process.getBuiltinModule()` to remain compatible with Pi's jiti extension loader. See ADR-0014.
 
@@ -25,7 +35,7 @@ The current prototype delivers the guarded local workflow:
 - automatic configured-editor plan review with durable `ManualEdit` structural evidence;
 - exact plan/provider/reconciliation preparation and approval with zero-mutation rejection;
 - convergent `TaskProvider` create, adopt, update, link, unlink, retirement, and ready-task claim;
-- task/workspace-scoped execution grants plus independent action permissions;
+- task/workspace-scoped execution grants with an exact typed capability bundle; unconfined shell remains independently approved;
 - Pi `tool_call` preflight and `tool_result` success/failure/interruption evidence;
 - asynchronous abort-aware validation, explainable focused selection, strict fingerprint freshness, and closure gates;
 - deterministic Working State reconstruction across Pi restart and compaction;

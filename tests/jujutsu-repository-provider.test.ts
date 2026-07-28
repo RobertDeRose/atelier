@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { SqliteLedger } from "../packages/core/src/ledger/sqlite-ledger.ts";
 import { JujutsuRepositoryProvider } from "../packages/core/src/repository/jujutsu-repository-provider.ts";
+import { sha256 } from "../packages/core/src/util/hash.ts";
+import { RepositoryObservationError } from "../packages/core/src/domain/errors.ts";
 
 function fakeJj(root: string): string {
   const path = join(root, "jj-fake");
@@ -38,11 +40,36 @@ test("Jujutsu provider exposes change, commit, operation, workspace, files, and 
     assert.equal(snapshot.changeId, "change123");
     assert.equal(snapshot.headCommit, "commit456");
     assert.equal(snapshot.operationId, "operation789");
-    assert.equal(snapshot.workspaceId, root.split("/").at(-1));
+    assert.equal(snapshot.workspaceId, sha256(root).slice(0, 16));
     assert.deepEqual(provider.changedPaths(), ["src/main.ts"]);
     assert.deepEqual(provider.listFiles(), ["README.md", "src/main.ts"]);
     assert.match(provider.diff(), /diff --git/);
   } finally {
     ledger.close();
+  }
+});
+
+
+test("Jujutsu observation failures never masquerade as an empty diff", () => {
+  const root = mkdtempSync(join(tmpdir(), "atelier-jj-failure-"));
+  mkdirSync(join(root, ".atelier"), { recursive: true });
+  const executable = join(root, "jj-failure");
+  writeFileSync(executable, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("jj 0.30.0"); process.exit(0); }
+if (args[0] === "root") { console.log(${JSON.stringify('/placeholder')}); process.exit(0); }
+console.error("observation failed");
+process.exit(2);
+`, "utf8");
+  chmodSync(executable, 0o755);
+  const ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+  try {
+    const provider = new JujutsuRepositoryProvider({ cwd: root, ledger, executable });
+    assert.throws(() => provider.changedPaths(), RepositoryObservationError);
+    assert.throws(() => provider.listFiles(), RepositoryObservationError);
+    assert.throws(() => provider.diff(), RepositoryObservationError);
+  } finally {
+    ledger.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });

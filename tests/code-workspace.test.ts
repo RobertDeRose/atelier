@@ -11,7 +11,17 @@ test("loads explicit multi-repository workspace configuration", () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-workspace-"));
   mkdirSync(join(root, ".atelier")); mkdirSync(join(root, "api")); mkdirSync(join(root, "ui"));
   writeFileSync(join(root, ".atelier", "workspace.json"), JSON.stringify({ name: "product", repositories: [{ id: "api", path: "api", role: "backend" }, { id: "ui", path: "ui", tags: ["frontend"] }] }));
-  const workspace = loadCodeWorkspace(root, snapshot);
+  const workspace = loadCodeWorkspace(root, snapshot, {
+    trusted: true,
+    rootApproved: () => true,
+    snapshotForRoot: (repositoryRoot) => ({
+      ...snapshot,
+      repositoryId: `repository:${repositoryRoot}`,
+      workspaceId: `workspace:${repositoryRoot}`,
+      headCommit: `head:${repositoryRoot}`,
+      dirtyFingerprint: `fingerprint:${repositoryRoot}`,
+    }),
+  });
   assert.equal(workspace.name, "product"); assert.deepEqual(workspace.repositories.map((r) => r.id), ["api", "ui"]);
   assert.equal(workspace.repositories[0]?.role, "backend"); assert.deepEqual(validateCodeWorkspace(workspace), []);
 });

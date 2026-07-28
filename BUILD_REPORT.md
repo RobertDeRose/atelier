@@ -1,43 +1,55 @@
-# Build report
+# Build Report — Atelier 0.14.0-alpha.1
 
-Atelier v0.11.0 completes the durable ManualEdit review slice and makes approved
-local execution practical. Routine repository-scoped work no longer prompts for
-every operation, while destructive, external, unknown, publication, and
-out-of-repository effects remain approval-gated.
+## Result
 
-The live demo session still used broad `find` and `rg` commands even though v0.10.4 had registered
-provider tools and added provider-first routing. Pi maintains a separate active-tool list; a
-registered extension tool is not guaranteed to be selected for the next model turn. The model
-therefore continued to see generic repository tools as its practical discovery surface.
+The critical-review correction release builds successfully as stable JavaScript and declarations. The
+supported launcher consumes `dist` rather than TypeScript source.
 
-Atelier now explicitly activates the three read-only code tools whenever code intelligence is
-enabled:
+Delivered build outputs:
 
-- `atlr_code_search`
-- `atlr_code_symbols`
-- `atlr_code_status`
+```text
+dist/packages/core/src/index.js
+dist/packages/core/src/index.d.ts
+dist/apps/cli/src/main.js
+dist/apps/pi-extension/src/index.js
+```
 
-The tools are ordered before the existing active tools so provider search is presented as the
-primary discovery path. Activation converges on session start, `/plan` entry, and every agent turn,
-which also covers resumed plan sessions and Pi active-tool changes between turns. Disabled code
-providers do not force these tools into the active set.
+The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
+as the CLI entry. `prepack` runs the build; source execution is explicitly development-only.
 
-The provider-first Bash gate remains independent of permission approval. Exact reads and proven
-read-only shell commands execute without approval; broad raw discovery is blocked until provider
-fallback is explicitly justified by unavailable, unhealthy, degraded, failed, or empty evidence.
+## Corrected release boundary
 
-Validation:
+The release corrects the stop-ship authorization and trust defects identified at commit `286e2bc14edb`:
 
-- strict TypeScript check: passed
-- automated tests: 79 passed, 0 failed
-- CLI smoke test: passed
-- Pi active-tool activation regression: passed
-- exact live `find` and `rg` discovery regressions: passed
-- zero approval prompts for read-only plan commands: passed
-- provider fallback after empty evidence: passed
+- external project and workspace-root trust;
+- no repository-controlled provider/editor/validator/index startup before trust;
+- unconfined generic shell with one-operation approval;
+- real-path confinement for typed operations;
+- exact source, workspace, retrieval, reconciliation, and capability bindings;
+- authoritative validation/diff/commit/clean task closure;
+- explicit provider-observation failures;
+- staged and untracked Git evidence;
+- session-owned Pi state and awaited asynchronous shutdown;
+- external runtime state and observational diagnostics.
 
-Coverage:
+The complete traceability matrix is `docs/REVIEW_CORRECTIONS.md`.
 
-- line coverage: 84.95%
-- branch coverage: 67.35%
-- function coverage: 84.38%
+## Deterministic verification
+
+```sh
+npm run check:metadata
+npm run typecheck
+npm test
+npm run build
+bash scripts/smoke.sh
+npm pack --dry-run
+```
+
+CI executes the same deterministic gate on Node 24.18.0. Real Jujutsu, codesearch, Beads, and Pi/Bun
+checks are defined as separate manually dispatched conformance jobs because external tool availability
+is environment-dependent.
+
+## Release classification
+
+`0.14.0-alpha.1` is a trusted-repository, interactive alpha. It does not provide an operating-system
+sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.

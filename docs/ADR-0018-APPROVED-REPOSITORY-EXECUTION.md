@@ -1,6 +1,6 @@
 # ADR-0018: Default approved repository execution
 
-Status: accepted
+Status: superseded in part by ADR-0025 and ADR-0026
 
 ## Context
 

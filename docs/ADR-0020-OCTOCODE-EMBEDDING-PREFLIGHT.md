@@ -1,4 +1,4 @@
-# ADR-0012: Verify Octocode embedding prerequisites and searchable blocks
+# ADR-0020: Verify Octocode embedding prerequisites and searchable blocks
 
 - Status: Accepted
 - Date: 2026-07-23
