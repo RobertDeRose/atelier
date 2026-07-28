@@ -57,6 +57,28 @@ for (const name of readdirSync(join(rootPath, "packages/core/src/domain")).filte
   check(!text(join("packages/core/src/domain", name)).includes('../code/'), `${name} recreates the domain/code dependency cycle`);
 }
 
+const decompositionLimits: Record<string, number> = {
+  "apps/cli/src/main.ts": 550,
+  "apps/pi-extension/src/index.ts": 1150,
+  "packages/core/src/code/service.ts": 1400,
+  "packages/core/src/ledger/sqlite-ledger.ts": 1150,
+  "packages/core/src/state/working-state-builder.ts": 650,
+};
+for (const [path, limit] of Object.entries(decompositionLimits)) {
+  const lines = text(path).split("\n").length;
+  check(lines <= limit, `${path} has reconcentrated to ${lines} lines; limit is ${limit}`);
+}
+for (const path of [
+  "apps/cli/src/arguments.ts",
+  "apps/cli/src/command-handlers.ts",
+  "apps/pi-extension/src/tool-authorization.ts",
+  "packages/core/src/code/service-support.ts",
+  "packages/core/src/ledger/schema.ts",
+  "packages/core/src/state/working-state-markdown.ts",
+]) {
+  check(text(path).trim().length > 0, `${path} is missing or empty`);
+}
+
 check(text("docs/REVIEW_CORRECTIONS.md").includes("Recommendation 29"), "review-correction traceability is incomplete");
 
 if (failures.length > 0) {

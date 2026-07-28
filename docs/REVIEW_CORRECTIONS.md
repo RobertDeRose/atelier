@@ -221,14 +221,16 @@ ledger and does not start configured providers.
 
 ## Recommendation 20 — Reduce concentration in central modules
 
-**Status:** Partially structural, with no risky rewrite.
+**Status:** Corrected by cohesive decomposition without rewriting persistence semantics.
 
-Trust, path boundaries, snapshots, revision bindings, source-path rules, execution baselines, and neutral
-code/retrieval identities were extracted into focused modules. Pi state is session-owned. Large existing
-retrieval and ledger modules remain candidates for incremental decomposition; this release avoids
-rewriting their proven persistence semantics.
+The previously concentrated entry points now delegate to focused modules: ledger migrations live in
+`ledger/schema.ts`, Working State Markdown rendering in `state/working-state-markdown.ts`, retrieval
+normalization and budget helpers in `code/service-support.ts`, CLI parsing and command handlers in
+`apps/cli/src/arguments.ts` and `apps/cli/src/command-handlers.ts`, and Pi authorization in
+`apps/pi-extension/src/tool-authorization.ts`. Pi state remains session-owned.
 
-**Implementation:** new modules under `security/`, `repository/`, `domain/`, and `workflow/`.
+**Verification:** `scripts/check-release-metadata.ts` enforces the extracted module boundaries and
+generous line-count ceilings so the orchestration entry points cannot silently reconcentrate.
 
 ## Recommendation 21 — Break the domain/code dependency cycle
 
