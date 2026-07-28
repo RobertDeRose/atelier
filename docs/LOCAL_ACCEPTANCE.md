@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.1
+# Local Acceptance Workflow — 0.14.0-alpha.2
 
 This is the maintainer gate for the trusted plan-to-commit workflow. Deterministic acceptance is
 mandatory. Live external-provider acceptance is separate because it depends on installed tools and an

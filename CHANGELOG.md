@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0-alpha.2 — 2026-07-27
+
+```text
+fix(test): canonicalize plan-review path expectations
+
+- preserve real-path canonicalization for trusted repository and plan paths
+- assert ManualEdit changed paths against Atelier's canonical configured plan path
+- add a repository-alias regression covering macOS /var to /private/var behavior
+- run deterministic CI on Ubuntu 24.04 and macOS 26
+```
+
 ## 0.14.0-alpha.1 — 2026-07-27
 
 ```text

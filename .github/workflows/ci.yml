@@ -10,7 +10,12 @@ permissions:
 
 jobs:
   deterministic:
-    runs-on: ubuntu-24.04
+    name: Deterministic (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

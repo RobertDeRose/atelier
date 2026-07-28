@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.1
+# Build Report — Atelier 0.14.0-alpha.2
 
 ## Result
 
@@ -45,11 +45,13 @@ bash scripts/smoke.sh
 npm pack --dry-run
 ```
 
-CI executes the same deterministic gate on Node 24.18.0. Real Jujutsu, codesearch, Beads, and Pi/Bun
+CI executes the same deterministic gate on Node 24.18.0 on Ubuntu 24.04 and macOS 26. The plan-review
+regression asserts that emitted paths use the canonical configured path, including macOS `/var` aliases.
+Real Jujutsu, codesearch, Beads, and Pi/Bun
 checks are defined as separate manually dispatched conformance jobs because external tool availability
 is environment-dependent.
 
 ## Release classification
 
-`0.14.0-alpha.1` is a trusted-repository, interactive alpha. It does not provide an operating-system
+`0.14.0-alpha.2` is a trusted-repository, interactive alpha. It does not provide an operating-system
 sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.

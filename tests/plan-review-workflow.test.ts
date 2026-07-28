@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
-import { existsSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DisabledCodeProvider } from "../packages/core/src/code/disabled-provider.ts";
@@ -72,7 +81,7 @@ test("a completed review records additions, removals, and field edits", () => {
 
     assert.equal(completed.status, "completed");
     assert.equal(completed.changed, true);
-    assert.deepEqual(completed.changedPaths, [planPath]);
+    assert.deepEqual(completed.changedPaths, [core.config.planPath]);
     assert.deepEqual(completed.structuralDiff?.added, ["ATLR-003"]);
     assert.deepEqual(completed.structuralDiff?.removed, ["ATLR-002"]);
     assert.ok(completed.structuralDiff?.changed.some((change) =>
@@ -83,6 +92,39 @@ test("a completed review records additions, removals, and field edits", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "plan review records canonical configured paths through repository aliases",
+  { skip: process.platform === "win32" },
+  async () => {
+    const root = createTemporaryRepository("atlr-plan-review-canonical-");
+    const aliasParent = mkdtempSync(join(tmpdir(), "atlr-plan-review-alias-"));
+    const aliasRoot = join(aliasParent, "repository");
+    symlinkSync(root, aliasRoot, "dir");
+    const aliasPlanPath = join(aliasRoot, ".atelier", "PLAN.md");
+    writeFileSync(aliasPlanPath, VALID_PLAN, "utf8");
+    const core = openCore(aliasRoot);
+    try {
+      core.beginPlan("Review through a repository alias");
+      const started = core.beginPlanReview({ editor: editor() });
+      writeFileSync(
+        aliasPlanPath,
+        VALID_PLAN.replace("Create the guarded core.", "Create the canonically guarded core."),
+        "utf8",
+      );
+
+      const completed = core.completePlanReview(started.id, { exitCode: 0 });
+
+      assert.equal(core.config.repositoryRoot, realpathSync.native(root));
+      assert.equal(core.config.planPath, realpathSync.native(aliasPlanPath));
+      assert.deepEqual(completed.changedPaths, [core.config.planPath]);
+    } finally {
+      await core.close();
+      rmSync(aliasParent, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("blocking diagnostics complete the evidence but do not advance review", () => {
   const root = createTemporaryRepository("atlr-plan-review-invalid-");
