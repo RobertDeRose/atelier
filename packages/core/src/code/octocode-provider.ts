@@ -41,6 +41,11 @@ interface OctocodeStats {
   raw: string;
 }
 
+interface OctocodeVersionProbe {
+  version?: string;
+  error?: string;
+}
+
 export class OctocodeProvider implements CodeProvider {
   readonly name = "octocode";
   private readonly command: string;
@@ -63,7 +68,8 @@ export class OctocodeProvider implements CodeProvider {
   }
 
   async status(workspace?: CodeWorkspace): Promise<CodeProviderStatus> {
-    const version = this.detectVersion();
+    const versionProbe = this.probeVersion();
+    const version = versionProbe.version;
     if (version === undefined) {
       return {
         identity: this.identity,
@@ -71,7 +77,10 @@ export class OctocodeProvider implements CodeProvider {
         healthy: false,
         capabilities: [],
         indexState: "missing",
-        detail: `Unable to execute ${this.command}. Install Muvon Octocode or configure octocodeCommand.`,
+        detail: [
+          `Unable to execute ${this.command}: ${versionProbe.error ?? "version probe failed"}.`,
+          "Install Muvon Octocode or configure octocodeCommand.",
+        ].join(" "),
       };
     }
     this.identity = { name: "octocode", version, instanceId: "octocode:experimental" };
@@ -110,8 +119,13 @@ export class OctocodeProvider implements CodeProvider {
   }
 
   async ensureIndex(workspace: CodeWorkspace): Promise<CodeIndexState> {
-    const version = this.detectVersion();
-    if (version === undefined) throw new Error(`octocode executable not found: ${this.command}`);
+    const versionProbe = this.probeVersion();
+    const version = versionProbe.version;
+    if (version === undefined) {
+      throw new Error(
+        `octocode version probe failed for ${this.command}: ${versionProbe.error ?? "unknown error"}`,
+      );
+    }
     await this.close();
     for (const repository of workspace.repositories) {
       const before = this.inspectStats(repository.root);
@@ -275,7 +289,7 @@ export class OctocodeProvider implements CodeProvider {
     if (existing) return existing;
     const client = new McpStdioClient(this.command, ["mcp", "--path", root], { cwd: root, timeoutMs: this.timeoutMs, environment: this.environment });
     const initialized = await client.initialize({ clientVersion: ATELIER_VERSION });
-    const version = initialized.serverInfo.version ?? this.detectVersion();
+    const version = initialized.serverInfo.version ?? this.probeVersion().version;
     this.identity = { name: "octocode", instanceId: "octocode:experimental", ...(version ? { version } : {}) };
     const tools = new Map((await client.listTools()).map((tool) => [tool.name, tool]));
     const state = { client, tools };
@@ -331,10 +345,23 @@ export class OctocodeProvider implements CodeProvider {
     });
   }
 
-  private detectVersion(): string | undefined {
-    const result = spawnSync(this.command, ["--version"], { cwd: this.cwd, env: { ...process.env, ...this.environment }, encoding: "utf8", timeout: Math.min(this.timeoutMs, 10_000), shell: false });
-    if (result.error || result.status !== 0) return undefined;
-    return `${result.stdout}${result.stderr}`.trim().match(/\d+\.\d+\.\d+(?:[-+][\w.-]+)?/)?.[0];
+  private probeVersion(): OctocodeVersionProbe {
+    const result = spawnSync(this.command, ["--version"], {
+      cwd: this.cwd,
+      env: { ...process.env, ...this.environment },
+      encoding: "utf8",
+      timeout: Math.min(this.timeoutMs, 10_000),
+      shell: false,
+    });
+    if (result.error) return { error: result.error.message };
+    const output = `${result.stdout}${result.stderr}`.trim();
+    if (result.status !== 0) {
+      return { error: output || `process exited with status ${result.status ?? "unknown"}` };
+    }
+    const version = output.match(/\d+\.\d+\.\d+(?:[-+][\w.-]+)?/)?.[0];
+    return version === undefined
+      ? { error: `version output did not contain a semantic version: ${output || "<empty>"}` }
+      : { version };
   }
 }
 

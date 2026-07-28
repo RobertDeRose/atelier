@@ -94,14 +94,27 @@ export function createTemporaryRepository(prefix = "atlr-test-"): string {
   );
   const git = spawnSync("git", ["init", "--quiet"], { cwd: root, encoding: "utf8", shell: false });
   if (git.status !== 0) throw new Error(git.stderr || "Unable to initialize test Git repository");
-  for (const [key, value] of [["user.name", "Atelier Tests"], ["user.email", "atelier-tests@example.invalid"]] as const) {
-    const configured = spawnSync("git", ["config", key, value], { cwd: root, encoding: "utf8", shell: false });
+  for (const [key, value] of [
+    ["user.name", "Atelier Tests"],
+    ["user.email", "atelier-tests@example.invalid"],
+    ["commit.gpgSign", "false"],
+    ["tag.gpgSign", "false"],
+  ] as const) {
+    const configured = spawnSync("git", ["config", key, value], {
+      cwd: root,
+      encoding: "utf8",
+      shell: false,
+    });
     if (configured.status !== 0) throw new Error(configured.stderr || `Unable to configure test Git ${key}`);
   }
   writeFileSync(join(root, "README.md"), "# Atelier test repository\n", "utf8");
   const committed = spawnSync("git", ["add", "README.md"], { cwd: root, encoding: "utf8", shell: false });
   if (committed.status !== 0) throw new Error(committed.stderr || "Unable to stage test repository baseline");
-  const initial = spawnSync("git", ["commit", "--quiet", "-m", "test: initialize repository"], { cwd: root, encoding: "utf8", shell: false });
+  const initial = spawnSync(
+    "git",
+    ["commit", "--quiet", "--no-gpg-sign", "-m", "test: initialize repository"],
+    { cwd: root, encoding: "utf8", shell: false },
+  );
   if (initial.status !== 0) throw new Error(initial.stderr || "Unable to commit test repository baseline");
   trustProject(root);
   return root;

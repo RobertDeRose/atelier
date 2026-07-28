@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OctocodeProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
 
+const TEST_TOOL_TIMEOUT_MS = 10_000;
+
 function fakeOctocode(root: string): { command: string; log: string } {
   const command = join(root, "octocode");
   const log = join(root, "calls.jsonl");
-  writeFileSync(command, `#!/usr/bin/env node
+  writeFileSync(command, `#!${process.execPath}
 import fs from 'node:fs';
 import path from 'node:path';
 const args = process.argv.slice(2);
@@ -71,7 +73,12 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
   writeFileSync(join(a, "src", "token.ts"), "export const token = true;\n", "utf8");
   writeFileSync(join(b, "src", "auth.ts"), "export function refreshToken() {}\n", "utf8");
   const fake = fakeOctocode(root);
-  const provider = new OctocodeProvider({ command: fake.command, cwd: root, timeoutMs: 2_000, environment: { VOYAGE_API_KEY: "test-key" } });
+  const provider = new OctocodeProvider({
+    command: fake.command,
+    cwd: root,
+    timeoutMs: TEST_TOOL_TIMEOUT_MS,
+    environment: { VOYAGE_API_KEY: "test-key" },
+  });
   const work = workspace([{ id: "a", root: a }, { id: "b", root: b }]);
   try {
     assert.equal(await provider.ensureIndex(work), "ready");
@@ -110,13 +117,43 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
   }
 });
 
+test(
+  "Octocode version probes preserve timeout diagnostics instead of reporting a missing executable",
+  { skip: process.platform === "win32" },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "atlr-octocode-timeout-"));
+    const command = join(root, "octocode-timeout");
+    writeFileSync(command, "#!/bin/sh\nsleep 5\n", "utf8");
+    chmodSync(command, 0o755);
+    const provider = new OctocodeProvider({ command, cwd: root, timeoutMs: 100 });
+    try {
+      await assert.rejects(
+        provider.ensureIndex(workspace([{ id: "repo", root }])),
+        (error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          assert.match(message, /ETIMEDOUT|timed out/i);
+          assert.doesNotMatch(message, /executable not found/i);
+          return true;
+        },
+      );
+    } finally {
+      await provider.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("Octocode rejects cloud embedding configuration without the required API key before indexing", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-octocode-key-"));
   const repo = join(root, "repo");
   mkdirSync(repo, { recursive: true });
   const fake = fakeOctocode(root);
-  const provider = new OctocodeProvider({ command: fake.command, cwd: root, timeoutMs: 2_000, environment: { VOYAGE_API_KEY: "" } });
+  const provider = new OctocodeProvider({
+    command: fake.command,
+    cwd: root,
+    timeoutMs: TEST_TOOL_TIMEOUT_MS,
+    environment: { VOYAGE_API_KEY: "" },
+  });
   try {
     await assert.rejects(
       provider.ensureIndex(workspace([{ id: "repo", root: repo }])),
@@ -137,7 +174,7 @@ test("Octocode retries a zero-block project with the supported bare index comman
   mkdirSync(repo, { recursive: true });
   const command = join(root, "octocode-empty");
   const log = join(root, "calls-empty.jsonl");
-  writeFileSync(command, String.raw`#!/usr/bin/env node
+  writeFileSync(command, String.raw`#!${process.execPath}
 import fs from 'node:fs';
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args }) + '\n');
@@ -147,7 +184,7 @@ if (args[0] === 'index') { fs.writeFileSync(${JSON.stringify(join(root, 'indexed
 if (args[0] === 'mcp') { let b=''; process.stdin.setEncoding('utf8'); process.stdin.on('data', c => { b+=c; while(b.includes('\n')) { const i=b.indexOf('\n'); const l=b.slice(0,i); b=b.slice(i+1); if(!l.trim()) continue; const r=JSON.parse(l); if(!('id' in r)) continue; const result=r.method==='initialize'?{protocolVersion:r.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'octocode',version:'0.14.0'}}:r.method==='tools/list'?{tools:[]}:{}; process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result})+'\n'); }}); }
 `, "utf8");
   chmodSync(command, 0o755);
-  const provider = new OctocodeProvider({ command, cwd: root, timeoutMs: 2_000 });
+  const provider = new OctocodeProvider({ command, cwd: root, timeoutMs: TEST_TOOL_TIMEOUT_MS });
   try {
     assert.equal(await provider.ensureIndex(workspace([{ id: "repo", root: repo }])), "ready");
     const calls = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[] });

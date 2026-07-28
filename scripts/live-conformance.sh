@@ -18,7 +18,7 @@ init_git() {
   git -C "$target_root" config user.email "atelier-conformance@example.invalid"
   printf 'conformance\n' >"$target_root/README.md"
   git -C "$target_root" add README.md
-  git -C "$target_root" commit --quiet -m "chore: initialize conformance repository"
+  git -C "$target_root" commit --quiet --no-gpg-sign -m "chore: initialize conformance repository"
 }
 
 case "$target" in

@@ -1,0 +1,9 @@
+# Intentionally minimal global Git configuration for Atelier's test processes.
+# Repository-local fixture configuration supplies identity where commits are
+# required. User and system Git configuration are excluded by tests/test-environment.ts.
+[core]
+	hooksPath = /dev/null
+[commit]
+	gpgSign = false
+[tag]
+	gpgSign = false

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OctocodeProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
 
+const TEST_TOOL_TIMEOUT_MS = 10_000;
+
 function workspace(root: string): CodeWorkspace {
   return {
     id: "work",
@@ -22,7 +24,7 @@ function workspace(root: string): CodeWorkspace {
 function textOctocode(root: string): { command: string; log: string } {
   const command = join(root, "octocode-text");
   const log = join(root, "calls.jsonl");
-  writeFileSync(command, `#!/usr/bin/env node
+  writeFileSync(command, `#!${process.execPath}
 import fs from 'node:fs';
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, cwd: process.cwd() }) + '\\n');
@@ -50,7 +52,7 @@ test("Octocode adapter normalizes real text MCP search, symbol, and GraphRAG res
   writeFileSync(join(root, "packages/core/src/core.ts"), "export function createCodeProviders() {}\n", "utf8");
   writeFileSync(join(root, "packages/core/src/code/octocode-provider.ts"), "\n".repeat(40) + "export class OctocodeProvider implements CodeProvider {}\n", "utf8");
   const fake = textOctocode(root);
-  const provider = new OctocodeProvider({ command: fake.command, cwd: root, timeoutMs: 2_000 });
+  const provider = new OctocodeProvider({ command: fake.command, cwd: root, timeoutMs: TEST_TOOL_TIMEOUT_MS });
   const work = workspace(root);
   try {
     const search = await provider.search({ workspace: work, text: "Where is code provider selection implemented?", mode: "semantic", focus: "source", limit: 10, includeTests: true, includeGenerated: false });

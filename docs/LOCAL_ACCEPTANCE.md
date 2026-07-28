@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.4
+# Local Acceptance Workflow — 0.14.0-alpha.5
 
 This is the maintainer gate for the trusted plan-to-commit workflow. Deterministic acceptance is
 mandatory. Live external-provider acceptance is separate because it depends on installed tools and an
@@ -28,6 +28,9 @@ The deterministic suite covers:
 - real secondary-repository snapshots and drift invalidation;
 - isolated concurrent Pi sessions and awaited shutdown;
 - stable build/launcher/package metadata;
+- test-environment isolation from workstation Git signing, hooks, credential prompts, and pagers;
+- bounded test-file concurrency and fake-provider startup deadlines under aggregate process contention,
+  with preserved timeout diagnostics;
 - smoke cleanup after success, failure, and cancellation.
 
 The fake-provider fixture is deterministic evidence only. Do not describe it as a live Jujutsu, Beads,

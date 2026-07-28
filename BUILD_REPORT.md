@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.4
+# Build Report — Atelier 0.14.0-alpha.5
 
 ## Result
 
@@ -47,14 +47,17 @@ bash scripts/smoke.sh
 npm pack --dry-run
 ```
 
-The local deterministic suite passes 191 tests. CI executes the same deterministic gate on Node 24.18.0
+The local deterministic suite passes 194 tests. CI executes the same deterministic gate on Node 24.18.0
 on Ubuntu 24.04 and macOS 26. The plan-review and Pi trust regressions assert that emitted paths use
-Atelier's canonical configured or trusted identity, including macOS `/var` aliases. Real Jujutsu,
-codesearch, Beads, and Pi/Bun
-checks are defined as separate manually dispatched conformance jobs because external tool availability
-is environment-dependent.
+Atelier's canonical configured or trusted identity, including macOS `/var` aliases. The test launcher
+also replaces workstation and system Git configuration with an isolated, non-signing configuration;
+fixture commits additionally pass `--no-gpg-sign`. Test-file concurrency is bounded at eight, and fake
+Octocode process deadlines are ten seconds to remain stable under full-suite process contention.
+Timeout failures retain their real diagnostic instead of being reported as a missing executable. Real
+Jujutsu, codesearch, Beads, and Pi/Bun checks are defined as separate manually dispatched conformance
+jobs because external tool availability is environment-dependent.
 
 ## Release classification
 
-`0.14.0-alpha.4` is a trusted-repository, interactive alpha. It does not provide an operating-system
+`0.14.0-alpha.5` is a trusted-repository, interactive alpha. It does not provide an operating-system
 sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.

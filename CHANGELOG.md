@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.0-alpha.5 — 2026-07-28
+
+- isolate the deterministic test process from workstation and system Git configuration so user-level
+  SSH/GPG commit signing, hooks, credential prompts, and pagers cannot alter fixture behavior
+- explicitly disable signing for temporary and live-conformance repository commits
+- add regressions that verify the suite preloader is active and prove temporary repositories succeed
+  even when an injected global Git configuration requires a failing signer
+- bound deterministic test-file concurrency at eight and raise fake Octocode process deadlines from two
+  to ten seconds so aggregate process contention does not turn successful provider fixtures into startup
+  or stats timeouts
+- preserve Octocode version-probe timeout diagnostics instead of misreporting a timed-out executable as
+  missing
+
 ## 0.14.0-alpha.4 — 2026-07-28
 
 - compare `/atelier-trust` notifications with Atelier's canonical trust identity instead of a

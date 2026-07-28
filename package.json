@@ -1,6 +1,6 @@
 {
   "name": "atelier-prototype",
-  "version": "0.14.0-alpha.4",
+  "version": "0.14.0-alpha.5",
   "description": "Atelier, a durable and policy-aware Agentic Development Environment runtime",
   "type": "module",
   "private": true,
@@ -17,8 +17,8 @@
     "typecheck": "tsc --noEmit",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "check:metadata": "node --no-warnings --experimental-strip-types scripts/check-release-metadata.ts",
-    "test": "node --no-warnings --experimental-strip-types --test tests/*.test.ts",
-    "test:coverage": "node --no-warnings --experimental-strip-types --experimental-test-coverage --test tests/*.test.ts",
+    "test": "node --no-warnings --experimental-strip-types --import ./tests/test-environment.ts --test --test-concurrency=8 tests/*.test.ts",
+    "test:coverage": "node --no-warnings --experimental-strip-types --import ./tests/test-environment.ts --experimental-test-coverage --test --test-concurrency=8 tests/*.test.ts",
     "smoke": "bash ./scripts/smoke.sh",
     "check": "npm run check:metadata && npm run typecheck && npm test && npm run smoke",
     "prepack": "npm run build",

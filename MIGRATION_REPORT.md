@@ -1,6 +1,10 @@
-# Migration Report — Atelier 0.14.0-alpha.4
+# Migration Report — Atelier 0.14.0-alpha.5
 
 ## Summary
+
+No runtime data migration is required from 0.14.0-alpha.4. This patch release isolates the
+deterministic test harness from workstation Git configuration, relaxes fake-provider test deadlines,
+and improves Octocode timeout diagnostics.
 
 This release intentionally tightens trust, authorization, runtime-state, validation, and exact-approval
 semantics. SQLite schema migration 7 is automatic. Existing plans, task mappings, provider task state,
