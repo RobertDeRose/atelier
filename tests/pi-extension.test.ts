@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension/src/index.ts";
 import {
@@ -63,7 +64,10 @@ function fakeContext(
   } as unknown as ExtensionCommandContext;
 }
 
-test("Pi reserves /trust while Atelier exposes a working /atelier-trust command", async () => {
+function registerTrustCommandHarness(): {
+  events: Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>;
+  commands: Map<string, RegisteredCommand>;
+} {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const commands = new Map<string, RegisteredCommand>();
   const fakePi = {
@@ -78,10 +82,16 @@ test("Pi reserves /trust while Atelier exposes a working /atelier-trust command"
   } as unknown as ExtensionAPI;
 
   atelierExtension(fakePi);
+  return { events, commands };
+}
+
+test("Pi reserves /trust while Atelier exposes a working /atelier-trust command", async () => {
+  const { events, commands } = registerTrustCommandHarness();
   assert.equal(commands.has("trust"), false, "Pi's built-in /trust command must remain unshadowed");
   assert.ok(commands.has("atelier-trust"));
 
   const root = createTemporaryRepository("atlr-pi-trust-command-");
+  const canonicalRoot = projectTrustStatus(root).root;
   revokeProjectTrust(root);
   const notifications: string[] = [];
   const confirms = { count: 0 };
@@ -94,13 +104,53 @@ test("Pi reserves /trust while Atelier exposes a working /atelier-trust command"
     await commands.get("atelier-trust")!.handler("", context);
     assert.equal(confirms.count, 1);
     assert.equal(projectTrustStatus(root).trusted, true);
-    assert.ok(notifications.some((message) => message === `Trusted ${root}.`));
+    assert.ok(notifications.some((message) => message === `Trusted ${canonicalRoot}.`));
   } finally {
     await events.get("session_shutdown")!({}, context);
     revokeProjectTrust(root);
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "Pi /atelier-trust reports one canonical project identity through repository aliases",
+  { skip: process.platform === "win32" },
+  async () => {
+    const { events, commands } = registerTrustCommandHarness();
+    const root = createTemporaryRepository("atlr-pi-trust-canonical-");
+    const aliasParent = mkdtempSync(join(tmpdir(), "atlr-pi-trust-alias-"));
+    const aliasRoot = join(aliasParent, "repository");
+    symlinkSync(root, aliasRoot, "dir");
+    const canonicalRoot = realpathSync.native(root);
+    revokeProjectTrust(aliasRoot);
+
+    const notifications: string[] = [];
+    const confirms = { count: 0 };
+    const context = fakeContext(aliasRoot, confirms, [], { notifications });
+    try {
+      const untrusted = projectTrustStatus(aliasRoot);
+      assert.equal(untrusted.root, canonicalRoot);
+      assert.equal(untrusted.trusted, false);
+
+      await events.get("session_start")!({}, context);
+      await commands.get("atelier-trust")!.handler("", context);
+
+      const aliasStatus = projectTrustStatus(aliasRoot);
+      const canonicalStatus = projectTrustStatus(root);
+      assert.equal(confirms.count, 1);
+      assert.equal(aliasStatus.trusted, true);
+      assert.equal(canonicalStatus.trusted, true);
+      assert.equal(aliasStatus.root, canonicalRoot);
+      assert.equal(canonicalStatus.root, canonicalRoot);
+      assert.ok(notifications.some((message) => message === `Trusted ${canonicalRoot}.`));
+    } finally {
+      await events.get("session_shutdown")!({}, context);
+      revokeProjectTrust(aliasRoot);
+      rmSync(aliasParent, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("Pi extension keeps provider-first discovery advisory while confining typed reads and prompting for shell", async () => {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();

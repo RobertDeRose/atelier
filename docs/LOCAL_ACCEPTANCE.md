@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.3
+# Local Acceptance Workflow — 0.14.0-alpha.4
 
 This is the maintainer gate for the trusted plan-to-commit workflow. Deterministic acceptance is
 mandatory. Live external-provider acceptance is separate because it depends on installed tools and an
@@ -15,7 +15,7 @@ npm pack --dry-run
 
 The deterministic suite covers:
 
-- external project trust and observational diagnostics;
+- external project trust, canonical repository-alias identity, and observational diagnostics;
 - adversarial shell classification and unconfined authorization;
 - symlink-safe typed path confinement;
 - exact plan/reconciliation/source/retrieval/capability approval;

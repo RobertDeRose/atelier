@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0-alpha.4 — 2026-07-28
+
+- compare `/atelier-trust` notifications with Atelier's canonical trust identity instead of a
+  noncanonical temporary-directory alias
+- add a platform-independent repository-symlink regression so Linux CI exercises the same identity
+  behavior as macOS `/var` to `/private/var` resolution
+- preserve the production trust behavior; this release corrects the alpha.3 test expectation that failed on macOS
+
 ## 0.14.0-alpha.3 — 2026-07-27
 
 - rename Atelier's Pi trust command from `/trust` to `/atelier-trust` so it no longer collides with Pi's built-in project-trust command

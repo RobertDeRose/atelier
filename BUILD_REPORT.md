@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.3
+# Build Report — Atelier 0.14.0-alpha.4
 
 ## Result
 
@@ -31,7 +31,8 @@ The release corrects the stop-ship authorization and trust defects identified at
 - staged and untracked Git evidence;
 - session-owned Pi state and awaited asynchronous shutdown;
 - external runtime state and observational diagnostics;
-- collision-free Pi command registration: Pi retains `/trust`, while Atelier uses `/atelier-trust`.
+- collision-free Pi command registration: Pi retains `/trust`, while Atelier uses `/atelier-trust`;
+- canonical Pi trust identity and notification evidence across repository aliases, including macOS `/var` paths.
 
 The complete traceability matrix is `docs/REVIEW_CORRECTIONS.md`.
 
@@ -46,13 +47,14 @@ bash scripts/smoke.sh
 npm pack --dry-run
 ```
 
-CI executes the same deterministic gate on Node 24.18.0 on Ubuntu 24.04 and macOS 26. The plan-review
-regression asserts that emitted paths use the canonical configured path, including macOS `/var` aliases.
-Real Jujutsu, codesearch, Beads, and Pi/Bun
+The local deterministic suite passes 191 tests. CI executes the same deterministic gate on Node 24.18.0
+on Ubuntu 24.04 and macOS 26. The plan-review and Pi trust regressions assert that emitted paths use
+Atelier's canonical configured or trusted identity, including macOS `/var` aliases. Real Jujutsu,
+codesearch, Beads, and Pi/Bun
 checks are defined as separate manually dispatched conformance jobs because external tool availability
 is environment-dependent.
 
 ## Release classification
 
-`0.14.0-alpha.3` is a trusted-repository, interactive alpha. It does not provide an operating-system
+`0.14.0-alpha.4` is a trusted-repository, interactive alpha. It does not provide an operating-system
 sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.

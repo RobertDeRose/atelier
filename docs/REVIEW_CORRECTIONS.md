@@ -1,7 +1,7 @@
-# Review Corrections — Atelier 0.14.0-alpha.3
+# Review Corrections — Atelier 0.14.0-alpha.4
 
 This document maps each recommendation from the critical review of commit `286e2bc14edb` to the
-0.14.0-alpha.3 implementation. The release remains a trusted-repository alpha. “Corrected” means the
+0.14.0-alpha.4 implementation. The release remains a trusted-repository alpha. “Corrected” means the
 specific unsound claim or behavior was removed, constrained, or made fail-closed; it does not mean that
 Atelier now supplies an operating-system sandbox.
 
@@ -284,7 +284,7 @@ duplicate identifiers or mismatched headings.
 
 `ATELIER_VERSION` is the runtime source used by CLI and provider clients; package, lockfile, changelog,
 README, and build metadata are checked against it. The bundle contains an annotated
-`v0.14.0-alpha.3` tag.
+`v0.14.0-alpha.4` tag.
 
 **Implementation:** `packages/core/src/version.ts`, `scripts/check-release-metadata.ts`.
 
