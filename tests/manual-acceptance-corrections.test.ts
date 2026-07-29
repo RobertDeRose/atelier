@@ -513,11 +513,62 @@ test("task closure finalizes workflow metadata and leaves the complete Git repos
     assert.ok(before.repositoryMetadataPaths?.includes(".atelier/PLAN.md"));
     assert.ok(before.repositoryMetadataPaths?.includes(".beads/interactions.jsonl"));
 
-    const closed = await core.closeActiveTask("complete repository finalization");
+    const closeRequest = request(core, {
+      action: "task.close",
+      boundary: "typed",
+      rationale: "complete repository finalization",
+    });
+    const closeAuthorization = allow(core, closeRequest);
+    core.beginExecutionEvidence({
+      toolCallId: "close-finalization",
+      toolName: "atlr_task_close",
+      request: closeRequest,
+      ...closeAuthorization,
+    });
+
+    const closed = await core.closeActiveTask("complete repository finalization", "agent");
+    const closeEvidence = core.completeExecutionEvidence("close-finalization", { status: "succeeded" });
     assert.equal(closed.task.status, "closed");
     assert.deepEqual(core.repository.rawChangedPaths(), []);
     assert.equal(core.taskClosureReadiness().ready, true);
     assert.match(core.taskClosureReadiness().reason, /complete.*revoked/i);
+
+    const closedEvent = core.ledger.listEvents({ kind: "task.closed", taskId: closed.task.id, limit: 1 })[0];
+    assert.ok(closedEvent);
+    const payload = closedEvent.payload as {
+      completion: { ready: boolean; stale: string[] };
+      finalization: {
+        repositoryClean: boolean;
+        providerMutationPaths: string[];
+        workflowFinalizationPaths: string[];
+        sourceFingerprintBefore: string;
+        sourceFingerprintAfter: string;
+      };
+    };
+    assert.equal(payload.completion.ready, true, "task.closed must preserve the pre-finalization closure decision");
+    assert.deepEqual(payload.completion.stale, []);
+    assert.equal(payload.finalization.repositoryClean, true);
+    assert.equal(payload.finalization.sourceFingerprintAfter, payload.finalization.sourceFingerprintBefore);
+    assert.ok(payload.finalization.workflowFinalizationPaths.includes(".atelier/PLAN.md"));
+    assert.ok(payload.finalization.workflowFinalizationPaths.includes(".beads/interactions.jsonl"));
+
+    assert.ok(closeEvidence);
+    assert.ok(closeEvidence.changedPaths.includes(".atelier/PLAN.md"));
+    assert.ok(closeEvidence.changedPaths.includes(".beads/interactions.jsonl"));
+    assert.ok(closeEvidence.workflowFinalizationPaths?.includes(".beads/interactions.jsonl"));
+
+    const validationAfterClosure = core.validation.list({
+      name: "manual-acceptance",
+      taskId: closed.task.id,
+      currentSnapshot: core.repository.snapshot(),
+      limit: 1,
+    })[0];
+    assert.equal(validationAfterClosure?.stale, false, validationAfterClosure?.staleReason);
+
+    const state = await core.buildWorkingState();
+    assert.equal(state.taskClosure.ready, true);
+    assert.equal(state.staleValidationEvidence.length, 0);
+    assert.ok(state.currentValidationEvidence.some((item) => item.name === "manual-acceptance"));
 
     const metadataCommit = execFileSync("git", ["-C", root, "show", "--pretty=format:", "--name-only", "HEAD"], { encoding: "utf8" })
       .split("\n").map((value) => value.trim()).filter(Boolean).sort();

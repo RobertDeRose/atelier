@@ -116,9 +116,9 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     // Raw VCS identity records workflow/provider metadata and operation-log
     // churn for diagnostics. Source identity deliberately excludes it.
     const rawChanged = this.observeRawChangedPaths();
-    const sourceChanged = rawChanged.filter(isSourcePath);
+    const sourceFiles = this.listFiles();
     const sourceFingerprint = sha256(
-      `${sourceBaseCommit}\0${sourceChanged.join("\0")}\0${contentState(root, sourceChanged, true)}`,
+      `${sourceFiles.join("\0")}\0${contentState(root, sourceFiles, true)}`,
     );
     const rawFingerprint = sha256(
       `${commitId}\0${changeId}\0${operationId}\0${rawChanged.join("\0")}\0${sourceFingerprint}\0${contentState(root, rawChanged, false)}`,

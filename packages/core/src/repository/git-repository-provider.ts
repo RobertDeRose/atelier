@@ -99,11 +99,10 @@ export class GitRepositoryProvider implements RepositoryProvider {
     const status = requiredGit(root, ["status", "--porcelain=v1", "--untracked-files=all"], "working-copy observation");
     const rawStatusLines = status.stdout.split("\n").filter(Boolean);
     const rawChanged = parseStatusPaths(`${rawStatusLines.join("\n")}\n`);
-    const sourceStatusLines = rawStatusLines.filter((line) => isSourcePath(parseStatusPaths(`${line}\n`)[0] ?? ""));
-    const sourceChanged = parseStatusPaths(`${sourceStatusLines.join("\n")}\n`);
     const sourceBaseCommit = head.status === 0 ? head.stdout.trim() : "unborn";
+    const sourceFiles = this.listFiles();
     const sourceFingerprint = sha256(
-      `${sourceBaseCommit}\0${sourceStatusLines.join("\n")}\0${contentState(root, sourceChanged, true)}`,
+      `${sourceFiles.join("\0")}\0${contentState(root, sourceFiles, true)}`,
     );
     const rawFingerprint = sha256(
       `${sourceBaseCommit}\0${rawStatusLines.join("\n")}\0${sourceFingerprint}\0${contentState(root, rawChanged, false)}`,

@@ -494,6 +494,10 @@ export interface ExecutionEvidence {
   furtherModifiedPaths: string[];
   removedPaths: string[];
   unchangedExistingDirtyPaths: string[];
+  /** Provider-owned metadata paths mutated transiently during task closure. */
+  providerMutationPaths?: string[];
+  /** Workflow metadata paths finalized after provider closure. */
+  workflowFinalizationPaths?: string[];
   pathFingerprintsBefore: Record<string, string>;
   pathFingerprintsAfter?: Record<string, string>;
   observedMutation: boolean;

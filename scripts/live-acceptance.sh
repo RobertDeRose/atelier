@@ -812,6 +812,8 @@ continue_headless_after_shell() {
     const paths = [...event.payload.changedPaths].sort();
     assert(JSON.stringify(paths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]), `scoped commit included unexpected paths: ${paths}`);
   '
+  "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-current-after-commit.json"
+  verify_current_validation "$EVIDENCE_DIR/evidence-current-after-commit.json"
 
   log "exact diff review and typed task closure"
   "${ATLR_BIN[@]}" repo review-diff --json >"$EVIDENCE_DIR/final-diff-review.json"

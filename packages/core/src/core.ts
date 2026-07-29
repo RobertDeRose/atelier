@@ -33,6 +33,7 @@ import { ExecutionWorkflowCoordinator } from "./workflow/execution-workflow-coor
 import { capabilitiesForPlanTask, sourceBaselineMismatch } from "./workflow/execution-baseline.ts";
 import { createRepositoryProvider } from "./repository/repository-factory.ts";
 import type { RepositoryCommitResult, RepositoryProvider } from "./repository/repository-provider.ts";
+import { sourceSnapshotFingerprint } from "./repository/snapshot.ts";
 import { ValidationService } from "./validation/validation-service.ts";
 import type { CodeProvider } from "./code/provider.ts";
 import { DisabledCodeProvider } from "./code/disabled-provider.ts";
@@ -489,7 +490,23 @@ export class AtelierCore {
     const unchangedExistingDirtyPaths = candidates.filter((path) => beforeChanged.has(path)
       && afterChanged.has(path)
       && current.pathFingerprintsBefore?.[path] === afterFingerprints[path]);
-    const changedPaths = [...new Set([...newlyChangedPaths, ...furtherModifiedPaths, ...removedPaths])].sort();
+    const closureEvent = current.action === "task.close"
+      ? this.ledger.listEvents({ kind: "task.closed", taskId: current.taskId, limit: 1 })[0]
+      : undefined;
+    const closureFinalization = closureEvent?.payload !== undefined && typeof closureEvent.payload === "object"
+      ? (closureEvent.payload as {
+          finalization?: { providerMutationPaths?: string[]; workflowFinalizationPaths?: string[] };
+        }).finalization
+      : undefined;
+    const providerMutationPaths = [...new Set(closureFinalization?.providerMutationPaths ?? [])].sort();
+    const workflowFinalizationPaths = [...new Set(closureFinalization?.workflowFinalizationPaths ?? [])].sort();
+    const changedPaths = [...new Set([
+      ...newlyChangedPaths,
+      ...furtherModifiedPaths,
+      ...removedPaths,
+      ...providerMutationPaths,
+      ...workflowFinalizationPaths,
+    ])].sort();
     const observedMutation = changedPaths.length > 0;
     const evidence: ExecutionEvidence = {
       ...current,
@@ -500,6 +517,8 @@ export class AtelierCore {
       furtherModifiedPaths,
       removedPaths,
       unchangedExistingDirtyPaths,
+      ...(providerMutationPaths.length === 0 ? {} : { providerMutationPaths }),
+      ...(workflowFinalizationPaths.length === 0 ? {} : { workflowFinalizationPaths }),
       pathFingerprintsAfter: afterFingerprints,
       observedMutation,
       ...(input.error === undefined ? {} : { error: input.error.slice(0, 4_096) }),
@@ -521,6 +540,8 @@ export class AtelierCore {
         furtherModifiedPaths,
         removedPaths,
         unchangedExistingDirtyPaths,
+        ...(providerMutationPaths.length === 0 ? {} : { providerMutationPaths }),
+        ...(workflowFinalizationPaths.length === 0 ? {} : { workflowFinalizationPaths }),
         ...(evidence.error === undefined ? {} : { error: evidence.error }),
       },
     });
@@ -844,7 +865,23 @@ export class AtelierCore {
       rationale: reason,
     });
     if (decision.result !== "allow") throw new Error(decision.reason);
+
+    // Preserve the exact evidence snapshot that authorized closure. Repository
+    // and provider finalization may legitimately change raw VCS state after this
+    // point, but must never rewrite the decision that allowed the task to close.
+    const closureDecision = this.taskClosureReadiness();
+    if (!closureDecision.ready) throw new Error(closureDecision.reason);
+
+    const beforeProviderPaths = this.repository.rawChangedPaths();
+    const beforeProviderFingerprints = pathFingerprintMap(this.config.repositoryRoot, beforeProviderPaths);
     const task = await this.taskProvider.close(executionGrant.taskId, reason);
+    const afterProviderPaths = this.repository.rawChangedPaths();
+    const providerCandidates = [...new Set([...beforeProviderPaths, ...afterProviderPaths])].sort();
+    const afterProviderFingerprints = pathFingerprintMap(this.config.repositoryRoot, providerCandidates);
+    const providerMutationPaths = providerCandidates.filter((path) =>
+      beforeProviderFingerprints[path] !== afterProviderFingerprints[path]
+      || beforeProviderPaths.includes(path) !== afterProviderPaths.includes(path));
+
     const policy = this.validation.closurePolicy();
     let metadataChange: RepositoryCommitResult | undefined;
     if (policy.requireCleanRepository) {
@@ -858,6 +895,7 @@ export class AtelierCore {
       }
     }
     const closedSnapshot = this.repository.snapshot();
+    const workflowFinalizationPaths = metadataChange?.changedPaths ?? [];
     this.ledger.append({
       kind: "task.closed",
       actor,
@@ -865,7 +903,14 @@ export class AtelierCore {
       repositorySnapshot: closedSnapshot,
       payload: {
         reason,
-        completion: this.taskClosureReadiness(),
+        completion: closureDecision,
+        finalization: {
+          providerMutationPaths,
+          workflowFinalizationPaths,
+          repositoryClean: this.repository.rawChangedPaths().length === 0,
+          sourceFingerprintBefore: sourceSnapshotFingerprint(snapshot),
+          sourceFingerprintAfter: sourceSnapshotFingerprint(closedSnapshot),
+        },
         ...(metadataChange === undefined ? {} : {
           metadataChange: {
             message: metadataChange.message,
