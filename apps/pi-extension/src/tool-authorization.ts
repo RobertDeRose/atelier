@@ -1,8 +1,9 @@
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   AtelierCore,
   classifyShellCommand,
+  isDependencyPath,
   type ActionRequest,
   type PolicyDecision,
 } from "../../../packages/core/src/index.ts";
@@ -31,6 +32,7 @@ export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierC
     "atlr_code_status",
     "atlr_code_search",
     "atlr_code_symbols",
+    "atlr_state",
   ].includes(event.toolName)) {
     return {
       ...base,
@@ -43,17 +45,72 @@ export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierC
     };
   }
 
+  if (event.toolName === "atlr_validate") {
+    const requested = event.input?.action;
+    if (requested === "plan") {
+      return {
+        ...base,
+        action: "read.repository",
+        paths: core.codeWorkspace().roots,
+        boundary: "typed",
+        rationale: "Atelier validation planning selects checks without executing repository code.",
+      };
+    }
+    const configuredName = typeof event.input?.name === "string" ? event.input.name : undefined;
+    const category = configuredName === undefined
+      ? "focused"
+      : core.validation.manifest().validations[configuredName]?.category === "full" ? "full" : "focused";
+    const validationNames = configuredName === undefined
+      ? core.approvedValidationNames(category)
+      : [configuredName];
+    return {
+      ...base,
+      action: category === "full" ? "validation.full_suite" : "validation.focused",
+      risk: "routine",
+      ...(configuredName === undefined ? {} : { validationName: configuredName }),
+      validationNames,
+      boundary: "typed",
+      rationale: "Atelier typed validation executes only validations named by the reviewed task contract.",
+    };
+  }
+
+
+  if (event.toolName === "atlr_commit") {
+    return {
+      ...base,
+      action: "repository.change.create",
+      risk: "routine",
+      paths: core.approvedTaskPaths(),
+      boundary: "typed",
+      rationale: "Atelier typed local-change creation is confined to the reviewed task paths.",
+    };
+  }
+
+  if (event.toolName === "atlr_task_close") {
+    return {
+      ...base,
+      action: "task.close",
+      risk: "routine",
+      boundary: "typed",
+      rationale: "Atelier typed task closure is guarded by the authoritative completion predicate.",
+    };
+  }
+
   if (event.toolName === "write" || event.toolName === "edit") {
     const path = typeof event.input?.path === "string"
       ? resolve(ctx.cwd, event.input.path)
       : undefined;
+    const dependency = path !== undefined
+      && isDependencyPath(relative(core.config.repositoryRoot, path));
     return {
       ...base,
-      action: "write.file",
+      action: dependency ? "dependency.modify" : "write.file",
       risk: "routine",
       ...(path === undefined ? {} : { paths: [path] }),
       boundary: "typed",
-      rationale: `Pi ${event.toolName} tool modifies a file through a typed path.`,
+      rationale: dependency
+        ? `Pi ${event.toolName} tool modifies a dependency manifest through a typed path.`
+        : `Pi ${event.toolName} tool modifies a file through a typed path.`,
     };
   }
 
@@ -156,6 +213,9 @@ export async function authorizeTool(
     actor: "user",
     ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
     ...(request.paths === undefined ? {} : { paths: request.paths }),
+    ...(request.validationNames !== undefined
+      ? { validationNames: [...request.validationNames] }
+      : request.validationName === undefined ? {} : { validationNames: [request.validationName] }),
     reason: `Approved once for ${request.action}`,
   });
   const allowed = core.evaluate(request);

@@ -17,6 +17,7 @@ test("parses stable task metadata and dependencies", () => {
   assert.equal(plan.tasks[0]?.priority, 1);
   assert.equal(plan.tasks[1]?.type, "feature");
   assert.deepEqual(plan.tasks[1]?.dependencies, ["ATLR-001"]);
+  assert.deepEqual(plan.tasks[0]?.execution?.writePaths, ["packages/core", "src", "src.ts"]);
   assert.deepEqual(plan.tasks[1]?.completionCriteria, ["Ready task selection is deterministic"]);
 });
 

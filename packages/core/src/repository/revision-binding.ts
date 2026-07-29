@@ -8,6 +8,8 @@ export interface RepositoryRevisionBinding {
   workspaceId: string;
   vcs: "jj" | "git" | "none";
   headCommit: string;
+  sourceBaseCommit: string;
+  sourceFingerprint: string;
   changeId?: string;
   operationId?: string;
   dirtyGeneration: number;
@@ -44,6 +46,8 @@ export function repositoryRevisionBinding(repositoryId: string, snapshot: Reposi
     workspaceId: snapshot.workspaceId,
     vcs: snapshot.vcs,
     headCommit: snapshot.headCommit,
+    sourceBaseCommit: snapshot.sourceBaseCommit ?? snapshot.headCommit,
+    sourceFingerprint: snapshot.sourceFingerprint ?? snapshot.dirtyFingerprint,
     ...(snapshot.changeId === undefined ? {} : { changeId: snapshot.changeId }),
     ...(snapshot.operationId === undefined ? {} : { operationId: snapshot.operationId }),
     dirtyGeneration: snapshot.dirtyGeneration,
@@ -53,7 +57,15 @@ export function repositoryRevisionBinding(repositoryId: string, snapshot: Reposi
 }
 
 export function repositoryBindingDigest(bindings: RepositoryRevisionBinding[]): string {
-  return sha256(JSON.stringify(canonical(bindings)));
+  return sha256(JSON.stringify(canonical(bindings.map((binding) => ({
+    repositoryId: binding.repositoryId,
+    snapshotRepositoryId: binding.snapshotRepositoryId,
+    workspaceId: binding.workspaceId,
+    vcs: binding.vcs,
+    sourceBaseCommit: binding.sourceBaseCommit,
+    sourceFingerprint: binding.sourceFingerprint,
+    indexSchemaVersion: binding.indexSchemaVersion,
+  })))));
 }
 
 export function sameRepositoryBindings(left: RepositoryRevisionBinding[], right: RepositoryRevisionBinding[]): boolean {

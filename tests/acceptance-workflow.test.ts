@@ -16,7 +16,7 @@ const OLD_PLAN = `# Acceptance Plan
 <!-- atlr:plan version="1" -->
 
 ## ATLR-A — Existing implementation
-<!-- atlr:task {"id":"ATLR-A","priority":2,"type":"task"} -->
+<!-- atlr:task {"id":"ATLR-A","priority":2,"type":"task","execution":{"writePaths":["README.md"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
@@ -35,7 +35,7 @@ Keep the existing implementation.
 - Existing behavior remains
 
 ## ATLR-B — First executable task
-<!-- atlr:task {"id":"ATLR-B","priority":1,"type":"task"} -->
+<!-- atlr:task {"id":"ATLR-B","priority":1,"type":"task","execution":{"writePaths":["src"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
@@ -54,7 +54,7 @@ Implement the accepted source change.
 - Focused validation passes
 
 ## ATLR-C — Retired task
-<!-- atlr:task {"id":"ATLR-C","priority":3,"type":"task"} -->
+<!-- atlr:task {"id":"ATLR-C","priority":3,"type":"task","execution":{"writePaths":["README.md"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
@@ -78,7 +78,7 @@ const REVIEWED_PLAN = `# Acceptance Plan
 <!-- atlr:plan version="1" -->
 
 ## ATLR-A — Updated implementation
-<!-- atlr:task {"id":"ATLR-A","priority":2,"type":"task"} -->
+<!-- atlr:task {"id":"ATLR-A","priority":2,"type":"task","execution":{"writePaths":["README.md"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
@@ -97,7 +97,7 @@ Update the existing implementation after its new prerequisite.
 - Existing behavior remains
 
 ## ATLR-B — First executable task
-<!-- atlr:task {"id":"ATLR-B","priority":1,"type":"task"} -->
+<!-- atlr:task {"id":"ATLR-B","priority":1,"type":"task","execution":{"writePaths":["src"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
@@ -116,7 +116,7 @@ Implement the accepted source change.
 - Focused validation passes
 
 ## ATLR-D — New prerequisite
-<!-- atlr:task {"id":"ATLR-D","priority":3,"type":"task"} -->
+<!-- atlr:task {"id":"ATLR-D","priority":3,"type":"task","execution":{"writePaths":["README.md"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
@@ -232,6 +232,7 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
   const notifications: string[] = [];
   const sentMessages: string[] = [];
   const confirmations = [false, true];
+  const confirmationBodies: string[] = [];
   let confirmationCount = 0;
   let stopped = 0;
   let started = 0;
@@ -252,8 +253,9 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     isProjectTrusted: () => true,
     waitForIdle: async () => {},
     ui: {
-      confirm: async () => {
+      confirm: async (_title: string, body: string) => {
         confirmationCount += 1;
+        confirmationBodies.push(body);
         return confirmations.shift() ?? true;
       },
       select: async () => undefined,
@@ -301,6 +303,13 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     ledger.close();
 
     await commands.get("approve")!.handler("", context);
+    const approvalBody = confirmationBodies.at(-1) ?? "";
+    assert.match(approvalBody, /Capabilities for ATLR-B:/);
+    assert.match(approvalBody, /Writes: src/);
+    assert.match(approvalBody, /Dependencies: not permitted/);
+    assert.match(approvalBody, /Focused validations: focused/);
+    assert.match(approvalBody, /Full suite: not permitted/);
+    assert.match(approvalBody, /Generic shell, publication, external effects, and out-of-scope paths: not permitted/);
     const operations = mutationLog(fake.logPath);
     assert.equal(operations.filter((args) => args[0] === "create").length, 1);
     assert.ok(operations.some((args) => args[0] === "update" && !args.includes("--claim")));
@@ -316,7 +325,7 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     assert.ok(grant);
     assert.equal(ledger.getState("workflowMode"), "act");
     const capabilities = ledger.listGrants();
-    assert.ok(capabilities.length >= 7, "exact approval must create the reviewed task capability bundle");
+    assert.equal(capabilities.length, 4, "exact approval must install only the active task capability bundle");
     assert.ok(capabilities.every((item) => item.scope === "task" && item.executionGrantId === grant.id));
     assert.equal(ledger.getTaskMapping("ATLR-D")?.providerTaskId === undefined, false);
     ledger.close();

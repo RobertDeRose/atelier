@@ -6,7 +6,7 @@ export const DEFAULT_PLAN_TEMPLATE = `# Implementation Plan
 <!-- atlr:plan version="1" -->
 
 ## ATLR-001 — First implementation task
-<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task"} -->
+<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["src/example.ts","tests/example.test.ts"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
@@ -14,7 +14,7 @@ Describe the outcome this task must produce.
 
 ### Scope
 
-- List the files, components, or behavior included in this task.
+- Name every writable repository-relative source path from execution.writePaths and describe the behavior included in this task.
 
 ### Out of scope
 
@@ -26,7 +26,7 @@ Describe the outcome this task must produce.
 
 ### Validation
 
-- Describe the focused checks required for this task.
+- Name the configured validations listed in execution.validations and describe any manual checks.
 
 ### Completion criteria
 

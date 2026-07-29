@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { sourceRevisionIdentity, sourceSnapshotBase } from "../repository/snapshot.ts";
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus, type ResolvedCodeSearchFocus } from "./focus.ts";
@@ -152,13 +153,7 @@ export class OctocodeProvider implements CodeProvider {
     }
     this.indexedRevisions = Object.fromEntries(workspace.repositories.map((repository) => [
       repository.id,
-      [
-        repository.snapshot.vcs,
-        repository.snapshot.headCommit,
-        repository.snapshot.changeId ?? "",
-        repository.snapshot.operationId ?? "",
-        repository.snapshot.dirtyFingerprint,
-      ].join(":"),
+      sourceRevisionIdentity(repository.snapshot),
     ]));
     this.lastIndexedAt = new Date().toISOString();
     return "ready";
@@ -486,12 +481,14 @@ function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, reposi
     if (seen.has(key)) continue;
     seen.add(key);
     const opaqueId = encodeReference({ repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }), ...(content ? { content } : {}) });
+    const repository = query.workspace.repositories.find((repo) => repo.id === repositoryId);
+    const sourceRevision = repository === undefined ? undefined : sourceSnapshotBase(repository.snapshot);
     hits.push({
       rank: hits.length + 1,
       providerRank: hits.length + 1,
       repositoryId,
       repositoryName,
-      ...(query.workspace.repositories.find((repo) => repo.id === repositoryId)?.snapshot.headCommit ? { revision: query.workspace.repositories.find((repo) => repo.id === repositoryId)!.snapshot.headCommit } : {}),
+      ...(sourceRevision === undefined ? {} : { revision: sourceRevision }),
       path,
       ...(startLine === undefined ? {} : { startLine }),
       ...(endLine === undefined ? {} : { endLine }),
@@ -500,7 +497,7 @@ function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, reposi
       ...(numberValue(item, ["score", "similarity", "relevance"]) === undefined ? {} : { providerScore: numberValue(item, ["score", "similarity", "relevance"])! }),
       ...(content ? { preview: content } : {}),
       reference: { provider: "octocode", opaqueId, repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }) },
-      provenance: provenance(identity, repositoryId, query.text, query.mode, query.workspace.repositories.find((repo) => repo.id === repositoryId)?.snapshot.headCommit),
+      provenance: provenance(identity, repositoryId, query.text, query.mode, sourceRevision),
     });
   }
   return hits;

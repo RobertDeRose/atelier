@@ -131,7 +131,10 @@ test("repeated Working State builds reuse one provider request at the same revis
 
     assert.equal(provider.searchCalls, 1);
     assert.equal(core.code.retrievalStatus().telemetry.cacheHits, 0);
-    assert.ok(repeated.retrievalExplanation.some((item) => item.includes("no_provider_call")), "unneeded exact phases must be denied without provider dispatch");
+    assert.ok(
+      repeated.retrievalExplanation.some((item) => /resolves every exact identifier|no symbol lookup/i.test(item)),
+      "resolved exact identifiers must not trigger another provider request",
+    );
   } finally {
     core.close();
     rmSync(root, { recursive: true, force: true });
@@ -167,6 +170,143 @@ test("planning mode retrieves code from the durable objective before a task exis
     assert.equal(state.codeEvidence[0]?.path, "packages/core/src/state/working-state-builder.ts");
   } finally {
     core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit symbol lookup normalizes provider signatures, ranks definitions first, and converges inventory", async () => {
+  const root = createTemporaryRepository("atlr-symbol-normalization-");
+  const provider = new MockCodeProvider([
+    {
+      repositoryId: "repo",
+      repositoryName: "repo",
+      root,
+      path: "tests/helper.ts",
+      symbol: "function openCore(root: string): AtelierCore",
+      content: "function openCore(root: string): AtelierCore { throw new Error(root); }",
+    },
+    {
+      repositoryId: "repo",
+      repositoryName: "repo",
+      root,
+      path: "packages/core/src/core.ts",
+      symbol: "class AtelierCore",
+      content: "export class AtelierCore {}",
+    },
+    {
+      repositoryId: "repo",
+      repositoryName: "repo",
+      root,
+      path: "tests/chunk.ts",
+      symbol: "block (12 lines)",
+      content: "const typeName = 'AtelierCore';",
+    },
+  ]);
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: provider });
+  try {
+    const workspace = core.codeWorkspace();
+    await core.code.ensureIndex(workspace);
+
+    const explicit = await core.code.symbols({
+      workspace,
+      text: "AtelierCore",
+      limit: 10,
+      requireUnresolved: false,
+    });
+    assert.equal(explicit[0]?.symbol, "class AtelierCore", "the exact declaration must rank before references");
+    assert.equal(explicit[0]?.path, "packages/core/src/core.ts");
+
+    const status = core.code.retrievalStatus();
+    assert.ok(status.inventory.resolvedSymbols.includes("AtelierCore"));
+    assert.ok(status.inventory.resolvedSymbols.includes("openCore"));
+    assert.equal(status.inventory.resolvedSymbols.some((symbol) => /block|lines|class\s/.test(symbol)), false);
+    assert.equal(status.inventory.unresolvedSymbols.includes("AtelierCore"), false);
+    assert.equal(status.unresolvedSymbolScopes.some((item) => item.symbol === "AtelierCore"), false);
+
+    const repeated = await core.code.symbols({
+      workspace,
+      text: "AtelierCore",
+      limit: 10,
+      requireUnresolved: false,
+    });
+    assert.equal(repeated[0]?.symbol, "class AtelierCore");
+    assert.equal(core.code.retrievalStatus().lastDecision?.kind, "exact_reuse");
+    assert.equal(core.code.retrievalStatus().inventory.unresolvedSymbols.includes("AtelierCore"), false);
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("symbol resolution remains repository-scope qualified", async () => {
+  const root = createTemporaryRepository("atlr-symbol-scope-");
+  const provider = new MockCodeProvider([
+    {
+      repositoryId: "a",
+      repositoryName: "a",
+      root,
+      path: "src/core.ts",
+      symbol: "class AtelierCore",
+      content: "export class AtelierCore {}",
+    },
+    {
+      repositoryId: "b",
+      repositoryName: "b",
+      root,
+      path: "src/reference.ts",
+      content: "export const typeName = 'AtelierCore';",
+    },
+  ]);
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: provider });
+  try {
+    const snapshot = core.repository.snapshot();
+    const workspace = {
+      id: "symbol-scope-workspace",
+      name: "symbol-scope-workspace",
+      roots: [root],
+      repositories: [
+        { id: "a", name: "a", root, snapshot },
+        { id: "b", name: "b", root, snapshot },
+      ],
+    };
+    await core.code.ensureIndex(workspace);
+    await core.code.search({ workspace, text: "AtelierCore", repositoryIds: ["b"], literalHints: ["AtelierCore"] });
+    await core.code.symbols({ workspace, text: "AtelierCore", repositoryIds: ["a"], requireUnresolved: false });
+
+    const status = core.code.retrievalStatus();
+    assert.ok(status.inventory.resolvedSymbols.includes("AtelierCore"));
+    assert.ok(status.inventory.unresolvedSymbols.includes("AtelierCore"));
+    assert.deepEqual(
+      status.unresolvedSymbolScopes.filter((item) => item.symbol === "AtelierCore").map((item) => item.repositoryIds),
+      [["b"]],
+    );
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("symbol candidate extraction rejects plan expressions and generic product vocabulary", async () => {
+  const root = createTemporaryRepository("atlr-symbol-candidates-");
+  const provider = new MockCodeProvider([{
+    repositoryId: "repo",
+    repositoryName: "repo",
+    root,
+    path: "src/version.ts",
+    content: "export const placeholder = 'ATELIER_PRODUCT_NAME Atelier CLI ATLR';",
+  }]);
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: provider });
+  try {
+    const workspace = core.codeWorkspace();
+    await core.code.ensureIndex(workspace);
+    await core.code.search({
+      workspace,
+      text: 'Add `ATELIER_PRODUCT_NAME = "Atelier"` through CLI ATLR',
+      literalHints: ['ATELIER_PRODUCT_NAME = "Atelier"', "manual-acceptance"],
+    });
+    assert.deepEqual(core.code.retrievalStatus().inventory.unresolvedSymbols, ["ATELIER_PRODUCT_NAME"]);
+  } finally {
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

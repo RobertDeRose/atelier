@@ -72,14 +72,23 @@ for (const path of [
   "apps/cli/src/arguments.ts",
   "apps/cli/src/command-handlers.ts",
   "apps/pi-extension/src/tool-authorization.ts",
+  "apps/pi-extension/src/tool-activation.ts",
+  "apps/pi-extension/src/turn-tool-policy.ts",
+  "apps/pi-extension/src/code-tool-presentation.ts",
+  "apps/pi-extension/src/execution-outcome.ts",
+  "apps/pi-extension/src/validation-tool.ts",
+  "apps/pi-extension/src/workflow-tools.ts",
   "packages/core/src/code/service-support.ts",
+  "packages/core/src/code/service-types.ts",
   "packages/core/src/ledger/schema.ts",
+  "packages/core/src/ledger/ledger-records.ts",
   "packages/core/src/state/working-state-markdown.ts",
 ]) {
   check(text(path).trim().length > 0, `${path} is missing or empty`);
 }
 
 check(text("docs/REVIEW_CORRECTIONS.md").includes("Recommendation 29"), "review-correction traceability is incomplete");
+check(text("docs/MANUAL_ACCEPTANCE_CORRECTIONS.md").includes("Confirmed product defects"), "manual-acceptance correction traceability is incomplete");
 
 if (failures.length > 0) {
   for (const failure of failures) process.stderr.write(`release metadata: ${failure}\n`);

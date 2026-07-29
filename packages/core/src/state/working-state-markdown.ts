@@ -100,7 +100,7 @@ export function workingStateToMarkdown(state: WorkingState): string {
     if (session.bindings.length > 0) {
       lines.push("", "Freshness and revision bindings:");
       for (const binding of session.bindings) {
-        lines.push(`- ${binding.provider.name}/${binding.provider.instanceId} workspace ${binding.workspaceId}; index ${binding.indexRevision ?? "unknown"}; repositories ${binding.repositories.map((item) => `${item.repositoryId}@${item.headCommit}:${item.dirtyFingerprint}`).join(", ")}`);
+        lines.push(`- ${binding.provider.name}/${binding.provider.instanceId} workspace ${binding.workspaceId}; index ${binding.indexRevision ?? "unknown"}; source repositories ${binding.repositories.map((item) => `${item.repositoryId}@${item.sourceBaseCommit}:${item.sourceFingerprint}`).join(", ")}`);
       }
     }
     if (session.inventory.length > 0) {

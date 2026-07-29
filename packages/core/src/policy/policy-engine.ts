@@ -53,6 +53,7 @@ export interface PolicyState {
   planPath: string;
   grants: PermissionGrant[];
   executionGrant?: ExecutionGrant;
+  executionPaused?: boolean;
   taskClosure?: TaskClosureReadiness;
 }
 
@@ -79,6 +80,10 @@ function grantMatches(request: ActionRequest, grant: PermissionGrant, permission
     if (request.paths === undefined || request.paths.length === 0) return false;
     const access = accessFor(permission);
     if (!request.paths.every((path) => grant.paths?.some((allowed) => isPathWithin(path, allowed, access)))) return false;
+  }
+  if (grant.validationNames !== undefined) {
+    const requested = request.validationNames ?? (request.validationName === undefined ? [] : [request.validationName]);
+    if (requested.length === 0 || !requested.every((name) => grant.validationNames?.includes(name))) return false;
   }
   if (grant.scope === "task" && request.taskId === undefined) return false;
   if (grant.scope === "repository" && request.repositorySnapshot === undefined) return false;
@@ -121,6 +126,19 @@ export class PolicyEngine {
       matchedRules.push("typed repository reads are allowed inside externally approved real-path boundaries");
       constraints.push(`resolved paths must remain within ${roots.join(", ")}`);
       return this.decision(request.action, "allow", matchedRules, [], constraints, "Repository-scoped typed read allowed.", requiredPermission);
+    }
+
+    if (state.executionPaused === true && request.actor === "agent" && request.action !== "read.repository") {
+      matchedRules.push("the active execution is paused and agent mutations are disabled until explicit resume");
+      return this.decision(
+        request.action,
+        "deny",
+        matchedRules,
+        [requiredPermission],
+        constraints,
+        "Execution is paused. Resume it explicitly before agent mutation.",
+        requiredPermission,
+      );
     }
 
     if (state.mode === "plan" && request.action === "write.file") {
@@ -201,6 +219,7 @@ export class PolicyEngine {
     if (grant !== undefined) {
       matchedRules.push(`matched permission grant ${grant.id}`);
       if (grant.paths !== undefined) constraints.push(`real paths constrained to ${grant.paths.join(", ")}`);
+      if (grant.validationNames !== undefined) constraints.push(`validations constrained to ${grant.validationNames.join(", ")}`);
       if (request.boundary === "unconfined") constraints.push("unconfined shell permission is single-operation only");
       return this.decision(request.action, "allow", matchedRules, [], constraints, `Allowed by ${grant.scope} grant.`, requiredPermission);
     }

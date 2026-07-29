@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { sourceRevisionIdentity } from "../repository/snapshot.ts";
 import { newId, nowIso } from "../util/ids.ts";
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import type { CodeProvider } from "./provider.ts";
@@ -65,7 +66,7 @@ export class MockCodeProvider implements CodeProvider {
       provider: { name: this.name, version: "1", instanceId: "mock-local" },
       indexedRevisions: Object.fromEntries(workspace.repositories.map((repository) => [
         repository.id,
-        `${repository.snapshot.headCommit}:${repository.snapshot.changeId ?? ""}:${repository.snapshot.operationId ?? ""}:${repository.snapshot.dirtyFingerprint}`,
+        sourceRevisionIdentity(repository.snapshot),
       ])),
       indexedAt: this.lastIndexedAt,
     });

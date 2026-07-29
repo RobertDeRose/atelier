@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.5
+# Atelier Architecture — 0.14.0-alpha.6
 
 ## Product boundary
 
@@ -116,11 +116,16 @@ stateDiagram-v2
     Prepared --> Applying: user approves
     Applying --> Active: reconcile + claim + atomic activation
     Applying --> Failed: mutation/convergence/claim failure
-    Active --> Revoked: cancel or close
+    Active --> Paused: explicit pause
+    Paused --> Active: explicit resume
+    Active --> Cancelled: cancel + atomic workflow transition
+    Paused --> Cancelled: cancel + atomic workflow transition
+    Active --> Completed: authoritative close
     Active --> Invalidated: resume binding failure
 ```
 
-Legacy execution records without the exact capability bundle fail closed. See ADR-0019 and ADR-0025.
+Legacy execution records without the structured task contract and matching exact capability bundle fail
+closed. See ADR-0019, ADR-0025, ADR-0028, and ADR-0029.
 
 ## Authorization
 
@@ -132,9 +137,15 @@ sandboxed   reserved for a future verifiable process sandbox
 unconfined  generic shell or process execution
 ```
 
-Exact plan approval mints only a narrow task capability bundle. Typed file operations must remain inside
-the approved root after real-path resolution, including nearest-existing-ancestor checks for new files.
-Task, validation, and repository operations must match the active execution and repository identity.
+Every approvable task carries a machine-readable execution contract in its `atlr:task` metadata. Exact
+plan approval derives only path-scoped non-dependency writes, explicitly reviewed dependency manifests,
+named focused/full validations, optional reviewed-path local-change creation, and task closure. Task
+update/link, dependency, full-suite, and generic-shell authority are not implicit. Preparation rejects a
+missing or inconsistent contract, and the approval surface displays the full capability projection.
+
+Typed file operations must remain inside the approved root after real-path resolution, including
+nearest-existing-ancestor checks for new files. Validation names, commit paths, task identity, repository
+identity, and execution identity must all match the active reviewed contract.
 
 Generic shell is always unconfined in this release. It does not inherit typed task capabilities and
 requires a one-operation grant. The shell classifier provides effect/risk information, not a security
@@ -149,9 +160,10 @@ are revoked by migration.
 Each repository provider returns explicit status and a revision-aware snapshot. Failures throw
 `RepositoryObservationError`; they never become an empty change list.
 
-Git snapshots and evidence include tracked, staged, unstaged, and untracked source state as appropriate.
-Jujutsu snapshots use repository, workspace, change, commit, and source-content state while excluding
-irrelevant operation-log churn from source freshness.
+Git and Jujutsu snapshots carry two related identities. Raw VCS fields retain commit/change/operation
+details for diagnostics and recovery. A separate source base plus source-content fingerprint excludes
+`.atelier`, Beads, provider indexes, and other workflow metadata. Approval, retrieval, validation, and
+execution freshness use the source identity rather than raw metadata churn.
 
 Exact approval binds every workspace root independently. Primary source drift can represent the approved
 task’s own work when the baseline remains reachable. Secondary-root drift invalidates execution because
@@ -165,16 +177,20 @@ Pi performs blocking authorization before a mutating typed tool. Atelier stores:
 - active task/execution identity;
 - before repository snapshot;
 - started, succeeded, failed, or interrupted outcome;
-- after snapshot and observed changed paths;
+- after snapshot and the path/content delta attributable to that operation, separate from paths already
+  dirty before it started;
 - bounded error details.
 
 One-operation grants are consumed at authorization, not after success. Pending evidence is marked
-interrupted during shutdown/recovery.
+interrupted during shutdown/recovery. Runtime interruption is derived from structured abort state or an
+exact tool-owned abort sentinel; arbitrary error text cannot turn a normal failure into interruption.
 
 ## Validation and completion
 
 Validation commands execute as argument arrays with `shell: false`, bounded and redacted output,
 abort-aware process-group termination, a sanitized environment, and repository/environment fingerprints.
+Pi exposes the same boundary to the model through typed `atlr_validate`; declared checks never require a
+Bash substitution.
 
 Task completion uses one authoritative predicate:
 
@@ -188,9 +204,16 @@ flowchart TD
     Ready -->|No| Block[Block and explain missing/stale/failed evidence]
 ```
 
-If validation is required, at least one applicable check must be `required: true`. The removed
+If validation is required, at least one applicable check must be `required: true`. Readiness separately
+reports a missing focused selection, a no-match selection, or missing required configuration. The removed
 validation `approval` field is rejected. Final-diff review is hash-bound; a changed diff must be previewed
-and reviewed again. See ADR-0026.
+and reviewed again.
+
+The predicate blocks task closure, not user control. An incomplete task may remain active and idle.
+`agent_settled` emits at most one passive notice and never schedules a follow-up model turn.
+`/atelier-stop` ends only the current turn; `/atelier-pause` durably disables agent mutation;
+`/atelier-resume` restores the active execution; `/cancel` atomically revokes the grant and workflow
+without waiting for idle. See ADR-0026, ADR-0028, and ADR-0029.
 
 ## Working State
 

@@ -168,7 +168,8 @@ test("real-path confinement rejects existing and not-yet-created targets below a
     repositorySnapshot: snapshot,
     repositoryBindings: [],
     retrievalBindings: [],
-    capabilityDigest: "capabilities",
+    approvalCapabilityDigest: "approval-capabilities",
+  capabilityDigest: "capabilities",
     taskId: "task",
     planTaskId: "ATLR-001",
     issuedAt: new Date().toISOString(),
@@ -266,7 +267,7 @@ test("legacy turn and session grants are revoked by the scope migration", () => 
     const migrated = ledger.listGrants({ includeRevoked: true }).find((grant) => grant.id === "legacy-session");
     assert.ok(migrated?.revokedAt);
     const versions = ledger.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ version: number }>;
-    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8]);
   } finally {
     ledger.close();
     rmSync(root, { recursive: true, force: true });

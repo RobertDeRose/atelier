@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.14.0-alpha.6 — 2026-07-28
+
+- replace the Pi `agent_settled` follow-up completion loop with one passive, deduplicated incomplete-task
+  notification so denial, Escape, and normal settlement leave the user in control
+- make `/cancel` revoke active execution without waiting for idle and abort the active Pi turn after the
+  durable grant is revoked
+- add the model-facing typed `atlr_validate` tool for validation planning, focused execution, and named
+  declared checks; generic Bash is no longer the only model route to validation
+- classify tool interruption from structured abort state or an exact tool-owned abort sentinel rather
+  than arbitrary error output containing words such as `signal` or `AbortSignal`
+- distinguish missing focused selection, no required path match, and missing required validation in task
+  closure diagnostics
+- make explicit CLI and `/code-symbols` requests direct human lookups while retaining inventory-first
+  gating for autonomous model calls
+- normalize provider symbol signatures, discard generic chunk labels, rank exact definitions first,
+  reconcile cached symbol state, and preserve workspace/repository scope qualification
+- reject malformed expression-shaped exact-symbol hints produced from plan text
+- harden existing and new `.beads` directories to mode 0700 on non-Windows systems
+- request the smallest independently deliverable plan graph, keep tiny implementation/tests atomic, and
+  make code-provider status/search output more concise
+- replace the prior disposable acceptance walkthrough with a reboot-safe persistent workflow and correct
+  the trust-store snapshot command that could truncate its own input
+- require a structured per-task execution contract and derive file, dependency, validation, local-change,
+  and closure capabilities only from its reviewed paths and flags
+- disclose every effective task capability and exclusion in the approval transaction; task update/link,
+  full-suite validation, dependency changes, and generic shell are no longer implicit
+- add typed `atlr_state`, `atlr_commit`, and `atlr_task_close` model tools alongside `atlr_validate`, and
+  enforce explicit per-turn prohibitions before any exceptional approval prompt
+- add `/atelier-stop`, `/atelier-pause`, and `/atelier-resume`; make pause and cancellation durable,
+  atomic workflow transitions while preserving the provider task and working-copy changes
+- make execution restoration idempotent so repeated agent lifecycle events do not fabricate resume events
+- attribute mutation evidence to the paths changed by each individual tool operation rather than every
+  path already dirty in the repository
+- split raw VCS identity from source-only revision binding so `.atelier`, Beads, and provider-metadata
+  churn does not invalidate source evidence
+- scope Git and Jujutsu task commits to the reviewed execution paths so workflow metadata and unrelated
+  staged changes cannot be swept into the implementation change
+- make `atlr init --beads` idempotent for an initialized provider and preserve existing Beads files
+- allow direct reads for exact known paths instead of requiring ritual semantic discovery
+
 ## 0.14.0-alpha.5 — 2026-07-28
 
 - isolate the deterministic test process from workstation and system Git configuration so user-level

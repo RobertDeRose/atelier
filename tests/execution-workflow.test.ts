@@ -141,6 +141,7 @@ test("approval rechecks and serializes against an execution grant that became ac
       repositorySnapshot: prepared.approval.repositorySnapshot,
       repositoryBindings: prepared.approval.repositoryBindings,
       retrievalBindings: prepared.approval.retrievalBindings,
+      approvalCapabilityDigest: prepared.approval.capabilityDigest,
       capabilityDigest: prepared.approval.capabilityDigest,
       taskId: "other-task",
       planTaskId: "OTHER",
@@ -175,7 +176,7 @@ test("successful exact approval reconciles, claims, then atomically enters act m
     assert.equal(result.executionGrant?.taskId, result.task?.id);
     assert.equal(context.ledger.getState("workflowMode"), "act");
     assert.equal(context.ledger.getState("currentTaskId"), result.task?.id);
-    assert.equal(context.ledger.listGrants().length, prepared.approval.capabilities.length, "approval atomically installs the typed task capability bundle");
+    assert.equal(context.ledger.listGrants().length, prepared.approval.capabilities.filter((item) => item.planTaskId === result.task?.planTaskId).length, "approval atomically installs only the active task capability bundle");
   } finally {
     context.ledger.close();
     rmSync(context.root, { recursive: true, force: true });
@@ -490,6 +491,35 @@ test("legacy execution records without an exact capability bundle fail closed on
       reopened.close();
     }
   } finally {
+    rmSync(context.root, { recursive: true, force: true });
+  }
+});
+
+test("alpha.5 plans without structured execution contracts invalidate active execution on resume", async () => {
+  const context = setup("atlr-execution-legacy-plan-contract-");
+  try {
+    const prepared = await context.coordinator.prepare();
+    const started = await context.coordinator.approveAndApply(prepared.approval.id, true);
+    assert.ok(started.executionGrant);
+
+    const planPath = join(context.root, ".atelier", "PLAN.md");
+    const legacyPlanText = VALID_PLAN.replace(/,"execution":\{[^\n]+\}/g, "");
+    writeFileSync(planPath, legacyPlanText, "utf8");
+    const legacyPlan = parsePlanFile(planPath);
+    assert.ok(legacyPlan.diagnostics.some((item) => item.code === "missing_execution_contract"));
+
+    context.ledger.savePlanApproval({ ...started.approval, planHash: legacyPlan.hash });
+    context.ledger.saveExecutionGrant({ ...started.executionGrant, planHash: legacyPlan.hash });
+
+    assert.equal(await context.coordinator.resume(), undefined);
+    assert.equal(context.ledger.getActiveExecutionGrant(), undefined);
+    assert.match(
+      context.ledger.listExecutionGrants().at(-1)?.invalidationReason ?? "",
+      /execution contract|machine-readable/i,
+    );
+    assert.equal(context.ledger.listGrants().length, 0);
+  } finally {
+    context.ledger.close();
     rmSync(context.root, { recursive: true, force: true });
   }
 });

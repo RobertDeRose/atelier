@@ -55,3 +55,6 @@ export * from "./security/path-boundary.ts";
 export * from "./security/project-trust.ts";
 export * from "./workflow/execution-baseline.ts";
 export * from "./repository/source-path.ts";
+
+export * from "./workflow/capability-summary.ts";
+export * from "./planning/task-execution-scope.ts";

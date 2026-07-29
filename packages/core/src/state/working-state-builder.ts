@@ -17,6 +17,7 @@ import type { RetrievalRevisionBinding } from "../code/retrieval.ts";
 import { RepositoryStatePlanner } from "./repository-state-planner.ts";
 import { workingStateToMarkdown } from "./working-state-markdown.ts";
 import { newId, nowIso } from "../util/ids.ts";
+import { repositoryRevisionBinding, sameRepositoryBindings } from "../repository/revision-binding.ts";
 
 export interface WorkingStateBuildRequest {
   mode: WorkflowMode;
@@ -136,10 +137,11 @@ export class WorkingStateBuilder {
       ...(planningRetrieval === undefined ? {} : {
         evidence: {
           semanticDiscoveryComplete,
-          resolvedIdentifiers: [...new Set(scopedPlanningEvidence.flatMap((item) =>
-            item.kind === "hit" && "symbol" in item.value && typeof item.value.symbol === "string"
-              ? [item.value.symbol]
-              : []))],
+          resolvedIdentifiers: planningRetrieval.inventory.resolvedSymbols,
+          unresolvedIdentifiers: planningRetrieval.unresolvedSymbolScopes
+            .filter((item) => item.workspaceId === request.workspace?.id
+              && item.repositoryIds.some((repositoryId) => planningRepositoryIds.has(repositoryId)))
+            .map((item) => item.symbol),
           knownPaths: scopedPlanningEvidence.flatMap((item) => item.kind === "hit" ? [(item.value as { path: string }).path] : []),
         },
       }),
@@ -305,7 +307,7 @@ export class WorkingStateBuilder {
       activeTask?.id,
     ) ?? { current: [], stale: [] };
     const taskClosure = activeExecutionGrant === undefined || this.validation === undefined
-      ? { ready: false, required: [], missing: [], stale: [], failed: [], reason: "No active execution grant exists." }
+      ? { ready: false, blockers: [], required: [], missing: [], stale: [], failed: [], reason: "No active execution grant exists." }
       : this.validation.closureReadiness(request.snapshot, activeExecutionGrant.taskId, activeExecutionGrant.id);
     const nextAction = describeNextAction({
       ...(request.plan === undefined ? {} : { planPath: request.plan.path }),
@@ -523,20 +525,10 @@ function bindingMatchesWorkspace(
   if (binding.workspaceId !== workspace.id) return false;
   if (JSON.stringify(binding.provider) !== JSON.stringify(status.identity)) return false;
   if (binding.indexRevision !== status.indexRevision) return false;
-  if (binding.repositories.length !== workspace.repositories.length) return false;
-  return binding.repositories.every((repository) => {
-    const current = workspace.repositories.find((item) => item.id === repository.repositoryId)?.snapshot;
-    return current !== undefined
-      && repository.snapshotRepositoryId === current.repositoryId
-      && repository.workspaceId === current.workspaceId
-      && repository.vcs === current.vcs
-      && repository.headCommit === current.headCommit
-      && repository.changeId === current.changeId
-      && repository.operationId === current.operationId
-      && repository.dirtyGeneration === current.dirtyGeneration
-      && repository.dirtyFingerprint === current.dirtyFingerprint
-      && repository.indexSchemaVersion === current.indexSchemaVersion;
-  });
+  return sameRepositoryBindings(
+    binding.repositories,
+    workspace.repositories.map((repository) => repositoryRevisionBinding(repository.id, repository.snapshot)),
+  );
 }
 
 function providerFocus(focus: WorkingState["retrievalQueries"][number]["focus"]): CodeSearchFocus {

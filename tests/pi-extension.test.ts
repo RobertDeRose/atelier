@@ -40,21 +40,30 @@ function fakeContext(
   cwd: string,
   confirms: { count: number },
   statuses: string[] = [],
-  observations: { confirmationBodies?: string[]; notifications?: string[]; signal?: AbortSignal } = {},
+  observations: {
+    confirmationBodies?: string[];
+    notifications?: string[];
+    signal?: AbortSignal;
+    isIdle?: () => boolean;
+    abort?: () => void;
+    waitForIdle?: () => Promise<void>;
+    confirmResult?: boolean;
+  } = {},
 ): ExtensionCommandContext {
   return {
     cwd,
     mode: "tui",
     hasUI: true,
-    isIdle: () => true,
+    isIdle: observations.isIdle ?? (() => true),
     isProjectTrusted: () => true,
-    waitForIdle: async () => {},
+    waitForIdle: observations.waitForIdle ?? (async () => {}),
+    ...(observations.abort === undefined ? {} : { abort: observations.abort }),
     ...(observations.signal === undefined ? {} : { signal: observations.signal }),
     ui: {
       confirm: async (_title: string, body: string) => {
         confirms.count += 1;
         observations.confirmationBodies?.push(body);
-        return true;
+        return observations.confirmResult ?? true;
       },
       select: async () => undefined,
       notify: (message: string) => { observations.notifications?.push(message); },
@@ -190,7 +199,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     assert.ok(commands.has(command), `missing command ${command}`);
   }
   assert.equal(commands.has("trust"), false, "Pi reserves /trust; Atelier must not register a conflicting command");
-  for (const tool of ["atlr_code_status", "atlr_code_search", "atlr_code_symbols"]) {
+  for (const tool of ["atlr_code_status", "atlr_code_search", "atlr_code_symbols", "atlr_validate"]) {
     assert.ok(tools.has(tool), `missing agent tool ${tool}`);
   }
   assert.match(tools.get("atlr_code_search")?.promptGuidelines?.join(" ") ?? "", /one focused semantic.*before broad raw scans/i);
@@ -211,7 +220,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   assert.ok(statuses.some((status) => /index (building|ready)/.test(status)), "Pi footer must expose background index state");
   await commands.get("plan")!.handler("investigate planning policy", context);
   assert.match(sentMessages.at(-1) ?? "", /Objective: investigate planning policy/);
-  assert.match(sentMessages.at(-1) ?? "", /reuse it with atlr_code_status instead of duplicating the search/i);
+  assert.match(sentMessages.at(-1) ?? "", /reuse current scoped inventory with atlr_code_status or call atlr_code_search once/i);
 
   const planWrite = await events.get("tool_call")!({
     toolCallId: "plan-write",
@@ -263,7 +272,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   assert.match(agentStart?.systemPrompt ?? "", /Provider-first retrieval is advisory/i);
   assert.match(agentStart?.systemPrompt ?? "", /Raw repository inspection remains available/i);
   assert.match(agentStart?.systemPrompt ?? "", /## Retrieval session/);
-  assert.deepEqual(activeTools.slice(0, 3), ["atlr_code_search", "atlr_code_symbols", "atlr_code_status"]);
+  assert.deepEqual(activeTools.slice(0, 4), ["atlr_code_search", "atlr_code_symbols", "atlr_code_status", "atlr_validate"]);
   assert.ok(activeToolUpdates.length >= 1, "Atelier must explicitly activate registered code tools");
   assert.ok(activeTools.includes("read"));
   assert.ok(activeTools.includes("bash"));
@@ -508,6 +517,10 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
     assert.match(confirmationBodies[0] ?? "", /Provider:/i);
     assert.match(confirmationBodies[0] ?? "", /Operations:/i);
     assert.match(confirmationBodies[0] ?? "", /Proposed first task:/i);
+    assert.match(confirmationBodies[0] ?? "", /Writes: packages\/core, src, src\.ts/i);
+    assert.match(confirmationBodies[0] ?? "", /Dependencies: not permitted/i);
+    assert.match(confirmationBodies[0] ?? "", /Full suite: not permitted/i);
+    assert.match(confirmationBodies[0] ?? "", /Generic shell, publication, external effects, and out-of-scope paths: not permitted/i);
 
     await commands.get("status")!.handler("", context);
     assert.ok(notifications.some((message) => /Next action:/i));
@@ -569,10 +582,11 @@ test("Pi /execute activates an explicitly requested later approved-plan task", a
 test("Pi focused validation passes the current abort signal and records interruption", async () => {
   const commands = new Map<string, RegisteredCommand>();
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const tools = new Map<string, RegisteredTool>();
   const fakePi = {
     on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
     registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
-    registerTool(): void {},
+    registerTool(tool: RegisteredTool): void { tools.set(tool.name, tool); },
     getActiveTools(): string[] { return []; },
     setActiveTools(): void {},
     sendUserMessage(): void {},
@@ -585,7 +599,7 @@ test("Pi focused validation passes the current abort signal and records interrup
     repositoryProvider: "git",
     codeProvider: "disabled",
   }));
-  writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
+  writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN.replaceAll('"validations":[],"allowFullSuite":false', '"validations":["focused"],"allowFullSuite":false'), "utf8");
   writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({ validations: {
     focused: {
       command: [process.execPath, "-e", "setTimeout(() => {}, 10_000)"],
@@ -610,12 +624,39 @@ test("Pi focused validation passes the current abort signal and records interrup
   const notifications: string[] = [];
   const context = fakeContext(root, { count: 0 }, [], { notifications, signal: controller.signal });
   try {
-    await commands.get("validate")!.handler("plan", context);
-    assert.ok(notifications.some((message) => /Focused selection .*focused.*required/is.test(message)));
-    const pending = commands.get("validate")!.handler("focused", context);
+    assert.ok(tools.has("atlr_validate"), "the model must have a typed validation tool");
+    const planAuthorization = await events.get("tool_call")!({
+      toolCallId: "validation-plan",
+      toolName: "atlr_validate",
+      input: { action: "plan" },
+    }, context);
+    assert.equal(planAuthorization, undefined);
+    const planResult = await tools.get("atlr_validate")!.execute(
+      "validation-plan",
+      { action: "plan" },
+      controller.signal,
+      undefined,
+      context,
+    );
+    assert.match(planResult.content[0]?.text ?? "", /Focused selection .*focused.*required/is);
+
+    const focusedAuthorization = await events.get("tool_call")!({
+      toolCallId: "validation-focused",
+      toolName: "atlr_validate",
+      input: { action: "focused" },
+    }, context);
+    assert.equal(focusedAuthorization, undefined);
+    const pending = tools.get("atlr_validate")!.execute(
+      "validation-focused",
+      { action: "focused" },
+      controller.signal,
+      undefined,
+      context,
+    );
     setTimeout(() => controller.abort(), 50);
-    await pending;
-    assert.ok(notifications.some((message) => /focused: interrupted/i.test(message)));
+    const focusedResult = await pending;
+    assert.match(focusedResult.content[0]?.text ?? "", /focused: interrupted/i);
+    assert.equal(context.isIdle(), true);
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });
@@ -655,9 +696,66 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
   const confirms = { count: 0 };
   const statuses: string[] = [];
   const confirmationBodies: string[] = [];
-  const context = fakeContext(root, confirms, statuses, { confirmationBodies });
+  const notifications: string[] = [];
+  let idle = true;
+  let abortCount = 0;
+  let waitForIdleCount = 0;
+  const context = fakeContext(root, confirms, statuses, {
+    confirmationBodies,
+    notifications,
+    isIdle: () => idle,
+    abort: () => { abortCount += 1; idle = true; },
+    waitForIdle: async () => { waitForIdleCount += 1; },
+  });
 
   try {
+    for (const command of ["atelier-stop", "atelier-pause", "atelier-resume", "cancel"]) {
+      assert.ok(commands.has(command), `missing active-execution control /${command}`);
+    }
+
+    idle = false;
+    await commands.get("atelier-stop")!.handler("", context);
+    assert.equal(abortCount, 1, "/atelier-stop must abort an active turn without revoking execution");
+    let controlLedger = new SqliteLedger(testDatabasePath(root));
+    assert.ok(controlLedger.getActiveExecutionGrant());
+    controlLedger.close();
+
+    idle = false;
+    await commands.get("atelier-pause")!.handler("manual pause regression", context);
+    assert.equal(abortCount, 2, "/atelier-pause must abort an active turn");
+    controlLedger = new SqliteLedger(testDatabasePath(root));
+    assert.equal(controlLedger.getCurrentWorkflowRun()?.checkpoint, "paused");
+    controlLedger.close();
+    await commands.get("atelier-resume")!.handler("", context);
+    controlLedger = new SqliteLedger(testDatabasePath(root));
+    assert.equal(controlLedger.getCurrentWorkflowRun()?.checkpoint, "executing");
+    controlLedger.close();
+    assert.equal(waitForIdleCount, 0, "active-execution controls must not wait for Pi idle state");
+
+    await events.get("input")!({
+      text: "Use only read, edit, and write. Do not use Bash, do not run validation, do not commit, do not close the task, then stop.",
+    }, context);
+    const confirmationsBeforeUserPolicy = confirms.count;
+    for (const [toolName, input, pattern] of [
+      ["bash", { command: "node --test" }, /prohibits Bash/i],
+      ["atlr_validate", { action: "focused" }, /prohibits validation or tests/i],
+      ["atlr_commit", { message: "test: forbidden" }, /prohibits creating a commit/i],
+      ["atlr_task_close", { reason: "forbidden" }, /prohibits closing the task/i],
+    ] as const) {
+      const blocked = await events.get("tool_call")!({
+        toolCallId: `user-policy-${toolName}`,
+        toolName,
+        input,
+      }, context);
+      assert.equal(blocked?.block, true);
+      assert.match(blocked?.reason ?? "", pattern);
+    }
+    assert.equal(confirms.count, confirmationsBeforeUserPolicy, "an explicit user prohibition must block before exceptional approval");
+    controlLedger = new SqliteLedger(testDatabasePath(root));
+    assert.equal(controlLedger.listEvents({ kind: "policy.user_constraint_blocked" }).length, 4);
+    controlLedger.close();
+    await events.get("input")!({ text: "Continue with normal authorized operations." }, context);
+
     assert.equal(await events.get("tool_call")!({
       toolCallId: "edit-routine",
       toolName: "edit",
@@ -689,6 +787,12 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
       toolName: "bash",
       input: { command: "mise run check" },
     }, context), undefined);
+    await events.get("tool_result")!({
+      toolCallId: "bash-check",
+      toolName: "bash",
+      content: [{ type: "text", text: "ReferenceError: signal is not defined\nCommand exited with code 1" }],
+      isError: true,
+    }, context);
     assert.equal(await events.get("tool_call")!({
       toolCallId: "bash-commit",
       toolName: "bash",
@@ -703,20 +807,171 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
     }, context), undefined);
     assert.equal(confirms.count, 3);
 
-    writeFileSync(join(root, "completion-guard.ts"), "export const pending = true;\n");
+    mkdirSync(join(root, "packages", "core", "src"), { recursive: true });
+    writeFileSync(join(root, "packages", "core", "src", "completion-guard.ts"), "export const pending = true;\n");
     await commands.get("review-diff")!.handler("", context);
-    assert.match(confirmationBodies.at(-1) ?? "", /completion-guard\.ts/);
+    assert.match(confirmationBodies.at(-1) ?? "", /packages\/core\/src\/completion-guard\.ts/);
     assert.match(confirmationBodies.at(-1) ?? "", /Diff SHA-256:/);
     assert.equal(confirms.count, 4, "Pi must display and confirm the exact diff before recording review");
-    await events.get("agent_settled")!({}, context);
-    assert.match(sentMessages.at(-1) ?? "", /completion guard/i);
-    assert.match(sentMessages.at(-1) ?? "", /local commit|finalized change/i);
+    const sentBeforeSettle = sentMessages.length;
+    for (let index = 0; index < 5; index += 1) await events.get("agent_settled")!({}, context);
+    assert.equal(sentMessages.length, sentBeforeSettle, "an incomplete task must not enqueue a follow-up agent turn");
+    assert.equal(
+      notifications.filter((message) => /remains active but incomplete/i.test(message)).length,
+      1,
+      "the passive incomplete-task notice must be deduplicated",
+    );
+
+    idle = false;
+    await commands.get("cancel")!.handler("manual user-control regression", context);
+    assert.equal(abortCount, 3, "/cancel must abort an active turn");
+    assert.equal(waitForIdleCount, 0, "/cancel must not wait for an idle state it is responsible for creating");
+    const cancelledLedger = new SqliteLedger(testDatabasePath(root));
+    assert.equal(cancelledLedger.getActiveExecutionGrant(), undefined);
+    cancelledLedger.close();
   } finally {
     await events.get("session_shutdown")!({}, context);
     const ledger = new SqliteLedger(testDatabasePath(root));
     assert.equal(ledger.getExecutionEvidence("edit-routine")?.status, "succeeded");
     assert.equal(ledger.getExecutionEvidence("edit-failed")?.status, "failed");
+    assert.equal(ledger.getExecutionEvidence("bash-check")?.status, "failed");
     ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a denied operation leaves an incomplete active task paused without starting another agent turn", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const commands = new Map<string, RegisteredCommand>();
+  const sentMessages: string[] = [];
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getActiveTools(): string[] { return []; },
+    setActiveTools(): void {},
+    sendUserMessage(message: string): void { sentMessages.push(message); },
+  } as unknown as ExtensionAPI;
+  registerAtelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-pi-denied-pause-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "memory",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }));
+  writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
+  const setup = AtelierCore.open(root, { taskProvider: "memory" });
+  setup.beginPlan("Deny one shell operation");
+  const review = setup.beginPlanReview();
+  setup.completePlanReview(review.id, { exitCode: 0 });
+  const prepared = await setup.execution.prepare();
+  const started = await setup.execution.approveAndApply(prepared.approval.id, true);
+  assert.ok(started.task);
+  await setup.close();
+
+  const notifications: string[] = [];
+  const context = fakeContext(root, { count: 0 }, [], { notifications, confirmResult: false });
+  try {
+    const denied = await events.get("tool_call")!({
+      toolCallId: "denied-shell",
+      toolName: "bash",
+      input: { command: "node --test" },
+    }, context);
+    assert.equal(denied?.block, true);
+    assert.match(denied?.reason ?? "", /user denied/i);
+
+    for (let index = 0; index < 5; index += 1) await events.get("agent_settled")!({}, context);
+    assert.equal(sentMessages.length, 0, "denial must not enqueue a synthetic follow-up user message");
+    assert.equal(notifications.filter((message) => /remains active but incomplete/i.test(message)).length, 1);
+
+    const ledger = new SqliteLedger(testDatabasePath(root));
+    assert.ok(ledger.getActiveExecutionGrant(), "the task remains active and paused until explicit cancellation or closure");
+    ledger.close();
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an explicit per-turn no-Bash/no-validation/no-commit/no-close instruction is enforced as policy", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(): void {},
+    registerTool(): void {},
+    getActiveTools(): string[] { return ["read", "edit", "write", "bash"]; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+
+  const root = createTemporaryRepository("atlr-pi-turn-policy-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "memory",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }));
+  writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
+  const sharedProvider = new InMemoryTaskProvider();
+  registerAtelierExtension(fakePi, {
+    openCore: (repositoryRoot) => AtelierCore.open(repositoryRoot, { taskProviderInstance: sharedProvider }),
+  });
+  const setup = AtelierCore.open(root, { taskProviderInstance: sharedProvider });
+  setup.beginPlan("Enforce current-turn tool constraints");
+  const review = setup.beginPlanReview();
+  setup.completePlanReview(review.id, { exitCode: 0 });
+  const prepared = await setup.execution.prepare();
+  await setup.execution.approveAndApply(prepared.approval.id, true);
+  await setup.close();
+
+  const confirms = { count: 0 };
+  const context = fakeContext(root, confirms, [], { confirmResult: false });
+  try {
+    await events.get("input")!({
+      text: "Use only read, edit, and write. Do not use Bash, do not run validation, do not commit, and do not close the task. Then stop.",
+    }, context);
+
+    const prompt = await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
+    assert.match(prompt.systemPrompt, /Atelier current-turn hard policy/i);
+    assert.match(prompt.systemPrompt, /Bash\/shell/i);
+    assert.match(prompt.systemPrompt, /validation\/tests/i);
+    assert.match(prompt.systemPrompt, /commit\/local change/i);
+    assert.match(prompt.systemPrompt, /task closure/i);
+
+    for (const [toolName, input] of [
+      ["bash", { command: "node --test" }],
+      ["atlr_validate", { action: "focused" }],
+      ["atlr_commit", { message: "test: forbidden" }],
+      ["atlr_task_close", { reason: "forbidden" }],
+    ] as const) {
+      const result = await events.get("tool_call")!({ toolCallId: `blocked-${toolName}`, toolName, input }, context);
+      assert.equal(result?.block, true, `${toolName} must be blocked by the current user constraint`);
+      assert.match(result?.reason ?? "", /current user turn explicitly prohibits/i);
+    }
+    assert.equal(confirms.count, 0, "a hard user constraint must not be weakened into an approval prompt");
+
+    const edit = await events.get("tool_call")!({
+      toolCallId: "allowed-edit",
+      toolName: "edit",
+      input: { path: "src/index.ts" },
+    }, context);
+    assert.equal(edit, undefined);
+
+    const ledger = new SqliteLedger(testDatabasePath(root));
+    assert.equal(ledger.listEvents({ kind: "policy.user_constraint_blocked" }).length, 4);
+    ledger.close();
+
+    await events.get("agent_settled")!({}, context);
+    const afterSettle = await events.get("tool_call")!({
+      toolCallId: "bash-after-settle",
+      toolName: "bash",
+      input: { command: "printf ok" },
+    }, context);
+    assert.equal(afterSettle?.block, true);
+    assert.match(afterSettle?.reason ?? "", /user denied/i);
+    assert.equal(confirms.count, 1, "the next turn returns to ordinary one-operation approval semantics");
+  } finally {
+    await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -764,5 +1019,87 @@ test("Pi keeps independent repository state for concurrent sessions and closes e
     await events.get("session_shutdown")!({}, second);
     rmSync(firstRoot, { recursive: true, force: true });
     rmSync(secondRoot, { recursive: true, force: true });
+  }
+});
+
+test("separate Pi extension registrations retain their own Core factories", async () => {
+  const firstEvents = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const secondEvents = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const makePi = (events: Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>) => ({
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(): void {},
+    registerTool(): void {},
+    getActiveTools(): string[] { return []; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI);
+
+  let firstOpens = 0;
+  let secondOpens = 0;
+  registerAtelierExtension(makePi(firstEvents), {
+    openCore: (root) => { firstOpens += 1; return AtelierCore.open(root); },
+  });
+  registerAtelierExtension(makePi(secondEvents), {
+    openCore: (root) => { secondOpens += 1; return AtelierCore.open(root); },
+  });
+
+  const firstRoot = createTemporaryRepository("atlr-pi-factory-first-");
+  const secondRoot = createTemporaryRepository("atlr-pi-factory-second-");
+  for (const root of [firstRoot, secondRoot]) {
+    writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+      taskProvider: "none",
+      repositoryProvider: "git",
+      codeProvider: "disabled",
+    }), "utf8");
+  }
+  const firstContext = Object.assign(fakeContext(firstRoot, { count: 0 }), { sessionManager: {} });
+  const secondContext = Object.assign(fakeContext(secondRoot, { count: 0 }), { sessionManager: {} });
+  try {
+    await firstEvents.get("session_start")!({}, firstContext);
+    await secondEvents.get("session_start")!({}, secondContext);
+    assert.equal(firstOpens, 1);
+    assert.equal(secondOpens, 1);
+  } finally {
+    await firstEvents.get("session_shutdown")!({}, firstContext);
+    await secondEvents.get("session_shutdown")!({}, secondContext);
+    rmSync(firstRoot, { recursive: true, force: true });
+    rmSync(secondRoot, { recursive: true, force: true });
+  }
+});
+
+test("typed workflow tools remain active when code intelligence is disabled", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const tools = new Map<string, RegisteredTool>();
+  let active = ["read", "edit", "write", "bash"];
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(): void {},
+    registerTool(tool: RegisteredTool): void { tools.set(tool.name, tool); },
+    getActiveTools(): string[] { return [...active]; },
+    setActiveTools(names: string[]): void { active = [...names]; },
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+  registerAtelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-pi-workflow-tools-without-code-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "none",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }), "utf8");
+  const context = fakeContext(root, { count: 0 });
+  try {
+    await events.get("session_start")!({}, context);
+    await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
+    for (const name of ["atlr_state", "atlr_validate", "atlr_commit", "atlr_task_close"]) {
+      assert.ok(tools.has(name), `missing registered workflow tool ${name}`);
+      assert.ok(active.includes(name), `workflow tool ${name} must remain active without a code provider`);
+    }
+    for (const name of ["atlr_code_status", "atlr_code_search", "atlr_code_symbols"]) {
+      assert.equal(active.includes(name), false, `disabled code tool ${name} must not be activated`);
+    }
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
   }
 });

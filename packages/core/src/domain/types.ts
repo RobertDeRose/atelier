@@ -70,6 +70,8 @@ export interface ActionRequest {
   actor: Actor;
   repositorySnapshot?: RepositorySnapshot;
   paths?: string[];
+  validationName?: string;
+  validationNames?: string[];
   command?: string[];
   estimatedDurationMs?: number;
   requestedPermissions?: Permission[];
@@ -86,6 +88,7 @@ export interface PermissionGrant {
   taskId?: string;
   repositoryId?: string;
   paths?: string[];
+  validationNames?: string[];
   reason: string;
   createdAt: string;
   expiresAt?: string;
@@ -156,6 +159,19 @@ export interface TaskProviderStatus {
   reason?: string;
 }
 
+export interface TaskExecutionContract {
+  /** Repository-relative source paths or directories this task may modify. */
+  writePaths: string[];
+  /** Dependency manifests still require a separate dependency capability. */
+  allowDependencyChanges: boolean;
+  /** Exact configured validation names this task may run. */
+  validations: string[];
+  /** Full-suite validation is never implied by a focused validation. */
+  allowFullSuite: boolean;
+  /** Permit one local commit/change containing only writePaths. */
+  allowLocalChange: boolean;
+}
+
 export interface PlanTask {
   id: string;
   title: string;
@@ -169,6 +185,7 @@ export interface PlanTask {
   notes: string[];
   priority: number;
   type: TaskType;
+  execution?: TaskExecutionContract;
   source: {
     startLine: number;
     endLine: number;
@@ -203,6 +220,7 @@ export const PLAN_STRUCTURAL_FIELDS = [
   "notes",
   "priority",
   "type",
+  "execution",
 ] as const;
 
 export type PlanStructuralField = (typeof PLAN_STRUCTURAL_FIELDS)[number];
@@ -233,6 +251,7 @@ export type WorkflowCheckpoint =
   | "reconciling"
   | "approved"
   | "executing"
+  | "paused"
   | "validating"
   | "completed"
   | "cancelled"
@@ -362,8 +381,10 @@ export interface TaskReconciliation {
 export type PlanApprovalStatus = "prepared" | "accepted" | "approved" | "rejected" | "invalidated" | "cancelled";
 
 export interface ExecutionCapability {
+  planTaskId: string;
   permission: Permission;
   paths?: string[];
+  validationNames?: string[];
   reason: string;
 }
 
@@ -403,6 +424,14 @@ export interface ReconciliationTransaction {
 
 export type ExecutionGrantStatus = "active" | "revoked" | "invalidated";
 
+
+export interface ExecutionPause {
+  executionGrantId: string;
+  taskId: string;
+  reason: string;
+  pausedAt: string;
+}
+
 export interface ExecutionGrant {
   id: string;
   status: ExecutionGrantStatus;
@@ -416,6 +445,9 @@ export interface ExecutionGrant {
   repositorySnapshot: RepositorySnapshot;
   repositoryBindings: RepositoryRevisionBinding[];
   retrievalBindings: RetrievalRevisionBinding[];
+  /** Digest of the full approved multi-task capability projection. */
+  approvalCapabilityDigest: string;
+  /** Digest of capabilities installed for this one active plan task. */
   capabilityDigest: string;
   taskId: string;
   planTaskId: string;
@@ -455,7 +487,15 @@ export interface ExecutionEvidence {
   permissionGrantId?: string;
   beforeSnapshot: RepositorySnapshot;
   afterSnapshot?: RepositorySnapshot;
+  requestedPaths: string[];
+  beforeChangedPaths: string[];
   changedPaths: string[];
+  newlyChangedPaths: string[];
+  furtherModifiedPaths: string[];
+  removedPaths: string[];
+  unchangedExistingDirtyPaths: string[];
+  pathFingerprintsBefore: Record<string, string>;
+  pathFingerprintsAfter?: Record<string, string>;
   observedMutation: boolean;
   error?: string;
   startedAt: string;
@@ -527,8 +567,26 @@ export interface ValidationEvidenceSummary {
   staleReason?: string;
 }
 
+export type TaskClosureBlockerCode =
+  | "validation_selection_missing"
+  | "validation_no_required_match"
+  | "validation_not_configured"
+  | "validation_evidence_missing"
+  | "validation_evidence_stale"
+  | "validation_failed"
+  | "diff_review_missing"
+  | "local_change_missing"
+  | "repository_dirty";
+
+export interface TaskClosureBlocker {
+  code: TaskClosureBlockerCode;
+  detail: string;
+  names?: string[];
+}
+
 export interface TaskClosureReadiness {
   ready: boolean;
+  blockers: TaskClosureBlocker[];
   required: string[];
   missing: string[];
   stale: string[];

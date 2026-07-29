@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import type { ParsedPlan, PlanDiagnostic, PlanTask, TaskType } from "../domain/types.ts";
+import type { ParsedPlan, PlanDiagnostic, PlanTask, TaskExecutionContract, TaskType } from "../domain/types.ts";
 import { sha256 } from "../util/hash.ts";
 
 interface MutableTask {
@@ -8,6 +8,7 @@ interface MutableTask {
   title: string;
   priority: number;
   type: TaskType;
+  execution?: TaskExecutionContract;
   sections: Map<string, string[]>;
   startLine: number;
   endLine: number;
@@ -85,6 +86,39 @@ function metadataTaskType(value: unknown): TaskType {
     : "unknown";
 }
 
+
+function metadataStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.trim().length === 0)) return undefined;
+  return [...new Set(value.map((item) => (item as string).trim()))];
+}
+
+function repositoryRelativePath(value: string): boolean {
+  const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "");
+  return normalized.length > 0
+    && !normalized.startsWith("/")
+    && !/^[A-Za-z]:\//.test(normalized)
+    && !normalized.split("/").includes("..");
+}
+
+function metadataExecution(value: unknown): TaskExecutionContract | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const writePaths = metadataStringArray(record.writePaths);
+  const validations = metadataStringArray(record.validations);
+  if (writePaths === undefined || writePaths.length === 0 || validations === undefined) return undefined;
+  if (writePaths.some((path) => !repositoryRelativePath(path))) return undefined;
+  for (const field of ["allowDependencyChanges", "allowFullSuite", "allowLocalChange"] as const) {
+    if (typeof record[field] !== "boolean") return undefined;
+  }
+  return {
+    writePaths,
+    allowDependencyChanges: record.allowDependencyChanges as boolean,
+    validations,
+    allowFullSuite: record.allowFullSuite as boolean,
+    allowLocalChange: record.allowLocalChange as boolean,
+  };
+}
+
 function metadataPriority(value: unknown): number {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 4) return value;
   if (typeof value === "string" && /^[0-4]$/.test(value)) return Number(value);
@@ -111,6 +145,7 @@ function finalizeTask(task: MutableTask): PlanTask {
     notes: bulletValues(section(task, "notes")),
     priority: task.priority,
     type: task.type,
+    ...(task.execution === undefined ? {} : { execution: task.execution }),
     source: { startLine: task.startLine, endLine: task.endLine },
   };
 }
@@ -135,6 +170,15 @@ function validateTasks(tasks: PlanTask[], diagnostics: PlanDiagnostic[]): void {
     }
     if (task.validation.length === 0) {
       diagnostics.push({ level: "warning", code: "missing_validation", message: "Task has no validation steps.", line: task.source.startLine, taskId: task.id });
+    }
+    if (task.execution === undefined) {
+      diagnostics.push({
+        level: "error",
+        code: "missing_execution_contract",
+        message: "Task metadata must include a machine-readable execution contract before review can advance to approval.",
+        line: task.source.startLine,
+        taskId: task.id,
+      });
     }
     if (task.completionCriteria.length === 0) {
       diagnostics.push({ level: "error", code: "missing_completion_criteria", message: "Task must define completion criteria.", line: task.source.startLine, taskId: task.id });
@@ -240,6 +284,20 @@ export function parsePlanText(text: string, path = "PLAN.md"): ParsedPlan {
         }
         current.priority = metadataPriority(metadata.priority);
         current.type = metadataTaskType(metadata.type);
+        if (metadata.execution !== undefined) {
+          const execution = metadataExecution(metadata.execution);
+          if (execution === undefined) {
+            diagnostics.push({
+              level: "error",
+              code: "invalid_execution_contract",
+              message: "Task execution metadata must contain string arrays writePaths and validations plus explicit boolean allowDependencyChanges, allowFullSuite, and allowLocalChange fields.",
+              line: lineNumber,
+              taskId: current.id,
+            });
+          } else {
+            current.execution = execution;
+          }
+        }
       }
       continue;
     }

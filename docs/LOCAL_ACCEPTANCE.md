@@ -1,8 +1,8 @@
-# Local Acceptance Workflow — 0.14.0-alpha.5
+# Local Acceptance Workflow — 0.14.0-alpha.6
 
-This is the maintainer gate for the trusted plan-to-commit workflow. Deterministic acceptance is
-mandatory. Live external-provider acceptance is separate because it depends on installed tools and an
-interactive terminal.
+This is the maintainer gate for Atelier's trusted plan-to-commit workflow. The deterministic suite is
+mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
+and a terminal.
 
 ## Deterministic gate
 
@@ -13,61 +13,124 @@ npm run check
 npm pack --dry-run
 ```
 
-The deterministic suite covers:
+The suite covers trust, unconfined shell authorization, real-path confinement, structured task execution
+contracts, exact capability disclosure, exact approval and rejection, passive incomplete-task handling,
+stop/pause/resume/cancel control, typed model workflow tools, per-turn hard tool restrictions, accurate
+failure/interruption and per-operation path evidence, source-only freshness, scoped commits, idempotent
+Beads initialization, symbol-state convergence, validation staleness, exact diff review, restart,
+multi-repository drift, and package metadata.
 
-- external project trust, canonical repository-alias identity, and observational diagnostics;
-- adversarial shell classification and unconfined authorization;
-- symlink-safe typed path confinement;
-- exact plan/reconciliation/source/retrieval/capability approval;
-- rejection with zero provider mutation;
-- atomic task claim and capability installation;
-- mutation success/failure/interruption evidence;
-- required validation, staleness, final-diff review, local change, and clean closure;
-- Git staged/untracked evidence and explicit provider failure;
-- restart invalidation, legacy fail-closed migration, and cancellation;
-- real secondary-repository snapshots and drift invalidation;
-- isolated concurrent Pi sessions and awaited shutdown;
-- stable build/launcher/package metadata;
-- test-environment isolation from workstation Git signing, hooks, credential prompts, and pagers;
-- bounded test-file concurrency and fake-provider startup deadlines under aggregate process contention,
-  with preserved timeout diagnostics;
-- smoke cleanup after success, failure, and cancellation.
+Fixture conformance is deterministic evidence only. Do not describe it as a live external-provider run.
 
-The fake-provider fixture is deterministic evidence only. Do not describe it as a live Jujutsu, Beads,
-codesearch, or Pi/Bun result.
+## Persistent live workspace
 
-## Disposable live workspace
-
-Never perform the live gate in the primary checkout.
+Never perform the live gate in the primary checkout. Use a persistent clone so reboot does not destroy
+evidence.
 
 ```sh
-parent="$(mktemp -d -t atelier-live-acceptance.XXXXXX)"
-git clone --no-hardlinks . "$parent/atelier"
-cd "$parent/atelier"
+cd /path/to/atelier
+
+manual_root="$HOME/workspace/scratch/atelier-manual-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$manual_root"
+git clone --no-hardlinks . "$manual_root/repo"
+printf '%s\n' "$manual_root" > "$HOME/.atelier-manual-current"
+
+cat > "$manual_root/env.sh" <<EOF_ENV
+export ATELIER_MANUAL_ROOT="$manual_root"
+export ATLR_REPO="$manual_root/repo"
+export ATLR_STATE_HOME="$manual_root/state"
+export ATLR_TRUST_STORE="$manual_root/trusted-projects.json"
+export ATLR_USER_CONFIG="$manual_root/user-config.json"
+export VISUAL="\${VISUAL:-hx}"
+export EDITOR="\${EDITOR:-\$VISUAL}"
+
+atlr() {
+  node "\$ATLR_REPO/bin/atlr.mjs" "\$@"
+}
+EOF_ENV
+
+source "$manual_root/env.sh"
+cd "$ATLR_REPO"
 jj git init --colocate
 mise install
 mise run install
-npm run build
 ```
 
-Before trust, verify diagnostics are observational:
+Resume after reboot or in another terminal:
 
 ```sh
-atlr doctor
-atlr trust status
+manual_root="$(cat "$HOME/.atelier-manual-current")"
+source "$manual_root/env.sh"
+cd "$ATLR_REPO"
+jj status
 ```
 
-Review the project configuration, then trust and initialize:
+Record the source and tools:
 
 ```sh
-atlr trust add --yes
-atlr init --beads
-atlr config validate
+{
+  printf 'Repository: %s\n' "$ATLR_REPO"
+  printf 'HEAD: %s\n' "$(git rev-parse HEAD)"
+  printf 'Atelier: %s\n' "$(atlr --version)"
+  for tool in node jj bd codesearch pi; do
+    command -v "$tool" >/dev/null && printf '%-12s %s\n' "$tool" "$($tool --version 2>&1 | head -1)"
+  done
+} | tee "$ATELIER_MANUAL_ROOT/tool-versions.txt"
 ```
 
-If the validation manifest has no required check, configure one before continuing. For this repository:
+## 1. Observational diagnostics and trust
 
-```json
+Before trust:
+
+```sh
+find .atelier -type f -print 2>/dev/null | LC_ALL=C sort > "$ATELIER_MANUAL_ROOT/files-before-doctor.txt"
+atlr doctor | tee "$ATELIER_MANUAL_ROOT/doctor-before-trust.json"
+atlr trust status | tee "$ATELIER_MANUAL_ROOT/trust-before.json"
+find .atelier -type f -print 2>/dev/null | LC_ALL=C sort > "$ATELIER_MANUAL_ROOT/files-after-doctor.txt"
+diff -u "$ATELIER_MANUAL_ROOT/files-before-doctor.txt" "$ATELIER_MANUAL_ROOT/files-after-doctor.txt"
+test ! -e "$ATLR_STATE_HOME"
+```
+
+Pass conditions: `doctor` is observational, trust is false, configured providers are disabled, no new
+project file appears, and runtime state is absent.
+
+Launch Pi, verify `/trust` belongs to Pi and `/atelier-trust` belongs to Atelier, then approve
+`/atelier-trust`:
+
+```sh
+atlr launch
+```
+
+After exiting Pi:
+
+```sh
+atlr trust status | tee "$ATELIER_MANUAL_ROOT/trust-after.json"
+cp "$ATLR_TRUST_STORE" "$ATELIER_MANUAL_ROOT/trusted-projects-snapshot.json"
+cat "$ATELIER_MANUAL_ROOT/trusted-projects-snapshot.json"
+```
+
+Never pipe the trust store through `tee` to the same path; that truncates the authoritative file.
+
+## 2. Initialize and establish a clean baseline
+
+```sh
+atlr init --beads | tee "$ATELIER_MANUAL_ROOT/init.json"
+find .beads -type f -exec shasum -a 256 {} + | LC_ALL=C sort > "$ATELIER_MANUAL_ROOT/beads-before-second-init.sha256"
+atlr init --beads | tee "$ATELIER_MANUAL_ROOT/init-second.json"
+find .beads -type f -exec shasum -a 256 {} + | LC_ALL=C sort > "$ATELIER_MANUAL_ROOT/beads-after-second-init.sha256"
+diff -u "$ATELIER_MANUAL_ROOT/beads-before-second-init.sha256" "$ATELIER_MANUAL_ROOT/beads-after-second-init.sha256"
+bd where --json | tee "$ATELIER_MANUAL_ROOT/beads-where.json"
+bd list --json | tee "$ATELIER_MANUAL_ROOT/beads-before-plan.json"
+test "$(stat -f '%Lp' .beads 2>/dev/null || stat -c '%a' .beads)" = 700
+
+test ! -e .atelier/atelier.db
+find "$ATLR_STATE_HOME" -name atelier.db -print
+```
+
+Configure one small required validation:
+
+```sh
+cat > .atelier/validation.json <<'JSON'
 {
   "closurePolicy": {
     "requireValidation": true,
@@ -76,104 +139,255 @@ If the validation manifest has no required check, configure one before continuin
     "requireCleanGit": true
   },
   "validations": {
-    "acceptance": {
-      "command": ["npm", "run", "check"],
-      "category": "full",
-      "required": true
+    "manual-acceptance": {
+      "command": [
+        "node",
+        "--no-warnings",
+        "--experimental-strip-types",
+        "--import",
+        "./tests/test-environment.ts",
+        "--test",
+        "tests/version.test.ts"
+      ],
+      "category": "focused",
+      "focused": true,
+      "required": true,
+      "paths": [
+        "packages/core/src/version.ts",
+        "tests/version.test.ts"
+      ]
     }
   }
 }
+JSON
+
+atlr config validate --json | tee "$ATELIER_MANUAL_ROOT/config-validation.json"
+jj status
+jj diff --stat
 ```
 
-## Interactive Pi gate
+There must be no changes under `apps/`, `packages/`, or `tests/` yet. Commit setup separately:
 
 ```sh
-atlr launch
+jj commit -m "test: establish Atelier manual acceptance baseline"
+jj status
+jj log -r @- --no-graph -T 'commit_id ++ "\n"' > "$ATELIER_MANUAL_ROOT/setup-baseline-commit.txt"
 ```
 
-Verify startup reports no extension-command conflict. Pi owns `/trust`; Atelier exposes `/atelier-trust`
-for its separate external trust record. The non-interactive CLI remains `atlr trust ...`.
+## 3. Verify the shell boundary
 
-### 1. Plan and review
+These commands classify policy only; they do not execute the payload:
 
-Run `/plan <small objective>`, allow provider-first discovery, and verify raw inspection remains available
-as an advisory fallback rather than a routing denial. Planning may update only the designated plan
-through its typed plan path.
+```sh
+atlr policy command 'env rm -rf build'
+atlr policy command 'git tag v1.0.0'
+atlr policy command 'cat <(rm -rf build)'
+atlr policy command 'sed --in-place s/a/b/ src/file.ts'
+```
 
-Run `/review`, edit one structured plan field, save, and exit. Verify the durable `ManualEdit`, parser
-diagnostics, before/after hashes, structural changes, provider identity, reconciliation digest, source
-bindings, retrieval bindings, and proposed capability bundle.
+Every decision must require one-operation `command.execute` approval. Stop if any is authorized as a
+repository read or by a task capability.
 
-### 2. Reject, then approve
+## 4. Verify code intelligence
 
-Run `/approve` and reject once. Verify:
-
-- no provider mutation;
-- no task claim;
-- no execution or capability grants;
-- mode remains `plan`.
-
-Run `/approve` again and accept the unchanged exact transaction. Verify reconciliation converges, one
-approved-plan task is claimed, mode becomes `act`, and typed task capabilities are installed atomically.
-There should not be a second prompt for an ordinary typed in-root edit. Generic Bash must still request a
-single-operation approval and must be described as unconfined.
-
-### 3. Execute and record evidence
-
-Perform one typed source edit. Verify Working State records authorization, before/after snapshots,
-changed paths, and success/failure/interruption accurately. Test at least one denied symlink/out-of-root
-path. Do not use a denied operation to fabricate successful evidence.
-
-### 4. Commit, validate, review, close
-
-Create the local change:
+In Pi:
 
 ```text
-/commit feat: complete acceptance task
+/code-index
+/code-status
+/code-search Where is the authoritative task closure predicate implemented?
+/code-symbols AtelierCore
 ```
 
-Run:
+Pass conditions:
+
+- the index reaches `ready`;
+- the closure query returns relevant Core implementation paths;
+- an explicit human symbol request calls or reuses the symbol operation without requiring prior semantic
+  unresolved state;
+- `class AtelierCore` ranks first and points to `packages/core/src/core.ts`;
+- inventory records canonical `AtelierCore`, not `class AtelierCore` or `block (N lines)`;
+- `AtelierCore` is not simultaneously unresolved in the same repository scope;
+- provider detail is concise and search results do not contain empty preview lines.
+
+A separate unresolved marker in another repository scope is valid and must remain scope-qualified.
+
+## 5. Plan, review, reject, and approve
+
+In a fresh Pi session:
+
+```text
+/plan Add an exported ATELIER_PRODUCT_NAME constant with the value "Atelier" to packages/core/src/version.ts and add tests/version.test.ts verifying ATELIER_PRODUCT_NAME and ATELIER_VERSION. Do not change release metadata or any other behavior.
+```
+
+The plan should use one atomic task containing implementation and tests. Its task marker must contain this
+reviewable execution contract (formatting/order may differ):
+
+```json
+{
+  "writePaths": [
+    "packages/core/src/version.ts",
+    "tests/version.test.ts"
+  ],
+  "allowDependencyChanges": false,
+  "validations": ["manual-acceptance"],
+  "allowFullSuite": false,
+  "allowLocalChange": true
+}
+```
+
+Planning may change only `.atelier/PLAN.md`; Beads and product source must remain unchanged. Preparation
+must fail when the execution contract is removed or names an unknown validation.
+
+After automatic editor review, run `/status` and `/state`. Then run `/approve` and reject once. Verify
+`bd list --json`, `atlr status --json`, and `atlr permission list --json` show no task mutation, execution
+grant, or task capability.
+
+Run `/approve` again and inspect the unchanged transaction before accepting it. The dialog must disclose:
+
+- writes only to `packages/core/src/version.ts` and `tests/version.test.ts`;
+- dependencies not permitted;
+- focused validation `manual-acceptance`;
+- full suite not permitted;
+- one local change limited to the two reviewed paths;
+- task close only after the completion predicate;
+- generic shell, publication, external effects, and out-of-scope paths not permitted.
+
+Accept it. Verify exactly one Beads task is active and `atlr permission list --json` contains only
+`file.write`, named `validation.focused`, path-scoped `repository.change.create`, and `task.close`. It must
+not contain `dependency.modify`, `validation.full_suite`, `task.update`, `task.link`, or `command.execute`.
+
+## 6. Typed edits, denial, pause, and cancellation
+
+Tell the model:
+
+```text
+Implement the active task using only Pi's typed read, edit, and write tools. Do not use Bash, do not run validation, do not commit, and stop after the two approved source changes.
+```
+
+Pass conditions: only `packages/core/src/version.ts` and `tests/version.test.ts` change, typed in-root edits
+do not prompt, and the agent stops without validation.
+
+Then ask for one exact Bash command and deny it:
+
+```text
+Use Bash to run exactly: printf 'shell-boundary-ok\n'
+```
+
+During the implementation turn, any model attempt to use Bash, validation, commit, close, or autonomous
+continuation must be blocked before an approval dialog because that same user message prohibited it.
+After the model settles, the exact Bash request above is a new turn and may request one-operation
+approval; deny it. The command must not execute. After denial, Pi must become idle. Atelier may show
+one passive incomplete-task warning, but it must not enqueue another turn or return to an endless
+`Working...` loop. Pressing Escape must also end the current turn without forcing continuation.
+
+Exercise the distinct controls in a separate active turn:
+
+```text
+/atelier-stop
+/atelier-pause manual pause acceptance
+/atelier-resume
+/cancel manual user-control acceptance
+```
+
+Pass conditions: `/atelier-stop` aborts only the turn; `/atelier-pause` keeps the grant/task active but
+denies agent mutation; `/atelier-resume` restores mutation without starting a model turn; `/cancel` does
+not wait for idle, atomically records a cancelled workflow, revokes linked capabilities, preserves the
+open/in-progress Beads task, and preserves repository changes.
+
+Use a separate run for cancellation if the remaining closure workflow is also being tested.
+
+## 7. Typed validation, evidence, restart, and closure
+
+For a non-cancelled active run, verify premature closure fails and the reason says that no focused
+validation selection has been recorded rather than claiming no validation is configured.
+
+The model-facing paths are:
+
+```text
+Use atlr_state to report the authoritative current workflow state.
+Use atlr_validate to plan and run the focused validation.
+```
+
+The human path remains:
 
 ```text
 /validate plan
 /validate focused
 /evidence
+```
+
+Declared validation must not request generic Bash approval. A failed test is recorded as `failed`; only
+structured cancellation or the exact tool abort sentinel is `interrupted`.
+
+Edit source after a passing validation and verify evidence becomes stale. Quit and relaunch Pi while the
+task is active; approval, task, capabilities, changed paths, and next action must reconstruct without
+conversation history.
+
+Complete the task either through typed model tools or the human commands:
+
+```text
+Use atlr_commit with message "test: add manual Atelier product-name acceptance".
+Use atlr_validate to rerun the focused validation.
+```
+
+```text
+/evidence
 /review-diff
-/close completed and verified
+Use atlr_task_close with reason "completed and verified".
 ```
 
-Verify `/review-diff` corresponds to the exact approved baseline diff. Task closure must fail before all
-required evidence exists and succeed only when validation is current, the exact diff is reviewed, a local
-commit/change exists, and configured repository cleanliness holds.
+Inspect the raw VCS change before closure. `.atelier/PLAN.md`, Beads/provider metadata, and unrelated
+pre-staged paths must not be part of the task commit/change. Mutation evidence for the source edit must
+attribute only the path changed by that operation, not every path that was already dirty. Workflow
+metadata-only edits must not stale source retrieval/validation evidence.
 
-Change source after validation or diff review and verify the relevant evidence becomes stale before
-closure.
+Closure succeeds only when validation is current, the exact baseline diff was reviewed, a path-scoped
+local commit/change exists, and configured cleanliness holds. After closure, execution-linked capabilities are
+revoked and no later task starts automatically.
 
-### 5. Restart and cancellation
+## 8. Optional boundary tests
 
-Quit and relaunch Pi while a task is active. Verify task, approval, capability grants, mutation evidence,
-validation freshness, repository bindings, and next action reconstruct without conversation history.
+In separate disposable runs, test:
 
-Run `/cancel <reason>` and verify execution-linked capabilities are revoked without changing task status or
-repository content. Later approved-plan work must require explicit `/execute [task-id]` confirmation.
+- absolute typed writes outside the trusted root;
+- typed writes through a symlink escaping the root;
+- secondary-repository drift after exact approval;
+- cancellation followed by explicit `/execute TASK_ID` recovery.
 
-### 6. Multi-repository gate
+Every exceptional write requires separate approval or denial. Secondary drift must fail resume closed.
 
-Create a second disposable repository, approve it with:
+## Evidence report
 
-```sh
-atlr trust workspace add /path/to/secondary --yes
+Record each item as `PASS`, `FAIL`, or `STOP`:
+
+```text
+Version and clean source
+Persistent workspace and reboot resume
+Pre-trust doctor observational
+Atelier/Pi trust separation
+External runtime database
+Beads 0700 directory and idempotent initialization
+Generic shell boundary
+Code index and semantic search
+Explicit human symbol lookup
+Canonical scoped symbol inventory
+Plan-mode source protection
+Approval rejection zero-mutation
+Exact execution contract and capability disclosure
+Exact approval and narrow typed capabilities
+Typed edits without extra prompt
+Per-turn no-Bash policy
+Denied operation leaves agent idle
+Stop/pause/resume/cancel while active
+Typed state/validation/commit/close tools
+Failure versus interruption evidence
+Per-operation changed-path attribution
+Source-only freshness across workflow metadata
+Path-scoped commit excludes workflow metadata
+Restart reconstruction
+Validation staleness
+Exact diff review
+Authoritative closure
+Permission revocation after closure
 ```
-
-Add it to `.atelier/workspace.json`. Verify both roots show real revisions. Mutate the secondary root and
-verify active execution or resume fails closed rather than reusing old evidence.
-
-## Live conformance workflow
-
-`.github/workflows/live-conformance.yml` separates:
-
-- public-tool Jujutsu and codesearch checks;
-- self-hosted Beads and Pi/Bun checks.
-
-Record exact tool versions, operating system, commit/tag, and command output. An unavailable integration
-is “not run,” not a pass. Remove the disposable workspace after evidence is captured.

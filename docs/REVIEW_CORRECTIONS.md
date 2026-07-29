@@ -1,7 +1,7 @@
-# Review Corrections — Atelier 0.14.0-alpha.5
+# Review Corrections — Atelier 0.14.0-alpha.6
 
 This document maps each recommendation from the critical review of commit `286e2bc14edb` to the
-0.14.0-alpha.5 implementation. The release remains a trusted-repository alpha. “Corrected” means the
+0.14.0-alpha.6 implementation. The release remains a trusted-repository alpha. “Corrected” means the
 specific unsound claim or behavior was removed, constrained, or made fail-closed; it does not mean that
 Atelier now supplies an operating-system sandbox.
 
@@ -80,21 +80,27 @@ escapes.
 
 **Status:** Corrected.
 
-Exact approval hashes a typed capability bundle. Approval atomically installs task-bound grants for only
-the declared routine operations. Generic shell is excluded. Capability integrity is rechecked during
-resume.
+Every executable task now includes a machine-readable execution contract. Exact approval derives and
+hashes only its reviewed paths, named validations, optional dependency/full-suite authority, optional
+path-scoped local change, and closure capability. The approval surface displays the projection before
+mutation. Generic shell and typed operations without a reachable model/UI tool are excluded. Capability
+integrity is rechecked during resume.
 
-**Implementation:** `packages/core/src/workflow/execution-baseline.ts`,
-`packages/core/src/workflow/execution-workflow-coordinator.ts`, `packages/core/src/ledger/sqlite-ledger.ts`.
+**Implementation:** `packages/core/src/planning/task-execution-scope.ts`,
+`packages/core/src/workflow/execution-baseline.ts`,
+`packages/core/src/workflow/execution-workflow-coordinator.ts`, `packages/core/src/ledger/sqlite-ledger.ts`,
+and `packages/core/src/workflow/capability-summary.ts`.
 
-**Verification:** execution workflow and acceptance tests prove atomic installation and fail-closed resume.
+**Verification:** `tests/manual-acceptance-corrections.test.ts`, execution workflow tests, and acceptance
+tests prove narrow derivation, visible disclosure, atomic installation, and fail-closed resume.
 
 ## Recommendation 8 — Make the Pi prompt truthful
 
 **Status:** Corrected.
 
-The injected prompt now distinguishes typed task capabilities from unconfined shell approval and describes
-provider-first retrieval as advisory rather than mandatory.
+The injected prompt distinguishes typed task capabilities from unconfined shell approval, describes
+provider-first retrieval as advisory, states that authorization does not override the user's latest
+constraints, and directs declared model validation through `atlr_validate` rather than Bash.
 
 **Implementation:** `apps/pi-extension/src/index.ts`.
 
@@ -117,8 +123,10 @@ external workspace-root approval.
 **Status:** Corrected.
 
 Plan approval records the primary source snapshot, all repository revision bindings, and retrieval
-provider/index bindings. Preparation and resume revalidate them. Secondary drift invalidates execution;
-primary drift is accepted only as observable task work with a reachable approved baseline.
+provider/index bindings. Raw VCS identity remains diagnostic, while a source base/fingerprint excludes
+Atelier, Beads, and provider metadata. Preparation and resume revalidate source bindings. Secondary source
+drift invalidates execution; primary source drift is accepted only as observable task work with a
+reachable approved baseline.
 
 **Implementation:** `packages/core/src/repository/revision-binding.ts`,
 `packages/core/src/workflow/execution-baseline.ts`, `ExecutionWorkflowCoordinator`.
@@ -132,7 +140,8 @@ primary drift is accepted only as observable task work with a reachable approved
 `taskClosureReadiness()` is authoritative for CLI, Pi, Working State, and task closure. It evaluates
 current required validation, exact final-diff review, local commit/change creation, and configured clean
 state. `repo review-diff` displays and hashes the exact baseline diff before recording review; a changed
-hash is rejected.
+hash is rejected. The predicate blocks closure only: an incomplete task can remain active and idle, and
+`agent_settled` emits a passive deduplicated notice instead of scheduling another model turn.
 
 **Implementation:** `packages/core/src/core.ts`, `packages/core/src/validation/validation-service.ts`.
 
@@ -143,7 +152,8 @@ hash is rejected.
 **Status:** Corrected.
 
 When closure requires validation, both configuration validation and task closure fail if no applicable
-validation is marked `required: true`.
+validation is marked `required: true`. Readiness distinguishes an absent focused selection, a selection
+that matches no required check, and missing required configuration.
 
 **Implementation:** `AtelierCore.validateConfiguration()` and `ValidationService.closureReadiness()`.
 
@@ -275,7 +285,8 @@ workspace-root trust, and exact resume invalidation.
 **Status:** Corrected.
 
 Duplicate ADR identifiers were renumbered to 0020–0023; current trust, capabilities, completion, and
-workspace-binding decisions are ADR-0024–0027. Superseded ADRs are marked. Release metadata checks reject
+workspace-binding decisions are ADR-0024–0027, user-control/typed-validation behavior is ADR-0028, and
+exact task scope/source isolation is ADR-0029. Superseded ADRs are marked. Release metadata checks reject
 duplicate identifiers or mismatched headings.
 
 ## Recommendation 26 — Use one version source and create a release tag
@@ -284,7 +295,7 @@ duplicate identifiers or mismatched headings.
 
 `ATELIER_VERSION` is the runtime source used by CLI and provider clients; package, lockfile, changelog,
 README, and build metadata are checked against it. The bundle contains an annotated
-`v0.14.0-alpha.5` tag.
+`v0.14.0-alpha.6` tag.
 
 **Implementation:** `packages/core/src/version.ts`, `scripts/check-release-metadata.ts`.
 
@@ -317,3 +328,12 @@ release gate is the trusted plan-to-commit workflow, exact authorization, restar
 and evidence. Future IDE surfaces must consume these boundaries rather than bypass them.
 
 **Documentation:** README, architecture, implementation plan, and this traceability document.
+
+
+## Alpha.6 manual-acceptance corrections
+
+The complete live alpha.5 evidence exposed additional user-control, static over-authorization, capability
+disclosure, typed-tool reachability, cancellation lifecycle, execution-evidence, source-freshness, scoped
+commit, Beads-idempotency, code-intelligence, and acceptance-procedure defects. Their evidence, 22
+corrections, non-findings, and retained passes are documented in
+`docs/MANUAL_ACCEPTANCE_CORRECTIONS.md`.

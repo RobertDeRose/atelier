@@ -26,7 +26,7 @@ const query: CanonicalRetrievalQuery = {
     indexRevision: "index-1",
     repositories: [{
       repositoryId: "repo", snapshotRepositoryId: "repo", workspaceId: "workspace", vcs: "git",
-      headCommit: "commit-1", dirtyGeneration: 0, dirtyFingerprint: "clean", indexSchemaVersion: 1,
+      headCommit: "commit-1", sourceBaseCommit: "commit-1", sourceFingerprint: "clean", dirtyGeneration: 0, dirtyFingerprint: "clean", indexSchemaVersion: 1,
     }],
   },
   requestedLimit: 5,
@@ -142,7 +142,7 @@ test("version-two ledgers migrate retrieval inventory in place without altering 
     assert.equal((reopened.database.prepare("SELECT COUNT(*) AS count FROM manual_edits").get() as { count: number }).count, 1);
     assert.equal((reopened.database.prepare("SELECT COUNT(*) AS count FROM validation_evidence").get() as { count: number }).count, 1);
     const versions = reopened.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ version: number }>;
-    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8]);
     reopened.saveRetrievalCheckpoint(checkpoint("session-a", "2026-01-01T00:00:00.000Z"), persistenceLimits);
     assert.equal(reopened.loadRetrievalCheckpoint("session-a")?.evidence.length, 1);
   } finally {

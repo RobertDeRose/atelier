@@ -12,11 +12,13 @@ import {
   bindingDifference,
   boundedLimit,
   cacheFreshness,
+  canonicalSymbolIdentifier,
   chunkKey,
   compactHitValue,
   compactProvenance,
   compactRelationshipValue,
   createInvalidation,
+  emptyTelemetry,
   errorMessage,
   identifierCandidates,
   inventoryPathKey,
@@ -36,9 +38,12 @@ import {
   selectedRepositories,
   statusAllowsReuse,
   symbolKey,
+  symbolResolvesIdentifier,
   truncateUtf8,
   uniqueBindings,
   uniqueProvenance,
+  validateLimits,
+  validatePersistenceLimits,
 } from "./service-support.ts";
 import type {
   CachedQueryCoverage,
@@ -70,26 +75,8 @@ import type {
   CodeWorkspace,
 } from "./types.ts";
 
-export interface CodeIndexCoordinatorStatus {
-  state: CodeIndexState;
-  active: boolean;
-  provider?: string;
-  workspaceId?: string;
-  startedAt?: string;
-  completedAt?: string;
-  error?: string;
-}
-
-export interface CodeServiceLimits {
-  maxResults: number;
-  maxPreviewBytes: number;
-  maxChunkBytes: number;
-  maxFetches: number;
-  maxTotalBytes: number;
-  maxProviderRequests: number;
-  maxUniquePaths: number;
-  maxEvidenceEntries: number;
-}
+export type { CodeIndexCoordinatorStatus, CodeServiceLimits } from "./service-types.ts";
+import type { CodeIndexCoordinatorStatus, CodeServiceLimits } from "./service-types.ts";
 
 interface CachedHitQuery extends CachedQueryCoverage {
   requestDigest: string;
@@ -254,6 +241,23 @@ export class CodeService {
       : activeHits.every((hit) => hit.provenance.freshness === undefined || hit.provenance.freshness === "current")
         ? "current" as const
         : "possibly_stale" as const;
+    const unresolvedSymbolScopes = [...this.unresolvedSymbolKeys].flatMap((key) => {
+      const separator = key.lastIndexOf("\0");
+      if (separator < 0) return [];
+      const bindingKey = key.slice(0, separator);
+      const symbol = key.slice(separator + 1);
+      const resolved = [...this.inventoryHits.values()].some((entry) =>
+        symbolResolvesIdentifier(entry.hit.symbol, symbol)
+        && [...entry.sourceDigests].some((digest) => {
+          const cached = this.hitQueries.get(digest);
+          return cached !== undefined && retrievalBindingKey(cached.query) === bindingKey;
+        }));
+      if (resolved) return [];
+      try {
+        const binding = JSON.parse(bindingKey) as CanonicalRetrievalQuery["binding"];
+        return [{ workspaceId: binding.workspaceId, repositoryIds: binding.repositories.map((repository) => repository.repositoryId), symbol }];
+      } catch { return []; }
+    });
     return {
       sessionId: this.sessionId,
       ...(this.lastDecision === undefined ? {} : { lastDecision: { ...this.lastDecision } }),
@@ -278,8 +282,11 @@ export class CodeService {
           && cached.freshness === "current"),
         evidenceCount: this.evidenceEntryKeys.size,
         uniquePathCount: this.pathKeys.size,
-        resolvedSymbols: [...new Set(activeHits.flatMap((hit) => hit.symbol === undefined ? [] : [hit.symbol]))].sort(),
-        unresolvedSymbols: [...new Set([...this.unresolvedSymbolKeys].map((key) => key.slice(key.lastIndexOf("\0") + 1)))].sort(),
+        resolvedSymbols: [...new Set(activeHits.flatMap((hit) => {
+          const symbol = canonicalSymbolIdentifier(hit.symbol);
+          return symbol === undefined ? [] : [symbol];
+        }))].sort(),
+        unresolvedSymbols: [...new Set(unresolvedSymbolScopes.map((item) => item.symbol))].sort(),
         knownPaths: [...new Set(activeHits.map((hit) => hit.path))].sort(),
         freshness,
         budget,
@@ -299,20 +306,7 @@ export class CodeService {
           && !cached.degraded
           && cached.freshness === "current")
         .map((cached) => cached.query.binding)),
-      unresolvedSymbolScopes: [...this.unresolvedSymbolKeys].flatMap((key) => {
-        const separator = key.lastIndexOf("\0");
-        if (separator < 0) return [];
-        try {
-          const binding = JSON.parse(key.slice(0, separator)) as CanonicalRetrievalQuery["binding"];
-          return [{
-            workspaceId: binding.workspaceId,
-            repositoryIds: binding.repositories.map((repository) => repository.repositoryId),
-            symbol: key.slice(separator + 1),
-          }];
-        } catch {
-          return [];
-        }
-      }),
+      unresolvedSymbolScopes,
     };
   }
 
@@ -516,6 +510,7 @@ export class CodeService {
     repositoryIds?: string[];
     limit?: number;
     provider?: string;
+    requireUnresolved?: boolean;
   }): Promise<CodeSearchHit[]> {
     await this.waitForActiveIndex();
     const selected = this.registry.get(options.provider);
@@ -549,19 +544,27 @@ export class CodeService {
       throw new Error(reason);
     }
     const reusable = this.reuseHits(query, status);
-    if (reusable !== undefined) return this.returnHits(reusable, query, this.lastDecision!);
+    if (reusable !== undefined) {
+      this.updateSymbolResolution(query, reusable, [query.normalizedText]);
+      this.persistCheckpoint();
+      return this.returnHits(this.rankSymbolHits(reusable, query.normalizedText), query, this.lastDecision!);
+    }
     const resolved = statusAllowsReuse(status)
-      ? this.currentInventoryHits(query, (hit) => hit.symbol === query.normalizedText)
+      ? this.currentInventoryHits(query, (hit) => symbolResolvesIdentifier(hit.symbol, query.normalizedText))
       : [];
     if (resolved.length > 0) {
       this.telemetry.overlapReuses += 1;
       this.lastDecision = { kind: "overlap_reuse", reason: "current scoped inventory already resolves this identifier; no symbol provider call is needed" };
-      this.cacheHitQuery(query, resolved, true, false, false, cacheFreshness(status));
-      return this.returnHits(resolved, query, this.lastDecision);
+      this.updateSymbolResolution(query, resolved, [query.normalizedText]);
+      const ranked = this.rankSymbolHits(resolved, query.normalizedText);
+      this.cacheHitQuery(query, ranked, true, false, false, cacheFreshness(status));
+      this.persistCheckpoint();
+      return this.returnHits(ranked, query, this.lastDecision);
     }
     const unresolvedKey = scopedSymbolKey(query, query.normalizedText);
     const discoveryComplete = this.semanticDiscoveryComplete(query);
-    if (!discoveryComplete || !this.unresolvedSymbolKeys.has(unresolvedKey)) {
+    if (options.requireUnresolved !== false
+      && (!discoveryComplete || !this.unresolvedSymbolKeys.has(unresolvedKey))) {
       this.lastDecision = {
         kind: "no_provider_call",
         reason: discoveryComplete
@@ -599,7 +602,8 @@ export class CodeService {
       throw error;
     }
     const degraded = results.some((hit) => hit.provenance.degraded === true);
-    const bounded = this.ingestHits(query, options.workspace, results.slice(0, limit), results.length > limit);
+    const rankedResults = this.rankSymbolHits(results, query.normalizedText);
+    const bounded = this.ingestHits(query, options.workspace, rankedResults.slice(0, limit), rankedResults.length > limit);
     this.updateSymbolResolution(query, bounded.hits, [query.normalizedText]);
     this.cacheHitQuery(query, bounded.hits, !bounded.truncated, bounded.truncated, degraded, cacheFreshness(status));
     const output = this.returnHits(bounded.hits, query, this.lastDecision!);
@@ -920,9 +924,14 @@ export class CodeService {
       const bounded = previous === undefined ? this.boundHitPreview(hit) : { hit, truncated: false };
       truncated ||= bounded.truncated;
       if (bounded.truncated) this.noteTruncation("evidence_byte_budget_truncated", `Preview bytes were truncated for ${hit.repositoryId}:${hit.path}.`, query.digest);
+      const previousHasCurrentSource = previous?.sourceDigests.has(query.digest)
+        || [...(previous?.sourceDigests ?? [])].some((digest) => {
+          const source = this.hitQueries.get(digest);
+          return source !== undefined && sameBinding(source.query, query);
+        });
       const merged = previous === undefined
         ? bounded.hit
-        : previous.sourceDigests.has(query.digest)
+        : previousHasCurrentSource && this.preferredInventoryHit(previous.hit, bounded.hit, query) === previous.hit
           ? mergeHits(previous.hit, bounded.hit, query.digest)
           : mergeHits(bounded.hit, previous.hit, query.digest);
       const sources = previous?.sourceDigests ?? new Set<string>();
@@ -937,6 +946,40 @@ export class CodeService {
       hits: [...output.values()].slice(0, query.requestedLimit).map((hit, index) => ({ ...hit, rank: index + 1 })),
       truncated,
     };
+  }
+
+
+  private preferredInventoryHit(
+    current: CodeSearchHit,
+    candidate: CodeSearchHit,
+    query: CanonicalRetrievalQuery,
+  ): CodeSearchHit {
+    const currentRevisionIdentity = JSON.stringify([
+      current.provenance.provider,
+      current.provenance.indexedRevision,
+      current.provenance.currentRevision,
+    ]);
+    const candidateRevisionIdentity = JSON.stringify([
+      candidate.provenance.provider,
+      candidate.provenance.indexedRevision,
+      candidate.provenance.currentRevision,
+    ]);
+    // A fresh provider result must become the primary evidence after repository,
+    // provider, or index drift. Older provenance remains an observation only.
+    if (candidateRevisionIdentity !== currentRevisionIdentity) return candidate;
+    const identifiers = identifierCandidates(query.normalizedText, query.filters.literalHints);
+    const priority = (hit: CodeSearchHit): number => {
+      const symbol = canonicalSymbolIdentifier(hit.symbol);
+      if (symbol !== undefined && identifiers.includes(symbol)) return 0;
+      if (symbol !== undefined) return 1;
+      return 2;
+    };
+    const currentPriority = priority(current);
+    const candidatePriority = priority(candidate);
+    if (candidatePriority !== currentPriority) return candidatePriority < currentPriority ? candidate : current;
+    const currentRank = current.providerRank ?? current.rank;
+    const candidateRank = candidate.providerRank ?? candidate.rank;
+    return candidateRank < currentRank ? candidate : current;
   }
 
   private boundHitPreview(hit: CodeSearchHit): { hit: CodeSearchHit; truncated: boolean } {
@@ -1132,14 +1175,28 @@ export class CodeService {
     hits: CodeSearchHit[],
     explicitIdentifiers: string[] | undefined,
   ): void {
-    const resolved = new Set(hits.flatMap((hit) => hit.symbol === undefined ? [] : [hit.symbol]));
     const candidates = identifierCandidates(query.normalizedText, explicitIdentifiers);
-    for (const symbol of resolved) this.unresolvedSymbolKeys.delete(scopedSymbolKey(query, symbol));
     for (const candidate of candidates) {
       const key = scopedSymbolKey(query, candidate);
-      if (resolved.has(candidate)) this.unresolvedSymbolKeys.delete(key);
-      else this.unresolvedSymbolKeys.add(key);
+      if (hits.some((hit) => symbolResolvesIdentifier(hit.symbol, candidate))) {
+        this.unresolvedSymbolKeys.delete(key);
+      } else {
+        this.unresolvedSymbolKeys.add(key);
+      }
     }
+  }
+
+  private rankSymbolHits(hits: CodeSearchHit[], identifier: string): CodeSearchHit[] {
+    return [...hits]
+      .map((hit, index) => ({ hit, index }))
+      .sort((left, right) => {
+        const leftExact = symbolResolvesIdentifier(left.hit.symbol, identifier) ? 0 : 1;
+        const rightExact = symbolResolvesIdentifier(right.hit.symbol, identifier) ? 0 : 1;
+        return leftExact - rightExact
+          || (left.hit.providerRank ?? left.hit.rank) - (right.hit.providerRank ?? right.hit.rank)
+          || left.index - right.index;
+      })
+      .map(({ hit }, index) => ({ ...hit, rank: index + 1 }));
   }
 
   private compactEvidence(): PersistedRetrievalEvidence[] {
@@ -1333,34 +1390,5 @@ export class CodeService {
   private setIndexStatus(status: CodeIndexCoordinatorStatus): void {
     this.indexStatus = status;
     for (const listener of this.indexListeners) listener(this.indexingStatus());
-  }
-}
-
-function emptyTelemetry(): RetrievalTelemetry {
-  return {
-    providerCalls: 0,
-    cacheHits: 0,
-    overlapReuses: 0,
-    uniquePaths: 0,
-    duplicateResultsRemoved: 0,
-    duplicatePathsRemoved: 0,
-    duplicateSymbolsRemoved: 0,
-    duplicateChunksRemoved: 0,
-    duplicateReferencesRemoved: 0,
-    bytesReturned: 0,
-    truncated: false,
-    invalidations: 0,
-  };
-}
-
-function validateLimits(limits: CodeServiceLimits): void {
-  for (const [name, value] of Object.entries(limits)) {
-    if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
-  }
-}
-
-function validatePersistenceLimits(limits: RetrievalPersistenceLimits): void {
-  for (const [name, value] of Object.entries(limits)) {
-    if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
   }
 }

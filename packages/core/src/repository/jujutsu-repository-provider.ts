@@ -45,6 +45,22 @@ function lines(value: string): string[] {
   return value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
+function contentState(root: string, paths: string[], hashContents: boolean): string {
+  return paths.map((path) => {
+    const absolute = resolve(root, path);
+    if (!existsSync(absolute)) return `${path}:deleted`;
+    try {
+      const stat = statSync(absolute);
+      if (!stat.isFile()) return `${path}:non-file:${stat.size}:${stat.mtimeMs}`;
+      return hashContents
+        ? `${path}:${stat.size}:${sha256(readFileSync(absolute))}`
+        : `${path}:${stat.size}:${stat.mtimeMs}`;
+    } catch {
+      return `${path}:unreadable`;
+    }
+  }).join("\0");
+}
+
 
 export class JujutsuRepositoryProvider implements RepositoryProvider {
   readonly name = "jj" as const;
@@ -89,39 +105,41 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
       "-T", 'change_id ++ "\\n" ++ commit_id ++ "\\n"',
     ], "change identity observation");
     const [changeId = "unknown", commitId = "unknown"] = lines(identity.stdout);
+    const parent = required(this.executable, root, [
+      "log", "-r", "@-", "--no-graph", "--color", "never", "-T", 'commit_id ++ "\n"',
+    ], "source-base observation");
+    const sourceBaseCommit = lines(parent.stdout)[0] ?? "unborn";
     const operation = required(this.executable, root, [
       "op", "log", "--limit", "1", "--no-graph", "--color", "never", "-T", 'id ++ "\\n"',
     ], "operation identity observation");
     const operationId = lines(operation.stdout)[0] ?? "unknown";
-    // Operation-log churn and workflow metadata are not source drift.
-    const changed = this.changedPaths();
-    const contentState = changed.map((path) => {
-      const absolute = resolve(root, path);
-      if (!existsSync(absolute)) return `${path}:deleted`;
-      try {
-        const stat = statSync(absolute);
-        return stat.isFile() ? `${path}:${stat.size}:${sha256(readFileSync(absolute))}` : `${path}:non-file`;
-      } catch {
-        return `${path}:unreadable`;
-      }
-    }).join("\0");
-    const fingerprint = sha256(`${changeId}\0${commitId}\0${changed.join("\0")}\0${contentState}`);
+    // Raw VCS identity records workflow/provider metadata and operation-log
+    // churn for diagnostics. Source identity deliberately excludes it.
+    const rawChanged = this.rawChangedPaths();
+    const sourceChanged = rawChanged.filter(isSourcePath);
+    const sourceFingerprint = sha256(
+      `${sourceBaseCommit}\0${sourceChanged.join("\0")}\0${contentState(root, sourceChanged, true)}`,
+    );
+    const rawFingerprint = sha256(
+      `${commitId}\0${changeId}\0${operationId}\0${rawChanged.join("\0")}\0${sourceFingerprint}\0${contentState(root, rawChanged, false)}`,
+    );
     return {
       repositoryId: `jj:${sha256(root).slice(0, 24)}`,
       workspaceId: sha256(workspaceRoot || root).slice(0, 16),
       vcs: "jj",
       headCommit: commitId,
+      sourceBaseCommit,
+      sourceFingerprint,
       changeId,
       operationId,
-      dirtyGeneration: this.dirtyGeneration(fingerprint),
-      dirtyFingerprint: fingerprint,
+      dirtyGeneration: this.dirtyGeneration(rawFingerprint),
+      dirtyFingerprint: rawFingerprint,
       indexSchemaVersion: this.indexSchemaVersion,
     };
   }
 
   changedPaths(): string[] {
-    const result = required(this.executable, this.cwd, ["diff", "--name-only", "--color", "never"], "changed-path observation");
-    return lines(result.stdout).filter(isSourcePath).sort();
+    return this.rawChangedPaths().filter(isSourcePath);
   }
 
   changedPathsFrom(reference: string): string[] {
@@ -148,13 +166,17 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     return lines(result.stdout).filter(isSourcePath).sort();
   }
 
-  commit(message: string): RepositoryCommitResult {
+  commit(message: string, paths?: string[]): RepositoryCommitResult {
     const normalized = message.trim();
     if (!normalized) throw new Error("Change description cannot be empty.");
-    const changed = this.changedPaths();
-    if (changed.length === 0) throw new Error("No Jujutsu changes are available to finalize.");
-    required(this.executable, this.cwd, ["describe", "-m", normalized], "change description");
-    required(this.executable, this.cwd, ["new"], "new working-copy change creation");
+    const changed = (paths ?? this.changedPaths()).filter(isSourcePath);
+    if (changed.length === 0) throw new Error("No Jujutsu source changes are available to finalize.");
+    if (paths === undefined) {
+      required(this.executable, this.cwd, ["describe", "-m", normalized], "change description");
+      required(this.executable, this.cwd, ["new"], "new working-copy change creation");
+    } else {
+      required(this.executable, this.cwd, ["commit", "-m", normalized, "--", ...changed], "scoped task change creation");
+    }
     return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };
   }
 
@@ -168,5 +190,10 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     const generation = state.generation + 1;
     this.ledger.setState(this.stateKey, { fingerprint, generation });
     return generation;
+  }
+
+  private rawChangedPaths(): string[] {
+    const result = required(this.executable, this.cwd, ["diff", "--name-only", "--color", "never"], "changed-path observation");
+    return lines(result.stdout).sort();
   }
 }

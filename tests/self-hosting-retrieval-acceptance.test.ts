@@ -8,6 +8,7 @@ import {
   InMemoryTaskProvider,
   SqliteLedger,
   WorkingStateBuilder,
+  sourceRevisionIdentity,
   type CodeProvider,
   type CodeProviderStatus,
   type CodeSearchHit,
@@ -114,8 +115,8 @@ class SelfHostingProvider implements CodeProvider {
         query: query.text,
         retrievedAt: "2026-07-27T00:00:00.000Z",
         indexState: "ready",
-        indexedRevision: `${repository.snapshot.dirtyFingerprint}:${this.indexRevision}`,
-        currentRevision: `${repository.snapshot.dirtyFingerprint}:${this.indexRevision}`,
+        indexedRevision: `${sourceRevisionIdentity(repository.snapshot)}:${this.indexRevision}`,
+        currentRevision: `${sourceRevisionIdentity(repository.snapshot)}:${this.indexRevision}`,
         requestedFilters: {},
         enforcedFilters: [],
         postProcessing: [],
@@ -247,7 +248,7 @@ test("self-hosting planning stays within eight intelligence calls without stale 
     assert.equal(code.retrievalStatus().lastDecision?.kind, "invalidated");
     assert.ok(code.retrievalStatus().evidence.every((item) => item.provenance.every((entry) =>
       entry.repositoryId !== "atelier"
-      || entry.currentRevision?.startsWith("dirty-2:") === true
+      || entry.currentRevision?.includes(":dirty-2:") === true
       || entry.freshness !== "current")));
 
     provider.indexRevision = "index-2";

@@ -31,7 +31,7 @@ export function resolveAccessPath(path: string, access: PathAccess = "read", bas
 export function isPathWithin(path: string, allowedRoot: string, access: PathAccess = "read", base = process.cwd()): boolean {
   try {
     const candidate = resolveAccessPath(path, access, base);
-    const allowed = resolveAccessPath(allowedRoot, "read", base);
+    const allowed = resolveAccessPath(allowedRoot, access, base);
     const relationship = relative(allowed, candidate);
     return relationship === "" || (!relationship.startsWith("..") && !isAbsolute(relationship));
   } catch {

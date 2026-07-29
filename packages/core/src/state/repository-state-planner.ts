@@ -33,6 +33,7 @@ export interface RepositoryStatePlan {
 export interface RepositoryStateEvidence {
   semanticDiscoveryComplete: boolean;
   resolvedIdentifiers: string[];
+  unresolvedIdentifiers?: string[];
   knownPaths: string[];
 }
 
@@ -103,8 +104,10 @@ export class RepositoryStatePlanner {
       );
     } else if (request.evidence?.semanticDiscoveryComplete === true && semanticText !== undefined) {
       const resolved = new Set(request.evidence.resolvedIdentifiers);
+      const explicitlyUnresolved = new Set(request.evidence.unresolvedIdentifiers ?? []);
       const identifiers = extractLiteralHints(semanticText)
-        .filter((hint) => !isPathHint(hint) && !resolved.has(hint));
+        .filter((hint) => !isPathHint(hint) && isExactSymbolHint(hint) && !resolved.has(hint))
+        .filter((hint) => request.evidence?.unresolvedIdentifiers === undefined || explicitlyUnresolved.has(hint));
       for (const identifier of identifiers.slice(0, maximumQueries)) {
         const primary = searchableSources.find((source) => extractLiteralHints(source.text).includes(identifier))
           ?? searchableSources[0]!;
@@ -184,7 +187,11 @@ export function extractLiteralHints(text: string, maximum = 8): string[] {
     hints.push(normalized);
   };
 
-  for (const match of text.matchAll(/`([^`]+)`/g)) add(match[1] ?? "");
+  for (const match of text.matchAll(/`([^`]+)`/g)) {
+    const value = match[1]?.trim() ?? "";
+    if (isDirectReadPath(value) || value.includes("/")) add(value);
+    else for (const token of value.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []) add(token);
+  }
   for (const token of text.match(/[A-Za-z0-9_./:@-]+/g) ?? []) {
     const codeShaped = token.includes("/")
       || token.includes(".")
@@ -205,6 +212,11 @@ function extractKnownPaths(text: string): string[] {
 function isDirectReadPath(value: string): boolean {
   const name = normalizePath(value).split("/").at(-1) ?? value;
   return /\.[A-Za-z0-9]{1,8}$/.test(name);
+}
+
+function isExactSymbolHint(value: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value)
+    && (value.includes("_") || value.includes("$") || /[a-z0-9][A-Z]/.test(value));
 }
 
 function isPathHint(value: string): boolean {

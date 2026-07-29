@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.5**.
+Current release: **0.14.0-alpha.6**.
 
 ## Current status
 
@@ -123,6 +123,16 @@ redirect the ledger or caches. Legacy `.atelier/*.db` files are ignored, but `.a
 
 ## Exact plan-to-task workflow
 
+Every approvable task includes a structured execution contract in its `atlr:task` marker. For example:
+
+```markdown
+<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["src/example.ts","tests/example.test.ts"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
+```
+
+Free-form Scope and Out-of-scope sections remain human context; the `execution` object is the authorization
+source. Missing, unknown, inconsistent, absolute, out-of-root, or non-source entries fail preparation. See
+`docs/PLAN_FORMAT.md` for the complete contract.
+
 A normal CLI workflow is:
 
 ```sh
@@ -159,14 +169,21 @@ Cancellation revokes the active execution and linked permissions without silentl
 atlr cancel --reason "why execution stopped"
 ```
 
+In Pi, `/atelier-stop` ends only the current turn, `/atelier-pause` keeps the execution/task active while
+denying agent mutation, `/atelier-resume` re-enables it without starting a turn, and `/cancel` atomically
+revokes execution without waiting for idle. Denial, Escape, or normal settlement never schedules a forced
+follow-up. The completion predicate is enforced when closure is requested, not by preventing the user
+from regaining control.
+
 ## Authorization model
 
 Plan approval is not blanket command authorization.
 
-The approved task receives only typed capabilities such as repository-scoped file writes, declared
-validation execution, task updates, task closure, and local commit/change creation. A typed operation is
-allowed only when its resolved real path remains inside the approved root and its task, repository, and
-execution bindings match.
+The approved task receives only the capabilities derived from its machine-readable execution contract:
+exact source paths, explicitly named validations, optional dependency manifests, task closure, and an
+optional path-scoped local commit/change. Task update/link permissions are not granted implicitly. A typed
+operation is allowed only when its resolved real path, validation name, task, repository, and execution
+bindings match the reviewed contract.
 
 Generic shell commands use the `unconfined` boundary. They never inherit typed task capabilities, even
 when a classifier recognizes a read-like command. Each unconfined shell operation requires an explicit
@@ -210,10 +227,17 @@ Legacy `turn` and `session` grants are revoked during migration.
 ```
 
 When `requireValidation` is true, configuration and task closure require at least one applicable
-validation with `required: true`. The removed `approval` field is rejected rather than silently ignored.
-Validation output is bounded and redacted, execution is abort-aware, and evidence includes repository
-and environment fingerprints. Repository, command, toolchain, platform, architecture, PATH, or lockfile
-drift makes prior evidence stale.
+validation with `required: true`. Readiness distinguishes a missing focused selection, a selection that
+matched no required check, and a manifest with no required validation. The removed `approval` field is
+rejected rather than silently ignored. Validation output is bounded and redacted, execution is
+abort-aware, and evidence includes repository and environment fingerprints. Repository, command,
+toolchain, platform, architecture, PATH, or lockfile drift makes prior evidence stale.
+
+Pi exposes `atlr_validate` as the model-facing typed validation tool. It plans or runs trusted declared
+validations without routing them through generic Bash. Failed declared checks fail the tool operation; an
+explicitly interrupted check returns a structured interrupted result so user cancellation is not recast as
+a validation failure. Durable validation evidence is retained in both cases. Capability is not instruction: a user request not
+to validate remains binding.
 
 A typical completion sequence is:
 
@@ -227,9 +251,9 @@ atlr task close TASK_ID --reason "implemented and verified"
 ```
 
 `repo review-diff` prints the exact task diff, hashes it, then records review only if the diff is still
-unchanged. Task closure is blocked unless all configured requirements are current. A reminder in the UI
-is not treated as completion authority; the same predicate is used by CLI, Pi, Working State, and task
-closure.
+unchanged. Task closure is blocked unless all configured requirements are current. Pi may display one
+passive incomplete-task notice, but it does not enqueue another agent turn. The same predicate is used by
+CLI, Pi, Working State, and task closure.
 
 ## Repository providers
 
@@ -274,6 +298,10 @@ atlr code search "where is execution approval implemented" --mode hybrid
 atlr code symbols ExecutionWorkflowCoordinator
 ```
 
+Explicit CLI and `/code-symbols` requests perform direct human-requested symbol lookup. The model-facing
+symbol tool remains inventory-gated. Provider display signatures are normalized to canonical identifiers,
+exact definitions rank before references, and resolved/unresolved state is repository-scope qualified.
+
 Provider-first retrieval is advisory, not an authorization gate. Atelier presents provider tools first
 and records degraded/fallback decisions, but typed reads and explicitly approved shell inspection remain
 available when provider evidence is incomplete, wrong, excluded, or budget-limited.
@@ -301,6 +329,9 @@ Core slash commands include:
 /review
 /approve
 /execute
+/atelier-stop
+/atelier-pause
+/atelier-resume
 /cancel
 /status
 /state
@@ -315,6 +346,24 @@ Core slash commands include:
 /review-diff
 /close
 ```
+
+The registered model tools include:
+
+```text
+atlr_code_status
+atlr_code_search
+atlr_code_symbols
+atlr_state
+atlr_validate
+atlr_commit
+atlr_task_close
+```
+
+Explicit user prohibitions such as “do not use Bash”, “do not validate”, “do not commit”, or “do not
+close” form a temporary turn policy that blocks those tools before an exceptional approval prompt. A
+“stop after” instruction is also injected into the current-turn prompt, while `/atelier-stop` is the
+enforceable active-turn control. A capability authorizes an operation; it never instructs the model to use
+it.
 
 Each Pi session owns its own Atelier Core, repository root, review state, retrieval session, and index
 coordination. Shutdown awaits provider disposal before closing SQLite. Compaction receives a projection

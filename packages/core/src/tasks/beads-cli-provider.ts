@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import { ProviderError } from "../domain/errors.ts";
 import type {
   CreateTaskRequest,
@@ -221,10 +223,20 @@ export class BeadsCliTaskProvider implements TaskProvider {
   }
 
   async initialize(options: { stealth?: boolean; quiet?: boolean } = {}): Promise<void> {
+    this.secureWorkspaceDirectory();
+    const before = await this.status();
+    if (!before.available) throw new ProviderError(before.reason ?? "Beads is unavailable", { provider: this.name });
+    if (before.initialized) return;
     const args = ["init"];
     if (options.quiet !== false) args.push("--quiet");
     if (options.stealth === true) args.push("--stealth");
     this.run(args);
+    this.secureWorkspaceDirectory();
+  }
+
+  private secureWorkspaceDirectory(): void {
+    const directory = join(this.cwd, ".beads");
+    if (process.platform !== "win32" && existsSync(directory)) chmodSync(directory, 0o700);
   }
 
   async ready(): Promise<TaskRecord[]> {

@@ -162,6 +162,9 @@ export function migrateLedgerSchema(database: SqliteDatabase): void {
   if (!permissionColumns.some((column) => column.name === "execution_grant_id")) {
     database.exec("ALTER TABLE permission_grants ADD COLUMN execution_grant_id TEXT");
   }
+  if (!permissionColumns.some((column) => column.name === "validation_names_json")) {
+    database.exec("ALTER TABLE permission_grants ADD COLUMN validation_names_json TEXT");
+  }
   database.exec(`
     CREATE TABLE IF NOT EXISTS plan_approvals (
       id TEXT PRIMARY KEY,
@@ -233,4 +236,7 @@ export function migrateLedgerSchema(database: SqliteDatabase): void {
       throw error;
     }
   }
+  database
+    .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
+    .run(8, nowIso());
 }

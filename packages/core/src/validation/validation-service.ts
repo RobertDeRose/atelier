@@ -12,6 +12,7 @@ import type {
 import type { SqliteDatabase } from "../ledger/sqlite-runtime.ts";
 import { sha256 } from "../util/hash.ts";
 import { nowIso, newId } from "../util/ids.ts";
+import { sourceSnapshotFingerprint } from "../repository/snapshot.ts";
 
 export interface ValidationDefinition {
   command: string[];
@@ -137,7 +138,7 @@ export class ValidationService {
       selection.id,
       selection.taskId,
       selection.executionGrantId,
-      selection.snapshot.dirtyFingerprint,
+      sourceSnapshotFingerprint(selection.snapshot),
       JSON.stringify(selection),
       selection.createdAt,
     );
@@ -197,7 +198,7 @@ export class ValidationService {
         ...(options.executionGrantId === undefined ? {} : { executionGrantId: options.executionGrantId }),
         ...(options.planHash === undefined ? {} : { planHash: options.planHash }),
         ...(options.selectionId === undefined ? {} : { selectionId: options.selectionId }),
-        snapshotFingerprint: snapshot.dirtyFingerprint,
+        snapshotFingerprint: sourceSnapshotFingerprint(snapshot),
         environmentFingerprint,
         startedAt,
         finishedAt: nowIso(),
@@ -275,7 +276,7 @@ export class ValidationService {
           ...(options.executionGrantId === undefined ? {} : { executionGrantId: options.executionGrantId }),
           ...(options.planHash === undefined ? {} : { planHash: options.planHash }),
           ...(options.selectionId === undefined ? {} : { selectionId: options.selectionId }),
-          snapshotFingerprint: snapshot.dirtyFingerprint,
+          snapshotFingerprint: sourceSnapshotFingerprint(snapshot),
           environmentFingerprint,
           startedAt,
           finishedAt: nowIso(),
@@ -321,13 +322,13 @@ export class ValidationService {
         ? undefined
         : this.environmentFingerprint(evidence.name, definition, validationEnvironment());
       const repositoryStale = options.currentSnapshot !== undefined
-        && options.currentSnapshot.dirtyFingerprint !== evidence.snapshotFingerprint;
+        && sourceSnapshotFingerprint(options.currentSnapshot) !== evidence.snapshotFingerprint;
       const environmentStale = currentEnvironment !== undefined
         && evidence.environmentFingerprint !== currentEnvironment;
       const stale = repositoryStale || environmentStale;
       const reasons = [
         repositoryStale
-          ? `Repository fingerprint changed from ${evidence.snapshotFingerprint} to ${options.currentSnapshot!.dirtyFingerprint}`
+          ? `Repository fingerprint changed from ${evidence.snapshotFingerprint} to ${sourceSnapshotFingerprint(options.currentSnapshot!)}`
             + `${(options.currentChangedPaths?.length ?? 0) === 0 ? "" : `; newer changed paths: ${options.currentChangedPaths!.join(", ")}`}`
           : "",
         environmentStale ? "Validation command or execution environment changed." : "",
@@ -374,6 +375,10 @@ export class ValidationService {
     const policy = this.closurePolicy();
     const selection = this.listFocusedSelections({ taskId, executionGrantId, limit: 1 })[0];
     const selectedRequired = selection?.selected.filter((item) => item.required).map((item) => item.name) ?? [];
+    const configuredFocusedRequired = Object.entries(manifest.validations)
+      .filter(([, definition]) => definition.required === true && definition.category === "focused")
+      .map(([name]) => name)
+      .sort();
     const fullRequired = Object.entries(manifest.validations)
       .filter(([, definition]) => definition.required === true && definition.category === "full")
       .map(([name]) => name);
@@ -382,15 +387,40 @@ export class ValidationService {
     const stale: string[] = [];
     const failed: string[] = [];
 
-    if (policy.requireValidation && required.length === 0) {
+    if (policy.requireValidation && selection === undefined && configuredFocusedRequired.length > 0) {
       return {
         ready: false,
         validationReady: false,
-        required: [],
-        missing: ["configured required validation"],
+        blockers: [{
+          code: "validation_selection_missing",
+          detail: "No focused validation selection is recorded for the active task.",
+          names: configuredFocusedRequired,
+        }],
+        required: fullRequired.sort(),
+        missing: ["focused validation selection"],
         stale: [],
         failed: [],
-        reason: "Task closure requires at least one configured required validation; none applies to the active task.",
+        reason: `No focused validation selection is recorded for the active task. Run validation planning before closure; configured required focused checks: ${configuredFocusedRequired.join(", ")}.`,
+      };
+    }
+
+    if (policy.requireValidation && required.length === 0) {
+      const reason = selection !== undefined && configuredFocusedRequired.length > 0
+        ? `Focused validation selection ${selection.id} matched no required checks for the current changed paths.`
+        : "Task closure requires validation, but no required validation is configured.";
+      return {
+        ready: false,
+        validationReady: false,
+        blockers: [{
+          code: selection === undefined ? "validation_not_configured" : "validation_no_required_match",
+          detail: reason,
+          ...(selection === undefined ? {} : { names: configuredFocusedRequired }),
+        }],
+        required: [],
+        missing: [selection === undefined ? "configured required validation" : "required validation match"],
+        stale: [],
+        failed: [],
+        reason,
       };
     }
 
@@ -403,13 +433,19 @@ export class ValidationService {
       else if (evidence.stale) stale.push(name);
       else if (evidence.status !== "passed") failed.push(name);
     }
-    if (selection !== undefined && selection.snapshot.dirtyFingerprint !== snapshot.dirtyFingerprint) {
+    if (selection !== undefined && sourceSnapshotFingerprint(selection.snapshot) !== sourceSnapshotFingerprint(snapshot)) {
       for (const name of selectedRequired) if (!stale.includes(name)) stale.push(name);
     }
     const ready = !policy.requireValidation || (required.length > 0 && missing.length === 0 && stale.length === 0 && failed.length === 0);
+    const blockers = [
+      ...(missing.length === 0 ? [] : [{ code: "validation_evidence_missing" as const, detail: `Missing validation evidence: ${missing.join(", ")}.`, names: [...missing] }]),
+      ...(stale.length === 0 ? [] : [{ code: "validation_evidence_stale" as const, detail: `Stale validation evidence: ${stale.join(", ")}.`, names: [...stale] }]),
+      ...(failed.length === 0 ? [] : [{ code: "validation_failed" as const, detail: `Validation is not passing: ${failed.join(", ")}.`, names: [...failed] }]),
+    ];
     return {
       ready,
       validationReady: ready,
+      blockers,
       required,
       missing,
       stale: stale.sort(),

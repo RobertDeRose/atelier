@@ -1,12 +1,16 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.5 (2026-07-28).** The guarded vertical workflow is the release
+> **Current release: 0.14.0-alpha.6 (2026-07-28).** The guarded vertical workflow is the release
 > authority. Repository trust is external; generic shell is unconfined and individually approved;
-> exact approval binds source, all workspace roots, retrieval revisions, reconciliation, and typed
-> task capabilities; closure requires current required validation, exact final-diff review, a local
-> change, and configured clean state. Provider-first retrieval is advisory. IDE-facing expansion is
-> paused until this workflow remains reliable. Historical release notes below describe earlier states
-> and are superseded where they conflict with ADR-0024 through ADR-0027.
+> exact approval binds source, all workspace roots, retrieval revisions, reconciliation, and a
+> machine-readable per-task execution contract. Capabilities are limited to reviewed paths, named
+> validations, optional dependency manifests, optional path-scoped local change, and task closure.
+> Closure requires current required validation, exact final-diff review, a local change, and configured
+> clean state. An incomplete task may remain idle or paused, denial never schedules a follow-up model
+> turn, stop/pause/resume/cancel remain user-controlled, and typed model tools cover state, validation,
+> commit, and close. Provider-first retrieval is advisory. IDE-facing expansion is paused until this
+> workflow remains reliable. Historical notes are superseded where they conflict with ADR-0024 through
+> ADR-0029.
 
 > **v0.13.0 local acceptance:** The delivered CLI/Pi workflow now uses exact reviewed-plan approval, convergent provider reconciliation, task-scoped execution grants, post-tool mutation evidence, focused-validation freshness, deterministic restart reconstruction, and a portable end-to-end acceptance fixture. See ADR-0019 and `LOCAL_ACCEPTANCE.md`.
 
@@ -35,9 +39,13 @@ The current prototype delivers the guarded local workflow:
 - automatic configured-editor plan review with durable `ManualEdit` structural evidence;
 - exact plan/provider/reconciliation preparation and approval with zero-mutation rejection;
 - convergent `TaskProvider` create, adopt, update, link, unlink, retirement, and ready-task claim;
-- task/workspace-scoped execution grants with an exact typed capability bundle; unconfined shell remains independently approved;
-- Pi `tool_call` preflight and `tool_result` success/failure/interruption evidence;
-- asynchronous abort-aware validation, explainable focused selection, strict fingerprint freshness, and closure gates;
+- task/workspace-scoped execution grants derived from structured reviewed paths and named validations; unconfined shell remains independently approved;
+- Pi `tool_call` preflight and structured `tool_result` success/failure/interruption evidence;
+- typed model-facing state, validation, path-scoped commit, and task-close operations; asynchronous
+  abort-aware execution, explainable focused selection, strict source fingerprint freshness, and closure
+  gates;
+- passive incomplete-task status, per-turn tool restrictions, distinct stop/pause/resume semantics, and
+  atomic non-blocking cancellation;
 - deterministic Working State reconstruction across Pi restart and compaction;
 - Jujutsu-first repository identity with Git compatibility;
 - bounded provider-first codesearch retrieval with provenance, reuse, invalidation, and multi-repository isolation; and

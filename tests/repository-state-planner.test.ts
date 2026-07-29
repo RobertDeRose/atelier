@@ -52,6 +52,7 @@ test("exact symbol phases are emitted only after semantic discovery and only for
     evidence: {
       semanticDiscoveryComplete: true,
       resolvedIdentifiers: ["CodeService"],
+      unresolvedIdentifiers: ["RepositoryStatePlanner"],
       knownPaths: [],
     },
     maximumQueries: 3,
@@ -90,4 +91,24 @@ test("directory scopes remain semantic filters rather than direct-read decisions
 test("literal hint extraction is bounded and excludes generic workflow nouns", () => {
   const hints = extractLiteralHints("Update Atelier Working State through `CodeProviderRegistry`, parse_plan, and src/core.ts", 3);
   assert.deepEqual(hints, ["CodeProviderRegistry", "parse_plan", "src/core.ts"]);
+});
+
+
+test("literal hint and exact-symbol planning reject quoted expressions and non-symbol workflow terms", () => {
+  const hints = extractLiteralHints('Add `ATELIER_PRODUCT_NAME = "Atelier"` and run `manual-acceptance` through CLI');
+  assert.ok(hints.includes("ATELIER_PRODUCT_NAME"));
+  assert.equal(hints.includes('ATELIER_PRODUCT_NAME = "Atelier"'), false);
+
+  const plan = planner.plan({
+    mode: "plan",
+    planObjective: 'Add `ATELIER_PRODUCT_NAME = "Atelier"` and run `manual-acceptance` through CLI',
+    evidence: {
+      semanticDiscoveryComplete: true,
+      resolvedIdentifiers: [],
+      unresolvedIdentifiers: ["ATELIER_PRODUCT_NAME"],
+      knownPaths: [],
+    },
+    maximumQueries: 8,
+  });
+  assert.deepEqual(plan.queries.map((query) => query.text), ["ATELIER_PRODUCT_NAME"]);
 });

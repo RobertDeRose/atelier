@@ -6,6 +6,7 @@ import type {
   Actor,
   ExecutionEvidence,
   ExecutionGrant,
+  ExecutionPause,
   LedgerEvent,
   ManualEdit,
   PermissionGrant,
@@ -24,72 +25,15 @@ import type {
   RetrievalPersistenceLimits,
 } from "../code/retrieval.ts";
 import { newId, nowIso } from "../util/ids.ts";
-import { repositoryRevisionBinding } from "../repository/revision-binding.ts";
-
-interface EventRow {
-  id: string;
-  kind: string;
-  occurred_at: string;
-  actor: Actor;
-  task_id: string | null;
-  repository_snapshot_json: string | null;
-  payload_json: string;
-}
-
-interface WorkflowRunRow {
-  record_json: string;
-}
-
-interface ManualEditRow {
-  record_json: string;
-}
-
-const LEGACY_CAPABILITY_DIGEST = "legacy-capability-bundle-unsupported";
-
-function normalizePlanApproval(record: string): PlanApproval {
-  const parsed = JSON.parse(record) as PlanApproval & Partial<PlanApproval>;
-  return {
-    ...parsed,
-    repositoryBindings: Array.isArray(parsed.repositoryBindings)
-      ? parsed.repositoryBindings
-      : [repositoryRevisionBinding(parsed.repositoryId, parsed.repositorySnapshot)],
-    retrievalBindings: Array.isArray(parsed.retrievalBindings) ? parsed.retrievalBindings : [],
-    capabilities: Array.isArray(parsed.capabilities) ? parsed.capabilities : [],
-    capabilityDigest: typeof parsed.capabilityDigest === "string"
-      ? parsed.capabilityDigest
-      : LEGACY_CAPABILITY_DIGEST,
-  };
-}
-
-function normalizeExecutionGrant(record: string): ExecutionGrant {
-  const parsed = JSON.parse(record) as ExecutionGrant & Partial<ExecutionGrant>;
-  return {
-    ...parsed,
-    repositoryBindings: Array.isArray(parsed.repositoryBindings)
-      ? parsed.repositoryBindings
-      : [repositoryRevisionBinding(parsed.repositoryId, parsed.repositorySnapshot)],
-    retrievalBindings: Array.isArray(parsed.retrievalBindings) ? parsed.retrievalBindings : [],
-    capabilityDigest: typeof parsed.capabilityDigest === "string"
-      ? parsed.capabilityDigest
-      : LEGACY_CAPABILITY_DIGEST,
-  };
-}
-
-interface PermissionRow {
-  id: string;
-  execution_grant_id: string | null;
-  permission: PermissionGrant["permission"];
-  scope: PermissionGrant["scope"];
-  actor: Actor;
-  task_id: string | null;
-  repository_id: string | null;
-  paths_json: string | null;
-  command_prefix_json: string | null;
-  reason: string;
-  created_at: string;
-  expires_at: string | null;
-  revoked_at: string | null;
-}
+import {
+  normalizeExecutionGrant,
+  normalizePlanApproval,
+  validatePersistenceLimits,
+  type EventRow,
+  type ManualEditRow,
+  type PermissionRow,
+  type WorkflowRunRow,
+} from "./ledger-records.ts";
 
 export class SqliteLedger {
   readonly path: string;
@@ -894,6 +838,8 @@ export class SqliteLedger {
     status: "revoked" | "invalidated";
     reason: string;
     occurredAt?: string;
+    workflowStatus?: "cancelled" | "completed" | "failed";
+    workflowCheckpoint?: "cancelled" | "completed" | "failed";
   }): ExecutionGrant | undefined {
     const current = this.getActiveExecutionGrant();
     if (current === undefined || current.id !== id) return undefined;
@@ -911,6 +857,15 @@ export class SqliteLedger {
       taskId: current.taskId,
       payload: { executionGrantId: id, reason: input.reason },
     });
+    const run = this.getCurrentWorkflowRun();
+    const workflowStatus = input.workflowStatus ?? (input.status === "revoked" ? "cancelled" : "failed");
+    const workflowCheckpoint = input.workflowCheckpoint ?? workflowStatus;
+    const nextRun = run === undefined ? undefined : {
+      ...run,
+      status: workflowStatus,
+      checkpoint: workflowCheckpoint,
+      updatedAt: occurredAt,
+    };
     this.database.exec("BEGIN IMMEDIATE");
     try {
       this.database.prepare(`
@@ -920,9 +875,20 @@ export class SqliteLedger {
         UPDATE permission_grants SET revoked_at = ?
         WHERE execution_grant_id = ? AND revoked_at IS NULL
       `).run(occurredAt, id);
+      if (nextRun !== undefined) {
+        this.database.prepare(`
+          UPDATE workflow_runs SET status = ?, checkpoint = ?, record_json = ?, updated_at = ? WHERE id = ?
+        `).run(nextRun.status, nextRun.checkpoint, JSON.stringify(nextRun), occurredAt, nextRun.id);
+      }
       this.upsertState("workflowMode", JSON.stringify("plan"), occurredAt);
-      this.database.prepare("DELETE FROM state WHERE key IN ('currentExecutionGrantId', 'currentTaskId')").run();
+      this.database.prepare("DELETE FROM state WHERE key IN ('currentExecutionGrantId', 'currentTaskId', 'executionPause')").run();
       this.insertEvent(event);
+      this.insertEvent(this.createEvent({
+        kind: `workflow.${workflowStatus}`,
+        actor: "system",
+        taskId: current.taskId,
+        payload: { workflowRunId: nextRun?.id, executionGrantId: id, reason: input.reason },
+      }));
       this.database.exec("COMMIT");
       return next;
     } catch (error) {
@@ -931,13 +897,87 @@ export class SqliteLedger {
     }
   }
 
-  restoreExecution(grant: ExecutionGrant): void {
+  getExecutionPause(): ExecutionPause | undefined {
+    return this.getState<ExecutionPause>("executionPause");
+  }
+
+  pauseExecution(grant: ExecutionGrant, reason: string): ExecutionPause {
+    const current = this.getActiveExecutionGrant();
+    if (current === undefined || current.id !== grant.id) throw new Error("Only the active execution can be paused.");
+    const timestamp = nowIso();
+    const pause: ExecutionPause = { executionGrantId: grant.id, taskId: grant.taskId, reason, pausedAt: timestamp };
+    const run = this.getCurrentWorkflowRun();
+    const nextRun = run === undefined ? undefined : { ...run, status: "active" as const, checkpoint: "paused" as const, updatedAt: timestamp };
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.upsertState("executionPause", JSON.stringify(pause), timestamp);
+      if (nextRun !== undefined) {
+        this.database.prepare(`UPDATE workflow_runs SET status = ?, checkpoint = ?, record_json = ?, updated_at = ? WHERE id = ?`)
+          .run(nextRun.status, nextRun.checkpoint, JSON.stringify(nextRun), timestamp, nextRun.id);
+      }
+      this.insertEvent(this.createEvent({
+        kind: "execution.paused",
+        actor: "user",
+        taskId: grant.taskId,
+        payload: pause,
+      }));
+      this.database.exec("COMMIT");
+      return pause;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  resumePausedExecution(grant: ExecutionGrant): boolean {
+    const pause = this.getExecutionPause();
+    if (pause === undefined || pause.executionGrantId !== grant.id) return false;
+    const timestamp = nowIso();
+    const run = this.getCurrentWorkflowRun();
+    const nextRun = run === undefined ? undefined : { ...run, status: "active" as const, checkpoint: "executing" as const, updatedAt: timestamp };
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare("DELETE FROM state WHERE key = 'executionPause'").run();
+      if (nextRun !== undefined) {
+        this.database.prepare(`UPDATE workflow_runs SET status = ?, checkpoint = ?, record_json = ?, updated_at = ? WHERE id = ?`)
+          .run(nextRun.status, nextRun.checkpoint, JSON.stringify(nextRun), timestamp, nextRun.id);
+      }
+      this.insertEvent(this.createEvent({
+        kind: "execution.unpaused",
+        actor: "user",
+        taskId: grant.taskId,
+        payload: { executionGrantId: grant.id, previousReason: pause.reason },
+      }));
+      this.database.exec("COMMIT");
+      return true;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  restoreExecution(grant: ExecutionGrant): boolean {
+    const currentGrantId = this.getState<string>("currentExecutionGrantId");
+    const currentTaskId = this.getState<string>("currentTaskId");
+    const mode = this.getState<string>("workflowMode");
+    const paused = this.getExecutionPause()?.executionGrantId === grant.id;
+    const checkpoint = this.getCurrentWorkflowRun()?.checkpoint;
+    const expectedCheckpoint = paused ? "paused" : "executing";
+    if (currentGrantId === grant.id && currentTaskId === grant.taskId && mode === "act" && checkpoint === expectedCheckpoint) {
+      return false;
+    }
     const timestamp = nowIso();
     this.database.exec("BEGIN IMMEDIATE");
     try {
       this.upsertState("currentExecutionGrantId", JSON.stringify(grant.id), timestamp);
       this.upsertState("currentTaskId", JSON.stringify(grant.taskId), timestamp);
       this.upsertState("workflowMode", JSON.stringify("act"), timestamp);
+      const run = this.getCurrentWorkflowRun();
+      if (run !== undefined && run.checkpoint !== expectedCheckpoint) {
+        const nextRun = { ...run, status: "active" as const, checkpoint: expectedCheckpoint, updatedAt: timestamp };
+        this.database.prepare(`UPDATE workflow_runs SET status = ?, checkpoint = ?, record_json = ?, updated_at = ? WHERE id = ?`)
+          .run(nextRun.status, nextRun.checkpoint, JSON.stringify(nextRun), timestamp, nextRun.id);
+      }
       this.insertEvent(this.createEvent({
         kind: "execution.resumed",
         actor: "system",
@@ -945,6 +985,7 @@ export class SqliteLedger {
         payload: { executionGrantId: grant.id },
       }));
       this.database.exec("COMMIT");
+      return true;
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
@@ -956,8 +997,8 @@ export class SqliteLedger {
       .prepare(`
         INSERT INTO permission_grants(
           id, execution_grant_id, permission, scope, actor, task_id, repository_id, paths_json,
-          command_prefix_json, reason, created_at, expires_at, revoked_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          validation_names_json, command_prefix_json, reason, created_at, expires_at, revoked_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           execution_grant_id = excluded.execution_grant_id,
           permission = excluded.permission,
@@ -966,6 +1007,7 @@ export class SqliteLedger {
           task_id = excluded.task_id,
           repository_id = excluded.repository_id,
           paths_json = excluded.paths_json,
+          validation_names_json = excluded.validation_names_json,
           command_prefix_json = excluded.command_prefix_json,
           reason = excluded.reason,
           expires_at = excluded.expires_at,
@@ -980,6 +1022,7 @@ export class SqliteLedger {
         grant.taskId ?? null,
         grant.repositoryId ?? null,
         grant.paths === undefined ? null : JSON.stringify(grant.paths),
+        grant.validationNames === undefined ? null : JSON.stringify(grant.validationNames),
         null,
         grant.reason,
         grant.createdAt,
@@ -1008,6 +1051,7 @@ export class SqliteLedger {
       ...(row.task_id === null ? {} : { taskId: row.task_id }),
       ...(row.repository_id === null ? {} : { repositoryId: row.repository_id }),
       ...(row.paths_json === null ? {} : { paths: JSON.parse(row.paths_json) as string[] }),
+      ...(row.validation_names_json === null ? {} : { validationNames: JSON.parse(row.validation_names_json) as string[] }),
       reason: row.reason,
       createdAt: row.created_at,
       ...(row.expires_at === null ? {} : { expiresAt: row.expires_at }),
@@ -1100,11 +1144,5 @@ export class SqliteLedger {
 
   close(): void {
     this.database.close();
-  }
-}
-
-function validatePersistenceLimits(limits: RetrievalPersistenceLimits): void {
-  for (const [name, value] of Object.entries(limits)) {
-    if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
   }
 }

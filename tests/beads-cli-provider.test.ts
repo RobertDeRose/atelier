@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BeadsCliTaskProvider, normalizeBeadsTask } from "../packages/core/src/tasks/beads-cli-provider.ts";
@@ -26,6 +26,79 @@ test("normalizes representative Beads JSON into Atelier task records", () => {
   assert.deepEqual(task.dependencies, ["ATLR-root"]);
   assert.deepEqual(task.acceptanceCriteria, ["One", "Two"]);
   assert.equal(task.planTaskId, "ATLR-001");
+});
+
+
+
+test("initialization hardens an existing tracked .beads directory", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-beads-permissions-"));
+  const executable = join(root, "fake-bd.mjs");
+  const directory = join(root, ".beads");
+  mkdirSync(directory, { mode: 0o755 });
+  chmodSync(directory, 0o755);
+  writeFileSync(executable, `#!/usr/bin/env node
+const command = process.argv[2];
+if (command === "version") { console.log("bd test-1"); process.exit(0); }
+if (command === "where" || command === "list") process.exit(2);
+if (command === "init") process.exit(0);
+process.exit(2);
+`, "utf8");
+  chmodSync(executable, 0o755);
+  try {
+    const provider = new BeadsCliTaskProvider({ cwd: root, executable });
+    await provider.initialize();
+    assert.equal(statSync(directory).mode & 0o777, 0o700);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Beads initialization is idempotent and preserves existing provider files", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-beads-idempotent-init-"));
+  const executable = join(root, "fake-bd.mjs");
+  const directory = join(root, ".beads");
+  const initialized = join(directory, "initialized");
+  const initLog = join(root, "init.log");
+  const customHook = join(directory, "custom-hook.sh");
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(customHook, "#!/bin/sh\necho preserved\n", "utf8");
+  writeFileSync(executable, `#!/usr/bin/env node
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const command = args[0];
+const initialized = ${JSON.stringify(initialized)};
+if (command === "version") { console.log("bd idempotent-test"); process.exit(0); }
+if (command === "where") {
+  if (!existsSync(initialized)) process.exit(2);
+  console.log(JSON.stringify({ database_path: initialized }));
+  process.exit(0);
+}
+if (command === "list") {
+  if (!existsSync(initialized)) process.exit(2);
+  console.log("[]");
+  process.exit(0);
+}
+if (command === "init") {
+  mkdirSync(${JSON.stringify(directory)}, { recursive: true });
+  appendFileSync(${JSON.stringify(initLog)}, "init\\n");
+  writeFileSync(initialized, "ready\\n");
+  process.exit(0);
+}
+process.exit(2);
+`, "utf8");
+  chmodSync(executable, 0o755);
+  try {
+    const provider = new BeadsCliTaskProvider({ cwd: root, executable });
+    await provider.initialize();
+    const hookAfterFirst = readFileSync(customHook, "utf8");
+    const markerAfterFirst = readFileSync(initialized, "utf8");
+    await provider.initialize();
+    assert.equal(readFileSync(initLog, "utf8"), "init\n", "a second initialize call must not invoke bd init again");
+    assert.equal(readFileSync(customHook, "utf8"), hookAfterFirst);
+    assert.equal(readFileSync(initialized, "utf8"), markerAfterFirst);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("uses structured JSON commands without shell interpolation", async () => {

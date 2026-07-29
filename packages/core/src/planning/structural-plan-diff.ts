@@ -15,7 +15,7 @@ function fieldValue(task: PlanTask, field: PlanStructuralField): unknown {
 
 function taskSnapshot(task: PlanTask): PlanStructureTaskSnapshot {
   const fieldHashes = Object.fromEntries(
-    PLAN_STRUCTURAL_FIELDS.map((field) => [field, sha256(JSON.stringify(fieldValue(task, field)))]),
+    PLAN_STRUCTURAL_FIELDS.map((field) => [field, sha256(JSON.stringify(fieldValue(task, field)) ?? "undefined")]),
   ) as Record<PlanStructuralField, string>;
   return { id: task.id, fieldHashes };
 }

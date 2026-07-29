@@ -2,9 +2,14 @@ import type {
   ExecutionCapability,
   ExecutionGrant,
   PermissionGrant,
+  PlanTask,
   RepositorySnapshot,
 } from "../domain/types.ts";
 import type { RetrievalRevisionBinding } from "../repository/revision-binding.ts";
+import {
+  deriveTaskExecutionScope,
+  type ValidationCapabilityDescriptor,
+} from "../planning/task-execution-scope.ts";
 import { sha256 } from "../util/hash.ts";
 import { newId, nowIso } from "../util/ids.ts";
 
@@ -23,17 +28,77 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
-export function createExecutionCapabilities(repositoryRoot: string): ExecutionCapability[] {
-  return [
-    { permission: "file.write", paths: [repositoryRoot], reason: "Typed task file writes inside the approved repository." },
-    { permission: "dependency.modify", paths: [repositoryRoot], reason: "Typed dependency changes inside the approved repository." },
-    { permission: "repository.change.create", paths: [repositoryRoot], reason: "Create one local change or commit for the approved task." },
-    { permission: "task.update", reason: "Update the active task through the configured task provider." },
-    { permission: "task.link", reason: "Maintain approved task relationships through the configured task provider." },
-    { permission: "task.close", reason: "Close the active task only after the completion predicate passes." },
-    { permission: "validation.focused", reason: "Run declared focused validations." },
-    { permission: "validation.full_suite", reason: "Run declared full-suite validations." },
-  ];
+export function createExecutionCapabilities(
+  tasks: PlanTask[],
+  repositoryRoot: string,
+  validations: ValidationCapabilityDescriptor[] = [],
+  options: { requireValidation?: boolean } = {},
+): ExecutionCapability[] {
+  const capabilities: ExecutionCapability[] = [];
+  for (const task of tasks) {
+    const scope = deriveTaskExecutionScope(task, repositoryRoot, validations, options);
+    if (scope.writePaths.length === 0) {
+      throw new Error(
+        `Task ${task.id} has no machine-resolvable write scope. Name repository-relative paths in the Scope section, preferably in backticks.`,
+      );
+    }
+    if (scope.fileWritePaths.length > 0) {
+      capabilities.push({
+        planTaskId: task.id,
+        permission: "file.write",
+        paths: scope.fileWritePaths,
+        reason: `Typed writes for ${task.id} are limited to the reviewed non-dependency paths.`,
+      });
+    }
+    if (scope.dependencyPaths.length > 0) {
+      capabilities.push({
+        planTaskId: task.id,
+        permission: "dependency.modify",
+        paths: scope.dependencyPaths,
+        reason: `Dependency changes are explicitly included in reviewed task ${task.id}.`,
+      });
+    }
+    if (scope.allowLocalChange) {
+      capabilities.push({
+        planTaskId: task.id,
+        permission: "repository.change.create",
+        paths: scope.writePaths,
+        reason: `Create one local change containing only the reviewed source paths for ${task.id}.`,
+      });
+    }
+    capabilities.push({
+      planTaskId: task.id,
+      permission: "task.close",
+      reason: `Close ${task.id} only after the authoritative completion predicate passes.`,
+    });
+    if (scope.focusedValidations.length > 0) {
+      capabilities.push({
+        planTaskId: task.id,
+        permission: "validation.focused",
+        validationNames: scope.focusedValidations,
+        reason: `Run only the focused validations named by reviewed task ${task.id}.`,
+      });
+    }
+    if (scope.allowFullSuite) {
+      if (scope.fullValidations.length === 0) {
+        throw new Error(`Task ${task.id} enables full-suite validation without naming a configured full validation.`);
+      }
+      capabilities.push({
+        planTaskId: task.id,
+        permission: "validation.full_suite",
+        validationNames: scope.fullValidations,
+        reason: `Run only the full-suite validations named by reviewed task ${task.id}.`,
+      });
+    }
+  }
+  return capabilities;
+}
+
+export function capabilitiesForPlanTask(
+  capabilities: ExecutionCapability[],
+  planTaskId: string,
+): ExecutionCapability[] {
+  return capabilities.filter((capability) => capability.planTaskId === planTaskId);
 }
 
 export function executionCapabilityDigest(capabilities: ExecutionCapability[]): string {
@@ -52,26 +117,31 @@ export function sourceBaselineMismatch(expected: RepositorySnapshot, actual: Rep
   if (expected.repositoryId !== actual.repositoryId) return "repository identity changed";
   if (expected.workspaceId !== actual.workspaceId) return "workspace identity changed";
   if (expected.vcs !== actual.vcs) return "repository provider changed";
-  if (expected.headCommit !== actual.headCommit) return "source head changed";
-  if (expected.changeId !== actual.changeId) return "source change identity changed";
-  if (expected.dirtyFingerprint !== actual.dirtyFingerprint) return "source working state changed";
+  if ((expected.sourceBaseCommit ?? expected.headCommit) !== (actual.sourceBaseCommit ?? actual.headCommit)) {
+    return "source base changed";
+  }
+  if ((expected.sourceFingerprint ?? expected.dirtyFingerprint) !== (actual.sourceFingerprint ?? actual.dirtyFingerprint)) {
+    return "source working state changed";
+  }
   if (expected.indexSchemaVersion !== actual.indexSchemaVersion) return "repository index schema changed";
   return undefined;
 }
-
 
 export function permissionGrantsMatchCapabilities(
   grants: PermissionGrant[],
   execution: ExecutionGrant,
   capabilities: ExecutionCapability[],
 ): boolean {
+  const expected = capabilitiesForPlanTask(capabilities, execution.planTaskId);
   const active = grants.filter((grant) => grant.executionGrantId === execution.id && grant.revokedAt === undefined);
   const projected = active.map((grant): ExecutionCapability => ({
+    planTaskId: execution.planTaskId,
     permission: grant.permission,
     ...(grant.paths === undefined ? {} : { paths: [...grant.paths] }),
+    ...(grant.validationNames === undefined ? {} : { validationNames: [...grant.validationNames] }),
     reason: grant.reason,
   }));
-  return executionCapabilityDigest(projected) === executionCapabilityDigest(capabilities);
+  return executionCapabilityDigest(projected) === executionCapabilityDigest(expected);
 }
 
 export function permissionGrantsForExecution(
@@ -79,7 +149,7 @@ export function permissionGrantsForExecution(
   capabilities: ExecutionCapability[],
 ): PermissionGrant[] {
   const timestamp = nowIso();
-  return capabilities.map((capability): PermissionGrant => ({
+  return capabilitiesForPlanTask(capabilities, execution.planTaskId).map((capability): PermissionGrant => ({
     id: newId("grant"),
     executionGrantId: execution.id,
     permission: capability.permission,
@@ -88,6 +158,7 @@ export function permissionGrantsForExecution(
     taskId: execution.taskId,
     repositoryId: execution.repositoryId,
     ...(capability.paths === undefined ? {} : { paths: [...capability.paths] }),
+    ...(capability.validationNames === undefined ? {} : { validationNames: [...capability.validationNames] }),
     reason: capability.reason,
     createdAt: timestamp,
   }));

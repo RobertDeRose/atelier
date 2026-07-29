@@ -8,7 +8,11 @@ import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
 
 async function activeCore(prefix: string): Promise<{ root: string; core: AtelierCore }> {
   const root = createTemporaryRepository(prefix);
-  writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
+  writeFileSync(
+    join(root, ".atelier", "PLAN.md"),
+    VALID_PLAN.replaceAll('"validations":[],"allowFullSuite":false', '"validations":["focused","full"],"allowFullSuite":true'),
+    "utf8",
+  );
   writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({ validations: {
     focused: {
       command: [process.execPath, "-e", "process.exit(0)"],
@@ -82,6 +86,23 @@ test("authorized tool attempts record observed success, failure, interruption, a
     const interrupted = core.interruptPendingExecutionEvidence("session interrupted");
     assert.equal(interrupted[0]?.status, "interrupted");
     assert.equal(core.ledger.listExecutionEvidence({ taskId: grant.taskId }).length, 3);
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("closure diagnostics distinguish a missing focused selection from a missing validation configuration", async () => {
+  const { root, core } = await activeCore("atlr-validation-selection-diagnostic-");
+  try {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "feature.ts"), "export const feature = true;\n", "utf8");
+    const readiness = core.taskClosureReadiness();
+    assert.equal(readiness.ready, false);
+    assert.ok(readiness.missing.includes("focused validation selection"));
+    assert.match(readiness.reason, /No focused validation selection is recorded/i);
+    assert.match(readiness.reason, /focused/);
+    assert.doesNotMatch(readiness.reason, /none applies/i);
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });

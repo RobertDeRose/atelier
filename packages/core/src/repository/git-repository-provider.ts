@@ -54,6 +54,22 @@ function parseStatusPaths(stdout: string): string[] {
   });
 }
 
+function contentState(root: string, paths: string[], hashContents: boolean): string {
+  return paths.map((path) => {
+    const absolute = resolve(root, path);
+    if (!existsSync(absolute)) return `${path}:deleted`;
+    try {
+      const stat = statSync(absolute);
+      if (!stat.isFile()) return `${path}:non-file:${stat.size}:${stat.mtimeMs}`;
+      return hashContents
+        ? `${path}:${stat.size}:${sha256(readFileSync(absolute))}`
+        : `${path}:${stat.size}:${stat.mtimeMs}`;
+    } catch {
+      return `${path}:unreadable`;
+    }
+  }).join("\0");
+}
+
 
 export class GitRepositoryProvider implements RepositoryProvider {
   readonly name = "git" as const;
@@ -81,26 +97,26 @@ export class GitRepositoryProvider implements RepositoryProvider {
     const head = runGit(root, ["rev-parse", "HEAD"]);
     const commonDir = requiredGit(root, ["rev-parse", "--git-common-dir"], "common-directory observation");
     const status = requiredGit(root, ["status", "--porcelain=v1", "--untracked-files=all"], "working-copy observation");
-    const statusLines = status.stdout.split("\n").filter(Boolean).filter((line) => isSourcePath(parseStatusPaths(`${line}\n`)[0] ?? ""));
-    const changed = parseStatusPaths(`${statusLines.join("\n")}\n`);
-    const contentState = changed.map((path) => {
-      const absolute = resolve(root, path);
-      if (!existsSync(absolute)) return `${path}:deleted`;
-      try {
-        const stat = statSync(absolute);
-        return stat.isFile() ? `${path}:${stat.size}:${sha256(readFileSync(absolute))}` : `${path}:non-file`;
-      } catch {
-        return `${path}:unreadable`;
-      }
-    }).join("\0");
-    const fingerprint = sha256(`${head.stdout.trim()}\0${statusLines.join("\n")}\0${contentState}`);
+    const rawStatusLines = status.stdout.split("\n").filter(Boolean);
+    const rawChanged = parseStatusPaths(`${rawStatusLines.join("\n")}\n`);
+    const sourceStatusLines = rawStatusLines.filter((line) => isSourcePath(parseStatusPaths(`${line}\n`)[0] ?? ""));
+    const sourceChanged = parseStatusPaths(`${sourceStatusLines.join("\n")}\n`);
+    const sourceBaseCommit = head.status === 0 ? head.stdout.trim() : "unborn";
+    const sourceFingerprint = sha256(
+      `${sourceBaseCommit}\0${sourceStatusLines.join("\n")}\0${contentState(root, sourceChanged, true)}`,
+    );
+    const rawFingerprint = sha256(
+      `${sourceBaseCommit}\0${rawStatusLines.join("\n")}\0${sourceFingerprint}\0${contentState(root, rawChanged, false)}`,
+    );
     return {
       repositoryId: `git:${sha256(`${root}\0${commonDir.stdout.trim()}`).slice(0, 24)}`,
       workspaceId: sha256(root).slice(0, 16),
       vcs: "git",
-      headCommit: head.status === 0 ? head.stdout.trim() : "unborn",
-      dirtyGeneration: this.dirtyGeneration(fingerprint),
-      dirtyFingerprint: fingerprint,
+      headCommit: sourceBaseCommit,
+      sourceBaseCommit,
+      sourceFingerprint,
+      dirtyGeneration: this.dirtyGeneration(rawFingerprint),
+      dirtyFingerprint: rawFingerprint,
       indexSchemaVersion: this.indexSchemaVersion,
     };
   }
@@ -159,7 +175,11 @@ export class GitRepositoryProvider implements RepositoryProvider {
     const changed = (paths ?? this.changedPaths()).filter(isSourcePath);
     if (changed.length === 0) throw new Error("No repository changes are available to commit.");
     requiredGit(this.cwd, ["add", "-A", "--", ...changed], "staging");
-    requiredGit(this.cwd, ["commit", "-m", normalized], "local commit");
+    // Keep workflow/provider metadata and unrelated pre-staged changes out of
+    // the approved task commit. Git pathspec commits record only the reviewed
+    // source paths while leaving any other index entries staged for separate
+    // handling.
+    requiredGit(this.cwd, ["commit", "-m", normalized, "--", ...changed], "scoped local commit");
     return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };
   }
 

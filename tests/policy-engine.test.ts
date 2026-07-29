@@ -33,6 +33,7 @@ const executionGrant: ExecutionGrant = {
   },
   repositoryBindings: [],
   retrievalBindings: [],
+  approvalCapabilityDigest: "approval-capabilities",
   capabilityDigest: "capability-digest",
   taskId: "task-1",
   planTaskId: "ATLR-001",
@@ -177,11 +178,11 @@ test("task closure is denied until required focused validation is current and pa
   const base = { mode: "act" as const, projectTrusted: true, repositoryRoot, planPath, grants: [closeGrant], executionGrant };
   assert.equal(policy.evaluate(action, {
     ...base,
-    taskClosure: { ready: false, required: ["focused"], missing: ["focused"], stale: [], failed: [], reason: "missing focused" },
+    taskClosure: { ready: false, blockers: [], required: ["focused"], missing: ["focused"], stale: [], failed: [], reason: "missing focused" },
   }).result, "deny");
   assert.equal(policy.evaluate(action, {
     ...base,
-    taskClosure: { ready: true, required: ["focused"], missing: [], stale: [], failed: [], reason: "passing" },
+    taskClosure: { ready: true, blockers: [], required: ["focused"], missing: [], stale: [], failed: [], reason: "passing" },
   }).result, "allow");
 });
 

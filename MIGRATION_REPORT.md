@@ -1,15 +1,17 @@
-# Migration Report — Atelier 0.14.0-alpha.5
+# Migration Report — Atelier 0.14.0-alpha.6
 
 ## Summary
 
-No runtime data migration is required from 0.14.0-alpha.4. This patch release isolates the
-deterministic test harness from workstation Git configuration, relaxes fake-provider test deadlines,
-and improves Octocode timeout diagnostics.
+Atelier 0.14.0-alpha.6 applies the SQLite schema marker for migration 8 automatically, but it also
+introduces an intentional **manual plan migration**. Alpha.5 plan tasks did not contain the structured
+execution contract needed to derive exact path and validation capabilities. Existing project documents,
+task mappings, provider task state, trust records, retrieval history, and workflow history are preserved,
+but an alpha.5 plan must be updated and reviewed again before a new alpha.6 approval can execute it.
 
-This release intentionally tightens trust, authorization, runtime-state, validation, and exact-approval
-semantics. SQLite schema migration 7 is automatic. Existing plans, task mappings, provider task state,
-retrieval evidence, and workflow history remain readable, but unsafe legacy authorization is not carried
-forward.
+Active alpha.5 execution grants fail closed because their static broad capability bundle cannot be treated
+as the exact alpha.6 contract. Exit the old Pi process, back up the external runtime state, upgrade, add
+execution metadata to the plan, run review, and approve a fresh transaction. Atelier does not fabricate a
+narrow contract from prose or reactivate a legacy broad grant.
 
 ## Required upgrade steps
 
@@ -18,13 +20,52 @@ mise install
 mise run install
 npm run build
 atlr trust status
-atlr trust add --yes
 atlr config validate
 ```
 
-Trust is now explicit and stored outside the repository. Review `.atelier/config.json`,
-`.atelier/validation.json`, and `.atelier/workspace.json` before trusting a repository because trust
-permits their configured providers, validators, and editor command to execute.
+Trust remains explicit and external to the repository. Review `.atelier/config.json`,
+`.atelier/validation.json`, and `.atelier/workspace.json` before trusting a repository because trust permits
+their configured providers, validators, and editor command to execute.
+
+For every plan task, add an exact execution object to `atlr:task` metadata, for example:
+
+```markdown
+<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["src/example.ts","tests/example.test.ts"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
+```
+
+Then run:
+
+```sh
+atlr review
+atlr plan prepare --json
+atlr approve
+```
+
+Preparation rejects missing execution metadata, unknown validations, dependency paths without explicit
+dependency permission, full-suite validation without a named full check, and non-source/out-of-root paths.
+The approval display now lists the effective paths, validations, dependency permission, local-change
+scope, task closure, and exclusions before mutation.
+
+## Pi behavior changes
+
+- Incomplete active tasks may remain idle or paused. `agent_settled` never schedules a follow-up turn.
+- `/atelier-stop` stops the current turn without revoking execution. `/atelier-pause` durably disables
+  agent mutation, and `/atelier-resume` restores it without starting a model turn.
+- `/cancel` revokes execution without waiting for idle and atomically records a cancelled workflow while
+  preserving the provider task and working-copy changes.
+- The model now receives typed `atlr_state`, `atlr_validate`, `atlr_commit`, and `atlr_task_close` tools.
+  Existing human status, validation, commit, and close commands remain available.
+- Explicit user prohibitions such as “do not use Bash”, “do not validate”, “do not commit”, or “do not
+  close” are enforced as a temporary turn policy before an exceptional approval prompt. “Stop after”
+  remains a current-turn instruction; `/atelier-stop` is the enforceable active-turn control.
+- Explicit `/code-symbols` and CLI symbol requests are direct lookups. The autonomous model tool remains
+  inventory-gated.
+- Failed tool output that merely mentions `signal`, `abort`, or `cancel` is no longer classified as
+  interrupted.
+- Exact known paths may be read directly; provider-first semantic discovery remains advisory.
+
+The ledger migration is automatic. Plan review and fresh exact approval are required when moving an
+alpha.5 execution workflow to the alpha.6 capability model.
 
 ## Pi command migration
 
@@ -56,13 +97,17 @@ Project files remain under `.atelier/` and are now intentionally trackable:
 
 - Grant scopes are now only `operation`, `task`, and `repository`.
 - Migration 7 revokes legacy `turn` and `session` grants.
-- Legacy execution/approval records without an exact capability digest fail closed on resume and require
-  a fresh plan preparation and approval.
-- Exact approval atomically installs typed task capabilities.
+- Legacy execution/approval records without the alpha.6 structured task contract fail closed on resume and
+  require plan metadata migration, ManualEdit review, and fresh preparation/approval.
+- Exact approval installs only reviewed path, named validation, optional dependency, optional local-change,
+  and task-close capabilities. Task update/link and full-suite permissions are not implicit.
+- The complete capability projection is displayed and hashed into the approval transaction.
 - Generic shell never inherits those capabilities and requires one-operation approval.
 - A project must be trusted before execution, provider startup, validation, editor launch, or indexing.
+- Pause and cancellation update workflow state atomically; execution revalidation is idempotent.
 
-No migration should fabricate a capability digest or reactivate a revoked legacy grant.
+No migration should infer an execution contract from prose, fabricate a capability digest, or reactivate a
+revoked legacy grant.
 
 ## Validation migration
 
@@ -70,7 +115,8 @@ The obsolete validation field `approval` is rejected. Remove it from `.atelier/v
 Authorization is controlled by Atelier policy and capabilities.
 
 When `closurePolicy.requireValidation` is true, configure at least one applicable check with
-`required: true`; otherwise `atlr config validate` and task closure fail. Current closure can also require:
+`required: true`; otherwise `atlr config validate` and task closure fail. A missing focused selection is
+now reported separately from a manifest with no required validation. Current closure can also require:
 
 - exact final-diff review;
 - a local Git commit or finalized Jujutsu change;
@@ -97,7 +143,12 @@ Repository provider command failures are no longer interpreted as clean state. D
 or provider-native commands after trust for live checks.
 
 Provider-first retrieval is advisory. Existing provider indexes remain provider-owned and can be reused
-when their source/index bindings are current.
+when their source/index bindings are current. Source freshness excludes `.atelier`, Beads, and provider
+metadata churn while raw VCS identity remains available for diagnostics. Symbol display signatures are
+normalized on read; no index rebuild is required solely for alpha.6.
+
+`atlr init --beads` is now idempotent: an initialized provider is preserved and only directory permission
+hardening is applied. It does not implicitly rerun destructive provider initialization.
 
 ## Rollback
 

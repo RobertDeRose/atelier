@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { loadConfig, type AtelierConfig } from "./config/config.ts";
 import { WorkingStateBuilder } from "./state/working-state-builder.ts";
@@ -30,6 +30,7 @@ import {
 import { PlanReconciler } from "./planning/plan-reconciler.ts";
 import { PolicyEngine } from "./policy/policy-engine.ts";
 import { ExecutionWorkflowCoordinator } from "./workflow/execution-workflow-coordinator.ts";
+import { capabilitiesForPlanTask, sourceBaselineMismatch } from "./workflow/execution-baseline.ts";
 import { createRepositoryProvider } from "./repository/repository-factory.ts";
 import type { RepositoryCommitResult, RepositoryProvider } from "./repository/repository-provider.ts";
 import { ValidationService } from "./validation/validation-service.ts";
@@ -49,8 +50,8 @@ import type { TaskProvider } from "./tasks/task-provider.ts";
 import { hashFile, sha256 } from "./util/hash.ts";
 import { newId, nowIso } from "./util/ids.ts";
 import { isWorkspaceRootApproved, projectTrustStatus } from "./security/project-trust.ts";
-import { resolveAccessPath } from "./security/path-boundary.ts";
-import { sourcePaths } from "./repository/source-path.ts";
+import { isPathWithin, resolveAccessPath } from "./security/path-boundary.ts";
+import { isSourcePath, sourcePaths } from "./repository/source-path.ts";
 import { repositoryRevisionBinding, type RepositoryRevisionBinding } from "./repository/revision-binding.ts";
 
 export interface AtelierStatus {
@@ -68,6 +69,29 @@ export interface AtelierStatus {
   snapshot: ReturnType<RepositoryProvider["snapshot"]>;
   activePermissions: PermissionGrant[];
   nextAction: string;
+}
+
+function repositoryRelativeSourcePath(repositoryRoot: string, path: string): string | undefined {
+  const absolute = resolve(path);
+  const rel = relative(repositoryRoot, absolute).replaceAll("\\", "/");
+  if (!rel || rel === ".." || rel.startsWith("../") || !isSourcePath(rel)) return undefined;
+  return rel;
+}
+
+function sourcePathFingerprint(repositoryRoot: string, path: string): string {
+  const absolute = resolve(repositoryRoot, path);
+  if (!existsSync(absolute)) return "missing";
+  try {
+    const stat = statSync(absolute);
+    if (!stat.isFile()) return `non-file:${stat.mode}:${stat.size}`;
+    return `file:${stat.size}:${sha256(readFileSync(absolute))}`;
+  } catch {
+    return "unreadable";
+  }
+}
+
+function pathFingerprintMap(repositoryRoot: string, paths: string[]): Record<string, string> {
+  return Object.fromEntries(paths.map((path) => [path, sourcePathFingerprint(repositoryRoot, path)]));
 }
 
 export class AtelierCore {
@@ -138,6 +162,13 @@ export class AtelierCore {
       repositoryRoot: config.repositoryRoot,
       repositoryBindings: () => this.repositoryRevisionBindings(),
       retrievalBindings: () => this.code.retrievalStatus().bindings,
+      validationCapabilities: () => Object.entries(this.validation.manifest().validations)
+        .map(([name, definition]) => ({
+          name,
+          category: definition.category === "full" ? "full" as const : "focused" as const,
+          required: definition.required === true,
+        })),
+      validationRequired: () => this.validation.closurePolicy().requireValidation,
     });
     this.workingStateBuilder = new WorkingStateBuilder(taskProvider, ledger, this.code, this.validation);
   }
@@ -280,7 +311,10 @@ export class AtelierCore {
       grants: this.ledger.listGrants(),
       ...(this.ledger.getActiveExecutionGrant() === undefined
         ? {}
-        : { executionGrant: this.ledger.getActiveExecutionGrant()! }),
+        : {
+            executionGrant: this.ledger.getActiveExecutionGrant()!,
+            executionPaused: this.execution.isPaused(),
+          }),
       ...(request.action === "task.close" ? { taskClosure: this.taskClosureReadiness() } : {}),
     });
     this.ledger.append({
@@ -312,6 +346,7 @@ export class AtelierCore {
     actor?: PermissionGrant["actor"];
     taskId?: string;
     paths?: string[];
+    validationNames?: string[];
     reason: string;
     expiresAt?: string;
   }): PermissionGrant {
@@ -336,6 +371,7 @@ export class AtelierCore {
       ...(taskId === undefined ? {} : { taskId }),
       repositoryId: snapshot.repositoryId,
       ...(paths === undefined ? {} : { paths }),
+      ...(options.validationNames === undefined ? {} : { validationNames: [...options.validationNames] }),
       reason: options.reason,
       createdAt: nowIso(),
       ...(options.expiresAt === undefined ? {} : { expiresAt: options.expiresAt }),
@@ -371,10 +407,7 @@ export class AtelierCore {
     if (decision === undefined || decision.result !== "allow" || decision.action !== input.request.action
       || decisionEvent?.taskId !== executionGrant.taskId
       || authorizedSnapshot === undefined
-      || authorizedSnapshot.repositoryId !== currentSnapshot.repositoryId
-      || authorizedSnapshot.workspaceId !== currentSnapshot.workspaceId
-      || authorizedSnapshot.headCommit !== currentSnapshot.headCommit
-      || authorizedSnapshot.dirtyFingerprint !== currentSnapshot.dirtyFingerprint) {
+      || sourceBaselineMismatch(authorizedSnapshot, currentSnapshot) !== undefined) {
       throw new Error("Mutation execution evidence requires a current matching allow policy decision.");
     }
     const matchedPermissionGrantId = decision.matchedRules
@@ -400,10 +433,22 @@ export class AtelierCore {
       policyDecisionId: input.policyDecisionId,
       permissionGrantId: matchedPermissionGrantId,
       beforeSnapshot: currentSnapshot,
+      requestedPaths: sourcePaths((input.request.paths ?? [])
+        .flatMap((path) => repositoryRelativeSourcePath(this.config.repositoryRoot, path) ?? [])),
+      beforeChangedPaths: sourcePaths(this.repository.changedPaths()),
       changedPaths: [],
+      newlyChangedPaths: [],
+      furtherModifiedPaths: [],
+      removedPaths: [],
+      unchangedExistingDirtyPaths: [],
+      pathFingerprintsBefore: {},
       observedMutation: false,
       startedAt: nowIso(),
     };
+    evidence.pathFingerprintsBefore = pathFingerprintMap(
+      this.config.repositoryRoot,
+      [...new Set([...evidence.beforeChangedPaths, ...evidence.requestedPaths])].sort(),
+    );
     this.ledger.saveExecutionEvidence(evidence);
     this.ledger.append({
       kind: "execution.tool_started",
@@ -422,15 +467,35 @@ export class AtelierCore {
     const current = this.ledger.getExecutionEvidence(toolCallId);
     if (current === undefined || current.status !== "started") return current;
     const afterSnapshot = this.repository.snapshot();
-    const observedMutation = afterSnapshot.dirtyFingerprint !== current.beforeSnapshot.dirtyFingerprint;
-    const changedPaths = observedMutation
-      ? sourcePaths(this.repository.changedPaths())
-      : [];
+    const afterChangedPaths = sourcePaths(this.repository.changedPaths());
+    const beforeChanged = new Set(current.beforeChangedPaths ?? []);
+    const afterChanged = new Set(afterChangedPaths);
+    const candidates = [...new Set([
+      ...(current.beforeChangedPaths ?? []),
+      ...afterChangedPaths,
+      ...(current.requestedPaths ?? []),
+    ])].sort();
+    const afterFingerprints = pathFingerprintMap(this.config.repositoryRoot, candidates);
+    const newlyChangedPaths = candidates.filter((path) => !beforeChanged.has(path) && afterChanged.has(path));
+    const furtherModifiedPaths = candidates.filter((path) => beforeChanged.has(path)
+      && afterChanged.has(path)
+      && current.pathFingerprintsBefore?.[path] !== afterFingerprints[path]);
+    const removedPaths = (current.beforeChangedPaths ?? []).filter((path) => !afterChanged.has(path));
+    const unchangedExistingDirtyPaths = candidates.filter((path) => beforeChanged.has(path)
+      && afterChanged.has(path)
+      && current.pathFingerprintsBefore?.[path] === afterFingerprints[path]);
+    const changedPaths = [...new Set([...newlyChangedPaths, ...furtherModifiedPaths, ...removedPaths])].sort();
+    const observedMutation = changedPaths.length > 0;
     const evidence: ExecutionEvidence = {
       ...current,
       status: input.status,
       afterSnapshot,
       changedPaths,
+      newlyChangedPaths,
+      furtherModifiedPaths,
+      removedPaths,
+      unchangedExistingDirtyPaths,
+      pathFingerprintsAfter: afterFingerprints,
       observedMutation,
       ...(input.error === undefined ? {} : { error: input.error.slice(0, 4_096) }),
       finishedAt: nowIso(),
@@ -447,6 +512,10 @@ export class AtelierCore {
         action: evidence.action,
         observedMutation,
         changedPaths,
+        newlyChangedPaths,
+        furtherModifiedPaths,
+        removedPaths,
+        unchangedExistingDirtyPaths,
         ...(evidence.error === undefined ? {} : { error: evidence.error }),
       },
     });
@@ -469,7 +538,9 @@ export class AtelierCore {
     try {
       changedPaths = executionGrant.repositorySnapshot.vcs === "none"
         ? sourcePaths(this.repository.changedPaths())
-        : sourcePaths(this.repository.changedPathsFrom(executionGrant.repositorySnapshot.headCommit));
+        : sourcePaths(this.repository.changedPathsFrom(
+            executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit,
+          ));
     } catch {
       changedPaths = sourcePaths(this.repository.changedPaths());
     }
@@ -504,7 +575,7 @@ export class AtelierCore {
         actor: "agent",
         taskId: executionGrant.taskId,
         repositorySnapshot: snapshot,
-        paths: [this.config.repositoryRoot],
+        validationName: name,
         boundary: "typed",
         rationale: `Run configured ${action === "validation.focused" ? "focused" : "full-suite"} validation ${name}.`,
       });
@@ -537,6 +608,44 @@ export class AtelierCore {
     return evidence;
   }
 
+  activeExecutionCapabilities() {
+    const grant = this.ledger.getActiveExecutionGrant();
+    if (grant === undefined) return [];
+    const approval = this.ledger.getPlanApproval(grant.planApprovalId);
+    return approval === undefined ? [] : capabilitiesForPlanTask(approval.capabilities, grant.planTaskId);
+  }
+
+  approvedTaskPaths(): string[] {
+    return [...new Set(this.activeExecutionCapabilities()
+      .filter((capability) => capability.permission === "file.write" || capability.permission === "dependency.modify")
+      .flatMap((capability) => capability.paths ?? []))].sort();
+  }
+
+  approvedValidationNames(category: "focused" | "full"): string[] {
+    const permission = category === "focused" ? "validation.focused" : "validation.full_suite";
+    return [...new Set(this.activeExecutionCapabilities()
+      .filter((capability) => capability.permission === permission)
+      .flatMap((capability) => capability.validationNames ?? []))].sort();
+  }
+
+  private approvedChangedPaths(fromBaseline = false): string[] {
+    const grant = this.ledger.getActiveExecutionGrant();
+    if (grant === undefined) throw new Error("Approved task paths require an active execution grant.");
+    const base = grant.repositorySnapshot.sourceBaseCommit ?? grant.repositorySnapshot.headCommit;
+    const changed = sourcePaths(fromBaseline
+      ? this.repository.changedPathsFrom(base)
+      : this.repository.changedPaths());
+    const allowed = this.approvedTaskPaths();
+    const outside = changed.filter((path) => {
+      const absolute = resolve(this.config.repositoryRoot, path);
+      return !allowed.some((root) => isPathWithin(absolute, root, "write"));
+    });
+    if (outside.length > 0) {
+      throw new Error(`Source changes exceed the reviewed task scope: ${outside.join(", ")}.`);
+    }
+    return changed;
+  }
+
   currentFinalDiffReview(): FinalDiffReview | undefined {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) return undefined;
@@ -550,13 +659,15 @@ export class AtelierCore {
     if (executionGrant.repositorySnapshot.vcs === "none") {
       throw new Error("Final diff review requires a revision-aware repository baseline.");
     }
-    const diff = this.repository.diffFrom(executionGrant.repositorySnapshot.headCommit);
-    if (!diff.trim()) throw new Error("No task diff exists relative to the approved source baseline.");
+    const baseline = executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit;
+    const changedPaths = this.approvedChangedPaths(true);
+    const diff = changedPaths.map((path) => this.repository.diffFrom(baseline, path)).filter((item) => item.trim()).join("\n");
+    if (!diff.trim()) throw new Error("No approved task diff exists relative to the reviewed source baseline.");
     return {
       taskId: executionGrant.taskId,
       executionGrantId: executionGrant.id,
-      baselineHeadCommit: executionGrant.repositorySnapshot.headCommit,
-      changedPaths: this.repository.changedPathsFrom(executionGrant.repositorySnapshot.headCommit),
+      baselineHeadCommit: baseline,
+      changedPaths,
       diff,
       diffHash: sha256(diff),
     };
@@ -594,18 +705,21 @@ export class AtelierCore {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("A local task change requires an active execution grant.");
     const snapshot = this.repository.snapshot();
+    const changedPaths = this.approvedChangedPaths(false);
+    if (changedPaths.length === 0) throw new Error("No approved source changes are available to commit.");
+    const absolutePaths = changedPaths.map((path) => resolve(this.config.repositoryRoot, path));
     const decision = this.evaluate({
       action: "repository.change.create",
       risk: "routine",
       actor,
       taskId: executionGrant.taskId,
       repositorySnapshot: snapshot,
-      paths: [this.config.repositoryRoot],
+      paths: absolutePaths,
       boundary: "typed",
       rationale: "Create the local repository change required by the approved task.",
     });
     if (decision.result !== "allow") throw new Error(decision.reason);
-    const result = this.repository.commit(message);
+    const result = this.repository.commit(message, changedPaths);
     this.ledger.append({
       kind: "repository.change_created",
       actor,
@@ -614,7 +728,7 @@ export class AtelierCore {
       payload: {
         message: result.message,
         changedPaths: result.changedPaths,
-        baselineHeadCommit: executionGrant.repositorySnapshot.headCommit,
+        baselineHeadCommit: executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit,
       },
     });
     return result;
@@ -623,7 +737,7 @@ export class AtelierCore {
   taskClosureReadiness(): TaskClosureReadiness {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) {
-      return { ready: false, required: [], missing: [], stale: [], failed: [], reason: "No active execution grant exists." };
+      return { ready: false, blockers: [], required: [], missing: [], stale: [], failed: [], reason: "No active execution grant exists." };
     }
     const snapshot = this.repository.snapshot();
     const validation = this.validation.closureReadiness(snapshot, executionGrant.taskId, executionGrant.id);
@@ -632,7 +746,9 @@ export class AtelierCore {
     let diffHash: string | undefined;
     try {
       if (executionGrant.repositorySnapshot.vcs !== "none") {
-        diffHash = sha256(this.repository.diffFrom(executionGrant.repositorySnapshot.headCommit));
+        const baseline = executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit;
+        const paths = this.approvedChangedPaths(true);
+        diffHash = sha256(paths.map((path) => this.repository.diffFrom(baseline, path)).filter((item) => item.trim()).join("\n"));
       }
     } catch {
       diffHash = undefined;
@@ -641,13 +757,14 @@ export class AtelierCore {
       || (review !== undefined
         && review.taskId === executionGrant.taskId
         && review.executionGrantId === executionGrant.id
-        && review.baselineHeadCommit === executionGrant.repositorySnapshot.headCommit
+        && review.baselineHeadCommit === (executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit)
         && diffHash !== undefined
         && review.diffHash === diffHash);
     const localChangeCreated = !policy.requireLocalChange
       || (snapshot.vcs !== "none"
         && snapshot.headCommit !== "unborn"
-        && snapshot.headCommit !== executionGrant.repositorySnapshot.headCommit);
+        && (snapshot.sourceBaseCommit ?? snapshot.headCommit)
+          !== (executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit));
     let repositoryStateAcceptable = true;
     if (policy.requireCleanGit) {
       try {
@@ -659,12 +776,23 @@ export class AtelierCore {
     const missing = [...validation.missing];
     const stale = [...validation.stale];
     const failed = [...validation.failed];
-    if (!finalDiffReviewed) missing.push("current final diff review");
-    if (!localChangeCreated) missing.push("local committed change");
-    if (!repositoryStateAcceptable) missing.push("clean repository state");
+    const blockers = [...validation.blockers];
+    if (!finalDiffReviewed) {
+      missing.push("current final diff review");
+      blockers.push({ code: "diff_review_missing", detail: "The exact current approved-path diff has not been reviewed." });
+    }
+    if (!localChangeCreated) {
+      missing.push("local committed change");
+      blockers.push({ code: "local_change_missing", detail: "No local commit or finalized Jujutsu change exists for the task." });
+    }
+    if (!repositoryStateAcceptable) {
+      missing.push("clean repository state");
+      blockers.push({ code: "repository_dirty", detail: "Approved application-source paths remain dirty." });
+    }
     const ready = validation.ready && finalDiffReviewed && localChangeCreated && repositoryStateAcceptable;
     return {
       ready,
+      blockers,
       validationReady: validation.ready,
       finalDiffReviewed,
       localChangeCreated,
@@ -684,14 +812,14 @@ export class AtelierCore {
     };
   }
 
-  async closeActiveTask(reason: string): Promise<{ task: TaskRecord; nextReady: TaskRecord[] }> {
+  async closeActiveTask(reason: string, actor: "user" | "agent" = "user"): Promise<{ task: TaskRecord; nextReady: TaskRecord[] }> {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("No active execution task is available to close.");
     const snapshot = this.repository.snapshot();
     const decision = this.evaluate({
       action: "task.close",
       risk: "routine",
-      actor: "user",
+      actor,
       taskId: executionGrant.taskId,
       repositorySnapshot: snapshot,
       boundary: "typed",
@@ -701,12 +829,12 @@ export class AtelierCore {
     const task = await this.taskProvider.close(executionGrant.taskId, reason);
     this.ledger.append({
       kind: "task.closed",
-      actor: "user",
+      actor,
       taskId: task.id,
       repositorySnapshot: snapshot,
       payload: { reason, completion: this.taskClosureReadiness() },
     });
-    this.execution.cancel(`Task ${task.id} was explicitly closed.`);
+    this.execution.cancel(`Task ${task.id} was explicitly closed.`, "completed");
     const mappings = new Set(this.ledger.listTaskMappings()
       .filter((mapping) => mapping.provider === this.taskProvider.name && mapping.planHash === executionGrant.planHash)
       .map((mapping) => mapping.providerTaskId));
@@ -734,7 +862,7 @@ export class AtelierCore {
       });
       return [];
     }
-    this.execution.cancel(`Task ${task.id} was explicitly closed through an authorized typed tool.`);
+    this.execution.cancel(`Task ${task.id} was explicitly closed through an authorized typed tool.`, "completed");
     const mappings = new Set(this.ledger.listTaskMappings()
       .filter((mapping) => mapping.provider === this.taskProvider.name && mapping.planHash === executionGrant.planHash)
       .map((mapping) => mapping.providerTaskId));
@@ -914,6 +1042,7 @@ export class AtelierCore {
     if (!this.config.projectTrusted) return `Trust this project before Atelier executes repository tools: ${this.config.repositoryRoot}`;
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant !== undefined) {
+      if (this.execution.isPaused()) return `Execution is paused for task ${executionGrant.taskId}; resume explicitly before agent mutation.`;
       const readiness = this.taskClosureReadiness();
       if (readiness.ready) return `Close active task ${executionGrant.taskId} with explicit completion evidence.`;
       if (this.currentWorkflowRun()?.checkpoint === "validating") return `Run or rerun required focused validation: ${readiness.reason}`;

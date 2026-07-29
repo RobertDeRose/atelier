@@ -1,4 +1,5 @@
 import type { RepositorySnapshot } from "../repository/snapshot.ts";
+import { repositoryRevisionBinding } from "../repository/revision-binding.ts";
 import { sha256 } from "../util/hash.ts";
 import type {
   CachedQueryCoverage,
@@ -86,18 +87,7 @@ export function canonicalQueryRequestDigest(query: CanonicalRetrievalQuery): str
 
 export function canonicalizeRevisionBinding(input: Pick<CanonicalQueryInput, "provider" | "workspaceId" | "repositories" | "indexRevision">): RetrievalRevisionBinding {
   const repositories = input.repositories
-    .map(({ repositoryId, snapshot }): RepositoryRevisionBinding => ({
-      repositoryId,
-      snapshotRepositoryId: snapshot.repositoryId,
-      workspaceId: snapshot.workspaceId,
-      vcs: snapshot.vcs,
-      headCommit: snapshot.headCommit,
-      ...(snapshot.changeId === undefined ? {} : { changeId: snapshot.changeId }),
-      ...(snapshot.operationId === undefined ? {} : { operationId: snapshot.operationId }),
-      dirtyGeneration: snapshot.dirtyGeneration,
-      dirtyFingerprint: snapshot.dirtyFingerprint,
-      indexSchemaVersion: snapshot.indexSchemaVersion,
-    }))
+    .map(({ repositoryId, snapshot }): RepositoryRevisionBinding => repositoryRevisionBinding(repositoryId, snapshot))
     .sort((left, right) => left.repositoryId.localeCompare(right.repositoryId));
   return {
     workspaceId: input.workspaceId,

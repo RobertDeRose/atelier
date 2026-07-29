@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { sourceRevisionIdentity, sourceSnapshotBase } from "../repository/snapshot.ts";
 import { nowIso } from "../util/ids.ts";
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
@@ -837,7 +838,7 @@ function normalizeHit(options: {
     providerRank,
     repositoryId: repository.id,
     repositoryName: repository.name,
-    ...(repository.snapshot.headCommit ? { revision: repository.snapshot.headCommit } : {}),
+    ...(sourceSnapshotBase(repository.snapshot) ? { revision: sourceSnapshotBase(repository.snapshot) } : {}),
     path,
     ...(reference.startLine === undefined ? {} : { startLine: reference.startLine }),
     ...(reference.endLine === undefined ? {} : { endLine: reference.endLine }),
@@ -1078,7 +1079,7 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 function snapshotIdentity(snapshot: CodeWorkspace["repositories"][number]["snapshot"]): string {
-  return [snapshot.vcs, snapshot.headCommit, snapshot.changeId ?? "", snapshot.operationId ?? "", snapshot.dirtyFingerprint].join(":");
+  return sourceRevisionIdentity(snapshot);
 }
 
 function encodeReference(data: CodesearchReferenceData): string {

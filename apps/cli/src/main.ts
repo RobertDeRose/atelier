@@ -59,6 +59,8 @@ Commands:
   review                            Open the plan in the configured editor and record a ManualEdit
   approve [--approval ID]           Prepare, inspect, or explicitly apply an exact transaction
   execute [TASK_ID] [--yes]         Explicitly activate a later approved-plan task
+  pause --reason TEXT               Pause active execution without revoking task capabilities
+  resume                            Resume a paused execution without starting agent work
   cancel --reason TEXT              Revoke the current execution without closing its task
   ready [--json]                    Return provider-reported unblocked work
   task show ID [--json]             Read one provider task
@@ -204,13 +206,22 @@ async function main(): Promise<void> {
         const initialized = core.initialize({ createPlan: true });
         let beads: unknown;
         if (flagBoolean(parsed, "beads")) {
-          await core.taskProvider.initialize({ stealth: flagBoolean(parsed, "stealth"), quiet: true });
+          const before = await core.taskProvider.status();
+          if (!before.initialized) {
+            await core.taskProvider.initialize({ stealth: flagBoolean(parsed, "stealth"), quiet: true });
+            core.ledger.append({
+              kind: "task_provider.initialized",
+              actor: "user",
+              payload: { provider: core.taskProvider.name, stealth: flagBoolean(parsed, "stealth") },
+            });
+          } else {
+            core.ledger.append({
+              kind: "task_provider.initialization_skipped",
+              actor: "user",
+              payload: { provider: core.taskProvider.name, reason: "already initialized" },
+            });
+          }
           beads = await core.taskProvider.status();
-          core.ledger.append({
-            kind: "task_provider.initialized",
-            actor: "user",
-            payload: { provider: core.taskProvider.name, stealth: flagBoolean(parsed, "stealth") },
-          });
         } else {
           beads = await core.taskProvider.status();
         }
@@ -338,6 +349,23 @@ async function main(): Promise<void> {
 
       case "execute": {
         await handleTaskStart(core, subcommand, parsed);
+        return;
+      }
+
+      case "pause": {
+        const reason = flagString(parsed, "reason") ?? (rest.join(" ").trim() || "User paused execution through the CLI.");
+        const paused = core.execution.pause(reason);
+        if (paused === undefined) throw new Error("No active execution exists to pause.");
+        if (flagBoolean(parsed, "json")) asJson({ paused: true, executionGrant: paused, reason });
+        else process.stdout.write(`Paused execution ${paused.id}; task ${paused.taskId} remains active.\n`);
+        return;
+      }
+
+      case "resume": {
+        const resumed = core.execution.resumePaused();
+        if (resumed === undefined) throw new Error("No active execution exists to resume.");
+        if (flagBoolean(parsed, "json")) asJson({ resumed: true, executionGrant: resumed });
+        else process.stdout.write(`Resumed execution ${resumed.id}; task ${resumed.taskId} remains active.\n`);
         return;
       }
 

@@ -4,8 +4,11 @@ import type {
   CompactHitValue,
   CompactRelationshipValue,
   RetrievalInvalidation,
+  RetrievalPersistenceLimits,
   RetrievalReuseDecision,
+  RetrievalTelemetry,
 } from "./retrieval.ts";
+import type { CodeServiceLimits } from "./service-types.ts";
 import type {
   AtelierRetrievalObservation,
   CodeChunk,
@@ -242,21 +245,40 @@ export function isIdentifier(text: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(text);
 }
 
+const SYMBOL_DECLARATION = /^(?:(?:export|default|declare|abstract|async|public|private|protected|static|readonly|final|sealed|partial)\s+)*(?:class|interface|enum|type|function|const|let|var|namespace|module|struct|trait)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/;
+
+/** Convert provider display signatures into a stable identifier. */
+export function canonicalSymbolIdentifier(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (/^(?:block|imports?|chunk|lines?)\s*\(\d+\s+lines?\)$/i.test(normalized)) return undefined;
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(normalized)) return normalized;
+  return SYMBOL_DECLARATION.exec(normalized)?.[1];
+}
+
+export function symbolResolvesIdentifier(symbol: string | undefined, identifier: string): boolean {
+  return canonicalSymbolIdentifier(symbol) === identifier;
+}
+
 const NON_SYMBOL_IDENTIFIERS = new Set([
   "code", "file", "implementation", "path", "plan", "produce", "provider", "repository", "state", "task", "test", "working",
 ]);
+const INFERRED_NON_SYMBOL_IDENTIFIERS = new Set(["atelier", "atlr", "cli"]);
 
 export function identifierCandidates(text: string, explicit: string[] | undefined): string[] {
-  const quoted = [...text.matchAll(/`([^`]+)`/g)].flatMap((match) => match[1] === undefined ? [] : [match[1]]);
-  const quotedIdentifiers = new Set(quoted);
-  const explicitIdentifiers = [...(explicit ?? []), ...quoted]
-    .filter((value) => isIdentifier(value)
-      && !value.includes("/")
-      && !value.includes(".")
-      && !NON_SYMBOL_IDENTIFIERS.has(value.toLowerCase())
-      && (quotedIdentifiers.has(value) || isCodeShapedIdentifier(value)));
-  const inferred = (text.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []).filter(isCodeShapedIdentifier);
-  return [...new Set([...explicitIdentifiers, ...inferred])];
+  const valid = (value: string): boolean => !NON_SYMBOL_IDENTIFIERS.has(value.toLowerCase());
+  const inferredValid = (value: string): boolean => valid(value) && !INFERRED_NON_SYMBOL_IDENTIFIERS.has(value.toLowerCase());
+  const explicitIdentifiers = (explicit ?? []).flatMap((value) => {
+    const normalized = value.trim();
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(normalized)) return valid(normalized) ? [normalized] : [];
+    return (value.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []).filter((token) => inferredValid(token) && isCodeShapedIdentifier(token));
+  });
+  const quotedIdentifiers = [...text.matchAll(/`([^`]+)`/g)]
+    .flatMap((match) => match[1]?.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [])
+    .filter((value) => inferredValid(value) && isCodeShapedIdentifier(value));
+  const inferred = (text.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [])
+    .filter((value) => inferredValid(value) && isCodeShapedIdentifier(value));
+  return [...new Set([...explicitIdentifiers, ...quotedIdentifiers, ...inferred])];
 }
 
 export function isCodeShapedIdentifier(value: string): boolean {
@@ -296,4 +318,33 @@ export function utf8Prefix(value: string, maxBytes: number): string {
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function emptyTelemetry(): RetrievalTelemetry {
+  return {
+    providerCalls: 0,
+    cacheHits: 0,
+    overlapReuses: 0,
+    uniquePaths: 0,
+    duplicateResultsRemoved: 0,
+    duplicatePathsRemoved: 0,
+    duplicateSymbolsRemoved: 0,
+    duplicateChunksRemoved: 0,
+    duplicateReferencesRemoved: 0,
+    bytesReturned: 0,
+    truncated: false,
+    invalidations: 0,
+  };
+}
+
+export function validateLimits(limits: CodeServiceLimits): void {
+  for (const [name, value] of Object.entries(limits)) {
+    if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
+  }
+}
+
+export function validatePersistenceLimits(limits: RetrievalPersistenceLimits): void {
+  for (const [name, value] of Object.entries(limits)) {
+    if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
+  }
 }

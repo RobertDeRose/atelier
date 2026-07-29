@@ -8,16 +8,18 @@ Each Pi session owns one bounded Atelier retrieval session. The same compact evi
 inventory survives agent turns and conversational compaction, then closes during
 `session_shutdown`.
 
-The enforced sequence is:
+The retrieval sequence is:
 
-1. Run one focused semantic `atlr_code_search` discovery.
+1. Read exact known paths directly. For an unknown location or cross-file concept, run one focused
+   semantic `atlr_code_search` discovery.
 2. Inspect the inventory and reuse decision included in that response.
-3. Use `atlr_code_symbols` only for identifiers listed as unresolved.
+3. Use model-facing `atlr_code_symbols` only for identifiers listed as unresolved. Explicit human
+   `/code-symbols` and CLI requests may perform a direct lookup.
 4. Use Pi's built-in `read` tool for known or returned paths.
-5. Use broad raw scanning only when Atelier reports unavailable, unhealthy, stale,
-   degraded, failed, or genuinely empty provider evidence.
+5. Prefer provider evidence before broad raw scanning, but use exact typed reads or an explicitly approved
+   shell operation when provider evidence is insufficient, wrong, excluded, or budget-limited.
 
-Cache reuse, request-budget denial, and agent preference do not enable raw scanning.
+Retrieval routing is advisory; security authorization remains independent from retrieval economy.
 Every code-tool response reports the session inventory, freshness, remaining budgets, deduplication, returned bytes, truncation, invalidations, repository scopes, and the latest provider-call or reuse decision. Original provider provenance remains attached to fresh and reused evidence.
 
 Repository, provider identity, and index revision changes invalidate affected evidence before another decision. Historical observations may remain for explanation, but they are marked non-current and cannot satisfy Working State retrieval after reopen.
@@ -28,9 +30,11 @@ Troubleshooting:
 
 - Inspect `/code-status` before another search; it includes the current inventory.
 - Read a known path directly when the decision says `direct_read`.
-- A `no_provider_call` symbol decision means semantic discovery has not left that identifier unresolved.
-- Start a new Pi session after a genuine request-budget exhaustion; raw scanning is not enabled by denial.
-- Reindex when status is stale or failed. Degraded or unavailable status enables guarded raw fallback, but critical evidence still needs a direct read.
+- A model-tool `no_provider_call` symbol decision means semantic discovery has not left that identifier
+  unresolved. Use explicit `/code-symbols` only when a human intentionally requests the lookup.
+- Start a new Pi session after a genuine request-budget exhaustion, or use exact typed inspection when the
+  remaining question cannot be answered from current evidence.
+- Reindex when status is stale or failed. Critical evidence still needs direct inspection.
 
 ## Commands
 
@@ -41,6 +45,9 @@ The slash commands mirror the `atlr` CLI verbs:
 - `atlr review` → `/review`
 - `atlr approve` → `/approve`
 - `atlr execute [task-id]` → `/execute [task-id]`
+- stop current turn → `/atelier-stop`
+- pause agent mutation → `/atelier-pause [reason]`
+- resume paused execution → `/atelier-resume`
 - `atlr cancel --reason <text>` → `/cancel [reason]`
 - `atlr ready` → `/ready [task-id]`
 - `atlr state` → `/state`
@@ -51,6 +58,10 @@ The slash commands mirror the `atlr` CLI verbs:
 - `atlr changed` → `/changed`
 - `atlr validate plan` → `/validate plan`
 - `atlr validate focused` → `/validate focused`
+- model state → `atlr_state`
+- model validation → `atlr_validate` (`plan`, `focused`, or named `run`)
+- model local change → `atlr_commit`
+- model task closure → `atlr_task_close`
 - `atlr evidence` → `/evidence`
 
 Pi command names use hyphens because Pi registers one command token after `/`.
@@ -63,22 +74,32 @@ atlr plan prepare --json
 atlr approve --approval <id> --digest <reconciliation-digest> --yes
 ```
 
-`review` prints the durable `ManualEdit` structural diff, plan diagnostics, and reconciliation preview. `prepare` reports the full plan hash, provider identity, operation details, retirements, and proposed first task. A non-interactive `approve` refuses to apply without the matching ID, digest, and `--yes`; an interactive terminal may confirm the same displayed transaction. Use `atlr task start [id] --yes` or `atlr execute [id] --yes` only after explicit closure exposes later approved-plan work. `atlr cancel --reason <text>` revokes execution authorization without closing the provider task.
+`review` prints the durable `ManualEdit` structural diff, plan diagnostics, and reconciliation preview. `prepare` reports the full plan hash, provider identity, operation details, retirements, and proposed first task. A non-interactive `approve` refuses to apply without the matching ID, digest, and `--yes`; an interactive terminal may confirm the same displayed transaction. Use `atlr task start [id] --yes` or `atlr execute [id] --yes` only after explicit closure exposes later approved-plan work. `atlr cancel --reason <text>` revokes execution authorization without closing the provider task. Pi
+`/cancel` does not wait for idle and can abort an active turn after the durable grant is revoked.
+`/atelier-stop` leaves execution active, while `/atelier-pause` and `/atelier-resume` persist the agent
+mutation state without starting another model turn.
 
 ## Hooks
 
 - `session_start`: opens Atelier state, validates or fails closed any durable execution, starts one retrieval session, and updates status.
 - `session_shutdown`: interrupts unfinished tool evidence, closes the retrieval session, and closes SQLite state.
 - `tool_call`: classifies and gates actions before execution, including provider-first raw-discovery routing, then starts durable evidence for authorized mutations.
-- `tool_result`: completes success, failure, or interruption evidence for every mutating result and refreshes workflow/validation status. One-operation grants are consumed by authorization regardless of the result.
+- `tool_result`: completes success, failure, or interruption evidence for every mutating result and
+  refreshes workflow/validation status. Interruption comes from structured abort state or an exact
+  tool-owned abort sentinel, never arbitrary process output. One-operation grants are consumed by
+  authorization regardless of the result.
 - `before_agent_start`: revalidates execution and injects deterministic Atelier Working State, next action, and compact retrieval inventory.
 - `session_before_compact`: revalidates execution and supplies task-backed reconstruction rather than a conversationally authoritative summary.
-- Approved act-mode work auto-allows routine repository-scoped edits, validation,
-  task updates, and local commits. Destructive, external, unknown, publication,
-  and out-of-repository effects still prompt.
-- `agent_settled`: prevents selected-task work with uncommitted changes from being
-  reported complete without validation, final diff inspection, and a local commit.
-- `agent_settled`: automatically opens every completed initial plan draft in the configured editor, records the `ManualEdit`, and displays its structural summary and reconciliation readiness.
+- Approved act-mode work auto-allows only the exact reviewed source paths, named `atlr_validate`
+  operations, task closure, and an optional path-scoped local commit. Task update/link capabilities are
+  not implied. Authorization does not override the user's latest instruction not to validate, use Bash,
+  commit, close, or continue. Destructive, external, unknown, publication, and
+  out-of-repository effects still prompt.
+- `agent_settled`: leaves incomplete active tasks idle and emits at most one passive readiness warning;
+  it never schedules a follow-up model turn. The authoritative predicate is enforced when closure is
+  requested.
+- `agent_settled`: automatically opens every completed initial plan draft in the configured editor,
+  records the `ManualEdit`, and displays its structural summary and reconciliation readiness.
 
 ## Editor handoff
 

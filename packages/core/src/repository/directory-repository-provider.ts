@@ -27,6 +27,8 @@ export class DirectoryRepositoryProvider implements RepositoryProvider {
       workspaceId: identity.slice(0, 16),
       vcs: "none",
       headCommit: "none",
+      sourceBaseCommit: "none",
+      sourceFingerprint: `directory:${identity}`,
       dirtyGeneration: 0,
       dirtyFingerprint: `directory:${identity}`,
       indexSchemaVersion: this.indexSchemaVersion,

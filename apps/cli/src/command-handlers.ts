@@ -3,6 +3,7 @@ import {
   AtelierCore,
   PERMISSIONS,
   ensurePlanDocument,
+  executionCapabilitySummary,
   parsePlanFile,
   resolveEditorCommand,
   runInteractiveProcess,
@@ -118,7 +119,7 @@ export async function handleCode(core: AtelierCore, subcommand: string | undefin
     const workspace = core.codeWorkspace();
     const results = subcommand === "search"
       ? await core.code.search({ workspace, text: query, mode: mode as "auto" | "semantic" | "hybrid" | "lexical", focus: focus as "auto" | "source" | "tests" | "docs" | "all", ...(literalHints === undefined ? {} : { literalHints }), ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 })
-      : await core.code.symbols({ workspace, text: query, ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10 });
+      : await core.code.symbols({ workspace, text: query, ...(provider === undefined ? {} : { provider }), ...(repositoryIds === undefined ? {} : { repositoryIds }), limit: Number.isFinite(limit) ? limit : 10, requireUnresolved: false });
     const status = await core.code.status(provider, workspace);
     const retrieval = core.code.retrievalStatus();
     if (flagBoolean(parsed, "json")) asJson(codeJsonPayload(results, status, workspace, retrieval));
@@ -290,6 +291,7 @@ function preparationText(core: AtelierCore, prepared: ExecutionPreparation): str
     ...prepared.reconciliation.operations.map((operation) => `- ${operation.kind}: ${operation.planTaskId}`),
     `Retirements: ${retirements.length}${retirements.length === 0 ? "" : ` (${retirements.map((operation) => operation.planTaskId).join(", ")})`}`,
     `Proposed first task: ${proposed === undefined ? "none" : `${proposed.id} — ${proposed.title}`}`,
+    ...executionCapabilitySummary(prepared.approval.capabilities, core.config.repositoryRoot),
   ].join("\n");
 }
 

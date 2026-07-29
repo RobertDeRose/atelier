@@ -14,7 +14,7 @@ export const VALID_PLAN = `# Atelier Test Plan
 <!-- atlr:plan version="1" -->
 
 ## ATLR-001 — Establish guarded core
-<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task"} -->
+<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["packages/core","src","src.ts"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
@@ -45,7 +45,7 @@ Create the guarded core.
 - Keep the implementation deterministic
 
 ## ATLR-002 — Add task-backed working state
-<!-- atlr:task {"id":"ATLR-002","priority":2,"type":"feature"} -->
+<!-- atlr:task {"id":"ATLR-002","priority":2,"type":"feature","execution":{"writePaths":["packages/core/src/state"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 

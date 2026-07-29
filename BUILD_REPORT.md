@@ -1,11 +1,11 @@
-# Build Report — Atelier 0.14.0-alpha.5
+# Build Report — Atelier 0.14.0-alpha.6
 
 ## Result
 
-The critical-review correction release builds successfully as stable JavaScript and declarations. The
-supported launcher consumes `dist` rather than TypeScript source.
+Atelier builds successfully as stable JavaScript and declarations. The supported launcher consumes
+`dist` rather than TypeScript source.
 
-Delivered build outputs:
+Delivered entry points:
 
 ```text
 dist/packages/core/src/index.js
@@ -15,26 +15,36 @@ dist/apps/pi-extension/src/index.js
 ```
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
-as the CLI entry. `prepack` runs the build; source execution is explicitly development-only.
+as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
 
-## Corrected release boundary
+## Alpha.6 correction boundary
 
-The release corrects the stop-ship authorization and trust defects identified at commit `286e2bc14edb`:
+The complete alpha.5 manual evidence was reviewed rather than treating the abort loop as an isolated
+symptom. This release corrects:
 
-- external project and workspace-root trust;
-- no repository-controlled provider/editor/validator/index startup before trust;
-- unconfined generic shell with one-operation approval;
-- real-path confinement for typed operations;
-- exact source, workspace, retrieval, reconciliation, and capability bindings;
-- authoritative validation/diff/commit/clean task closure;
-- explicit provider-observation failures;
-- staged and untracked Git evidence;
-- session-owned Pi state and awaited asynchronous shutdown;
-- external runtime state and observational diagnostics;
-- collision-free Pi command registration: Pi retains `/trust`, while Atelier uses `/atelier-trust`;
-- canonical Pi trust identity and notification evidence across repository aliases, including macOS `/var` paths.
+- forced `agent_settled` follow-up turns after denial or abort;
+- `/cancel` waiting for an idle state that Atelier itself prevented;
+- failed commands being mislabeled interrupted because output mentioned `signal` or `AbortSignal`;
+- absence of a typed model-facing validation operation;
+- misleading missing-validation-selection diagnostics;
+- explicit human symbol lookup being blocked by autonomous inventory policy;
+- raw symbol display labels, contradictory resolved/unresolved state, cache non-convergence, and
+  cross-repository scope ambiguity;
+- malformed exact-symbol hints extracted from expressions;
+- permissive `.beads` directory mode;
+- over-segmented tiny plans and excessively verbose code-provider presentation;
+- the reboot-unsafe and trust-store-truncating commands in the prior live acceptance procedure;
+- the alpha.5 static whole-repository capability bundle and non-disclosed authorization scope;
+- missing typed state, local-change, and task-close operations plus unenforced per-turn tool restrictions;
+- non-atomic cancellation and duplicate execution-resume events;
+- per-tool evidence attributing all already-dirty paths;
+- workflow metadata invalidating source evidence and being swept into task commits;
+- destructive repeated Beads initialization; and
+- mandatory semantic discovery despite exact known paths.
 
-The complete traceability matrix is `docs/REVIEW_CORRECTIONS.md`.
+The original 29 review corrections remain in force. Traceability is split between
+`docs/REVIEW_CORRECTIONS.md` and `docs/MANUAL_ACCEPTANCE_CORRECTIONS.md`; ADR-0028 records the user-control
+and typed-validation decision, while ADR-0029 records exact task scope and source isolation.
 
 ## Deterministic verification
 
@@ -47,17 +57,43 @@ bash scripts/smoke.sh
 npm pack --dry-run
 ```
 
-The local deterministic suite passes 194 tests. CI executes the same deterministic gate on Node 24.18.0
-on Ubuntu 24.04 and macOS 26. The plan-review and Pi trust regressions assert that emitted paths use
-Atelier's canonical configured or trusted identity, including macOS `/var` aliases. The test launcher
-also replaces workstation and system Git configuration with an isolated, non-signing configuration;
-fixture commits additionally pass `--no-gpg-sign`. Test-file concurrency is bounded at eight, and fake
-Octocode process deadlines are ten seconds to remain stable under full-suite process contention.
-Timeout failures retain their real diagnostic instead of being reported as a missing executable. Real
-Jujutsu, codesearch, Beads, and Pi/Bun checks are defined as separate manually dispatched conformance
-jobs because external tool availability is environment-dependent.
+The local deterministic suite passes **217 tests**. It includes regressions proving:
+
+- a denied operation does not enqueue another model turn;
+- repeated `agent_settled` events produce only one passive notice;
+- `/cancel` works while the context is non-idle and never calls `waitForIdle()`;
+- typed model validation receives the current abort signal; failed validation rejects the tool call, while explicit interruption returns structured interrupted evidence;
+- ordinary failures containing cancellation-related words remain failed;
+- explicit symbol lookup normalizes and ranks definitions, repairs cache state, and remains
+  repository-scope qualified;
+- `.beads` initialization hardens mode to 0700 on non-Windows systems;
+- reviewed two-file tasks receive only two-file write/commit scope and named validation permission;
+- approval surfaces disclose exact capabilities and exclusions;
+- stop, pause, resume, and cancel preserve distinct durable semantics;
+- cancellation atomically updates workflow state and execution revalidation is idempotent;
+- per-turn no-Bash/no-validation/no-commit/no-close restrictions block tools before confirmation;
+- typed state, validation, commit, and close tools are registered and execution-bound;
+- individual tool evidence attributes only its path delta;
+- source evidence ignores workflow metadata while task commits exclude that metadata; and
+- repeated Beads initialization is a provider-preserving no-op.
+
+
+The final package dry-run reports:
+
+```text
+Package: atelier-prototype@0.14.0-alpha.6
+Files: 334
+Compressed size: 392,894 bytes
+Unpacked size: 1,864,924 bytes
+```
+
+CI executes the deterministic gate on the pinned Node 24.18.0 toolchain on Ubuntu 24.04 and macOS 26.
+Real Jujutsu, codesearch, Beads, and Pi/Bun checks remain separate manually dispatched conformance jobs
+because external tool availability is environment-dependent.
 
 ## Release classification
 
-`0.14.0-alpha.5` is a trusted-repository, interactive alpha. It does not provide an operating-system
+`0.14.0-alpha.6` remains a trusted-repository, interactive alpha. It does not provide an operating-system
 sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.
+Prompt clarification improves agent behavior but is not a security boundary; typed policy, explicit user
+denial, and durable authorization remain authoritative.

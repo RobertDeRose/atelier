@@ -18,7 +18,7 @@ function reconciliationPlan(tasks: Array<{
   dependencies?: string[];
 }>): string {
   return `# Reconciliation Plan\n\n<!-- atlr:plan version="1" -->\n\n${tasks.map((task) => `## ${task.id} — ${task.title}
-<!-- atlr:task {"id":"${task.id}","priority":1,"type":"task"} -->
+<!-- atlr:task {"id":"${task.id}","priority":1,"type":"task","execution":{"writePaths":["packages/core"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
