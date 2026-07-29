@@ -93,6 +93,7 @@ if (args[0] === "workspace" && args[1] === "root") { console.log(${JSON.stringif
 if (args[0] === "log" && args.includes("@-")) { console.log("parent123"); process.exit(0); }
 if (args[0] === "log") { console.log("change123\\ncommit456"); process.exit(0); }
 if (args[0] === "op" && args[1] === "log") { console.log("operation789"); process.exit(0); }
+if (args[0] === "file" && args[1] === "list") { console.log(".atelier/PLAN.md\\nsrc/main.ts"); process.exit(0); }
 if (args[0] === "diff" && args.includes("--name-only")) { console.log(".atelier/PLAN.md\\nsrc/main.ts"); process.exit(0); }
 if (args[0] === "diff") { console.log("diff --git a/src/main.ts b/src/main.ts"); process.exit(0); }
 if (args[0] === "commit") process.exit(0);
