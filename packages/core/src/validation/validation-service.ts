@@ -29,7 +29,8 @@ export interface ValidationClosurePolicy {
   requireValidation: boolean;
   requireFinalDiffReview: boolean;
   requireLocalChange: boolean;
-  requireCleanGit: boolean;
+  requireCleanSource: boolean;
+  requireCleanRepository: boolean;
 }
 
 export interface ValidationManifest {
@@ -49,7 +50,8 @@ const DEFAULT_CLOSURE_POLICY: ValidationClosurePolicy = {
   requireValidation: true,
   requireFinalDiffReview: true,
   requireLocalChange: true,
-  requireCleanGit: true,
+  requireCleanSource: true,
+  requireCleanRepository: true,
 };
 
 export class ValidationService {
@@ -77,7 +79,7 @@ export class ValidationService {
       throw new Error(`Validation closurePolicy must be an object: ${this.manifestPath}`);
     }
     for (const [field, value] of Object.entries(parsed.closurePolicy ?? {})) {
-      if (!Object.hasOwn(DEFAULT_CLOSURE_POLICY, field) || typeof value !== "boolean") {
+      if ((field !== "requireCleanGit" && !Object.hasOwn(DEFAULT_CLOSURE_POLICY, field)) || typeof value !== "boolean") {
         throw new Error(`Validation closurePolicy.${field} must be a supported boolean field.`);
       }
     }
@@ -86,7 +88,16 @@ export class ValidationService {
   }
 
   closurePolicy(): ValidationClosurePolicy {
-    return { ...DEFAULT_CLOSURE_POLICY, ...(this.manifest().closurePolicy ?? {}) };
+    const configured = this.manifest().closurePolicy as (Partial<ValidationClosurePolicy> & { requireCleanGit?: boolean }) | undefined;
+    const legacy = configured?.requireCleanGit;
+    return {
+      ...DEFAULT_CLOSURE_POLICY,
+      ...configured,
+      ...(legacy === undefined ? {} : {
+        requireCleanSource: legacy,
+        requireCleanRepository: legacy,
+      }),
+    };
   }
 
   definition(name: string): ValidationDefinition | undefined {

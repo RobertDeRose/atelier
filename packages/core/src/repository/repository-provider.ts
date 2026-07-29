@@ -18,9 +18,11 @@ export interface RepositoryProvider {
   status(): RepositoryProviderStatus;
   snapshot(): RepositorySnapshot;
   changedPaths(): string[];
+  rawChangedPaths(): string[];
   changedPathsFrom(reference: string): string[];
   diff(path?: string): string;
   diffFrom(reference: string, path?: string): string;
   listFiles(): string[];
   commit(message: string, paths?: string[]): RepositoryCommitResult;
+  commitMetadata(message: string, paths: string[]): RepositoryCommitResult;
 }

@@ -576,7 +576,8 @@ export type TaskClosureBlockerCode =
   | "validation_failed"
   | "diff_review_missing"
   | "local_change_missing"
-  | "repository_dirty";
+  | "source_dirty"
+  | "repository_metadata_dirty";
 
 export interface TaskClosureBlocker {
   code: TaskClosureBlockerCode;
@@ -595,6 +596,8 @@ export interface TaskClosureReadiness {
   finalDiffReviewed?: boolean;
   localChangeCreated?: boolean;
   repositoryStateAcceptable?: boolean;
+  repositoryFinalizationRequired?: boolean;
+  repositoryMetadataPaths?: string[];
   reason: string;
 }
 

@@ -32,11 +32,15 @@ class MutableRepository implements RepositoryProvider {
   status(): RepositoryProviderStatus { return { provider: "git", available: true, repository: true }; }
   snapshot(): RepositorySnapshot { return structuredClone(this.current); }
   changedPaths(): string[] { return []; }
+  rawChangedPaths(): string[] { return []; }
   changedPathsFrom(): string[] { return []; }
   diff(): string { return ""; }
   diffFrom(): string { return ""; }
   listFiles(): string[] { return []; }
   commit(message: string): RepositoryCommitResult {
+    return { message, changedPaths: [], snapshot: this.snapshot() };
+  }
+  commitMetadata(message: string): RepositoryCommitResult {
     return { message, changedPaths: [], snapshot: this.snapshot() };
   }
 }

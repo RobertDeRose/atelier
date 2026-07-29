@@ -421,7 +421,8 @@ test("typed model validation reports a failed declared check as a failed tool op
         requireValidation: true,
         requireFinalDiffReview: true,
         requireLocalChange: true,
-        requireCleanGit: true,
+        requireCleanSource: true,
+            requireCleanRepository: true,
       },
       validations: {
         "manual-acceptance": {
@@ -452,6 +453,75 @@ test("typed model validation reports a failed declared check as a failed tool op
       /Atelier validation failed: Declared validation did not pass:[\s\S]*manual-acceptance: failed/,
     );
     assert.equal(core.validation.list({ currentSnapshot: core.repository.snapshot() }).at(-1)?.status, "failed");
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("typed reads allow nonexistent in-root targets but reject nonexistent paths below escaping symlinks", async () => {
+  const { root, core } = await exactCore("atlr-nonexistent-read-");
+  const outside = `${root}-outside`;
+  try {
+    mkdirSync(outside, { recursive: true });
+    const inRoot = join(root, "tests", "not-created-yet.test.ts");
+    const allowed = core.evaluate(request(core, {
+      action: "read.repository",
+      paths: [inRoot],
+      boundary: "typed",
+      rationale: "read a reviewed path before creation",
+    }));
+    assert.equal(allowed.result, "allow", allowed.reason);
+
+    const { symlinkSync } = await import("node:fs");
+    symlinkSync(outside, join(root, "escape"), "dir");
+    const escaped = core.evaluate(request(core, {
+      action: "read.repository",
+      paths: [join(root, "escape", "missing.ts")],
+      boundary: "typed",
+      rationale: "escaping symlink",
+    }));
+    assert.notEqual(escaped.result, "allow");
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("task closure finalizes workflow metadata and leaves the complete Git repository clean", async () => {
+  const { root, core } = await exactCore("atlr-repository-finalization-");
+  try {
+    mkdirSync(join(root, "src"), { recursive: true });
+    mkdirSync(join(root, "tests"), { recursive: true });
+    mkdirSync(join(root, ".beads"), { recursive: true });
+    writeFileSync(join(root, "src", "allowed.ts"), "export const accepted = true;\n", "utf8");
+    writeFileSync(join(root, "tests", "allowed.test.ts"), "export const tested = true;\n", "utf8");
+    writeFileSync(join(root, ".beads", "interactions.jsonl"), "{\"event\":\"active\"}\n", "utf8");
+
+    const selection = core.selectFocusedValidation();
+    await core.runValidation("manual-acceptance", { selectionId: selection.id });
+    core.commitActiveTask("test: finalize approved source");
+    const refreshed = core.selectFocusedValidation();
+    await core.runValidation("manual-acceptance", { selectionId: refreshed.id });
+    const preview = core.previewFinalDiff();
+    core.reviewFinalDiff(preview.diffHash);
+
+    const before = core.taskClosureReadiness();
+    assert.equal(before.ready, true, before.reason);
+    assert.equal(before.repositoryFinalizationRequired, true);
+    assert.ok(before.repositoryMetadataPaths?.includes(".atelier/PLAN.md"));
+    assert.ok(before.repositoryMetadataPaths?.includes(".beads/interactions.jsonl"));
+
+    const closed = await core.closeActiveTask("complete repository finalization");
+    assert.equal(closed.task.status, "closed");
+    assert.deepEqual(core.repository.rawChangedPaths(), []);
+    assert.equal(core.taskClosureReadiness().ready, true);
+    assert.match(core.taskClosureReadiness().reason, /complete.*revoked/i);
+
+    const metadataCommit = execFileSync("git", ["-C", root, "show", "--pretty=format:", "--name-only", "HEAD"], { encoding: "utf8" })
+      .split("\n").map((value) => value.trim()).filter(Boolean).sort();
+    assert.deepEqual(metadataCommit, [".atelier/PLAN.md", ".atelier/config.json", ".atelier/validation.json", ".beads/interactions.jsonl"]);
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });

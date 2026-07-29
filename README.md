@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.7**.
+Current release: **0.14.0-alpha.8**.
 
 ## Current status
 
@@ -214,7 +214,8 @@ Legacy `turn` and `session` grants are revoked during migration.
     "requireValidation": true,
     "requireFinalDiffReview": true,
     "requireLocalChange": true,
-    "requireCleanGit": true
+    "requireCleanSource": true,
+    "requireCleanRepository": true
   },
   "validations": {
     "check": {

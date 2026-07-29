@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.7 (2026-07-28).** The guarded vertical workflow is the release
+> **Current release: 0.14.0-alpha.8 (2026-07-28).** The guarded vertical workflow is the release
 > authority. Repository trust is external; generic shell is unconfined and individually approved;
 > exact approval binds source, all workspace roots, retrieval revisions, reconciliation, and a
 > machine-readable per-task execution contract. Capabilities are limited to reviewed paths, named

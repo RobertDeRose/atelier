@@ -83,6 +83,8 @@ for (const path of [
   "packages/core/src/ledger/schema.ts",
   "packages/core/src/ledger/ledger-records.ts",
   "packages/core/src/state/working-state-markdown.ts",
+  "scripts/live-acceptance.sh",
+  "docs/ADR-0030-REPOSITORY-FINALIZATION-AND-CLOSURE-SEMANTICS.md",
 ]) {
   check(text(path).trim().length > 0, `${path} is missing or empty`);
 }

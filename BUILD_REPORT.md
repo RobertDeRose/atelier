@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.7
+# Build Report — Atelier 0.14.0-alpha.8
 
 ## Result
 
@@ -22,7 +22,7 @@ as the CLI entry. `prepack` rebuilds the package; source execution is developmen
 The alpha.6 implementation already canonicalized exact capability paths under the trusted repository
 root. The new narrow-capability regression compared those paths with the noncanonical macOS
 `/var/folders/...` fixture alias, while production correctly returned `/private/var/folders/...`. Alpha.7
-updates the assertion to use Atelier's canonical configured repository root and adds no production
+updated the assertion to use Atelier's canonical configured repository root and adds no production
 authorization change.
 
 ## Alpha.6 correction boundary
@@ -59,49 +59,32 @@ and typed-validation decision, while ADR-0029 records exact task scope and sourc
 ```sh
 npm run check:metadata
 npm run typecheck
-npm test
 npm run build
+npm test
 bash scripts/smoke.sh
 npm pack --dry-run
 ```
 
-The local deterministic suite passes **217 tests**. It includes regressions proving:
+In the construction environment, release metadata, type-checking, compilation, package dry-run, shell syntax, and the focused workflow/security regression groups passed. The focused groups covered 31 core workflow tests plus the Pi, security, validation, and repository-provider regressions run separately. The complete all-files test command was started but exceeded the container command limit without reporting a failure; the pinned Node 24.18.0 `mise run check` remains the authoritative complete gate before merging.
 
-- a denied operation does not enqueue another model turn;
-- repeated `agent_settled` events produce only one passive notice;
-- `/cancel` works while the context is non-idle and never calls `waitForIdle()`;
-- typed model validation receives the current abort signal; failed validation rejects the tool call, while explicit interruption returns structured interrupted evidence;
-- ordinary failures containing cancellation-related words remain failed;
-- explicit symbol lookup normalizes and ranks definitions, repairs cache state, and remains
-  repository-scope qualified;
-- `.beads` initialization hardens mode to 0700 on non-Windows systems;
-- reviewed two-file tasks receive only two-file write/commit scope and named validation permission;
-- approval surfaces disclose exact capabilities and exclusions;
-- stop, pause, resume, and cancel preserve distinct durable semantics;
-- cancellation atomically updates workflow state and execution revalidation is idempotent;
-- per-turn no-Bash/no-validation/no-commit/no-close restrictions block tools before confirmation;
-- typed state, validation, commit, and close tools are registered and execution-bound;
-- individual tool evidence attributes only its path delta;
-- source evidence ignores workflow metadata while task commits exclude that metadata; and
-- repeated Beads initialization is a provider-preserving no-op.
-
-
-The final package dry-run reports:
+The package dry-run reports:
 
 ```text
-Package: atelier-prototype@0.14.0-alpha.7
-Files: 334
-Compressed size: 392,896 bytes
-Unpacked size: 1,864,924 bytes
+Package: atelier-prototype@0.14.0-alpha.8
+Files: 335
+Compressed size: 395,486 bytes
+Unpacked size: 1,877,567 bytes
 ```
 
-CI executes the deterministic gate on the pinned Node 24.18.0 toolchain on Ubuntu 24.04 and macOS 26.
-Real Jujutsu, codesearch, Beads, and Pi/Bun checks remain separate manually dispatched conformance jobs
-because external tool availability is environment-dependent.
+CI executes the deterministic gate on the pinned Node 24.18.0 toolchain on Ubuntu 24.04 and macOS 26. Real Jujutsu, codesearch, Beads, and Pi/Bun checks remain separate manually dispatched conformance jobs because external tool availability is environment-dependent.
 
 ## Release classification
 
-`0.14.0-alpha.7` remains a trusted-repository, interactive alpha. It does not provide an operating-system
+`0.14.0-alpha.8` remains a trusted-repository, interactive alpha. It does not provide an operating-system
 sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.
 Prompt clarification improves agent behavior but is not a security boundary; typed policy, explicit user
 denial, and durable authorization remain authoritative.
+
+## Alpha.8 repository-finalization correction
+
+Alpha.8 adds regression coverage for nonexistent typed reads, escaping symlinks, source-clean pre-close readiness, separate workflow-metadata finalization, raw repository cleanliness, completed Working State, and blocker-derived next actions. The live-acceptance harness is now retained in-tree and asserts top-level Pi tool executions, unexpected tool errors, no forced continuation after denial, actual model-facing symbol resolution, and a clean raw Jujutsu workspace after closure.

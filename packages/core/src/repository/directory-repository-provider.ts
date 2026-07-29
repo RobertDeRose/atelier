@@ -36,9 +36,11 @@ export class DirectoryRepositoryProvider implements RepositoryProvider {
   }
 
   changedPaths(): string[] { return []; }
+  rawChangedPaths(): string[] { return []; }
   changedPathsFrom(_reference: string): string[] { return []; }
   diff(): string { return ""; }
   diffFrom(_reference: string, _path?: string): string { return ""; }
   listFiles(): string[] { return []; }
+  commitMetadata(_message: string, _paths: string[]): RepositoryCommitResult { throw new Error("Directory repository provider cannot create metadata commits."); }
   commit(_message: string, _paths?: string[]): RepositoryCommitResult { throw new Error(this.reason); }
 }

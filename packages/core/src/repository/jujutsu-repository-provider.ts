@@ -115,7 +115,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     const operationId = lines(operation.stdout)[0] ?? "unknown";
     // Raw VCS identity records workflow/provider metadata and operation-log
     // churn for diagnostics. Source identity deliberately excludes it.
-    const rawChanged = this.rawChangedPaths();
+    const rawChanged = this.observeRawChangedPaths();
     const sourceChanged = rawChanged.filter(isSourcePath);
     const sourceFingerprint = sha256(
       `${sourceBaseCommit}\0${sourceChanged.join("\0")}\0${contentState(root, sourceChanged, true)}`,
@@ -140,6 +140,10 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
 
   changedPaths(): string[] {
     return this.rawChangedPaths().filter(isSourcePath);
+  }
+
+  rawChangedPaths(): string[] {
+    return this.observeRawChangedPaths();
   }
 
   changedPathsFrom(reference: string): string[] {
@@ -192,7 +196,16 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     return generation;
   }
 
-  private rawChangedPaths(): string[] {
+  commitMetadata(message: string, paths: string[]): RepositoryCommitResult {
+    const normalized = message.trim();
+    if (!normalized) throw new Error("Metadata change description cannot be empty.");
+    const changed = [...new Set(paths)].sort();
+    if (changed.length === 0) throw new Error("No workflow metadata changes are available to finalize.");
+    required(this.executable, this.cwd, ["commit", "-m", normalized, "--", ...changed], "workflow metadata change creation");
+    return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };
+  }
+
+  private observeRawChangedPaths(): string[] {
     const result = required(this.executable, this.cwd, ["diff", "--name-only", "--color", "never"], "changed-path observation");
     return lines(result.stdout).sort();
   }

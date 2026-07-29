@@ -1,10 +1,8 @@
-# Migration Report — Atelier 0.14.0-alpha.7
+# Migration Report — Atelier 0.14.0-alpha.8
 
 ## Summary
 
-Atelier 0.14.0-alpha.7 introduces no new state, plan, trust, provider, or configuration migration beyond
-alpha.6. It corrects a platform-dependent deterministic-test expectation for canonical capability paths;
-production authorization and persisted data are unchanged.
+Atelier 0.14.0-alpha.8 introduces no ledger, plan, trust, or provider-state migration beyond alpha.6. It does introduce clearer closure-policy configuration: new manifests use `requireCleanSource` and `requireCleanRepository`; the legacy `requireCleanGit` field remains accepted and maps to both settings.
 
 The alpha.6 migration boundary remains in force. Migration 8 is applied automatically, but alpha.5 plan
 tasks did not contain the structured execution contract needed to derive exact path and validation
@@ -159,3 +157,16 @@ hardening is applied. It does not implicitly rerun destructive provider initiali
 Back up the external runtime directory before opening it with this release. A rollback must not restore
 legacy grants as active. Preserve project documents, task-provider state, VCS state, and provider indexes;
 do not delete or recreate them merely to make an old binary accept the workspace.
+
+## Alpha.8 closure-policy migration
+
+New manifests should replace `requireCleanGit` with:
+
+```json
+{
+  "requireCleanSource": true,
+  "requireCleanRepository": true
+}
+```
+
+`requireCleanGit` remains accepted as a compatibility alias and maps to both fields. No ledger migration is required. When whole-repository cleanliness is enabled, typed closure creates a separate local workflow-metadata commit/change after the scoped implementation change and before successful completion is recorded.

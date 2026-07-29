@@ -122,8 +122,12 @@ export class GitRepositoryProvider implements RepositoryProvider {
   }
 
   changedPaths(): string[] {
+    return this.rawChangedPaths().filter(isSourcePath);
+  }
+
+  rawChangedPaths(): string[] {
     const result = requiredGit(this.cwd, ["status", "--porcelain=v1", "--untracked-files=all"], "changed-path observation");
-    return parseStatusPaths(result.stdout).filter(isSourcePath).sort();
+    return parseStatusPaths(result.stdout).sort();
   }
 
   changedPathsFrom(reference: string): string[] {
@@ -180,6 +184,16 @@ export class GitRepositoryProvider implements RepositoryProvider {
     // source paths while leaving any other index entries staged for separate
     // handling.
     requiredGit(this.cwd, ["commit", "-m", normalized, "--", ...changed], "scoped local commit");
+    return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };
+  }
+
+  commitMetadata(message: string, paths: string[]): RepositoryCommitResult {
+    const normalized = message.trim();
+    if (!normalized) throw new Error("Metadata commit message cannot be empty.");
+    const changed = [...new Set(paths)].sort();
+    if (changed.length === 0) throw new Error("No workflow metadata changes are available to commit.");
+    requiredGit(this.cwd, ["add", "-A", "--", ...changed], "workflow metadata staging");
+    requiredGit(this.cwd, ["commit", "-m", normalized, "--", ...changed], "workflow metadata commit");
     return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };
   }
 

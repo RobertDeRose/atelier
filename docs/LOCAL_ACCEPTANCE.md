@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.7
+# Local Acceptance Workflow — 0.14.0-alpha.8
 
 This is the maintainer gate for Atelier's trusted plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -136,7 +136,8 @@ cat > .atelier/validation.json <<'JSON'
     "requireValidation": true,
     "requireFinalDiffReview": true,
     "requireLocalChange": true,
-    "requireCleanGit": true
+    "requireCleanSource": true,
+    "requireCleanRepository": true
   },
   "validations": {
     "manual-acceptance": {

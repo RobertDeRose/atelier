@@ -240,7 +240,8 @@ export class AtelierCore {
             requireValidation: true,
             requireFinalDiffReview: true,
             requireLocalChange: true,
-            requireCleanGit: true,
+            requireCleanSource: true,
+            requireCleanRepository: true,
           },
           validations: {},
         }, null, 2)}
@@ -435,7 +436,9 @@ export class AtelierCore {
       beforeSnapshot: currentSnapshot,
       requestedPaths: sourcePaths((input.request.paths ?? [])
         .flatMap((path) => repositoryRelativeSourcePath(this.config.repositoryRoot, path) ?? [])),
-      beforeChangedPaths: sourcePaths(this.repository.changedPaths()),
+      beforeChangedPaths: input.request.action === "task.close"
+        ? this.repository.rawChangedPaths()
+        : sourcePaths(this.repository.changedPaths()),
       changedPaths: [],
       newlyChangedPaths: [],
       furtherModifiedPaths: [],
@@ -467,7 +470,9 @@ export class AtelierCore {
     const current = this.ledger.getExecutionEvidence(toolCallId);
     if (current === undefined || current.status !== "started") return current;
     const afterSnapshot = this.repository.snapshot();
-    const afterChangedPaths = sourcePaths(this.repository.changedPaths());
+    const afterChangedPaths = current.action === "task.close"
+      ? this.repository.rawChangedPaths()
+      : sourcePaths(this.repository.changedPaths());
     const beforeChanged = new Set(current.beforeChangedPaths ?? []);
     const afterChanged = new Set(afterChangedPaths);
     const candidates = [...new Set([
@@ -737,7 +742,14 @@ export class AtelierCore {
   taskClosureReadiness(): TaskClosureReadiness {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) {
-      return { ready: false, blockers: [], required: [], missing: [], stale: [], failed: [], reason: "No active execution grant exists." };
+      const completed = this.currentWorkflowRun()?.checkpoint === "completed";
+      return {
+        ready: completed,
+        blockers: [], required: [], missing: [], stale: [], failed: [],
+        reason: completed
+          ? "The approved task is complete and its execution grant was revoked."
+          : "No active execution grant exists.",
+      };
     }
     const snapshot = this.repository.snapshot();
     const validation = this.validation.closureReadiness(snapshot, executionGrant.taskId, executionGrant.id);
@@ -765,14 +777,16 @@ export class AtelierCore {
         && snapshot.headCommit !== "unborn"
         && (snapshot.sourceBaseCommit ?? snapshot.headCommit)
           !== (executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit));
-    let repositoryStateAcceptable = true;
-    if (policy.requireCleanGit) {
-      try {
-        repositoryStateAcceptable = snapshot.vcs !== "none" && this.repository.changedPaths().length === 0;
-      } catch {
-        repositoryStateAcceptable = false;
-      }
+    let sourceStateAcceptable = true;
+    let repositoryMetadataPaths: string[] = [];
+    try {
+      sourceStateAcceptable = !policy.requireCleanSource || this.repository.changedPaths().length === 0;
+      repositoryMetadataPaths = this.repository.rawChangedPaths().filter((path) => !isSourcePath(path));
+    } catch {
+      sourceStateAcceptable = false;
+      repositoryMetadataPaths = [];
     }
+    const repositoryFinalizationRequired = policy.requireCleanRepository && repositoryMetadataPaths.length > 0;
     const missing = [...validation.missing];
     const stale = [...validation.stale];
     const failed = [...validation.failed];
@@ -785,29 +799,33 @@ export class AtelierCore {
       missing.push("local committed change");
       blockers.push({ code: "local_change_missing", detail: "No local commit or finalized Jujutsu change exists for the task." });
     }
-    if (!repositoryStateAcceptable) {
-      missing.push("clean repository state");
-      blockers.push({ code: "repository_dirty", detail: "Approved application-source paths remain dirty." });
+    if (!sourceStateAcceptable) {
+      missing.push("clean application-source state");
+      blockers.push({ code: "source_dirty", detail: "Approved application-source paths remain dirty." });
     }
-    const ready = validation.ready && finalDiffReviewed && localChangeCreated && repositoryStateAcceptable;
+    const ready = validation.ready && finalDiffReviewed && localChangeCreated && sourceStateAcceptable;
     return {
       ready,
       blockers,
       validationReady: validation.ready,
       finalDiffReviewed,
       localChangeCreated,
-      repositoryStateAcceptable,
+      repositoryStateAcceptable: sourceStateAcceptable,
+      repositoryFinalizationRequired,
+      repositoryMetadataPaths,
       required: validation.required,
       missing,
       stale,
       failed,
       reason: ready
-        ? "Required validation, final diff review, local change, and repository state are complete."
+        ? repositoryFinalizationRequired
+          ? `Source completion evidence is satisfied; Atelier will finalize workflow metadata (${repositoryMetadataPaths.join(", ")}) during task closure.`
+          : "Required validation, final diff review, local change, and source state are complete."
         : `Task closure blocked: ${[
             validation.ready ? "" : validation.reason.replace(/^Task closure blocked:\s*/i, "").replace(/\.$/, ""),
             finalDiffReviewed ? "" : "the current diff has not been reviewed",
             localChangeCreated ? "" : "no local commit or finalized change exists",
-            repositoryStateAcceptable ? "" : "the repository is not clean",
+            sourceStateAcceptable ? "" : "approved application-source paths are not clean",
           ].filter(Boolean).join("; ")}.`,
     };
   }
@@ -827,12 +845,34 @@ export class AtelierCore {
     });
     if (decision.result !== "allow") throw new Error(decision.reason);
     const task = await this.taskProvider.close(executionGrant.taskId, reason);
+    const policy = this.validation.closurePolicy();
+    let metadataChange: RepositoryCommitResult | undefined;
+    if (policy.requireCleanRepository) {
+      const metadataPaths = this.repository.rawChangedPaths().filter((path) => !isSourcePath(path));
+      if (metadataPaths.length > 0) {
+        metadataChange = this.repository.commitMetadata(`chore(atelier): finalize workflow for ${task.id}`, metadataPaths);
+      }
+      const remaining = this.repository.rawChangedPaths();
+      if (remaining.length > 0) {
+        throw new Error(`Task provider closed ${task.id}, but repository finalization left tracked changes: ${remaining.join(", ")}`);
+      }
+    }
+    const closedSnapshot = this.repository.snapshot();
     this.ledger.append({
       kind: "task.closed",
       actor,
       taskId: task.id,
-      repositorySnapshot: snapshot,
-      payload: { reason, completion: this.taskClosureReadiness() },
+      repositorySnapshot: closedSnapshot,
+      payload: {
+        reason,
+        completion: this.taskClosureReadiness(),
+        ...(metadataChange === undefined ? {} : {
+          metadataChange: {
+            message: metadataChange.message,
+            changedPaths: metadataChange.changedPaths,
+          },
+        }),
+      },
     });
     this.execution.cancel(`Task ${task.id} was explicitly closed.`, "completed");
     const mappings = new Set(this.ledger.listTaskMappings()
@@ -1045,8 +1085,15 @@ export class AtelierCore {
       if (this.execution.isPaused()) return `Execution is paused for task ${executionGrant.taskId}; resume explicitly before agent mutation.`;
       const readiness = this.taskClosureReadiness();
       if (readiness.ready) return `Close active task ${executionGrant.taskId} with explicit completion evidence.`;
-      if (this.currentWorkflowRun()?.checkpoint === "validating") return `Run or rerun required focused validation: ${readiness.reason}`;
-      return `Continue executing active task ${executionGrant.taskId}, then select and run focused validation.`;
+      const codes = new Set(readiness.blockers.map((blocker) => blocker.code));
+      if (codes.has("validation_selection_missing")) return `Select focused validation for task ${executionGrant.taskId}.`;
+      if (["validation_evidence_missing", "validation_evidence_stale", "validation_failed", "validation_no_required_match", "validation_not_configured"].some((code) => codes.has(code as any))) {
+        return `Run or rerun required focused validation: ${readiness.reason}`;
+      }
+      if (codes.has("local_change_missing")) return `Create the reviewed local change for task ${executionGrant.taskId}.`;
+      if (codes.has("diff_review_missing")) return `Review the exact current diff for task ${executionGrant.taskId}.`;
+      if (codes.has("source_dirty")) return `Finish or finalize approved source work for task ${executionGrant.taskId}.`;
+      return `Continue executing active task ${executionGrant.taskId}: ${readiness.reason}`;
     }
     const previousGrant = this.ledger.listExecutionGrants()[0];
     if (previousGrant?.status === "revoked") {

@@ -1,4 +1,4 @@
-# Manual Acceptance Corrections — Atelier 0.14.0-alpha.7
+# Manual Acceptance Corrections — Atelier 0.14.0-alpha.8
 
 This document records the disposition of the complete alpha.5 manual-testing archive. The archive includes
 the Pi transcript, external SQLite ledger, trust records, exact approval and permission state, Beads data,
@@ -298,3 +298,16 @@ The deterministic suite includes evidence-derived checks that:
 18. symbol inventory converges on canonical identifiers;
 19. known-path planning does not require semantic discovery; and
 20. validation-required tasks cannot approve without naming a configured required check.
+
+## Alpha.8 automated-acceptance corrections
+
+The alpha.7 automated run confirmed narrow capabilities, source-scoped commits, validation freshness, shell denial, and execution revocation, but exposed four product defects and several harness false passes:
+
+- `requireCleanGit` reported success while tracked `.atelier/PLAN.md` and `.beads/interactions.jsonl` remained dirty.
+- A typed read of a nonexistent approved in-root file requested exceptional approval instead of allowing the read tool to report that the file was absent.
+- `nextAction` recommended validation when the only remaining blocker was exact diff review.
+- Completed Working State described the workflow as blocked because no active execution grant remained.
+- Task-close evidence ignored provider/workflow metadata mutations.
+- The headless symbol test did not perform semantic discovery, ordinary phases ignored tool errors, and final raw Jujutsu status was collected but not asserted.
+
+Alpha.8 separates source cleanliness from whole-repository cleanliness, finalizes workflow/provider metadata in a separate local change during typed closure, resolves nonexistent targets through their nearest existing ancestor, derives guidance from structured blocker codes, reports completed workflows as completed, and ships the corrected live-acceptance harness as `scripts/live-acceptance.sh`.

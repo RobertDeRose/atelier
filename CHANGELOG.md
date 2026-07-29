@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0-alpha.8 — 2026-07-29
+
+- Split source cleanliness from whole-repository cleanliness and retain `requireCleanGit` as a legacy alias.
+- Finalize workflow and task-provider metadata in a separate local change before recording successful task closure.
+- Allow typed reads of nonexistent in-root targets while preserving symlink-escape rejection.
+- Derive next actions from structured closure blocker codes and report completed workflows as completed rather than blocked.
+- Include provider/workflow metadata mutations in typed task-close execution evidence.
+- Add an in-tree live-acceptance harness that rejects unexpected Pi tool errors, forced continuation, incomplete symbol resolution, and dirty post-close repositories.
+
 ## 0.14.0-alpha.7 — 2026-07-28
 
 - preserve canonical repository-root behavior for exact task capability paths on macOS

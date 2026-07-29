@@ -15,8 +15,6 @@ function canonicalExisting(path: string): string {
 export function resolveAccessPath(path: string, access: PathAccess = "read", base = process.cwd()): string {
   const absolute = isAbsolute(path) ? resolve(path) : resolve(base, path);
   if (existsSync(absolute)) return canonicalExisting(absolute);
-  if (access === "read") throw new Error(`Read target does not exist: ${absolute}`);
-
   const missing: string[] = [];
   let ancestor = absolute;
   while (!existsSync(ancestor)) {
