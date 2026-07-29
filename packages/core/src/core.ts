@@ -5,6 +5,7 @@ import { WorkingStateBuilder } from "./state/working-state-builder.ts";
 import type {
   ActionRequest,
   ExecutionEvidence,
+  ExecutionGrant,
   FinalDiffPreview,
   FinalDiffReview,
   ManualEdit,
@@ -62,10 +63,12 @@ export interface AtelierStatus {
   mode: WorkflowMode;
   planPath: string;
   planExists: boolean;
+  planStatus: "missing" | "not_approved" | "approved";
   approvedPlanHash?: string;
   currentPlanHash?: string;
   planObjective?: string;
   currentTaskId?: string;
+  activeExecutionGrant?: ExecutionGrant;
   taskProvider: TaskProviderStatus;
   snapshot: ReturnType<RepositoryProvider["snapshot"]>;
   activePermissions: PermissionGrant[];
@@ -769,7 +772,7 @@ export class AtelierCore {
         blockers: [], required: [], missing: [], stale: [], failed: [],
         reason: completed
           ? "The approved task is complete and its execution grant was revoked."
-          : "No active execution grant exists.",
+          : "No active task exists.",
       };
     }
     const snapshot = this.repository.snapshot();
@@ -1190,6 +1193,13 @@ export class AtelierCore {
         reason: error instanceof Error ? error.message : String(error),
       };
     }
+    const currentPlanHash = planExists ? hashFile(this.config.planPath) : undefined;
+    const activeExecutionGrant = this.ledger.getActiveExecutionGrant();
+    const planStatus = !planExists
+      ? "missing" as const
+      : currentPlanHash !== undefined && approvedPlanHash !== undefined && currentPlanHash === approvedPlanHash
+        ? "approved" as const
+        : "not_approved" as const;
     return {
       repositoryRoot: this.config.repositoryRoot,
       projectTrusted: this.config.projectTrusted,
@@ -1197,10 +1207,12 @@ export class AtelierCore {
       mode: this.mode(),
       planPath: this.config.planPath,
       planExists,
+      planStatus,
       ...(approvedPlanHash === undefined ? {} : { approvedPlanHash }),
-      ...(planExists ? { currentPlanHash: hashFile(this.config.planPath) } : {}),
+      ...(currentPlanHash === undefined ? {} : { currentPlanHash }),
       ...(planObjective === undefined || planObjective === "" ? {} : { planObjective }),
       ...(currentTaskId === undefined ? {} : { currentTaskId }),
+      ...(activeExecutionGrant === undefined ? {} : { activeExecutionGrant }),
       taskProvider,
       snapshot: this.repository.snapshot(),
       activePermissions: this.ledger.listGrants(),

@@ -302,14 +302,16 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     assert.equal(ledger.getState("workflowMode"), "plan");
     ledger.close();
 
+    const messagesBeforeApproval = sentMessages.length;
     await commands.get("approve")!.handler("", context);
-    const approvalBody = confirmationBodies.at(-1) ?? "";
-    assert.match(approvalBody, /Capabilities for ATLR-B:/);
-    assert.match(approvalBody, /Writes: src/);
-    assert.match(approvalBody, /Dependencies: not permitted/);
-    assert.match(approvalBody, /Focused validations: focused/);
-    assert.match(approvalBody, /Full suite: not permitted/);
-    assert.match(approvalBody, /Generic shell, publication, external effects, and out-of-scope paths: not permitted/);
+    const approvalSummary = notifications.find((message) => /Capabilities for ATLR-B:/.test(message)) ?? "";
+    assert.match(approvalSummary, /Writes: src/);
+    assert.match(approvalSummary, /Dependencies: not permitted/);
+    assert.match(approvalSummary, /Focused validations: focused/);
+    assert.match(approvalSummary, /Full suite: not permitted/);
+    assert.match(approvalSummary, /Generic shell, publication, external effects, and out-of-scope paths: not permitted/);
+    assert.equal(sentMessages.length, messagesBeforeApproval, "approval must not start an agent turn");
+    assert.match(notifications.at(-1) ?? "", /Atelier is idle; send an explicit implementation instruction/i);
     const operations = mutationLog(fake.logPath);
     assert.equal(operations.filter((args) => args[0] === "create").length, 1);
     assert.ok(operations.some((args) => args[0] === "update" && !args.includes("--claim")));

@@ -1,8 +1,8 @@
-# Migration Report — Atelier 0.14.0-alpha.8
+# Migration Report — Atelier 0.14.0-alpha.9
 
 ## Summary
 
-Atelier 0.14.0-alpha.8 introduces no ledger, plan, trust, or provider-state migration beyond alpha.6. It does introduce clearer closure-policy configuration: new manifests use `requireCleanSource` and `requireCleanRepository`; the legacy `requireCleanGit` field remains accepted and maps to both settings.
+Atelier 0.14.0-alpha.9 introduces no ledger, plan, trust, or provider-state migration. It changes only TUI and status presentation: exact approval remains idle, capability scope is rendered before confirmation, status exposes plan and execution-grant state, no-task closure is not applicable, and TUI sessions use a VCS-aware footer.
 
 The alpha.6 migration boundary remains in force. Migration 8 is applied automatically, but alpha.5 plan
 tasks did not contain the structured execution contract needed to derive exact path and validation

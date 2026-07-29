@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0-alpha.9 — 2026-07-29
+
+- keep exact plan approval as an approval-only transaction; accepting `/approve` no longer injects a user message or starts implementation automatically
+- display the complete task reconciliation and capability scope persistently before the approval confirmation
+- distinguish missing, unapproved, and approved plans in Pi and CLI status output
+- expose the active execution grant and repository identity in `/status` and `atlr status`
+- render no-task closure as not applicable rather than blocked
+- replace Pi's Git-only detached footer in TUI sessions with an Atelier VCS-aware footer that identifies Jujutsu changes or Git commits
+- add regressions for idle approval, capability visibility, plan-state correctness, execution-grant visibility, and VCS presentation
+
 ## 0.14.0-alpha.8 — 2026-07-29
 
 - Split source cleanliness from whole-repository cleanliness and retain `requireCleanGit` as a legacy alias.

@@ -4,6 +4,18 @@ declare module "@earendil-works/pi-coding-agent" {
     select(title: string, options: string[]): Promise<string | undefined>;
     notify(message: string, type?: "info" | "warning" | "error"): void;
     setStatus(key: string, text: string | undefined): void;
+    setWidget?(
+      key: string,
+      content: string[] | undefined,
+      options?: { placement?: "aboveEditor" | "belowEditor" },
+    ): void;
+    setFooter?(
+      factory: ((
+        tui: unknown,
+        theme: unknown,
+        footerData: unknown,
+      ) => { render(width: number): string[]; invalidate(): void; dispose?(): void }) | undefined,
+    ): void;
     custom<T>(
       factory: (
         tui: {
@@ -29,6 +41,8 @@ declare module "@earendil-works/pi-coding-agent" {
     cwd: string;
     isIdle(): boolean;
     isProjectTrusted(): boolean;
+    readonly model?: { id?: string; name?: string };
+    getContextUsage?(): { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
   }
 
   export interface ExtensionCommandContext extends ExtensionContext {

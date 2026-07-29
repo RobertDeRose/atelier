@@ -9,7 +9,6 @@ import type {
 import {
   AtelierCore,
   ensurePlanDocument,
-  executionCapabilitySummary,
   sourceSnapshotFingerprint,
   hashFile,
   projectTrustStatus,
@@ -28,6 +27,7 @@ import {
   stringSchema,
 } from "./code-tool-presentation.ts";
 import { toolExecutionOutcome } from "./execution-outcome.ts";
+import { preparationSummary } from "./approval-presentation.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
 import { authorizeTool, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
 import {
@@ -38,6 +38,12 @@ import {
   type TurnToolPolicy,
 } from "./turn-tool-policy.ts";
 import { ATELIER_VALIDATION_TOOL, registerValidationTool } from "./validation-tool.ts";
+import {
+  executionGrantText,
+  installAtelierFooter,
+  planStatusText,
+  vcsStatusText,
+} from "./status-presentation.ts";
 import {
   ATELIER_COMMIT_TOOL,
   ATELIER_STATE_TOOL,
@@ -128,7 +134,6 @@ async function replaceCore(
 async function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<void> {
   try {
     const status = await core.status();
-    const approved = status.currentPlanHash !== undefined && status.currentPlanHash === status.approvedPlanHash;
     const task = status.currentTaskId === undefined ? "no task" : status.currentTaskId;
     const indexing = core.code.indexingStatus();
     const index = indexing.active
@@ -137,7 +142,9 @@ async function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<v
         ? "index unknown"
         : `index ${indexing.state}`;
     const next = status.nextAction.length > 56 ? `${status.nextAction.slice(0, 53)}…` : status.nextAction;
-    ctx.ui.setStatus(STATUS_KEY, `Atelier ${status.mode} · ${approved ? "approved" : "review"} · ${task} · ${index} · ${next}`);
+    const value = `Atelier ${status.mode} · ${planStatusText(status)} · ${task} · ${vcsStatusText(status)} · ${index} · ${next}`;
+    ctx.ui.setStatus(STATUS_KEY, value);
+    installAtelierFooter(ctx, status, value);
   } catch (error) {
     ctx.ui.setStatus(STATUS_KEY, "Atelier unavailable");
     ctx.ui.notify(errorMessage(error), "error");
@@ -298,29 +305,8 @@ function manualEditSummary(
   ].join("\n");
 }
 
-function preparationSummary(
-  core: AtelierCore,
-  prepared: Awaited<ReturnType<AtelierCore["execution"]["prepare"]>>,
-): string {
-  const first = core.parsePlan().tasks
-    .map((task, index) => ({ task, index }))
-    .filter(({ task }) => task.dependencies.length === 0)
-    .sort((left, right) => left.task.priority - right.task.priority || left.index - right.index)[0]?.task;
-  const retirements = prepared.reconciliation.operations.filter((operation) => operation.kind === "retire");
-  return [
-    `Plan hash: ${prepared.approval.planHash}`,
-    `Provider: ${prepared.approval.provider.name}${prepared.approval.provider.version ? ` ${prepared.approval.provider.version}` : ""}`,
-    `Reconciliation digest: ${prepared.approval.reconciliationDigest}`,
-    `Operations: ${prepared.reconciliation.operations.length}`,
-    ...prepared.reconciliation.operations.map((operation) => `- ${operation.kind}: ${operation.planTaskId}`),
-    `Retirements: ${retirements.length}${retirements.length === 0 ? "" : ` (${retirements.map((operation) => operation.planTaskId).join(", ")})`}`,
-    `Proposed first task: ${first === undefined ? "none" : `${first.id} — ${first.title}`}`,
-    ...executionCapabilitySummary(prepared.approval.capabilities, core.config.repositoryRoot),
-  ].join("\n");
-}
-
 async function approveAndReconcile(
-  pi: ExtensionAPI,
+  _pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   core: AtelierCore,
 ): Promise<void> {
@@ -351,10 +337,22 @@ async function approveAndReconcile(
     ctx.ui.notify(`Task reconciliation has ${prepared.reconciliation.conflicts.length} conflict(s).`, "error");
     return;
   }
-  const confirmed = await ctx.ui.confirm(
-    "Approve exact execution transaction",
-    `${preparationSummary(core, prepared)}\n\nApprove and apply this exact transaction?`,
+  const summary = preparationSummary(core, prepared);
+  ctx.ui.notify(summary, "info");
+  ctx.ui.setWidget?.(
+    "atelier-approval",
+    ["Atelier exact execution transaction", "", ...summary.split("\n")],
+    { placement: "aboveEditor" },
   );
+  let confirmed: boolean;
+  try {
+    confirmed = await ctx.ui.confirm(
+      "Approve exact execution transaction",
+      "Review the complete transaction and capability summary shown above. Approve and apply exactly this transaction?",
+    );
+  } finally {
+    ctx.ui.setWidget?.("atelier-approval", undefined);
+  }
   if (!confirmed) {
     await core.execution.approveAndApply(prepared.approval.id, false);
     return;
@@ -364,10 +362,10 @@ async function approveAndReconcile(
     const transition = await core.execution.approveAndApply(prepared.approval.id, true);
     core.ledger.setState("planAutoReviewPending", false);
     await updateStatus(ctx, core);
-    pi.sendUserMessage(
-      `[Atelier] Plan revision ${transition.approval.planHash} is approved and task ${transition.task?.id ?? "unknown"} is active. ` +
-        `Execution grant ${transition.executionGrant?.id ?? "unknown"} installs the reviewed typed task capability bundle. ` +
-        "Only the paths and validations shown in the approval transaction are authorized. Use typed Atelier tools for validation, local change creation, and closure; generic shell, dependency changes not listed, external effects, publication, and out-of-scope access require separate approval.",
+    ctx.ui.notify(
+      `Approved plan revision ${transition.approval.planHash}. Task ${transition.task?.id ?? "unknown"} is active with execution grant ${transition.executionGrant?.id ?? "unknown"}. ` +
+        "Atelier is idle; send an explicit implementation instruction when you are ready. Only the reviewed typed capabilities are active.",
+      "info",
     );
   } catch (error) {
     ctx.ui.notify(errorMessage(error), "error");
@@ -573,6 +571,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
 
   pi.on("session_shutdown", async (_event, ctx) => {
     ctx.ui.setStatus(STATUS_KEY, undefined);
+    ctx.ui.setFooter?.(undefined);
     const extensionState = sessionState(ctx);
     extensionState.stopIndexStatusUpdates?.();
     delete extensionState.stopIndexStatusUpdates;
@@ -811,8 +810,10 @@ Record this exact diff as reviewed?`,
       const core = getCore(ctx);
       const status = await core.status();
       ctx.ui.notify(
-        `Mode: ${status.mode}\nPlan: ${status.currentPlanHash === status.approvedPlanHash ? "approved" : "not approved"}\n` +
-          `Task: ${status.currentTaskId ?? "none"}\nProvider: ${status.taskProvider.provider} (${status.taskProvider.initialized ? "ready" : "not initialized"})\n` +
+        `Mode: ${status.mode}\nPlan: ${planStatusText(status)}\n` +
+          `Task: ${status.currentTaskId ?? "none"}\nExecution grant: ${executionGrantText(status)}\n` +
+          `Repository: ${vcsStatusText(status)}\n` +
+          `Provider: ${status.taskProvider.provider} (${status.taskProvider.initialized ? "ready" : "not initialized"})\n` +
           `Next action: ${status.nextAction}`,
         "info",
       );

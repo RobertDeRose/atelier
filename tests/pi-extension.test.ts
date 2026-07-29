@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension/src/index.ts";
+import { executionGrantText, planStatusText, vcsStatusText } from "../apps/pi-extension/src/status-presentation.ts";
 import {
   AtelierCore,
   InMemoryTaskProvider,
@@ -43,6 +44,8 @@ function fakeContext(
   observations: {
     confirmationBodies?: string[];
     notifications?: string[];
+    widgets?: string[][];
+    footers?: string[];
     signal?: AbortSignal;
     isIdle?: () => boolean;
     abort?: () => void;
@@ -59,6 +62,8 @@ function fakeContext(
     waitForIdle: observations.waitForIdle ?? (async () => {}),
     ...(observations.abort === undefined ? {} : { abort: observations.abort }),
     ...(observations.signal === undefined ? {} : { signal: observations.signal }),
+    model: { id: "test-model" },
+    getContextUsage: () => ({ tokens: 100, contextWindow: 1000, percent: 10 }),
     ui: {
       confirm: async (_title: string, body: string) => {
         confirms.count += 1;
@@ -68,6 +73,12 @@ function fakeContext(
       select: async () => undefined,
       notify: (message: string) => { observations.notifications?.push(message); },
       setStatus: (_key: string, value: string | undefined) => { if (value !== undefined) statuses.push(value); },
+      setWidget: (_key: string, content: string[] | undefined) => { if (content !== undefined) observations.widgets?.push(content); },
+      setFooter: (factory: any) => {
+        if (factory === undefined) return;
+        const component = factory({}, {}, {});
+        observations.footers?.push(component.render(240).join("\n"));
+      },
       custom: async () => ({ exitCode: 0 }),
     },
   } as unknown as ExtensionCommandContext;
@@ -93,6 +104,27 @@ function registerTrustCommandHarness(): {
   atelierExtension(fakePi);
   return { events, commands };
 }
+
+
+test("Pi status presentation distinguishes missing plans, execution grants, and VCS identity", () => {
+  const missing = {
+    planStatus: "missing",
+    activeExecutionGrant: undefined,
+    snapshot: { vcs: "jj", changeId: "utymmrozoqkx", headCommit: "deadbeef" },
+  } as any;
+  assert.equal(planStatusText(missing), "missing");
+  assert.equal(executionGrantText(missing), "none");
+  assert.equal(vcsStatusText(missing), "jj utymmroz");
+
+  const active = {
+    planStatus: "approved",
+    activeExecutionGrant: { id: "execution_123", status: "active", taskId: "repo-1" },
+    snapshot: { vcs: "git", headCommit: "1234567890abcdef" },
+  } as any;
+  assert.equal(planStatusText(active), "approved");
+  assert.equal(executionGrantText(active), "execution_123 (active) for repo-1");
+  assert.equal(vcsStatusText(active), "git 12345678");
+});
 
 test("Pi reserves /trust while Atelier exposes a working /atelier-trust command", async () => {
   const { events, commands } = registerTrustCommandHarness();
@@ -214,10 +246,13 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   const confirms = { count: 0 };
   const statuses: string[] = [];
   const notifications: string[] = [];
-  const context = fakeContext(root, confirms, statuses, { notifications });
+  const footers: string[] = [];
+  const context = fakeContext(root, confirms, statuses, { notifications, footers });
   await events.get("session_start")!({}, context);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(statuses.some((status) => /index (building|ready)/.test(status)), "Pi footer must expose background index state");
+  assert.ok(footers.some((footer) => /git [0-9a-f]{8}/.test(footer)), "custom footer must expose the selected Git provider identity");
+  assert.ok(footers.every((footer) => !/detached/i.test(footer)), "custom footer must not repeat Pi's Git-only detached label");
   await commands.get("plan")!.handler("investigate planning policy", context);
   assert.match(sentMessages.at(-1) ?? "", /Objective: investigate planning policy/);
   assert.match(sentMessages.at(-1) ?? "", /reuse current scoped inventory with atlr_code_status or call atlr_code_search once/i);
@@ -497,7 +532,8 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
   const confirms = { count: 0 };
   const confirmationBodies: string[] = [];
   const notifications: string[] = [];
-  const context = fakeContext(root, confirms, [], { confirmationBodies, notifications });
+  const widgets: string[][] = [];
+  const context = fakeContext(root, confirms, [], { confirmationBodies, notifications, widgets });
 
   try {
     await events.get("session_start")!({}, context);
@@ -511,19 +547,25 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
     assert.ok(notifications.some((message) => /ManualEdit/i.test(message)));
     assert.equal(sentMessages.length, 1, "ManualEdit review must not ask the agent to restate user edits");
 
+    const sentBeforeApproval = sentMessages.length;
     await commands.get("approve")!.handler("", context);
     assert.equal(confirms.count, 1);
-    assert.match(confirmationBodies[0] ?? "", /Plan hash:/i);
-    assert.match(confirmationBodies[0] ?? "", /Provider:/i);
-    assert.match(confirmationBodies[0] ?? "", /Operations:/i);
-    assert.match(confirmationBodies[0] ?? "", /Proposed first task:/i);
-    assert.match(confirmationBodies[0] ?? "", /Writes: packages\/core, src, src\.ts/i);
-    assert.match(confirmationBodies[0] ?? "", /Dependencies: not permitted/i);
-    assert.match(confirmationBodies[0] ?? "", /Full suite: not permitted/i);
-    assert.match(confirmationBodies[0] ?? "", /Generic shell, publication, external effects, and out-of-scope paths: not permitted/i);
+    assert.match(confirmationBodies[0] ?? "", /Review the complete transaction and capability summary shown above/i);
+    const approvalSummary = notifications.find((message) => /Plan hash:/i.test(message) && /Provider:/i.test(message)) ?? "";
+    assert.match(approvalSummary, /Provider:/i);
+    assert.match(approvalSummary, /Operations:/i);
+    assert.match(approvalSummary, /Proposed first task:/i);
+    assert.match(approvalSummary, /Writes: packages\/core, src, src\.ts/i);
+    assert.match(approvalSummary, /Dependencies: not permitted/i);
+    assert.match(approvalSummary, /Full suite: not permitted/i);
+    assert.match(approvalSummary, /Generic shell, publication, external effects, and out-of-scope paths: not permitted/i);
+    assert.ok(widgets.some((lines) => lines.join("\n").includes("Atelier exact execution transaction")));
+    assert.equal(sentMessages.length, sentBeforeApproval, "approval must remain idle and must not enqueue implementation");
+    assert.ok(notifications.some((message) => /Atelier is idle; send an explicit implementation instruction/i.test(message)));
 
     await commands.get("status")!.handler("", context);
-    assert.ok(notifications.some((message) => /Next action:/i));
+    assert.ok(notifications.some((message) => /Execution grant: execution_.*active/i.test(message)));
+    assert.ok(notifications.some((message) => /Next action:/i.test(message)));
     await commands.get("cancel")!.handler("user stopped execution", context);
     assert.ok(notifications.some((message) => /cancelled execution/i));
   } finally {

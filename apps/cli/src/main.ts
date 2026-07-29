@@ -297,9 +297,10 @@ async function main(): Promise<void> {
             `Mode: ${status.mode}`,
             `Plan: ${status.planPath} (${status.planExists ? "present" : "missing"})`,
             `Plan objective: ${status.planObjective ?? "none"}`,
-            `Plan approval: ${status.approvedPlanHash === status.currentPlanHash ? "approved" : "not approved"}`,
+            `Plan approval: ${status.planStatus === "missing" ? "not applicable (plan missing)" : status.planStatus === "approved" ? "approved" : "not approved"}`,
             `Task provider: ${status.taskProvider.provider} (${status.taskProvider.available ? "available" : "unavailable"}, ${status.taskProvider.initialized ? "initialized" : "not initialized"})`,
             `Current task: ${status.currentTaskId ?? "none"}`,
+            `Execution grant: ${status.activeExecutionGrant === undefined ? "none" : `${status.activeExecutionGrant.id} (${status.activeExecutionGrant.status}) for ${status.activeExecutionGrant.taskId}`}`,
             `Repository provider: ${status.snapshot.vcs}`,
             ...(status.snapshot.vcs === "jj"
               ? [

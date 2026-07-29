@@ -76,6 +76,8 @@ for (const path of [
   "apps/pi-extension/src/turn-tool-policy.ts",
   "apps/pi-extension/src/code-tool-presentation.ts",
   "apps/pi-extension/src/execution-outcome.ts",
+  "apps/pi-extension/src/approval-presentation.ts",
+  "apps/pi-extension/src/status-presentation.ts",
   "apps/pi-extension/src/validation-tool.ts",
   "apps/pi-extension/src/workflow-tools.ts",
   "packages/core/src/code/service-support.ts",

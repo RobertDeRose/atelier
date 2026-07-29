@@ -311,7 +311,7 @@ export class WorkingStateBuilder {
       activeTask?.id,
     ) ?? { current: [], stale: [] };
     const taskClosure = activeExecutionGrant === undefined || this.validation === undefined
-      ? { ready: false, blockers: [], required: [], missing: [], stale: [], failed: [], reason: "No active execution grant exists." }
+      ? { ready: false, blockers: [], required: [], missing: [], stale: [], failed: [], reason: "No active task exists." }
       : this.validation.closureReadiness(request.snapshot, activeExecutionGrant.taskId, activeExecutionGrant.id);
     const nextAction = describeNextAction({
       ...(request.plan === undefined ? {} : { planPath: request.plan.path }),

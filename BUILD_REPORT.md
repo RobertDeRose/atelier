@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.8
+# Build Report — Atelier 0.14.0-alpha.9
 
 ## Result
 
@@ -16,6 +16,11 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+
+## Alpha.9 TUI control correction
+
+Alpha.9 makes exact approval an approval-only transaction, renders the complete capability scope before confirmation, exposes execution-grant and plan-state details consistently, treats closure as not applicable when no task exists, and installs a VCS-aware Pi footer that displays Jujutsu change identity or Git commit identity instead of a misleading detached Git label.
 
 ## Alpha.7 macOS verification correction
 
@@ -70,7 +75,7 @@ In the construction environment, release metadata, type-checking, compilation, p
 The package dry-run reports:
 
 ```text
-Package: atelier-prototype@0.14.0-alpha.8
+Package: atelier-prototype@0.14.0-alpha.9
 Files: 335
 Compressed size: 395,486 bytes
 Unpacked size: 1,877,567 bytes
@@ -80,7 +85,7 @@ CI executes the deterministic gate on the pinned Node 24.18.0 toolchain on Ubunt
 
 ## Release classification
 
-`0.14.0-alpha.8` remains a trusted-repository, interactive alpha. It does not provide an operating-system
+`0.14.0-alpha.9` remains a trusted-repository, interactive alpha. It does not provide an operating-system
 sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.
 Prompt clarification improves agent behavior but is not a security boundary; typed policy, explicit user
 denial, and durable authorization remain authoritative.

@@ -19,7 +19,11 @@ export function workingStateToMarkdown(state: WorkingState): string {
     `- Workflow checkpoint: ${state.workflowCheckpoint ?? "none"}`,
     `- Plan approval: ${state.planApproval?.id ?? "none"}`,
     `- Reconciliation: ${state.reconciliationTransaction?.id ?? "none"}`,
-    `- Task closure: ${state.taskClosure.ready ? "ready" : "blocked"} — ${state.taskClosure.reason}`,
+    `- Task closure: ${state.workflowCheckpoint === "completed"
+      ? `completed — ${state.taskClosure.reason}`
+      : state.activeTask === undefined && state.executionGrant === undefined
+        ? "not applicable — no active task"
+        : `${state.taskClosure.ready ? "ready" : "blocked"} — ${state.taskClosure.reason}`}`,
     `- Next action: ${state.nextAction}`,
   ];
 
