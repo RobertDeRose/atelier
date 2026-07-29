@@ -1,12 +1,16 @@
-# Migration Report — Atelier 0.14.0-alpha.6
+# Migration Report — Atelier 0.14.0-alpha.7
 
 ## Summary
 
-Atelier 0.14.0-alpha.6 applies the SQLite schema marker for migration 8 automatically, but it also
-introduces an intentional **manual plan migration**. Alpha.5 plan tasks did not contain the structured
-execution contract needed to derive exact path and validation capabilities. Existing project documents,
-task mappings, provider task state, trust records, retrieval history, and workflow history are preserved,
-but an alpha.5 plan must be updated and reviewed again before a new alpha.6 approval can execute it.
+Atelier 0.14.0-alpha.7 introduces no new state, plan, trust, provider, or configuration migration beyond
+alpha.6. It corrects a platform-dependent deterministic-test expectation for canonical capability paths;
+production authorization and persisted data are unchanged.
+
+The alpha.6 migration boundary remains in force. Migration 8 is applied automatically, but alpha.5 plan
+tasks did not contain the structured execution contract needed to derive exact path and validation
+capabilities. Existing project documents, task mappings, provider task state, trust records, retrieval
+history, and workflow history are preserved, but an alpha.5 plan must be updated and reviewed again before
+a new alpha.6-or-later approval can execute it.
 
 Active alpha.5 execution grants fail closed because their static broad capability bundle cannot be treated
 as the exact alpha.6 contract. Exit the old Pi process, back up the external runtime state, upgrade, add

@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.6
+# Build Report — Atelier 0.14.0-alpha.7
 
 ## Result
 
@@ -16,6 +16,14 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.7 macOS verification correction
+
+The alpha.6 implementation already canonicalized exact capability paths under the trusted repository
+root. The new narrow-capability regression compared those paths with the noncanonical macOS
+`/var/folders/...` fixture alias, while production correctly returned `/private/var/folders/...`. Alpha.7
+updates the assertion to use Atelier's canonical configured repository root and adds no production
+authorization change.
 
 ## Alpha.6 correction boundary
 
@@ -81,9 +89,9 @@ The local deterministic suite passes **217 tests**. It includes regressions prov
 The final package dry-run reports:
 
 ```text
-Package: atelier-prototype@0.14.0-alpha.6
+Package: atelier-prototype@0.14.0-alpha.7
 Files: 334
-Compressed size: 392,894 bytes
+Compressed size: 392,896 bytes
 Unpacked size: 1,864,924 bytes
 ```
 
@@ -93,7 +101,7 @@ because external tool availability is environment-dependent.
 
 ## Release classification
 
-`0.14.0-alpha.6` remains a trusted-repository, interactive alpha. It does not provide an operating-system
+`0.14.0-alpha.7` remains a trusted-repository, interactive alpha. It does not provide an operating-system
 sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.
 Prompt clarification improves agent behavior but is not a security boundary; typed policy, explicit user
 denial, and durable authorization remain authoritative.

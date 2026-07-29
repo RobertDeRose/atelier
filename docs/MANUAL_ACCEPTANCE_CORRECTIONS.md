@@ -1,4 +1,4 @@
-# Manual Acceptance Corrections — Atelier 0.14.0-alpha.6
+# Manual Acceptance Corrections — Atelier 0.14.0-alpha.7
 
 This document records the disposition of the complete alpha.5 manual-testing archive. The archive includes
 the Pi transcript, external SQLite ledger, trust records, exact approval and permission state, Beads data,

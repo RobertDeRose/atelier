@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import {
@@ -112,6 +112,8 @@ function allow(core: AtelierCore, action: ActionRequest): { policyDecisionId: st
 
 test("reviewed task metadata produces a narrow, named capability bundle", async () => {
   const { root, core } = await exactCore("atlr-exact-capabilities-");
+  const canonicalRoot = realpathSync.native(root);
+  assert.equal(core.config.repositoryRoot, canonicalRoot);
   try {
     const grant = core.ledger.getActiveExecutionGrant();
     assert.ok(grant);
@@ -130,10 +132,13 @@ test("reviewed task metadata produces a narrow, named capability bundle", async 
     );
     assert.deepEqual(
       capabilities.find((item) => item.permission === "file.write")?.paths,
-      [join(root, "src", "allowed.ts"), join(root, "tests", "allowed.test.ts")],
+      [
+        join(core.config.repositoryRoot, "src", "allowed.ts"),
+        join(core.config.repositoryRoot, "tests", "allowed.test.ts"),
+      ],
     );
 
-    const summary = executionCapabilitySummary(capabilities, root).join("\n");
+    const summary = executionCapabilitySummary(capabilities, core.config.repositoryRoot).join("\n");
     assert.match(summary, /Writes: src\/allowed\.ts, tests\/allowed\.test\.ts/);
     assert.match(summary, /Dependencies: not permitted/);
     assert.match(summary, /Focused validations: manual-acceptance/);

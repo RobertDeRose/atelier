@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0-alpha.7 — 2026-07-28
+
+- preserve canonical repository-root behavior for exact task capability paths on macOS
+- compare the narrow-capability regression against Atelier's canonical configured root instead of the
+  noncanonical `/var` temporary-directory alias
+- leave production authorization behavior unchanged; this release corrects only the platform-dependent
+  alpha.6 test expectation
+
 ## 0.14.0-alpha.6 — 2026-07-28
 
 - replace the Pi `agent_settled` follow-up completion loop with one passive, deduplicated incomplete-task

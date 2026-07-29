@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.6
+# Atelier Architecture — 0.14.0-alpha.7
 
 ## Product boundary
 
