@@ -18,6 +18,7 @@ import { RepositoryStatePlanner } from "./repository-state-planner.ts";
 import { workingStateToMarkdown } from "./working-state-markdown.ts";
 import { newId, nowIso } from "../util/ids.ts";
 import { repositoryRevisionBinding, sameRepositoryBindings } from "../repository/revision-binding.ts";
+import { canonicalSymbolIdentifier } from "../code/service-support.ts";
 
 export interface WorkingStateBuildRequest {
   mode: WorkflowMode;
@@ -281,7 +282,10 @@ export class WorkingStateBuilder {
           id: retrievalStatus.sessionId,
           inventory: scopedInventory,
           knownPaths: [...new Set(scopedInventory.map((item) => item.path))].sort(),
-          resolvedSymbols: [...new Set(scopedInventory.flatMap((item) => item.symbol === undefined ? [] : [item.symbol]))].sort(),
+          resolvedSymbols: [...new Set(scopedInventory.flatMap((item) => {
+            const symbol = canonicalSymbolIdentifier(item.symbol);
+            return symbol === undefined ? [] : [symbol];
+          }))].sort(),
           unresolvedSymbols: [...new Set(scopedUnresolvedSymbols)].sort(),
           freshness: scopedInventory.length === 0
             ? "unknown"

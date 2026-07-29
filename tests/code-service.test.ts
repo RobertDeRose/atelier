@@ -223,6 +223,14 @@ test("explicit symbol lookup normalizes provider signatures, ranks definitions f
     assert.equal(status.inventory.unresolvedSymbols.includes("AtelierCore"), false);
     assert.equal(status.unresolvedSymbolScopes.some((item) => item.symbol === "AtelierCore"), false);
 
+    const workingState = await core.buildWorkingState();
+    assert.ok(workingState.retrievalSession?.resolvedSymbols.includes("AtelierCore"));
+    assert.equal(
+      workingState.retrievalSession?.resolvedSymbols.some((symbol) => /block|lines|class\s/.test(symbol)),
+      false,
+      "Working State must use canonical identifiers rather than provider display labels",
+    );
+
     const repeated = await core.code.symbols({
       workspace,
       text: "AtelierCore",
