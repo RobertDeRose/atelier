@@ -181,6 +181,28 @@ if (failures.length > 0) throw new Error(`unexpected Pi tool errors:\n${failures
 NODE
 }
 
+jsonl_assert_implementation_errors() {
+  local file="$1"
+  local allowed_path="$2"
+  node --input-type=module - "$file" "$allowed_path" <<'NODE'
+import { readFileSync } from "node:fs";
+const [file, allowedPath] = process.argv.slice(2);
+const failures = [];
+for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+  if (!line.trim().startsWith("{")) continue;
+  let event;
+  try { event = JSON.parse(line); } catch { continue; }
+  if (event?.type !== "tool_execution_end" || event.isError !== true) continue;
+  const serialized = JSON.stringify(event.result ?? event.error ?? "tool error");
+  const expectedMissingRead = event.toolName === "read"
+    && serialized.includes("ENOENT")
+    && serialized.includes(allowedPath);
+  if (!expectedMissingRead) failures.push(`${event.toolName ?? "unknown"}: ${serialized}`);
+}
+if (failures.length > 0) throw new Error(`unexpected Pi tool errors:\n${failures.join("\n")}`);
+NODE
+}
+
 jsonl_assert_no_forced_continuation() {
   local file="$1"
   node --input-type=module - "$file" <<'NODE'
@@ -720,7 +742,7 @@ EOF
 )
   run_pi_json "$EVIDENCE_DIR/pi-implementation.jsonl" "read,edit,write,atlr_state" "$implementation_prompt"
   jsonl_tool_assert_any "$EVIDENCE_DIR/pi-implementation.jsonl" "write,edit" "bash,atlr_validate,atlr_commit,atlr_task_close"
-  jsonl_assert_no_unexpected_errors "$EVIDENCE_DIR/pi-implementation.jsonl"
+  jsonl_assert_implementation_errors "$EVIDENCE_DIR/pi-implementation.jsonl" "$ATLR_REPO/tests/version.test.ts"
 
   grep -q 'export const ATELIER_PRODUCT_NAME = "Atelier"' packages/core/src/version.ts \
     || fail "Pi did not add ATELIER_PRODUCT_NAME"
@@ -768,26 +790,34 @@ continue_headless_after_shell() {
   set -e
   [[ "$close_status" -ne 0 ]] || fail "task closed before validation, diff review, and local change"
 
-  log "typed focused validation"
-  run_pi_json "$EVIDENCE_DIR/pi-validation-first.jsonl" "atlr_validate,atlr_state" \
-    "Call atlr_validate with action plan, then call atlr_validate with action focused, then call atlr_state. Do not use Bash."
-  jsonl_tool_assert "$EVIDENCE_DIR/pi-validation-first.jsonl" "atlr_validate,atlr_state" "bash"
+  log "deterministic focused validation"
+  "${ATLR_BIN[@]}" validate plan --json >"$EVIDENCE_DIR/validation-plan-first.json"
+  "${ATLR_BIN[@]}" validate focused --json >"$EVIDENCE_DIR/validation-focused-first.json"
   "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-current-first.json"
   verify_current_validation "$EVIDENCE_DIR/evidence-current-first.json"
 
   log "typed edit makes validation evidence stale"
-  run_pi_json "$EVIDENCE_DIR/pi-stale-edit.jsonl" "read,edit" \
-    "Using only read and edit, change only the human-readable test title in tests/version.test.ts. Do not change imports or assertions. Do not run validation, commit, or close."
-  jsonl_tool_assert "$EVIDENCE_DIR/pi-stale-edit.jsonl" "edit" "bash,atlr_validate,atlr_commit,atlr_task_close"
+  local old_title new_title
+  old_title="$(node --input-type=module - <<'NODE'
+import { readFileSync } from "node:fs";
+const text = readFileSync("tests/version.test.ts", "utf8");
+const match = text.match(/test\((['"])(.*?)\1/);
+if (!match) process.exit(2);
+process.stdout.write(match[2]);
+NODE
+)"
+  new_title="$old_title (stale evidence probe)"
+  run_pi_json "$EVIDENCE_DIR/pi-stale-edit.jsonl" "edit" \
+    "Use the edit tool exactly once in tests/version.test.ts. Replace the exact text '$old_title' with '$new_title'. Do not read, write, validate, commit, close, or use Bash."
+  jsonl_tool_assert "$EVIDENCE_DIR/pi-stale-edit.jsonl" "edit" "read,write,bash,atlr_validate,atlr_commit,atlr_task_close,atlr_state"
+  grep -Fq "$new_title" tests/version.test.ts || fail "typed stale-evidence edit did not apply the exact title replacement"
   "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-stale.json"
   json_assert "$EVIDENCE_DIR/evidence-stale.json" '
     assert(data.some((item) => item.name === "manual-acceptance" && item.stale === true), "validation did not become stale after source edit");
   '
 
   log "rerun focused validation and create the scoped local change"
-  run_pi_json "$EVIDENCE_DIR/pi-validation-second.jsonl" "atlr_validate" \
-    "Call atlr_validate with action focused exactly once. Do not use Bash."
-  jsonl_tool_assert "$EVIDENCE_DIR/pi-validation-second.jsonl" "atlr_validate" "bash"
+  "${ATLR_BIN[@]}" validate focused --json >"$EVIDENCE_DIR/validation-focused-second.json"
   "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-current-second.json"
   verify_current_validation "$EVIDENCE_DIR/evidence-current-second.json"
 

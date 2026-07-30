@@ -39,6 +39,10 @@ check(
   statSync(join(rootPath, "scripts/live-conformance.sh")).mode % 0o1000 >= 0o100,
   "scripts/live-conformance.sh must be executable",
 );
+check(
+  statSync(join(rootPath, "scripts/guided-verification.sh")).mode % 0o1000 >= 0o100,
+  "scripts/guided-verification.sh must be executable",
+);
 
 const adrFiles = readdirSync(join(rootPath, "docs"))
   .filter((name) => /^ADR-\d{4}-.*\.md$/.test(name))
@@ -78,6 +82,8 @@ for (const path of [
   "apps/pi-extension/src/execution-outcome.ts",
   "apps/pi-extension/src/approval-presentation.ts",
   "apps/pi-extension/src/status-presentation.ts",
+  "apps/pi-extension/src/report-presentation.ts",
+  "apps/pi-extension/src/command-reports.ts",
   "apps/pi-extension/src/validation-tool.ts",
   "apps/pi-extension/src/workflow-tools.ts",
   "packages/core/src/code/service-support.ts",
@@ -86,7 +92,9 @@ for (const path of [
   "packages/core/src/ledger/ledger-records.ts",
   "packages/core/src/state/working-state-markdown.ts",
   "scripts/live-acceptance.sh",
+  "scripts/guided-verification.sh",
   "docs/ADR-0030-REPOSITORY-FINALIZATION-AND-CLOSURE-SEMANTICS.md",
+  "docs/ADR-0033-PERSISTENT-MARKDOWN-REPORTS.md",
 ]) {
   check(text(path).trim().length > 0, `${path} is missing or empty`);
 }

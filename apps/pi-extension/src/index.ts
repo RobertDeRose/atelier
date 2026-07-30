@@ -26,6 +26,9 @@ import {
   integerSchema,
   objectSchema,
   retrievalText,
+  retrievalMarkdown,
+  codeSearchMarkdown,
+  codeSymbolsMarkdown,
   stringSchema,
 } from "./code-tool-presentation.ts";
 import { toolExecutionOutcome } from "./execution-outcome.ts";
@@ -45,6 +48,17 @@ import {
   type TurnToolPolicy,
 } from "./turn-tool-policy.ts";
 import { ATELIER_VALIDATION_TOOL, registerValidationTool } from "./validation-tool.ts";
+import { appendAtelierReport, registerAtelierReportRenderer } from "./report-presentation.ts";
+import {
+  changedMarkdown,
+  codeStatusMarkdown,
+  evidenceMarkdown,
+  focusedSelectionMarkdown,
+  readyTasksMarkdown,
+  statusMarkdown,
+  validationListMarkdown,
+  validationResultsMarkdown,
+} from "./command-reports.ts";
 import {
   executionGrantText,
   installAtelierFooter,
@@ -151,13 +165,15 @@ async function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<v
   try {
     const status = await core.status();
     const indexing = core.code.indexingStatus();
-    const intel = indexing.active || indexing.state === "building"
-      ? "indexing"
-      : indexing.state === "ready"
-        ? "ready"
-        : indexing.state === "stale"
-          ? "degraded"
-          : "offline";
+    const intel = core.config.codeProvider === "disabled"
+      ? "disabled"
+      : indexing.active || indexing.state === "building"
+        ? "indexing"
+        : indexing.state === "ready"
+          ? "ready"
+          : indexing.state === "stale"
+            ? "degraded"
+            : "offline";
     const index = intel === "indexing" ? "indexing…" : `index ${indexing.state}`;
     const value = `${atelierStatusSummary(status)} · ${index}`;
     if (core.config.footer === "disabled") {
@@ -396,6 +412,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     return coreFor(ctx, openCore);
   };
   const reopenCore = (ctx: ExtensionContext): Promise<AtelierCore> => replaceCore(ctx, openCore);
+  registerAtelierReportRenderer(pi);
   registerValidationTool(pi, getCore);
   registerWorkflowTools(pi, getCore);
   pi.registerTool({
@@ -916,14 +933,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const status = await core.status();
-      ctx.ui.notify(
-        `Mode: ${status.mode}\nPlan: ${planStatusText(status)}\n` +
-          `Task: ${status.currentTaskId ?? "none"}\nExecution grant: ${executionGrantText(status)}\n` +
-          `Repository: ${vcsStatusText(status)}\n` +
-          `Provider: ${status.taskProvider.provider} (${status.taskProvider.initialized ? "ready" : "not initialized"})\n` +
-          `Next action: ${status.nextAction}`,
-        "info",
-      );
+      appendAtelierReport(pi, ctx, "Atelier status", statusMarkdown(status));
       await updateStatus(ctx, core);
     },
   });
@@ -1101,7 +1111,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const core = getCore(ctx);
       const ready = await core.taskProvider.ready();
       if (ready.length === 0) {
-        ctx.ui.notify("No ready task is available.", "info");
+        appendAtelierReport(pi, ctx, "Ready tasks", readyTasksMarkdown([]));
         return;
       }
       const requested = args.trim();
@@ -1113,7 +1123,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         selected = index < 0 ? undefined : ready[index];
       }
       if (selected === undefined) {
-        ctx.ui.notify(ready.map((task) => `${task.id}: ${task.title}`).join("\n"), "info");
+        appendAtelierReport(pi, ctx, "Ready tasks", readyTasksMarkdown(ready));
         return;
       }
       core.ledger.setState("currentTaskId", selected.id);
@@ -1133,7 +1143,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const state = await core.buildWorkingState();
-      ctx.ui.notify(core.workingStateBuilder.toMarkdown(state), "info");
+      appendAtelierReport(pi, ctx, "Atelier Working State", core.workingStateBuilder.toMarkdown(state));
     },
   });
 
@@ -1143,18 +1153,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const core = getCore(ctx);
       const status = await core.code.status(undefined, core.codeWorkspace());
       const retrieval = core.code.retrievalStatus();
-      if (!status.available || !status.healthy || status.indexState === "stale" || status.indexState === "failed" || status.degraded === true) {
-      }
-      ctx.ui.notify([
-        `Provider: ${status.identity.name}`,
-        `Available: ${status.available}`,
-        `Healthy: ${status.healthy}`,
-        `Index: ${status.indexState}`,
-        `Capabilities: ${status.capabilities.join(", ") || "none"}`,
-        ...conciseProviderDetail(status.detail),
-        "",
-        retrievalText(retrieval),
-      ].join("\n"), "info");
+      appendAtelierReport(pi, ctx, "Code intelligence", codeStatusMarkdown(status, retrieval));
     },
   });
 
@@ -1163,7 +1162,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const state = await core.code.ensureIndex(core.codeWorkspace());
-      ctx.ui.notify(`Code index state: ${state}`, "info");
+      appendAtelierReport(pi, ctx, "Code index", `## Code index\n\nState: **${state}**`);
     },
   });
 
@@ -1179,11 +1178,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const workspace = core.codeWorkspace();
       const results = rankPresentedHits(await core.code.search({ workspace, text: query, mode: "semantic", limit: 10 }));
       const retrieval = core.code.retrievalStatus();
-      const message = (results.length === 0
-        ? "No code matches."
-        : `${results.map(codeHitText).join("\n\n")}\n\nUse built-in read for returned paths.`)
-        + `\n\n${retrievalText(retrieval)}`;
-      ctx.ui.notify(message, "info");
+      appendAtelierReport(pi, ctx, "Code search", codeSearchMarkdown(query, results, retrieval));
     },
   });
 
@@ -1199,13 +1194,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const workspace = core.codeWorkspace();
       const results = rankPresentedHits(await core.code.symbols({ workspace, text: query, limit: 20, requireUnresolved: false }));
       const retrieval = core.code.retrievalStatus();
-      const message = (results.length === 0
-        ? retrieval.lastDecision?.kind === "no_provider_call"
-          ? `No symbol provider call: ${retrieval.lastDecision.reason}`
-          : "No symbols matched."
-        : `${results.map((item) => `${item.symbol ?? "symbol"} ${item.repositoryName}:${item.path}${item.startLine === undefined ? "" : `:${item.startLine}`}`).join("\n")}\n\nUse built-in read for returned paths.`)
-        + `\n\n${retrievalText(retrieval)}`;
-      ctx.ui.notify(message, "info");
+      appendAtelierReport(pi, ctx, "Symbol search", codeSymbolsMarkdown(query, results, retrieval));
     },
   });
 
@@ -1214,7 +1203,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const paths = core.repository.changedPaths();
-      ctx.ui.notify(["Changed paths:", ...(paths.length === 0 ? ["- none"] : paths.map((path) => `- ${path}`))].join("\n"), "info");
+      appendAtelierReport(pi, ctx, "Changed paths", changedMarkdown(paths, core.repository.snapshot().vcs));
     },
   });
 
@@ -1225,21 +1214,13 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const name = args.trim();
       if (!name) {
         const manifest = core.validation.manifest();
-        const message = Object.entries(manifest.validations)
-          .map(([key, value]) => `${key}: ${value.command.join(" ")}`)
-          .join("\n") || "No validations configured.";
-        ctx.ui.notify(message, "info");
+        appendAtelierReport(pi, ctx, "Configured validations", validationListMarkdown(manifest.validations));
         return;
       }
       if (name === "plan" || name === "focused") {
         if (name === "plan") {
           const selection = core.selectFocusedValidation();
-          ctx.ui.notify(
-            selection.noMatch
-              ? `Focused selection ${selection.id}: no configured validations matched.`
-              : `Focused selection ${selection.id}:\n${selection.selected.map((item) => `${item.name}: ${item.reason}${item.required ? " (required)" : ""}`).join("\n")}`,
-            "info",
-          );
+          appendAtelierReport(pi, ctx, "Focused validation plan", focusedSelectionMarkdown(selection));
           return;
         }
         const selection = core.selectFocusedValidation();
@@ -1251,12 +1232,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
             ...(signal === undefined ? {} : { signal }),
           }));
         }
-        ctx.ui.notify(results.length === 0 ? "No focused validations matched." : results.map((item) => `${item.name}: ${item.status} (${item.durationMs} ms)`).join("\n"), results.some((item) => item.status !== "passed") ? "error" : "info");
+        appendAtelierReport(pi, ctx, "Validation results", validationResultsMarkdown(results));
         return;
       }
       const signal = contextSignal(ctx);
       const evidence = await core.runValidation(name, signal === undefined ? {} : { signal });
-      ctx.ui.notify(`${name}: ${evidence.status} (${evidence.durationMs} ms)`, evidence.status === "passed" ? "info" : "error");
+      appendAtelierReport(pi, ctx, "Validation result", validationResultsMarkdown([evidence]));
     },
   });
 
@@ -1269,10 +1250,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         currentChangedPaths: core.repository.changedPaths()
           .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/")),
       });
-      const message = items.length === 0
-        ? "No validation evidence."
-        : items.map((item) => `${item.name}: ${item.status} (${item.stale ? "stale" : "current"})`).join("\n");
-      ctx.ui.notify(message, "info");
+      appendAtelierReport(pi, ctx, "Validation evidence", evidenceMarkdown(items));
     },
   });
 

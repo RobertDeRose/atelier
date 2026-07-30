@@ -28,6 +28,8 @@ declare module "@earendil-works/pi-coding-agent" {
     ): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown; isError?: boolean }>;
   }
 
+  export function getMarkdownTheme(): unknown;
+
   export function createBashTool(
     cwd: string,
     options?: { operations?: BashOperations },
@@ -99,6 +101,15 @@ declare module "@earendil-works/pi-coding-agent" {
         handler(args: string, ctx: ExtensionCommandContext): Promise<void>;
       },
     ): void;
+    registerEntryRenderer?<T = unknown>(
+      customType: string,
+      renderer: (
+        entry: { type: "custom"; customType: string; data?: T },
+        options: { expanded: boolean },
+        theme: unknown,
+      ) => { render(width: number): string[]; invalidate(): void } | undefined,
+    ): void;
+    appendEntry?<T = unknown>(customType: string, data?: T): void;
     registerTool(definition: {
       name: string;
       label: string;
@@ -121,5 +132,14 @@ declare module "@earendil-works/pi-coding-agent" {
       content: string,
       options?: { deliverAs?: "steer" | "followUp" },
     ): void;
+  }
+}
+
+
+declare module "@earendil-works/pi-tui" {
+  export class Markdown {
+    constructor(content: string, paddingX: number, paddingY: number, theme: unknown);
+    render(width: number): string[];
+    invalidate(): void;
   }
 }

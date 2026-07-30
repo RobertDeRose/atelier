@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.13**.
+Current release: **0.14.0-alpha.14**.
 
 ## Current status
 
@@ -32,6 +32,8 @@ Atelier currently provides:
 - codesearch, Octocode, mock, and disabled code providers;
 - CLI and Pi integration, including a responsive two-line footer with model/context, workflow mode,
   human-readable task titles, code-index health, and provider-native Jujutsu/Git cleanliness;
+- persistent TUI-only Markdown reports for status, Working State, code intelligence, changed paths,
+  validation, evidence, and ready-work inspection without adding those reports to model context;
 - approval-only plan activation that leaves Pi idle until the user explicitly requests implementation.
 
 The fuzzy file palette, project tree, Yazi/skim adapters, and richer Helix-native IDE surfaces remain
@@ -304,6 +306,11 @@ mise run launch
 ```
 
 Pi reserves `/trust` for Pi-owned project resources. Atelier does not register another trust command and does not use Pi trust as filesystem authority. The Atelier workspace policy is established from the startup directory or `--workspace`.
+
+Structured inspection commands render as persistent Markdown entries in Pi transcript scrollback. Status-like
+reports use compact tables; Working State uses headings and lists; code search separates definitions,
+references, source, tests, documentation, and generated results. Short lifecycle events continue to use
+transient notifications.
 
 Core slash commands include:
 

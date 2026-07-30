@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0-alpha.14 — 2026-07-30
+
+### Changed
+
+- Replaced transient `/status`, `/state`, code-intelligence, changed-path, validation, evidence, and ready-work notifications with persistent TUI-only Markdown report entries.
+- Added Markdown tables for compact status surfaces and grouped definitions, references, source, tests, documentation, and generated code in retrieval reports.
+- Added a neutral `intel: disabled` state for workspaces with no configured code provider; `offline` now means a configured provider is unavailable.
+- Kept footer thinking levels at normal text contrast instead of the theme's dim color.
+- Added an in-tree guided verification harness that clears each terminal transition, identifies the intentional VCS/provider state, keeps detailed instructions outside the Pi viewport, and archives CLI/VCS/ledger evidence.
+- Made the live-acceptance implementation and validation phases deterministic around expected missing future files, focused validation, and stale-evidence edits.
+
 ## 0.14.0-alpha.13 — 2026-07-30
 
 ### Changed

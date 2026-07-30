@@ -75,3 +75,16 @@ test("status-only and disabled footer modes release Pi footer ownership", () => 
   installAtelierFooter(ctx, status(), "ready", undefined, "disabled");
   assert.deepEqual(values, [undefined, undefined]);
 });
+
+test("Atelier footer keeps thinking levels readable and treats disabled intelligence as neutral", () => {
+  const theme = {
+    bold: (value: string) => `<b>${value}</b>`,
+    fg: (color: string, value: string) => `<${color}>${value}</${color}>`,
+  };
+  const lines = renderAtelierFooter(context(10), status(), "disabled", 160, theme, "high");
+  const [runtime = "", provider = ""] = lines;
+  assert.match(runtime, /high/);
+  assert.doesNotMatch(runtime, /<dim>high<\/dim>/);
+  assert.match(provider, /<muted>disabled<\/muted>/);
+  assert.doesNotMatch(provider, /<error>disabled<\/error>/);
+});

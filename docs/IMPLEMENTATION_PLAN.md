@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.13 (2026-07-30).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.14 (2026-07-30).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -35,7 +35,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.13
+## Implementation Status — v0.14.0-alpha.14
 
 The current prototype delivers the guarded local workflow:
 
@@ -52,7 +52,8 @@ The current prototype delivers the guarded local workflow:
 - deterministic Working State reconstruction across Pi restart and compaction;
 - Jujutsu-first repository identity with Git compatibility;
 - bounded provider-first codesearch retrieval with provenance, reuse, invalidation, and multi-repository isolation; and
-- matching CLI/Pi commands for review, approval, execution, cancellation, validation, evidence, status, and state.
+- matching CLI/Pi commands for review, approval, execution, cancellation, validation, evidence, status, and state; and
+- persistent TUI-only Markdown reports for operational inspection, plus a guided evidence-gathering harness that keeps instructions outside the Pi viewport.
 
 The portable acceptance fixtures in `tests/acceptance-workflow.test.ts`, `tests/workspace-policy.test.ts`, and `tests/recovery-manager.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `LOCAL_ACCEPTANCE.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their “planned” wording does not override this delivered-status section.
 

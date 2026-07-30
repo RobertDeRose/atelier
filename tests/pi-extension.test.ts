@@ -475,10 +475,15 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
   const commands = new Map<string, RegisteredCommand>();
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const sentMessages: string[] = [];
+  const reportEntries: string[] = [];
   const fakePi = {
     on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
     registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
     registerTool(): void {},
+    registerEntryRenderer(): void {},
+    appendEntry(_customType: string, data: { markdown?: string }): void {
+      if (typeof data.markdown === "string") reportEntries.push(data.markdown);
+    },
     getActiveTools(): string[] { return []; },
     setActiveTools(): void {},
     sendUserMessage(message: string): void { sentMessages.push(message); },
@@ -527,8 +532,8 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
     assert.ok(notifications.some((message) => /Atelier is idle; send an explicit implementation instruction/i.test(message)));
 
     await commands.get("status")!.handler("", context);
-    assert.ok(notifications.some((message) => /Execution grant: execution_.*active/i.test(message)));
-    assert.ok(notifications.some((message) => /Next action:/i.test(message)));
+    assert.ok(reportEntries.some((message) => /execution_.*active/i.test(message)));
+    assert.ok(reportEntries.some((message) => /^### Next action/m.test(message)));
     await commands.get("cancel")!.handler("user stopped execution", context);
     assert.ok(notifications.some((message) => /cancelled execution/i));
   } finally {
@@ -1187,6 +1192,48 @@ test("model Bash and direct user shell share one workspace-policy authorization 
     assert.equal(deniedUser?.block, true);
     assert.match(deniedUser?.reason ?? "", /user denied/i);
     assert.equal(confirms.count, 2, "model and direct-user unknown execution each require one concrete approval");
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Pi status and state commands append persistent Markdown report entries", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const commands = new Map<string, RegisteredCommand>();
+  const entries: Array<{ customType: string; data: any }> = [];
+  let registeredRenderer: ((entry: any, options: any, theme: any) => any) | undefined;
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    registerEntryRenderer(_type: string, renderer: (entry: any, options: any, theme: any) => any): void { registeredRenderer = renderer; },
+    appendEntry(customType: string, data: any): void { entries.push({ customType, data }); },
+    getActiveTools(): string[] { return ["read", "bash", "edit", "write"]; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+
+  atelierExtension(fakePi);
+  assert.ok(registeredRenderer, "Atelier must register a persistent report renderer");
+  const root = createTemporaryRepository("atlr-persistent-reports-");
+  mkdirSync(join(root, ".atelier"), { recursive: true });
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({ taskProvider: "none", codeProvider: "disabled" }));
+  const context = fakeContext(root, { count: 0 });
+  try {
+    await events.get("session_start")!({}, context);
+    await commands.get("status")!.handler("", context);
+    await commands.get("state")!.handler("", context);
+    await commands.get("code-status")!.handler("", context);
+    assert.equal(entries.length, 3);
+    assert.equal(entries[0]?.customType, "atelier-report");
+    assert.match(entries[0]?.data.markdown ?? "", /^## Atelier status/m);
+    assert.match(entries[0]?.data.markdown ?? "", /\| \*\*workspace\*\* \|/);
+    assert.match(entries[1]?.data.markdown ?? "", /^# Atelier Working State/m);
+    assert.match(entries[2]?.data.markdown ?? "", /^## Code intelligence/m);
+    assert.match(entries[2]?.data.markdown ?? "", /\| \*\*state\*\* \| disabled \|/);
+    const component = registeredRenderer!({ type: "custom", customType: "atelier-report", data: entries[0]?.data }, { expanded: true }, {});
+    assert.ok(component?.render(100).join("\n").includes("Atelier status"));
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });

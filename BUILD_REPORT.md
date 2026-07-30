@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.13
+# Build Report — Atelier 0.14.0-alpha.14
 
 ## Result
 
@@ -17,18 +17,23 @@ dist/apps/pi-extension/src/index.js
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
 
-## Alpha.13 footer correction
+## Alpha.14 persistent report correction
 
-Alpha.13 preserves the completed workspace-recoverability model and replaces the dense single-line Pi
-footer with a two-line responsive status surface:
+Alpha.14 keeps the responsive two-line footer and replaces transient structured Pi notifications with
+persistent TUI-only Markdown reports:
 
-- line one aligns Atelier/model/thinking/context on the left and workflow mode/task/blocker on the right;
-- line two aligns provider-native Git or Jujutsu identity and clean/dirty/conflicted state on the left
-  with code-intelligence health on the right;
-- headings use Pi theme bold/accent rendering while good, warning, and failure states use semantic colors;
-- wide terminals show human-readable Beads task titles, medium terminals truncate the title, and narrow
-  terminals fall back to the Beads ID; and
-- expected empty workflow states and duplicate VCS identity are omitted.
+- `/status` and `/code-status` render compact tables;
+- `/state` renders durable Working State headings and lists;
+- code search and symbol lookup separate definitions, references, source, tests, documentation, and
+  generated results;
+- changed paths, ready tasks, validation plans/results, and evidence remain visible in scrollback;
+- reports are stored as custom session entries and do not participate in LLM context;
+- intentionally disabled code intelligence is neutral rather than reported as offline; and
+- thinking levels use normal text contrast instead of the theme's dim color.
+
+The guided verification harness clears every direct Pi transition, labels the intentional VCS and
+intelligence state, stores detailed instructions outside the TUI viewport, and gathers authoritative
+post-session evidence without a pseudo-terminal recorder.
 
 ## Deterministic verification
 
@@ -39,6 +44,7 @@ npm run build
 npm test
 bash scripts/smoke.sh
 bash -n scripts/live-acceptance.sh
+bash -n scripts/guided-verification.sh
 git diff --check
 npm pack --dry-run
 ```
@@ -49,7 +55,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:  249 passed, 0 failed
+Deterministic tests:  254 passed, 0 failed
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -59,10 +65,10 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.13
-Files:            415
-Compressed size:  458,001 bytes
-Unpacked size:    2,148,447 bytes
+Package:          atelier-prototype@0.14.0-alpha.14
+Files:            424
+Compressed size:  465,009 bytes
+Unpacked size:    2,176,406 bytes
 ```
 
 ## Verification boundary
@@ -75,7 +81,7 @@ and live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.13` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.14` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

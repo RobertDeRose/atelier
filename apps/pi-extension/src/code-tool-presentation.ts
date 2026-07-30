@@ -88,3 +88,83 @@ export function codeToolError(
     },
   };
 }
+
+type CodeHit = Awaited<ReturnType<AtelierCore["code"]["search"]>>[number];
+
+function markdownLocation(hit: CodeHit): string {
+  const line = hit.startLine === undefined ? "" : `:${hit.startLine}`;
+  return `\`${hit.repositoryName}:${hit.path}${line}\``;
+}
+
+function markdownHit(hit: CodeHit): string {
+  const preview = usefulCodePreview(hit);
+  const symbol = hit.symbol?.trim();
+  const title = symbol === undefined || symbol === "" ? markdownLocation(hit) : `**${symbol}** — ${markdownLocation(hit)}`;
+  return preview === undefined || preview === symbol
+    ? `- ${title}`
+    : `- ${title}\n\n  ${preview.replaceAll("\n", "\n  ")}`;
+}
+
+export function retrievalMarkdown(retrieval: RetrievalSessionStatus): string {
+  const remainingRequests = Math.max(0, retrieval.budget.providerRequestsLimit - retrieval.budget.providerRequestsUsed);
+  const remainingPaths = Math.max(0, retrieval.budget.uniquePathsLimit - retrieval.budget.uniquePathsUsed);
+  const decision = retrieval.lastDecision === undefined
+    ? "none"
+    : `${retrieval.lastDecision.kind} — ${retrieval.lastDecision.reason}`;
+  return [
+    "### Retrieval",
+    "",
+    "| field | value |",
+    "|---|---|",
+    `| session | \`${retrieval.sessionId}\` |`,
+    `| decision | ${decision.replaceAll("|", "\\|")} |`,
+    `| freshness | ${retrieval.inventory.freshness} |`,
+    `| evidence | ${retrieval.inventory.evidenceCount} entries across ${retrieval.inventory.uniquePathCount} paths |`,
+    `| budget | ${remainingRequests} provider requests; ${remainingPaths} unique paths remaining |`,
+    `| bytes | ${retrieval.telemetry.bytesReturned}${retrieval.telemetry.truncated ? " (truncated)" : ""} |`,
+  ].join("\n");
+}
+
+export function codeSearchMarkdown(query: string, results: CodeHit[], retrieval: RetrievalSessionStatus): string {
+  const categories = ["definition", "source", "test", "docs", "other", "generated"] as const;
+  const labels: Record<(typeof categories)[number], string> = {
+    definition: "Definitions",
+    source: "Source",
+    test: "Tests",
+    docs: "Documentation",
+    other: "Other",
+    generated: "Generated",
+  };
+  const sections = categories.flatMap((category) => {
+    const items = results.filter((hit) => codeResultCategory(hit) === category);
+    return items.length === 0 ? [] : [`### ${labels[category]}`, "", items.map(markdownHit).join("\n")];
+  });
+  return [
+    `## Code search: \`${query}\``,
+    "",
+    ...(results.length === 0 ? ["No code matches."] : sections),
+    "",
+    "Use `/atelier-open PATH:LINE` or the built-in read tool to inspect a result.",
+    "",
+    retrievalMarkdown(retrieval),
+  ].join("\n");
+}
+
+export function codeSymbolsMarkdown(query: string, results: CodeHit[], retrieval: RetrievalSessionStatus): string {
+  const definitions = results.filter((hit) => codeResultCategory(hit) === "definition");
+  const references = results.filter((hit) => codeResultCategory(hit) !== "definition");
+  const noCall = results.length === 0 && retrieval.lastDecision?.kind === "no_provider_call"
+    ? `No symbol provider call: ${retrieval.lastDecision.reason}`
+    : "No symbols matched.";
+  return [
+    `## Symbol: \`${query}\``,
+    "",
+    ...(results.length === 0 ? [noCall] : []),
+    ...(definitions.length === 0 ? [] : ["### Definitions", "", definitions.map(markdownHit).join("\n")]),
+    ...(references.length === 0 ? [] : ["### References", "", references.map(markdownHit).join("\n")]),
+    "",
+    "Use `/atelier-open PATH:LINE` or the built-in read tool to inspect a result.",
+    "",
+    retrievalMarkdown(retrieval),
+  ].join("\n");
+}

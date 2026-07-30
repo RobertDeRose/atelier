@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.13
+# Atelier Architecture — 0.14.0-alpha.14
 
 ## Product boundary
 
@@ -56,6 +56,18 @@ task title or Beads ID on the right. The second row presents provider-native `jj
 clean/dirty/conflicted state on the left, with `intel:` health on the right. Theme bold and semantic colors
 are applied by state, and expected empty workflow fields are deliberately omitted. `status-only` and
 `disabled` release custom-footer ownership back to Pi.
+
+## Persistent Pi report presentation
+
+Atelier registers a custom TUI-only session-entry renderer for structured slash-command output. `/status`,
+`/state`, `/ready`, code-intelligence commands, `/changed`, `/validate`, and `/evidence` append Markdown
+entries that remain in transcript scrollback but do not participate in LLM context. Pi's Markdown component
+renders tables, headings, lists, and inline code when the host API is available; deterministic tests retain
+a plain-text fallback. Transient notifications are reserved for short warnings and lifecycle events.
+
+A workspace with no configured code provider is presented as `intel: disabled`, a neutral configuration
+state. `offline` is reserved for a configured provider that cannot be reached or has failed. Footer thinking
+levels use normal foreground contrast rather than dim text.
 
 ## Project data and runtime data
 

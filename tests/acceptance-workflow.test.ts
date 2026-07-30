@@ -230,6 +230,7 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const commands = new Map<string, RegisteredCommand>();
   const notifications: string[] = [];
+  const reportEntries: string[] = [];
   const sentMessages: string[] = [];
   const confirmations = [false, true];
   const confirmationBodies: string[] = [];
@@ -240,6 +241,10 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
     registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
     registerTool(): void {},
+    registerEntryRenderer(): void {},
+    appendEntry(_customType: string, data: { markdown?: string }): void {
+      if (typeof data.markdown === "string") reportEntries.push(data.markdown);
+    },
     getActiveTools(): string[] { return ["read", "bash", "edit", "write"]; },
     setActiveTools(): void {},
     sendUserMessage(message: string): void { sentMessages.push(message); },
@@ -357,7 +362,7 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     await commands.get("validate")!.handler("plan", context);
     await commands.get("validate")!.handler("focused", context);
     await commands.get("evidence")!.handler("", context);
-    assert.match(notifications.at(-1) ?? "", /focused: passed \(current\)/i);
+    assert.match(reportEntries.at(-1) ?? "", /\*\*focused:\*\* passed · current/i);
 
     const secondRequest = await events.get("tool_call")!({
       toolCallId: "acceptance-write-2",
@@ -375,16 +380,16 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
       isError: false,
     }, context);
     await commands.get("evidence")!.handler("", context);
-    assert.match(notifications.at(-1) ?? "", /focused: passed \(stale\)/i);
+    assert.match(reportEntries.at(-1) ?? "", /\*\*focused:\*\* passed · stale/i);
     await commands.get("validate")!.handler("focused", context);
     await commands.get("evidence")!.handler("", context);
-    assert.match(notifications.at(-1) ?? "", /focused: passed \(current\)/i);
+    assert.match(reportEntries.at(-1) ?? "", /\*\*focused:\*\* passed · current/i);
 
     await events.get("session_shutdown")!({}, context);
     const createCountBeforeResume = mutationLog(fake.logPath).filter((args) => args[0] === "create").length;
     await events.get("session_start")!({ reason: "resume" }, context);
     await commands.get("state")!.handler("", context);
-    const resumedState = notifications.at(-1) ?? "";
+    const resumedState = reportEntries.at(-1) ?? "";
     assert.match(resumedState, /Mode: act/);
     assert.match(resumedState, /Execution grant: .*active/);
     assert.equal((resumedState.match(/write\/write\.file: succeeded/g) ?? []).length, 2);

@@ -1,4 +1,19 @@
-# Migration Report — Atelier 0.14.0-alpha.13
+# Migration Report — Atelier 0.14.0-alpha.14
+
+## Alpha.14 persistent report compatibility
+
+No state migration is required. Structured Pi inspection commands now append TUI-only Markdown session
+entries rather than transient notifications. These entries remain in transcript scrollback, are excluded
+from LLM context, and survive ordinary session persistence. Hosts without Pi's custom-entry renderer fall
+back to notifications.
+
+A configured `codeProvider: "disabled"` now appears as the neutral `intel: disabled` state. `offline` is
+reserved for configured providers that are unavailable or failed. Footer thinking levels use normal text
+contrast. Existing footer configuration values remain unchanged.
+
+The in-tree `scripts/guided-verification.sh` replaces pseudo-terminal recording with direct Pi sessions,
+clears each workspace transition, stores full instructions in guide files, and archives authoritative
+CLI, VCS, ledger, recovery, and task-provider evidence.
 
 ## Alpha.13 footer compatibility
 

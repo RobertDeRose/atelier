@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createStatusView, statusViewSummary, type AtelierStatus } from "../../../packages/core/src/index.ts";
 
-export type FooterIntelState = "ready" | "indexing" | "degraded" | "offline";
+export type FooterIntelState = "ready" | "indexing" | "degraded" | "offline" | "disabled";
 
 type FooterState = "clean" | "dirty" | "conflicted" | "unknown";
 
@@ -62,10 +62,11 @@ function heading(theme: FooterTheme, value: string): string {
   return fg(theme, "accent", bold(theme, value));
 }
 
-function stateColor(state: string): "success" | "warning" | "error" | "dim" {
+function stateColor(state: string): "success" | "warning" | "error" | "muted" | "dim" {
   if (["ready", "clean", "completed"].includes(state)) return "success";
   if (["indexing", "degraded", "dirty", "paused", "blocked"].includes(state)) return "warning";
   if (["offline", "failed", "conflicted"].includes(state)) return "error";
+  if (state === "disabled") return "muted";
   return "dim";
 }
 
@@ -125,7 +126,7 @@ function runtimeCells(ctx: ExtensionContext, theme: FooterTheme, thinkingLevel?:
   const separator = { plain: " · ", styled: fg(theme, "dim", " · ") };
   const fullParts = [header, { plain: ` ${model}` }];
   if (thinkingLevel !== undefined && thinkingLevel !== "") {
-    fullParts.push(separator, { plain: thinkingLevel, styled: fg(theme, "dim", thinkingLevel) });
+    fullParts.push(separator, { plain: thinkingLevel });
   }
   fullParts.push(separator, { plain: context, styled: contextState(ctx, theme, context) });
   return [

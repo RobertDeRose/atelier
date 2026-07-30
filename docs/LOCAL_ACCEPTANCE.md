@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.13
+# Local Acceptance Workflow — 0.14.0-alpha.14
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -167,6 +167,23 @@ atlr policy command 'sed --in-place s/a/b/ src/file.ts'
 Every decision must be `ask` with a concrete unrecoverable consequence. Read-only commands that the
 effect analyzer can bound may be allowed, but these destructive or indeterminate examples must never be
 silently authorized by an active task or by sandbox availability alone.
+
+## Persistent report presentation
+
+Before continuing, run `/status`, `/state`, and `/code-status` in sequence. Each result must remain visible
+in transcript scrollback after the next command. `/status` and `/code-status` should render Markdown tables;
+`/state` should render headings and lists. A workspace configured with `codeProvider: "disabled"` must show
+`intel: disabled`, not `offline`.
+
+For a guided, evidence-gathering walkthrough that clears each terminal transition and identifies the
+intentional VCS/provider state, run:
+
+```sh
+scripts/guided-verification.sh all /path/to/atelier
+```
+
+Detailed manual instructions are written under the persistent run's `guided/guides/` directory rather than
+left above the Pi viewport.
 
 ## 4. Verify code intelligence
 
