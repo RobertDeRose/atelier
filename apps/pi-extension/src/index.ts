@@ -142,8 +142,13 @@ async function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<v
         : `index ${indexing.state}`;
     const next = status.nextAction.length > 56 ? `${status.nextAction.slice(0, 53)}…` : status.nextAction;
     const value = `Atelier ${status.mode} · ${planStatusText(status)} · ${task} · ${vcsStatusText(status)} · ${index} · ${next}`;
+    if (core.config.footer === "disabled") {
+      ctx.ui.setStatus(STATUS_KEY, undefined);
+      ctx.ui.setFooter?.(undefined);
+      return;
+    }
     ctx.ui.setStatus(STATUS_KEY, value);
-    installAtelierFooter(ctx, status, value);
+    installAtelierFooter(ctx, status, value, core.config.footer);
   } catch (error) {
     ctx.ui.setStatus(STATUS_KEY, "Atelier unavailable");
     ctx.ui.notify(errorMessage(error), "error");

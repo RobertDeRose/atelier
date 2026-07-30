@@ -27,16 +27,22 @@ export function installAtelierFooter(
   ctx: ExtensionContext,
   status: AtelierStatus,
   atelierStatus: string,
+  mode: "atelier" | "status-only" | "disabled" = "atelier",
 ): void {
   if (ctx.mode !== "tui" || ctx.ui.setFooter === undefined) return;
-  ctx.ui.setFooter((_tui, _theme, _footerData) => ({
+  if (mode !== "atelier") { ctx.ui.setFooter(undefined); return; }
+  ctx.ui.setFooter((_tui, _theme, footerData) => ({
     render(width: number): string[] {
       const model = ctx.model?.id ?? ctx.model?.name ?? "model";
       const usage = ctx.getContextUsage?.();
       const usageText = usage?.percent === null || usage?.percent === undefined
         ? ""
         : ` · ${Math.round(usage.percent)}% context`;
-      return [fitFooterLine(`pi · ${model} · ${vcsStatusText(status)}    ${atelierStatus}${usageText}`, width)];
+      const data = footerData !== null && typeof footerData === "object" ? footerData as Record<string, unknown> : {};
+      const cost = typeof data.cost === "number" ? ` · $${data.cost.toFixed(3)}` : "";
+      const tokens = typeof data.tokens === "number" ? ` · ${data.tokens} tokens` : "";
+      const session = typeof data.sessionName === "string" && data.sessionName ? ` · ${data.sessionName}` : "";
+      return [fitFooterLine(`pi · ${model}${session} · ${vcsStatusText(status)}    ${atelierStatus}${usageText}${tokens}${cost}`, width)];
     },
     invalidate(): void {},
   }));
