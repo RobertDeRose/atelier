@@ -14,6 +14,8 @@ import {
   runInteractiveProcess,
   createStatusView,
   statusViewText,
+  runSandboxedShell,
+  resolveSandboxBackend,
   type ManualEditEditor,
   type Permission,
 } from "../../../packages/core/src/index.ts";
@@ -373,6 +375,25 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   const reopenCore = (ctx: ExtensionContext): Promise<AtelierCore> => replaceCore(ctx, openCore);
   registerValidationTool(pi, getCore);
   registerWorkflowTools(pi, getCore);
+  pi.registerTool({
+    name: "atlr_shell",
+    label: "Atelier Sandboxed Shell",
+    description: "Run a shell command inside the current Atelier workspace using the configured OS sandbox. Workspace writes are allowed; external filesystem writes, credential paths, and network access are blocked by default.",
+    promptSnippet: "Use the Atelier sandboxed shell for bounded build, test, format, and inspection commands",
+    parameters: objectSchema({ command: stringSchema("Shell command to execute inside the workspace."), allowNetwork: { type: "boolean", description: "Allow network access for this one sandboxed invocation." } }, ["command"]),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const core = getCore(ctx);
+      const input = params as { command: string; allowNetwork?: boolean };
+      try {
+        const result = await runSandboxedShell({ workspace: core.config.workspaceRoot, command: input.command, backend: core.config.sandboxBackend, ...(input.allowNetwork === undefined ? {} : { allowNetwork: input.allowNetwork }), signal });
+        const text = [result.stdout, result.stderr].filter(Boolean).join("\n").trim() || `Command exited ${result.exitCode}.`;
+        return { content: [{ type: "text", text }], details: result };
+      } catch (error) {
+        const sandbox = resolveSandboxBackend(core.config.sandboxBackend);
+        return { content: [{ type: "text", text: `Sandboxed shell unavailable: ${errorMessage(error)}` }], details: { sandbox, error: errorMessage(error) } };
+      }
+    },
+  });
   pi.registerTool({
     name: "atlr_code_status",
     label: "Atelier Code Status",

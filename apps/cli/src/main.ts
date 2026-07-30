@@ -11,6 +11,7 @@ import {
   resolveEditorCommand,
   createStatusView,
   statusViewText,
+  resolveSandboxBackend,
 } from "../../../packages/core/src/index.ts";
 import { flagBoolean, flagString, parseArgs } from "./arguments.ts";
 import {
@@ -81,6 +82,7 @@ Commands:
   evidence [--name NAME] [--json]   Show validation evidence and freshness
   ledger tail [--limit N] [--json]  Show recent durable events
   data inspect|prune|delete|export  Manage redacted retained evidence
+  sandbox status                    Show shell sandbox availability
   recovery list [--json]            List automatic recovery checkpoints
   recovery restore ID               Restore one checkpoint
 
@@ -444,6 +446,13 @@ async function main(): Promise<void> {
         throw new Error("Usage: atlr recovery <list|restore ID>");
       }
 
+
+
+      case "sandbox": {
+        if (subcommand !== "status" && subcommand !== undefined) throw new Error("Usage: atlr sandbox status");
+        asJson(resolveSandboxBackend(core.config.sandboxBackend));
+        return;
+      }
 
       case "data": {
         if (subcommand === "inspect" || subcommand === undefined) {

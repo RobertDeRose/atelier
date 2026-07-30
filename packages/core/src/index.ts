@@ -63,3 +63,5 @@ export * from "./recovery/recovery-manager.ts";
 export * from "./security/project-trust.ts";
 
 export * from "./presentation/status-view.ts";
+
+export * from "./sandbox/sandbox.ts";

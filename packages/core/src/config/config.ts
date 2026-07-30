@@ -51,6 +51,7 @@ export interface AtelierConfig {
   secretPathPatterns: string[];
   checkpointMaxBytes: number;
   footer: "atelier" | "status-only" | "disabled";
+  sandboxBackend: "auto" | "seatbelt" | "bubblewrap" | "none";
 }
 
 export interface PartialAtelierConfig {
@@ -87,6 +88,7 @@ export interface PartialAtelierConfig {
   secretPathPatterns?: string[];
   checkpointMaxBytes?: number;
   footer?: AtelierConfig["footer"];
+  sandboxBackend?: AtelierConfig["sandboxBackend"];
 }
 
 function canonicalRoot(path: string): string {
@@ -167,6 +169,7 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
   const codeMode = validateChoice(merged.codeMode ?? "auto", ["auto", "local", "client"] as const, "codeMode");
   const providerFirstRetrieval = validateChoice(merged.providerFirstRetrieval ?? "advisory", ["advisory", "off"] as const, "providerFirstRetrieval");
   const footer = validateChoice(merged.footer ?? "atelier", ["atelier", "status-only", "disabled"] as const, "footer");
+  const sandboxBackend = validateChoice(merged.sandboxBackend ?? "auto", ["auto", "seatbelt", "bubblewrap", "none"] as const, "sandboxBackend");
 
   const octocodeConfigPath = userConfig.octocodeConfigPath !== undefined
     ? resolveFromRoot(root, userConfig.octocodeConfigPath)
@@ -189,7 +192,7 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
     codeMaxPersistedEntries: merged.codeMaxPersistedEntries ?? 256, codeMaxPersistedBytes: merged.codeMaxPersistedBytes ?? 256_000, providerFirstRetrieval,
     secretPathPatterns: Array.isArray(merged.secretPathPatterns) ? merged.secretPathPatterns.filter((value): value is string => typeof value === "string") : [],
     checkpointMaxBytes: Number.isFinite(merged.checkpointMaxBytes) && (merged.checkpointMaxBytes ?? 0) > 0 ? merged.checkpointMaxBytes! : 16 * 1024 * 1024,
-    footer,
+    footer, sandboxBackend,
   };
 }
 
