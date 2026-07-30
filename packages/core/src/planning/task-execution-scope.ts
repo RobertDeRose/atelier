@@ -10,6 +10,8 @@ export interface ValidationCapabilityDescriptor {
 
 export interface TaskExecutionScopeOptions {
   requireValidation?: boolean;
+  repositoryRoots?: Readonly<Record<string, string>>;
+  primaryRepositoryId?: string;
 }
 
 export interface TaskExecutionScope {
@@ -24,10 +26,15 @@ export interface TaskExecutionScope {
   allowLocalChange: boolean;
 }
 
-function resolveApprovedPath(repositoryRoot: string, candidate: string): string {
-  const absolute = resolve(repositoryRoot, candidate);
-  const rel = relative(repositoryRoot, absolute);
-  if (isAbsolute(candidate) || rel === ".." || rel.startsWith(`..${sep}`) || !isSourcePath(rel)) {
+function resolveApprovedPath(repositoryRoot: string, candidate: string, options: TaskExecutionScopeOptions): string {
+  const separator = candidate.indexOf("::");
+  const repositoryId = separator === -1 ? options.primaryRepositoryId : candidate.slice(0, separator);
+  const relativeCandidate = separator === -1 ? candidate : candidate.slice(separator + 2);
+  const selectedRoot = repositoryId === undefined ? repositoryRoot : options.repositoryRoots?.[repositoryId];
+  if (selectedRoot === undefined) throw new Error(`Execution path ${candidate} names unknown workspace repository ${repositoryId}.`);
+  const absolute = resolve(selectedRoot, relativeCandidate);
+  const rel = relative(selectedRoot, absolute);
+  if (isAbsolute(relativeCandidate) || rel === ".." || rel.startsWith(`..${sep}`) || !isSourcePath(rel)) {
     throw new Error(`Execution path ${candidate} is not a repository-relative application-source path.`);
   }
   return absolute;
@@ -61,7 +68,7 @@ export function deriveTaskExecutionScope(
       `Task ${task.id} must name at least one configured required validation in its execution contract.`,
     );
   }
-  const writePaths = [...new Set(task.execution.writePaths.map((path) => resolveApprovedPath(repositoryRoot, path)))].sort();
+  const writePaths = [...new Set(task.execution.writePaths.map((path) => resolveApprovedPath(repositoryRoot, path, options)))].sort();
   const dependencyPaths = writePaths.filter((path) => isDependencyPath(relative(repositoryRoot, path)));
   if (dependencyPaths.length > 0 && !task.execution.allowDependencyChanges) {
     throw new Error(`Task ${task.id} includes dependency manifests but allowDependencyChanges is false.`);

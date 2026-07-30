@@ -41,6 +41,8 @@ export interface ExecutionWorkflowCoordinatorOptions {
   retrievalBindings?: () => RetrievalRevisionBinding[];
   validationCapabilities?: () => ValidationCapabilityDescriptor[];
   validationRequired?: () => boolean;
+  repositoryRoots?: () => Readonly<Record<string, string>>;
+  primaryRepositoryId?: () => string;
 }
 
 function providerIdentity(name: string, version: string | undefined): TaskProviderIdentity {
@@ -65,6 +67,8 @@ export class ExecutionWorkflowCoordinator {
   private readonly retrievalBindings: () => RetrievalRevisionBinding[];
   private readonly validationCapabilities: () => ValidationCapabilityDescriptor[];
   private readonly validationRequired: () => boolean;
+  private readonly repositoryRoots: () => Readonly<Record<string, string>>;
+  private readonly primaryRepositoryId: () => string;
 
   constructor(options: ExecutionWorkflowCoordinatorOptions) {
     this.planPath = options.planPath;
@@ -76,6 +80,8 @@ export class ExecutionWorkflowCoordinator {
     this.retrievalBindings = options.retrievalBindings ?? (() => []);
     this.validationCapabilities = options.validationCapabilities ?? (() => []);
     this.validationRequired = options.validationRequired ?? (() => false);
+    this.repositoryRoots = options.repositoryRoots ?? (() => ({ [this.repository.snapshot().repositoryId]: this.repositoryRoot }));
+    this.primaryRepositoryId = options.primaryRepositoryId ?? (() => this.repository.snapshot().repositoryId);
   }
 
   async initializeProvider(confirmed: boolean): Promise<boolean> {
@@ -119,7 +125,7 @@ export class ExecutionWorkflowCoordinator {
       plan.tasks,
       this.repositoryRoot,
       this.validationCapabilities(),
-      { requireValidation: this.validationRequired() },
+      { requireValidation: this.validationRequired(), repositoryRoots: this.repositoryRoots(), primaryRepositoryId: this.primaryRepositoryId() },
     );
     const timestamp = nowIso();
     const approval: PlanApproval = {
@@ -198,7 +204,7 @@ export class ExecutionWorkflowCoordinator {
       plan.tasks,
       this.repositoryRoot,
       this.validationCapabilities(),
-      { requireValidation: this.validationRequired() },
+      { requireValidation: this.validationRequired(), repositoryRoots: this.repositoryRoots(), primaryRepositoryId: this.primaryRepositoryId() },
     );
     const snapshot = this.repository.snapshot();
     const mismatch = this.preparationMismatch(
@@ -592,7 +598,7 @@ export class ExecutionWorkflowCoordinator {
         plan.tasks,
         this.repositoryRoot,
         this.validationCapabilities(),
-        { requireValidation: this.validationRequired() },
+        { requireValidation: this.validationRequired(), repositoryRoots: this.repositoryRoots(), primaryRepositoryId: this.primaryRepositoryId() },
       );
     } catch (error) {
       return `Reviewed task execution contract is unavailable or invalid: ${errorMessage(error)}`;

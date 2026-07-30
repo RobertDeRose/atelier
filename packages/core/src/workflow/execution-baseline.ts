@@ -32,7 +32,7 @@ export function createExecutionCapabilities(
   tasks: PlanTask[],
   repositoryRoot: string,
   validations: ValidationCapabilityDescriptor[] = [],
-  options: { requireValidation?: boolean } = {},
+  options: { requireValidation?: boolean; repositoryRoots?: Readonly<Record<string, string>>; primaryRepositoryId?: string } = {},
 ): ExecutionCapability[] {
   const capabilities: ExecutionCapability[] = [];
   for (const task of tasks) {

@@ -372,7 +372,7 @@ async function approveAndReconcile(
 }
 
 export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExtensionOptions = {}): void {
-  const openCore = options.openCore ?? ((repositoryRoot: string) => AtelierCore.open(repositoryRoot));
+  const openCore = options.openCore ?? ((repositoryRoot: string) => AtelierCore.open(repositoryRoot, { ...(process.env.ATELIER_WORKSPACE_ROOT === undefined ? {} : { workspaceRoot: process.env.ATELIER_WORKSPACE_ROOT }) }));
   const getCore = (ctx: ExtensionContext): AtelierCore => coreFor(ctx, openCore);
   const reopenCore = (ctx: ExtensionContext): Promise<AtelierCore> => replaceCore(ctx, openCore);
   registerValidationTool(pi, getCore);

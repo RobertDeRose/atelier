@@ -37,7 +37,7 @@ function printHelp(): void {
   process.stdout.write(`Atelier ${ATELIER_VERSION}
 
 Usage:
-  atlr [--root PATH] [--retrieval-session ID] <command>
+  atlr [--root PATH] [--workspace PATH] [--retrieval-session ID] <command>
 
 Commands:
   launch [PI_ARGS...]              Launch Pi with the Atelier extension loaded
@@ -84,6 +84,7 @@ Commands:
   ledger tail [--limit N] [--json]  Show recent durable events
   data inspect|prune|delete|export  Manage redacted retained evidence
   sandbox status                    Show shell sandbox availability
+  workspace status                  Show configured repository ownership and revisions
   recovery list [--json]            List automatic recovery checkpoints
   recovery restore ID               Restore one checkpoint
 
@@ -102,7 +103,8 @@ async function main(): Promise<void> {
   const requestedRoot = resolve(flagString(parsed, "root") ?? process.cwd());
   const root = existsSync(requestedRoot) ? realpathSync(requestedRoot) : requestedRoot;
   const retrievalSessionId = flagString(parsed, "retrieval-session");
-  const coreOpenOptions = retrievalSessionId === undefined ? {} : { retrievalSessionId };
+  const workspaceRoot = flagString(parsed, "workspace");
+  const coreOpenOptions = { ...(retrievalSessionId === undefined ? {} : { retrievalSessionId }), ...(workspaceRoot === undefined ? {} : { workspaceRoot: resolve(workspaceRoot) }) };
   const [command, subcommand, ...rest] = parsed.positionals;
 
   if (flagBoolean(parsed, "version")) {
@@ -122,7 +124,7 @@ async function main(): Promise<void> {
     const extensionPath = existsSync(builtExtension) ? builtExtension : sourceExtension;
     const result = spawnSync("pi", ["--extension", extensionPath, ...piArgs], {
       cwd: root,
-      env: { ...process.env, ATELIER_ROOT: root },
+      env: { ...process.env, ATELIER_ROOT: root, ...(workspaceRoot === undefined ? {} : { ATELIER_WORKSPACE_ROOT: resolve(workspaceRoot) }) },
       stdio: "inherit",
       shell: false,
       windowsHide: false,
@@ -460,6 +462,14 @@ async function main(): Promise<void> {
       }
 
 
+
+
+      case "workspace": {
+        if (subcommand !== "status" && subcommand !== undefined) throw new Error("Usage: atlr workspace status");
+        const workspace = core.codeWorkspace();
+        asJson({ id: workspace.id, name: workspace.name, roots: workspace.roots, repositories: workspace.repositories.map((repository) => ({ id: repository.id, name: repository.name, root: repository.root, role: repository.role, snapshot: repository.snapshot })) });
+        return;
+      }
 
       case "sandbox": {
         if (subcommand !== "status" && subcommand !== undefined) throw new Error("Usage: atlr sandbox status");

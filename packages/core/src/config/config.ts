@@ -148,8 +148,10 @@ function validateChoice<T extends string>(value: T, allowed: readonly T[], field
 }
 
 export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: string } = {}): AtelierConfig {
+  const repository = canonicalRoot(repositoryRoot);
   const workspace = establishSessionWorkspace(repositoryRoot, options.workspaceRoot);
-  const root = workspace.root;
+  const root = repository;
+  if (!isPathWithin(root, workspace.root, "read")) throw new ConfigurationError(`Repository root must remain inside the Atelier workspace: ${root}`);
   const projectDirectory = resolve(root, ".atelier");
   const projectConfigPath = resolve(projectDirectory, "config.json");
   const userConfig = readJsonConfig(userConfigPath());

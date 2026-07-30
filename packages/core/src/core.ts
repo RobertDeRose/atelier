@@ -181,6 +181,8 @@ export class AtelierCore {
           required: definition.required === true,
         })),
       validationRequired: () => this.validation.closurePolicy().requireValidation,
+      repositoryRoots: () => Object.fromEntries(this.codeWorkspace().repositories.map((repository) => [repository.id, repository.root])),
+      primaryRepositoryId: () => this.codeWorkspace().repositories.find((repository) => repository.root === this.config.repositoryRoot)?.id ?? this.repository.snapshot().repositoryId,
     });
     this.workingStateBuilder = new WorkingStateBuilder(taskProvider, ledger, this.code, this.validation);
   }
@@ -190,8 +192,9 @@ export class AtelierCore {
     taskProviderInstance?: TaskProvider;
     codeProvider?: CodeProvider;
     retrievalSessionId?: string;
+    workspaceRoot?: string;
   } = {}): AtelierCore {
-    const config = loadConfig(repositoryRoot);
+    const config = loadConfig(repositoryRoot, options.workspaceRoot === undefined ? {} : { workspaceRoot: options.workspaceRoot });
     if (options.taskProvider !== undefined) config.taskProvider = options.taskProvider;
     mkdirSync(config.runtimeDirectory, { recursive: true, mode: 0o700 });
     const ledger = new SqliteLedger(config.databasePath);
