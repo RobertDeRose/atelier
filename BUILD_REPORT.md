@@ -75,15 +75,15 @@ bash scripts/smoke.sh
 npm pack --dry-run
 ```
 
-In the construction environment, release metadata, type-checking, compilation, package dry-run, shell syntax, and the focused workflow/security regression groups passed. The focused groups covered 31 core workflow tests plus the Pi, security, validation, and repository-provider regressions run separately. The complete all-files test command was started but exceeded the container command limit without reporting a failure; the pinned Node 24.18.0 `mise run check` remains the authoritative complete gate before merging.
+The final committed tree passed release metadata validation, type-checking, compilation, all 242 deterministic tests, the CLI smoke workflow, shell syntax checks, and package dry-run verification.
 
 The package dry-run reports:
 
 ```text
 Package: atelier-prototype@0.14.0-alpha.10
-Files: 335
-Compressed size: 395,486 bytes
-Unpacked size: 1,877,567 bytes
+Files: 411
+Compressed size: 445,128 bytes
+Unpacked size: 2,087,624 bytes
 ```
 
 CI executes the deterministic gate on the pinned Node 24.18.0 toolchain on Ubuntu 24.04 and macOS 26. Real Jujutsu, codesearch, Beads, and Pi/Bun checks remain separate manually dispatched conformance jobs because external tool availability is environment-dependent.
