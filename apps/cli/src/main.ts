@@ -13,6 +13,7 @@ import {
   statusViewText,
   resolveSandboxBackend,
   runInteractiveProcess,
+  updatePlanTaskScopeFile,
 } from "../../../packages/core/src/index.ts";
 import { flagBoolean, flagString, parseArgs } from "./arguments.ts";
 import {
@@ -53,6 +54,7 @@ Commands:
   plan parse [--json]               Parse and validate the plan
   plan reconcile [--json]           Preview task-provider reconciliation
   plan prepare [--json]             Prepare an exact execution approval transaction
+  plan scope TASK --write PATHS      Canonically update task execution scope
   review                            Open the plan in the configured editor and record a ManualEdit
   approve [--approval ID]           Prepare, inspect, or explicitly apply an exact transaction
   execute [TASK_ID] [--yes]         Explicitly activate a later approved-plan task
@@ -267,6 +269,29 @@ async function main(): Promise<void> {
       }
 
       case "plan": {
+        if (subcommand === "scope") {
+          const taskId = rest[0];
+          const writePaths = (flagString(parsed, "write") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+          const validations = (flagString(parsed, "validation") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+          if (!taskId || writePaths.length === 0) {
+            throw new Error("Usage: atlr plan scope TASK_ID --write PATH[,PATH] [--validation NAME[,NAME]] [--dependencies] [--full-suite] [--no-local-change]");
+          }
+          const unknown = validations.filter((name) => core.validation.definition(name) === undefined);
+          if (unknown.length > 0) throw new Error(`Unknown validation(s): ${unknown.join(", ")}`);
+          const execution = updatePlanTaskScopeFile(core.config.planPath, {
+            taskId,
+            execution: {
+              writePaths,
+              allowDependencyChanges: flagBoolean(parsed, "dependencies"),
+              validations,
+              allowFullSuite: flagBoolean(parsed, "full-suite"),
+              allowLocalChange: !flagBoolean(parsed, "no-local-change"),
+            },
+          });
+          if (flagBoolean(parsed, "json")) asJson({ taskId, execution, planPath: core.config.planPath });
+          else process.stdout.write(`Updated ${taskId} execution scope in ${core.config.planPath}.\n`);
+          return;
+        }
         if (["create", "parse", "reconcile", "prepare"].includes(subcommand ?? "")) {
           await handlePlan(core, subcommand, parsed);
           return;

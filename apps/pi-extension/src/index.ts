@@ -8,6 +8,7 @@ import type {
 import {
   AtelierCore,
   ensurePlanDocument,
+  updatePlanTaskScopeFile,
   sourceSnapshotFingerprint,
   hashFile,
   resolveEditorCommand,
@@ -866,6 +867,40 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       core.beginPlan(args.trim(), { metadata: { baseline } });
       await updateStatus(ctx, core);
       pi.sendUserMessage(planInstruction(core, args.trim()));
+    },
+  });
+
+
+  pi.registerCommand("plan-scope", {
+    description: "Canonically update one task execution scope without editing embedded JSON",
+    handler: async (args, ctx) => {
+      const core = getCore(ctx);
+      const [taskId, paths = "", validations = ""] = args.trim().split(/\s+/, 3);
+      if (!taskId || !paths) {
+        ctx.ui.notify("Usage: /plan-scope TASK_ID path1,path2 [validation1,validation2]", "warning");
+        return;
+      }
+      const validationNames = validations.split(",").map((value) => value.trim()).filter(Boolean);
+      const unknown = validationNames.filter((name) => core.validation.definition(name) === undefined);
+      if (unknown.length > 0) {
+        ctx.ui.notify(`Unknown validation(s): ${unknown.join(", ")}`, "error");
+        return;
+      }
+      const execution = updatePlanTaskScopeFile(core.config.planPath, {
+        taskId,
+        execution: {
+          writePaths: paths.split(",").map((value) => value.trim()).filter(Boolean),
+          allowDependencyChanges: false,
+          validations: validationNames,
+          allowFullSuite: false,
+          allowLocalChange: true,
+        },
+      });
+      ctx.ui.notify(
+        `Updated ${taskId} scope.\nWrites: ${execution.writePaths.join(", ")}\nValidations: ${execution.validations.join(", ") || "none"}\nDependency changes: not allowed\nFull suite: not allowed`,
+        "info",
+      );
+      await updateStatus(ctx, core);
     },
   });
 
