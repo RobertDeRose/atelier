@@ -18,14 +18,22 @@ export function redactText(value: string, environment: NodeJS.ProcessEnv = proce
 }
 
 export function redactValue<T>(value: T): T {
-  if (typeof value === "string") return redactText(value) as T;
-  if (Array.isArray(value)) return value.map((item) => redactValue(item)) as T;
-  if (value !== null && typeof value === "object") {
-    const record: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      record[key] = isSecretEnvironmentName(key) ? "[REDACTED]" : redactValue(item);
+  const seen = new WeakSet<object>();
+  const visit = (item: unknown): unknown => {
+    if (typeof item === "string") return redactText(item);
+    if (item === null || typeof item !== "object") return item;
+    if (seen.has(item)) throw new TypeError("Cannot redact circular structure.");
+    seen.add(item);
+    try {
+      if (Array.isArray(item)) return item.map((entry) => visit(entry));
+      const record: Record<string, unknown> = {};
+      for (const [key, entry] of Object.entries(item as Record<string, unknown>)) {
+        record[key] = isSecretEnvironmentName(key) ? "[REDACTED]" : visit(entry);
+      }
+      return record;
+    } finally {
+      seen.delete(item);
     }
-    return record as T;
-  }
-  return value;
+  };
+  return visit(value) as T;
 }
