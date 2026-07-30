@@ -1,6 +1,6 @@
 {
   "name": "atelier-prototype",
-  "version": "0.14.0-alpha.14",
+  "version": "0.14.0-alpha.15",
   "description": "Atelier, a durable and policy-aware Agentic Development Environment runtime",
   "type": "module",
   "private": true,
@@ -42,10 +42,14 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.0"
+    "@earendil-works/pi-coding-agent": ">=0.80.0",
+    "@earendil-works/pi-tui": ">=0.80.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
       "optional": true
     }
   },

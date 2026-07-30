@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.14
+# Build Report — Atelier 0.14.0-alpha.15
 
 ## Result
 
@@ -17,23 +17,16 @@ dist/apps/pi-extension/src/index.js
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
 
-## Alpha.14 persistent report correction
+## Alpha.15 Pi Markdown rendering correction
 
-Alpha.14 keeps the responsive two-line footer and replaces transient structured Pi notifications with
-persistent TUI-only Markdown reports:
+Alpha.15 keeps persistent TUI-only report entries and corrects the runtime renderer boundary:
 
-- `/status` and `/code-status` render compact tables;
-- `/state` renders durable Working State headings and lists;
-- code search and symbol lookup separate definitions, references, source, tests, documentation, and
-  generated results;
-- changed paths, ready tasks, validation plans/results, and evidence remain visible in scrollback;
-- reports are stored as custom session entries and do not participate in LLM context;
-- intentionally disabled code intelligence is neutral rather than reported as offline; and
-- thinking levels use normal text contrast instead of the theme's dim color.
-
-The guided verification harness clears every direct Pi transition, labels the intentional VCS and
-intelligence state, stores detailed instructions outside the TUI viewport, and gathers authoritative
-post-session evidence without a pseudo-terminal recorder.
+- Pi's `Markdown` component and `getMarkdownTheme()` are resolved from the executable that launched the active Pi process;
+- resolution follows npm/mise bin symlinks into the Pi host package rather than searching Atelier's project-local modules;
+- the module-load TTY check is removed, so renderer selection does not happen before interactive mode is ready;
+- Pi TUI is declared as an optional peer dependency beside the Pi coding-agent host;
+- non-Pi hosts retain a deterministic fallback with a visible diagnostic rather than silently rendering raw Markdown; and
+- deterministic regressions verify host dependency resolution and actual Markdown-component construction.
 
 ## Deterministic verification
 
@@ -55,7 +48,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:  254 passed, 0 failed
+Deterministic tests:  256 passed, 0 failed
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -65,10 +58,10 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.14
+Package:          atelier-prototype@0.14.0-alpha.15
 Files:            424
-Compressed size:  465,009 bytes
-Unpacked size:    2,176,406 bytes
+Compressed size:  466,642 bytes
+Unpacked size:    2,182,496 bytes
 ```
 
 ## Verification boundary
@@ -81,7 +74,7 @@ and live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.14` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.15` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

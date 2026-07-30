@@ -1,4 +1,15 @@
-# Migration Report — Atelier 0.14.0-alpha.14
+# Migration Report — Atelier 0.14.0-alpha.15
+
+## Alpha.15 Pi Markdown rendering compatibility
+
+No state migration is required. Persistent Atelier report entries now resolve Pi's own
+`@earendil-works/pi-tui` and `getMarkdownTheme()` through the executable that launched the current Pi
+process. This matches Pi's extension dependency model and avoids project-local or global npm layout
+assumptions.
+
+The raw-text compatibility renderer remains only for non-Pi hosts and deterministic test doubles. When a
+TUI host cannot load Pi's Markdown runtime, Atelier now displays an explicit renderer diagnostic rather
+than silently showing unstyled Markdown source.
 
 ## Alpha.14 persistent report compatibility
 

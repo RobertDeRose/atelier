@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-07-30
+Accepted; amended for alpha.15 — 2026-07-30
 
 ## Context
 
@@ -18,8 +18,11 @@ Pi theme made dim text difficult to read.
 ## Decision
 
 Atelier registers a TUI-only custom session-entry renderer and appends report entries for structured
-slash-command output. Report entries do not participate in LLM context. They render through Pi's Markdown
-component when available and retain a deterministic plain-text fallback for tests and non-TUI hosts.
+slash-command output. Report entries do not participate in LLM context. They render through Pi's Markdown component resolved from the executable that launched Pi. Atelier
+declares the Pi coding-agent and Pi TUI packages as optional peers, resolves both through the host
+installation, and uses Pi's own `getMarkdownTheme()` output. A deterministic plain-text fallback remains
+for tests and non-Pi hosts; failure to load the TUI runtime is displayed explicitly instead of silently
+showing raw Markdown source.
 
 The following commands create persistent reports:
 
@@ -52,4 +55,5 @@ recorder, and gathers authoritative CLI/VCS/ledger evidence afterward.
 - Manual testing can compare `/state`, `/status`, and code results after subsequent commands.
 - TUI hosts lacking the current entry-renderer API fall back to notifications; this compatibility path is
   intentionally less capable.
-- The Pi Markdown and entry-renderer APIs become an explicit optional runtime dependency of the extension.
+- The Pi coding-agent and Pi TUI Markdown/entry-renderer APIs are explicit optional peer dependencies.
+- Runtime module resolution is anchored to the launched Pi executable, matching global npm and mise installations.

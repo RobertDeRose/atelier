@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0-alpha.15 — 2026-07-30
+
+### Fixed
+
+- Resolved Pi's Markdown renderer from the launched Pi host instead of Atelier's project-local module path.
+- Removed the module-load TTY gate that permanently selected the raw-text fallback before interactive rendering began.
+- Declared Pi TUI as an optional peer dependency alongside the Pi coding-agent host.
+- Added an explicit visible diagnostic when Markdown rendering cannot be loaded instead of silently displaying raw Markdown.
+- Added runtime resolution and component-construction regressions for persistent report entries.
+
 ## 0.14.0-alpha.14 — 2026-07-30
 
 ### Changed

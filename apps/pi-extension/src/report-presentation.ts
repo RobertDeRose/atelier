@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const REPORT_ENTRY_TYPE = "atelier-report";
@@ -20,21 +24,68 @@ type MarkdownConstructor = new (
   theme: unknown,
 ) => ReportComponent;
 
-let MarkdownComponent: MarkdownConstructor | undefined;
-let markdownTheme: (() => unknown) | undefined;
+export interface MarkdownRuntime {
+  Markdown: MarkdownConstructor;
+  getMarkdownTheme: () => unknown;
+}
 
-if (process.stdout.isTTY === true && process.env.TERM !== undefined) {
-  try {
-    const [tui, codingAgent] = await Promise.all([
-      import("@earendil-works/pi-tui"),
-      import("@earendil-works/pi-coding-agent"),
-    ]);
-    MarkdownComponent = tui.Markdown as MarkdownConstructor;
-    markdownTheme = codingAgent.getMarkdownTheme as () => unknown;
-  } catch {
-    // Older Pi hosts may not expose the Markdown renderer. The fallback keeps
-    // report rendering functional without loading terminal packages eagerly.
+function moduleRequireCandidates(): ReturnType<typeof createRequire>[] {
+  const candidates: ReturnType<typeof createRequire>[] = [createRequire(import.meta.url)];
+  const argvEntry = process.argv[1];
+  if (argvEntry !== undefined && existsSync(argvEntry)) {
+    const hostEntry = realpathSync.native(argvEntry);
+    candidates.push(createRequire(pathToFileURL(hostEntry).href));
   }
+  // Pi's npm bin is commonly a symlink into the package. Resolve a require base
+  // from every parent directory as a defensive fallback for alternative launchers.
+  if (argvEntry !== undefined) {
+    let current = dirname(resolve(argvEntry));
+    for (let index = 0; index < 6; index += 1) {
+      candidates.push(createRequire(pathToFileURL(resolve(current, "package.json")).href));
+      const parent = dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+  }
+  return candidates;
+}
+
+async function importFromPiHost(specifier: string): Promise<Record<string, unknown>> {
+  const errors: string[] = [];
+  for (const candidate of moduleRequireCandidates()) {
+    try {
+      const resolved = candidate.resolve(specifier);
+      return await import(pathToFileURL(resolved).href) as Record<string, unknown>;
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  throw new Error(`Unable to resolve ${specifier} from the Atelier extension or Pi host: ${errors.at(-1) ?? "unknown error"}`);
+}
+
+export async function loadPiMarkdownRuntime(): Promise<MarkdownRuntime> {
+  const [tui, codingAgent] = await Promise.all([
+    importFromPiHost("@earendil-works/pi-tui"),
+    importFromPiHost("@earendil-works/pi-coding-agent"),
+  ]);
+  if (typeof tui.Markdown !== "function") {
+    throw new Error("Pi TUI did not export the Markdown component.");
+  }
+  if (typeof codingAgent.getMarkdownTheme !== "function") {
+    throw new Error("Pi coding agent did not export getMarkdownTheme().");
+  }
+  return {
+    Markdown: tui.Markdown as MarkdownConstructor,
+    getMarkdownTheme: codingAgent.getMarkdownTheme as () => unknown,
+  };
+}
+
+let markdownRuntime: MarkdownRuntime | undefined;
+let markdownRuntimeError: string | undefined;
+try {
+  markdownRuntime = await loadPiMarkdownRuntime();
+} catch (error) {
+  markdownRuntimeError = error instanceof Error ? error.message : String(error);
 }
 
 function wrapLine(line: string, width: number): string[] {
@@ -51,25 +102,32 @@ function wrapLine(line: string, width: number): string[] {
   return output;
 }
 
-function fallbackMarkdown(markdown: string): ReportComponent {
+function fallbackMarkdown(markdown: string, diagnostic: string | undefined): ReportComponent {
+  const prefix = diagnostic === undefined
+    ? []
+    : [`[Atelier Markdown renderer unavailable: ${diagnostic}]`, ""];
   return {
     render(width: number): string[] {
-      return markdown.split(/\r?\n/).flatMap((line) => wrapLine(line, Math.max(1, width)));
+      return [...prefix, ...markdown.split(/\r?\n/)]
+        .flatMap((line) => wrapLine(line, Math.max(1, width)));
     },
     invalidate(): void {},
   };
 }
 
-function markdownComponent(markdown: string): ReportComponent {
-  if (MarkdownComponent === undefined || markdownTheme === undefined) return fallbackMarkdown(markdown);
-  return new MarkdownComponent(markdown, 1, 0, markdownTheme());
+function markdownComponent(markdown: string, runtime: MarkdownRuntime | undefined): ReportComponent {
+  if (runtime === undefined) return fallbackMarkdown(markdown, markdownRuntimeError);
+  return new runtime.Markdown(markdown, 1, 0, runtime.getMarkdownTheme());
 }
 
-export function registerAtelierReportRenderer(pi: ExtensionAPI): void {
+export function registerAtelierReportRenderer(
+  pi: ExtensionAPI,
+  runtime: MarkdownRuntime | undefined = markdownRuntime,
+): void {
   pi.registerEntryRenderer?.<AtelierReportEntry>(REPORT_ENTRY_TYPE, (entry) => {
     const data = entry.data;
     if (data === undefined || typeof data.markdown !== "string") return undefined;
-    return markdownComponent(data.markdown);
+    return markdownComponent(data.markdown, runtime);
   });
 }
 
