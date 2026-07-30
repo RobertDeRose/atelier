@@ -905,6 +905,21 @@ Record this exact diff as reviewed?`,
     },
   });
 
+  pi.registerCommand("atelier-resume-task", {
+    description: "Resume a cancelled approved task after revalidating its plan, provider, workspace, and source baseline",
+    handler: async (args, ctx) => {
+      const core = getCore(ctx);
+      const taskId = args.trim() || undefined;
+      const confirmed = await ctx.ui.confirm("Resume cancelled task", `Resume ${taskId ?? "the most recently cancelled approved task"} after exact baseline validation?`);
+      if (!confirmed) return;
+      try {
+        const transition = await core.execution.resumeCancelledTask(true, taskId);
+        if (transition !== undefined) ctx.ui.notify(`Resumed task ${transition.task.id} with execution grant ${transition.executionGrant.id}. Existing changes and stale evidence were preserved.`, "info");
+      } catch (error) { ctx.ui.notify(errorMessage(error), "error"); }
+      await updateStatus(ctx, core);
+    },
+  });
+
   pi.registerCommand("atelier-resume", {
     description: "Resume a paused Atelier execution without starting an agent turn",
     handler: async (_args, ctx) => {

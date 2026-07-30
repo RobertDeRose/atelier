@@ -55,6 +55,7 @@ Commands:
   review                            Open the plan in the configured editor and record a ManualEdit
   approve [--approval ID]           Prepare, inspect, or explicitly apply an exact transaction
   execute [TASK_ID] [--yes]         Explicitly activate a later approved-plan task
+  resume-task [TASK_ID] [--yes]     Resume a cancelled approved task
   pause --reason TEXT               Pause active execution without revoking task capabilities
   resume                            Resume a paused execution without starting agent work
   cancel --reason TEXT              Revoke the current execution without closing its task
@@ -277,6 +278,18 @@ async function main(): Promise<void> {
 
       case "approve": {
         await handlePlan(core, "approve", parsed);
+        return;
+      }
+
+
+      case "resume-task": {
+        const taskId = subcommand;
+        const confirmed = await explicitConfirmation(parsed, `Resume cancelled task ${taskId ?? "from the last approved execution"}?`);
+        if (!confirmed) { process.stdout.write("Task resume cancelled.\n"); return; }
+        const transition = await core.execution.resumeCancelledTask(true, taskId);
+        if (transition === undefined) throw new Error("Task resume was not confirmed.");
+        if (flagBoolean(parsed, "json")) asJson(transition);
+        else process.stdout.write(`Resumed ${transition.task.id} with execution grant ${transition.executionGrant.id}.\n`);
         return;
       }
 

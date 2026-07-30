@@ -358,6 +358,34 @@ export class ExecutionWorkflowCoordinator {
     }
   }
 
+
+  async resumeCancelledTask(confirmed: boolean, requestedTaskId?: string): Promise<TaskStartTransition | undefined> {
+    const previous = this.ledger.listExecutionGrants().find((grant) => grant.status === "revoked" && (requestedTaskId === undefined || grant.taskId === requestedTaskId));
+    if (previous === undefined) throw new Error("No cancelled approved execution is available to resume.");
+    const task = await this.provider.get(previous.taskId);
+    if (task === undefined) throw new Error(`Cancelled task ${previous.taskId} is unavailable.`);
+    if (task.status !== "in_progress" && task.status !== "open") throw new Error(`Task ${task.id} has status ${task.status}; cancelled execution cannot resume.`);
+    const invalid = await this.invalidReason(previous);
+    if (invalid !== undefined && !invalid.includes("status")) throw new Error(`Cancelled execution requires a fresh plan transaction: ${invalid}`);
+    if (!confirmed) return undefined;
+    const approval = this.requiredApproval(previous.planApprovalId);
+    const plan = parsePlanFile(this.planPath);
+    const preview = await new PlanReconciler(this.provider, this.ledger).preview(plan);
+    if (plan.hash !== approval.planHash || preview.conflicts.length > 0 || preview.operations.length > 0) {
+      throw new Error("Plan or task-provider reconciliation changed after cancellation; prepare a fresh exact transaction.");
+    }
+    const timestamp = nowIso();
+    const transaction: ReconciliationTransaction = {
+      id: newId("reconciliation"), planApprovalId: approval.id, status: "applied", planHash: approval.planHash,
+      reconciliationDigest: approval.reconciliationDigest, provider: approval.provider, preview, preparedAt: timestamp, updatedAt: timestamp,
+    };
+    const grant = this.executionGrant(approval, transaction.id, task, this.repository.snapshot(), this.repositoryBindings(), this.retrievalBindings());
+    this.ledger.activateExecution({ approval, transaction, grant, permissionGrants: permissionGrantsForExecution(grant, approval.capabilities) });
+    this.ledger.setWorkflowCheckpoint("executing");
+    this.ledger.append({ kind: "execution.cancelled_task_resumed", actor: "user", taskId: task.id, repositorySnapshot: this.repository.snapshot(), payload: { previousExecutionGrantId: previous.id, executionGrantId: grant.id } });
+    return { task, transaction, executionGrant: grant };
+  }
+
   cancel(reason: string, outcome: "cancelled" | "completed" = "cancelled"): ExecutionGrant | undefined {
     const grant = this.ledger.getActiveExecutionGrant();
     if (grant === undefined) return undefined;
