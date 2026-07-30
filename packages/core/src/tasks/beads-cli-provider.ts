@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
 import { minimalEnvironment } from "../process/environment.ts";
+import { runProcess } from "../process/async-process.ts";
 import { chmodSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { ProviderError } from "../domain/errors.ts";
@@ -166,34 +166,30 @@ export class BeadsCliTaskProvider implements TaskProvider {
     return { stablePlanTaskIds: true, dependencyRemoval: true, retirement: true };
   }
 
-  private run(args: string[], options: { input?: string; allowFailure?: boolean } = {}): CommandResult {
-    const result = spawnSync(this.executable, args, {
-      cwd: this.cwd,
-      env: minimalEnvironment(),
-      encoding: "utf8",
-      input: options.input,
-      timeout: this.timeoutMs,
-      shell: false,
-      windowsHide: true,
-    });
-
-    if (result.error !== undefined) {
-      if (options.allowFailure) {
-        return { stdout: result.stdout ?? "", stderr: result.error.message, status: 127 };
-      }
-      throw new ProviderError(`Unable to execute ${this.executable}`, { error: result.error, args });
+  private async run(args: string[], options: { input?: string; allowFailure?: boolean; signal?: AbortSignal } = {}): Promise<CommandResult> {
+    let result;
+    try {
+      result = await runProcess(this.executable, args, {
+        cwd: this.cwd,
+        environment: minimalEnvironment({ overrides: { BD_JSON_ENVELOPE: "1" } }),
+        input: options.input,
+        timeoutMs: this.timeoutMs,
+        idleTimeoutMs: Math.min(this.timeoutMs, 15_000),
+        signal: options.signal,
+      });
+    } catch (error) {
+      if (options.allowFailure) return { stdout: "", stderr: error instanceof Error ? error.message : String(error), status: 127 };
+      throw new ProviderError(`Unable to execute ${this.executable}`, { error, args });
     }
-
-    const status = result.status ?? 1;
-    const commandResult = { stdout: result.stdout ?? "", stderr: result.stderr ?? "", status };
-    if (status !== 0 && options.allowFailure !== true) {
-      throw new ProviderError(`Beads command failed: ${this.executable} ${args.join(" ")}`, commandResult);
+    const commandResult = { stdout: result.stdout, stderr: result.stderr, status: result.exitCode };
+    if (result.exitCode !== 0 && options.allowFailure !== true) {
+      throw new ProviderError(`Beads command failed: ${this.executable} ${args.join(" ")}`, { ...commandResult, timedOut: result.timedOut, aborted: result.aborted });
     }
     return commandResult;
   }
 
   async status(): Promise<TaskProviderStatus> {
-    const version = this.run(["version"], { allowFailure: true });
+    const version = await this.run(["version"], { allowFailure: true });
     if (version.status !== 0) {
       return {
         provider: this.name,
@@ -203,9 +199,9 @@ export class BeadsCliTaskProvider implements TaskProvider {
       };
     }
 
-    const where = this.run(["where", "--json"], { allowFailure: true });
+    const where = await this.run(["where", "--json"], { allowFailure: true });
     const list = where.status === 0
-      ? this.run(["list", "--json"], { allowFailure: true })
+      ? await this.run(["list", "--json"], { allowFailure: true })
       : undefined;
     const initialized = where.status === 0 && list?.status === 0;
     return {
@@ -231,7 +227,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
     const args = ["init"];
     if (options.quiet !== false) args.push("--quiet");
     if (options.stealth === true) args.push("--stealth");
-    this.run(args);
+    await this.run(args);
     this.secureWorkspaceDirectory();
   }
 
@@ -241,19 +237,19 @@ export class BeadsCliTaskProvider implements TaskProvider {
   }
 
   async ready(): Promise<TaskRecord[]> {
-    const result = this.run(["ready", "--json"]);
+    const result = await this.run(["ready", "--json"]);
     return unwrapJson(parseJsonOutput(result.stdout, ["ready", "--json"])).map(normalizeBeadsTask);
   }
 
   async get(taskId: string): Promise<TaskRecord | undefined> {
-    const result = this.run(["show", taskId, "--json"], { allowFailure: true });
+    const result = await this.run(["show", taskId, "--json"], { allowFailure: true });
     if (result.status !== 0) return undefined;
     const items = unwrapJson(parseJsonOutput(result.stdout, ["show", taskId, "--json"]));
     return items.length === 0 ? undefined : normalizeBeadsTask(items[0]);
   }
 
   async list(): Promise<TaskRecord[]> {
-    const result = this.run(["list", "--json"]);
+    const result = await this.run(["list", "--json"]);
     return unwrapJson(parseJsonOutput(result.stdout, ["list", "--json"])).map(normalizeBeadsTask);
   }
 
@@ -281,7 +277,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
     if ((request.labels ?? []).length > 0) {
       args.splice(args.length - 1, 0, "--labels", (request.labels ?? []).join(","));
     }
-    const result = this.run(args);
+    const result = await this.run(args);
     const items = unwrapJson(parseJsonOutput(result.stdout, args));
     if (items.length === 0) throw new ProviderError("Beads create returned no task", { result });
     const task = normalizeBeadsTask(items[0]);
@@ -300,7 +296,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
     if (patch.type !== undefined && patch.type !== "unknown") args.push("--type", patch.type);
     if (patch.status !== undefined && patch.status !== "unknown") args.push("--status", patch.status);
     args.push("--json");
-    const result = this.run(args);
+    const result = await this.run(args);
     const items = unwrapJson(parseJsonOutput(result.stdout, args));
     if (items.length > 0) return normalizeBeadsTask(items[0]);
     const task = await this.get(taskId);
@@ -310,7 +306,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
 
   async claim(taskId: string): Promise<TaskRecord> {
     const args = ["update", taskId, "--claim", "--json"];
-    const result = this.run(args);
+    const result = await this.run(args);
     const items = unwrapJson(parseJsonOutput(result.stdout, args));
     if (items.length > 0) return normalizeBeadsTask(items[0]);
     const task = await this.get(taskId);
@@ -323,7 +319,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
     dependencyTaskId: string,
     type: "blocks" | "related" | "parent-child" = "blocks",
   ): Promise<void> {
-    this.run(["dep", "add", taskId, dependencyTaskId, "--type", type, "--json"]);
+    await this.run(["dep", "add", taskId, dependencyTaskId, "--type", type, "--json"]);
   }
 
   async removeDependency(
@@ -331,12 +327,12 @@ export class BeadsCliTaskProvider implements TaskProvider {
     dependencyTaskId: string,
     _type: "blocks" | "related" | "parent-child" = "blocks",
   ): Promise<void> {
-    this.run(["dep", "remove", taskId, dependencyTaskId, "--json"]);
+    await this.run(["dep", "remove", taskId, dependencyTaskId, "--json"]);
   }
 
   async close(taskId: string, reason: string): Promise<TaskRecord> {
     const args = ["close", taskId, "--reason", reason, "--json"];
-    const result = this.run(args);
+    const result = await this.run(args);
     const items = unwrapJson(parseJsonOutput(result.stdout, args));
     if (items.length > 0) return normalizeBeadsTask(items[0]);
     const task = await this.get(taskId);

@@ -158,7 +158,7 @@ export async function handlePlan(core: AtelierCore, subcommand: string | undefin
       ensurePlanDocument(core.config.planPath);
       const editor = resolveEditorCommand(core.config, true);
       const started = core.beginPlanReview({ editor });
-      const result = runInteractiveProcess({
+      const result = await runInteractiveProcess({
         command: editor.executable,
         args: [...editor.args, core.config.planPath],
         cwd: core.config.repositoryRoot,

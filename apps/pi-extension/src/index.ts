@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type {
@@ -12,6 +11,7 @@ import {
   sourceSnapshotFingerprint,
   hashFile,
   resolveEditorCommand,
+  runInteractiveProcess,
   type ManualEditEditor,
   type Permission,
 } from "../../../packages/core/src/index.ts";
@@ -160,31 +160,25 @@ async function runEditorWithPi(
   }
   const result = await ctx.ui.custom<{ exitCode: number; error?: string; signal?: string }>((tui, _theme, _keybindings, done) => {
     tui.stop();
-    let exitCode = 1;
-    let error: string | undefined;
-    let signal: string | undefined;
-    try {
-      const child = spawnSync(editor.executable, [...editor.args, core.config.planPath], {
-        cwd: core.config.repositoryRoot,
-        env: process.env,
-        stdio: "inherit",
-        shell: false,
-        windowsHide: false,
-      });
-      exitCode = child.status ?? 1;
-      error = child.error?.message;
-      signal = child.signal ?? undefined;
-    } catch (caught) {
-      error = errorMessage(caught);
-    } finally {
-      tui.start();
-      tui.requestRender(true);
-    }
-    done({
-      exitCode,
-      ...(error === undefined ? {} : { error }),
-      ...(signal === undefined ? {} : { signal }),
-    });
+    void (async () => {
+      try {
+        const child = await runInteractiveProcess({
+          command: editor.executable,
+          args: [...editor.args, core.config.planPath],
+          cwd: core.config.repositoryRoot,
+        });
+        done({
+          exitCode: child.exitCode,
+          ...(child.error === undefined ? {} : { error: child.error }),
+          ...(child.signal === undefined ? {} : { signal: child.signal }),
+        });
+      } catch (caught) {
+        done({ exitCode: 1, error: errorMessage(caught) });
+      } finally {
+        tui.start();
+        tui.requestRender(true);
+      }
+    })();
     return EMPTY_COMPONENT;
   });
   return { ...result, editor };
