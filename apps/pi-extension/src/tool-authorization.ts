@@ -1,5 +1,6 @@
 import { relative, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { confirmApprovalDialog } from "./approval-dialog.ts";
 import {
   AtelierCore,
   classifyShellCommand,

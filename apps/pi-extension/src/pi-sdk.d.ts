@@ -29,6 +29,7 @@ declare module "@earendil-works/pi-coding-agent" {
       ) => {
         render(width: number): string[];
         invalidate(): void;
+        handleInput?(input: unknown): void;
         dispose?(): void;
       },
     ): Promise<T>;

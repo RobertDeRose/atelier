@@ -30,6 +30,7 @@ import {
 } from "./code-tool-presentation.ts";
 import { toolExecutionOutcome } from "./execution-outcome.ts";
 import { preparationSummary } from "./approval-presentation.ts";
+import { confirmApprovalDialog } from "./approval-dialog.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
 import { authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
 import { effectsForTool, effectsForUserBash } from "./tool-effects.ts";
