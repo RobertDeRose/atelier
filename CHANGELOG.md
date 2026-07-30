@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0-alpha.13 — 2026-07-30
+
+### Changed
+
+- Replaced the dense single-line Pi footer with a two-line, left/right-aligned Atelier footer.
+- Added bold semantic headings and theme-aware success, warning, error, accent, and dim state colors.
+- Added adaptive task presentation: human-readable task titles at wide widths, truncated titles at medium widths, and Beads IDs on narrow terminals.
+- Added provider-native Git branch and Jujutsu bookmark/change identity plus explicit clean, dirty, conflicted, and unknown VCS state.
+- Added explicit code-intelligence states: ready, indexing, degraded, and offline.
+- Removed duplicate VCS and workflow details plus expected empty-state noise from the footer.
+
 ## 0.14.0-alpha.12 — 2026-07-30
 
 ### Fixed

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { RepositorySnapshot } from "./snapshot.ts";
-import type { RepositoryProvider, RepositoryProviderStatus, RepositoryCommitResult, RepositoryPathState } from "./repository-provider.ts";
+import type { RepositoryProvider, RepositoryProviderStatus, RepositoryCommitResult, RepositoryPathState, RepositoryDisplayState } from "./repository-provider.ts";
 import { sha256 } from "../util/hash.ts";
 
 /** Non-executing provider used outside a supported VCS. */
@@ -34,6 +34,10 @@ export class DirectoryRepositoryProvider implements RepositoryProvider {
       dirtyFingerprint: `directory:${identity}`,
       indexSchemaVersion: this.indexSchemaVersion,
     };
+  }
+
+  displayState(): RepositoryDisplayState {
+    return { vcs: "none", state: "unknown" };
   }
 
   changedPaths(): string[] { return []; }

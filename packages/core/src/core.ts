@@ -48,6 +48,7 @@ import { BeadsCliTaskProvider } from "./tasks/beads-cli-provider.ts";
 import { InMemoryTaskProvider } from "./tasks/in-memory-task-provider.ts";
 import { NoopTaskProvider } from "./tasks/noop-task-provider.ts";
 import type { TaskProvider } from "./tasks/task-provider.ts";
+import type { RepositoryDisplayState } from "./repository/repository-provider.ts";
 import { hashFile, sha256 } from "./util/hash.ts";
 import { newId, nowIso } from "./util/ids.ts";
 import { isPathWithin } from "./security/path-boundary.ts";
@@ -69,9 +70,11 @@ export interface AtelierStatus {
   currentPlanHash?: string;
   planObjective?: string;
   currentTaskId?: string;
+  currentTaskTitle?: string;
   activeExecutionGrant?: ExecutionGrant;
   taskProvider: TaskProviderStatus;
   snapshot: ReturnType<RepositoryProvider["snapshot"]>;
+  repositoryDisplay: RepositoryDisplayState;
   activeTaskConstraints: ApprovedTaskConstraint[];
   workflowCheckpoint: string;
   closureStatus: string;
@@ -1102,6 +1105,21 @@ export class AtelierCore {
     }
     const currentPlanHash = planExists ? hashFile(this.config.planPath) : undefined;
     const activeExecutionGrant = this.ledger.getActiveExecutionGrant();
+    let currentTaskTitle: string | undefined;
+    if (currentTaskId !== undefined && taskProvider.available && taskProvider.initialized) {
+      try {
+        currentTaskTitle = (await this.taskProvider.get(currentTaskId))?.title;
+      } catch {
+        // Status remains usable when the task provider is temporarily degraded.
+      }
+    }
+    const snapshot = this.repository.snapshot();
+    const repositoryDisplay = this.repository.displayState?.() ?? {
+      vcs: snapshot.vcs,
+      ...(snapshot.vcs === "jj" && snapshot.changeId ? { revision: snapshot.changeId.slice(0, 8) } : {}),
+      ...(snapshot.vcs === "git" ? { revision: snapshot.headCommit.slice(0, 8) } : {}),
+      state: "unknown" as const,
+    };
     const planStatus = !planExists
       ? "missing" as const
       : currentPlanHash !== undefined && approvedPlanHash !== undefined && currentPlanHash === approvedPlanHash
@@ -1120,9 +1138,11 @@ export class AtelierCore {
       ...(currentPlanHash === undefined ? {} : { currentPlanHash }),
       ...(planObjective === undefined || planObjective === "" ? {} : { planObjective }),
       ...(currentTaskId === undefined ? {} : { currentTaskId }),
+      ...(currentTaskTitle === undefined || currentTaskTitle === "" ? {} : { currentTaskTitle }),
       ...(activeExecutionGrant === undefined ? {} : { activeExecutionGrant }),
       taskProvider,
-      snapshot: this.repository.snapshot(),
+      snapshot,
+      repositoryDisplay,
       activeTaskConstraints: this.activeTaskConstraints(),
       workflowCheckpoint: this.currentWorkflowRun()?.checkpoint ?? "none",
       closureStatus: activeExecutionGrant === undefined

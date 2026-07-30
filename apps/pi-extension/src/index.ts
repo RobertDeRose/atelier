@@ -90,6 +90,7 @@ interface ExtensionSessionState {
   lastCompletionNotice?: string;
   turnPolicy?: TurnToolPolicy;
   authorizedShellToolCalls: Set<string>;
+  thinkingLevel?: string;
 }
 
 const SESSION_STATES = new WeakMap<object, ExtensionSessionState>();
@@ -150,7 +151,14 @@ async function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<v
   try {
     const status = await core.status();
     const indexing = core.code.indexingStatus();
-    const index = indexing.active ? "indexing…" : indexing.state === "unknown" ? "index unknown" : `index ${indexing.state}`;
+    const intel = indexing.active || indexing.state === "building"
+      ? "indexing"
+      : indexing.state === "ready"
+        ? "ready"
+        : indexing.state === "stale"
+          ? "degraded"
+          : "offline";
+    const index = intel === "indexing" ? "indexing…" : `index ${indexing.state}`;
     const value = `${atelierStatusSummary(status)} · ${index}`;
     if (core.config.footer === "disabled") {
       ctx.ui.setStatus(STATUS_KEY, undefined);
@@ -158,7 +166,7 @@ async function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<v
       return;
     }
     ctx.ui.setStatus(STATUS_KEY, value);
-    installAtelierFooter(ctx, status, value, core.config.footer);
+    installAtelierFooter(ctx, status, intel, sessionState(ctx).thinkingLevel, core.config.footer);
   } catch (error) {
     ctx.ui.setStatus(STATUS_KEY, "Atelier unavailable");
     ctx.ui.notify(errorMessage(error), "error");
@@ -382,7 +390,11 @@ async function approveAndReconcile(
 
 export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExtensionOptions = {}): void {
   const openCore = options.openCore ?? ((repositoryRoot: string) => AtelierCore.open(repositoryRoot, { ...(process.env.ATELIER_WORKSPACE_ROOT === undefined ? {} : { workspaceRoot: process.env.ATELIER_WORKSPACE_ROOT }) }));
-  const getCore = (ctx: ExtensionContext): AtelierCore => coreFor(ctx, openCore);
+  const getCore = (ctx: ExtensionContext): AtelierCore => {
+    const state = sessionState(ctx);
+    if (typeof pi.getThinkingLevel === "function") state.thinkingLevel = pi.getThinkingLevel();
+    return coreFor(ctx, openCore);
+  };
   const reopenCore = (ctx: ExtensionContext): Promise<AtelierCore> => replaceCore(ctx, openCore);
   registerValidationTool(pi, getCore);
   registerWorkflowTools(pi, getCore);

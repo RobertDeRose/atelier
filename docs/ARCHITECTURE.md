@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.12
+# Atelier Architecture — 0.14.0-alpha.13
 
 ## Product boundary
 
@@ -47,6 +47,15 @@ Pi `/trust` controls loading Pi-owned project resources. Atelier does not regist
 trusted-project records, or derive filesystem authority from Pi trust. Repository configuration is read as
 ordinary workspace data; its subprocesses receive a minimal environment and remain subject to the same
 workspace, recovery, secret, privilege, and sandbox constraints as other operations.
+
+## Pi footer presentation
+
+Atelier owns a responsive two-row footer when `footer` is `atelier`. The first row presents
+`Atelier: <model> · <thinking-level> · ctx <percent>` on the left and the workflow mode plus an adaptive
+task title or Beads ID on the right. The second row presents provider-native `jj:` or `git:` identity and
+clean/dirty/conflicted state on the left, with `intel:` health on the right. Theme bold and semantic colors
+are applied by state, and expected empty workflow fields are deliberately omitted. `status-only` and
+`disabled` release custom-footer ownership back to Pi.
 
 ## Project data and runtime data
 

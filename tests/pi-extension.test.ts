@@ -213,7 +213,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   await events.get("session_start")!({}, context);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(statuses.some((status) => /index (building|ready)/.test(status)), "Pi footer must expose background index state");
-  assert.ok(footers.some((footer) => /git [0-9a-f]{8}/.test(footer)), "custom footer must expose the selected Git provider identity");
+  assert.ok(footers.some((footer) => /git: .*\b(?:clean|dirty|conflicted|unknown)\b/.test(footer)), "custom footer must expose the selected Git provider identity and state");
   assert.ok(footers.every((footer) => !/detached/i.test(footer)), "custom footer must not repeat Pi's Git-only detached label");
   await commands.get("plan")!.handler("investigate planning policy", context);
   assert.match(sentMessages.at(-1) ?? "", /Objective: investigate planning policy/);

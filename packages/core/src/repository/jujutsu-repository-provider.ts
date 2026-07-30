@@ -7,7 +7,7 @@ import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
 import { RepositoryObservationError } from "../domain/errors.ts";
 import { sha256 } from "../util/hash.ts";
 import { isSourcePath } from "./source-path.ts";
-import type { RepositoryCommitResult, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus, RepositoryRecoveryState } from "./repository-provider.ts";
+import type { RepositoryCommitResult, RepositoryDisplayState, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus, RepositoryRecoveryState } from "./repository-provider.ts";
 
 interface CommandResult {
   status: number;
@@ -136,6 +136,28 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
       dirtyGeneration: this.dirtyGeneration(rawFingerprint),
       dirtyFingerprint: rawFingerprint,
       indexSchemaVersion: this.indexSchemaVersion,
+    };
+  }
+
+  displayState(): RepositoryDisplayState {
+    const root = required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim();
+    const identity = lines(required(this.executable, root, [
+      "log", "-r", "@", "--no-graph", "--color", "never",
+      "-T", 'change_id.shortest(8) ++ "\\n"',
+    ], "display identity observation").stdout)[0];
+    const bookmarks = run(this.executable, root, [
+      "bookmark", "list", "-r", "@", "--color", "never", "-T", 'name ++ "\\n"',
+    ]);
+    const label = bookmarks.status === 0 ? lines(bookmarks.stdout)[0] : undefined;
+    const conflicts = run(this.executable, root, ["resolve", "--list", "--color", "never"]);
+    const changed = this.observeRawChangedPaths();
+    return {
+      vcs: "jj",
+      ...(label ? { label } : {}),
+      ...(identity ? { revision: identity } : {}),
+      state: conflicts.status === 0 && conflicts.stdout.trim()
+        ? "conflicted"
+        : changed.length > 0 ? "dirty" : "clean",
     };
   }
 

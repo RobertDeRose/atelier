@@ -1,4 +1,11 @@
-# Migration Report — Atelier 0.14.0-alpha.12
+# Migration Report — Atelier 0.14.0-alpha.13
+
+## Alpha.13 footer compatibility
+
+No state or configuration migration is required. The default `footer: "atelier"` mode now owns two
+terminal rows and derives task titles, Git branches, Jujutsu bookmarks/change IDs, repository cleanliness,
+thinking level, context pressure, and code-index health from current runtime state. Existing
+`footer: "status-only"` and `footer: "disabled"` settings keep their previous behavior.
 
 ## Alpha.12 canonical path compatibility
 

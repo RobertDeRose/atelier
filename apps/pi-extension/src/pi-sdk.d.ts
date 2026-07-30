@@ -85,6 +85,7 @@ declare module "@earendil-works/pi-coding-agent" {
   }
 
   export interface ExtensionAPI {
+    getThinkingLevel?(): string;
     getActiveTools(): string[];
     setActiveTools(toolNames: string[]): void;
     on(

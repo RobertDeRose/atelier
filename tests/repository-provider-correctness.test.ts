@@ -19,7 +19,13 @@ test("Git observations include staged and untracked source changes", () => {
   const ledger = new SqliteLedger(testDatabasePath(root));
   try {
     const provider = new GitRepositoryProvider({ cwd: root, ledger });
+    git(root, "add", ".atelier/config.json");
+    git(root, "-c", "commit.gpgSign=false", "commit", "--no-gpg-sign", "-m", "test: record generated config");
     const baseline = provider.snapshot();
+    const cleanDisplay = provider.displayState();
+    assert.equal(cleanDisplay.vcs, "git");
+    assert.equal(cleanDisplay.state, "clean");
+    assert.ok(cleanDisplay.label || cleanDisplay.revision);
     writeFileSync(join(root, "README.md"), "# staged source change\n", "utf8");
     git(root, "add", "README.md");
     writeFileSync(join(root, "new-source.ts"), "export const added = true;\n", "utf8");
@@ -31,6 +37,7 @@ test("Git observations include staged and untracked source changes", () => {
     const diff = provider.diffFrom(baseline.headCommit);
     assert.match(diff, /README\.md/);
     assert.match(diff, /new-source\.ts/);
+    assert.equal(provider.displayState().state, "dirty");
   } finally {
     ledger.close();
     rmSync(root, { recursive: true, force: true });

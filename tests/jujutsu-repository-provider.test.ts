@@ -18,6 +18,8 @@ if (args[0] === "root") { console.log(${JSON.stringify(root)}); process.exit(0);
 if (args[0] === "workspace" && args[1] === "root") { console.log(${JSON.stringify(root)}); process.exit(0); }
 if (args[0] === "log") { console.log("change123\\ncommit456"); process.exit(0); }
 if (args[0] === "op" && args[1] === "log") { console.log("operation789"); process.exit(0); }
+if (args[0] === "bookmark" && args[1] === "list") { console.log("main"); process.exit(0); }
+if (args[0] === "resolve" && args[1] === "--list") { process.exit(0); }
 if (args[0] === "status") { console.log("Working copy changes:\\nM src/main.ts"); process.exit(0); }
 if (args[0] === "file" && args[1] === "list") { console.log("README.md\\nsrc/main.ts\\n.atelier/atelier.db"); process.exit(0); }
 if (args[0] === "diff" && args.includes("--name-only")) { console.log("src/main.ts"); process.exit(0); }
@@ -41,6 +43,7 @@ test("Jujutsu provider exposes change, commit, operation, workspace, files, and 
     assert.equal(snapshot.headCommit, "commit456");
     assert.equal(snapshot.operationId, "operation789");
     assert.equal(snapshot.workspaceId, sha256(root).slice(0, 16));
+    assert.deepEqual(provider.displayState(), { vcs: "jj", label: "main", revision: "change123", state: "dirty" });
     assert.deepEqual(provider.changedPaths(), ["src/main.ts"]);
     assert.deepEqual(provider.listFiles(), ["README.md", "src/main.ts"]);
     assert.match(provider.diff(), /diff --git/);

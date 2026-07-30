@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.12**.
+Current release: **0.14.0-alpha.13**.
 
 ## Current status
 
@@ -30,7 +30,8 @@ Atelier currently provides:
 - Jujutsu-first and Git-compatible repository providers;
 - Beads, memory, and disabled task providers;
 - codesearch, Octocode, mock, and disabled code providers;
-- CLI and Pi integration, including VCS-aware Jujutsu/Git footer identity;
+- CLI and Pi integration, including a responsive two-line footer with model/context, workflow mode,
+  human-readable task titles, code-index health, and provider-native Jujutsu/Git cleanliness;
 - approval-only plan activation that leaves Pi idle until the user explicitly requests implementation.
 
 The fuzzy file palette, project tree, Yazi/skim adapters, and richer Helix-native IDE surfaces remain

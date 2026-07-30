@@ -7,6 +7,16 @@ export interface RepositoryProviderStatus {
   reason?: string;
 }
 
+export interface RepositoryDisplayState {
+  vcs: "jj" | "git" | "none";
+  /** Preferred human-readable bookmark or branch. */
+  label?: string;
+  /** Secondary short identity, normally a Jujutsu change or Git commit. */
+  revision?: string;
+  state: "clean" | "dirty" | "conflicted" | "unknown";
+  detached?: boolean;
+}
+
 
 export interface RepositoryRecoveryState {
   provider: "jj" | "git" | "none";
@@ -31,6 +41,7 @@ export interface RepositoryProvider {
   readonly name: "jj" | "git" | "none";
   status(): RepositoryProviderStatus;
   snapshot(): RepositorySnapshot;
+  displayState?(): RepositoryDisplayState;
   changedPaths(): string[];
   rawChangedPaths(): string[];
   changedPathsFrom(reference: string): string[];

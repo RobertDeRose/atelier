@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
-import type { RepositoryCommitResult, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus, RepositoryRecoveryState } from "./repository-provider.ts";
+import type { RepositoryCommitResult, RepositoryDisplayState, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus, RepositoryRecoveryState } from "./repository-provider.ts";
 import { RepositoryObservationError } from "../domain/errors.ts";
 import { sha256 } from "../util/hash.ts";
 import { isSourcePath } from "./source-path.ts";
@@ -131,6 +131,25 @@ export class GitRepositoryProvider implements RepositoryProvider {
       dirtyGeneration: this.dirtyGeneration(rawFingerprint),
       dirtyFingerprint: rawFingerprint,
       indexSchemaVersion: this.indexSchemaVersion,
+    };
+  }
+
+  displayState(): RepositoryDisplayState {
+    const root = requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim();
+    const branch = runGit(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    const head = runGit(root, ["rev-parse", "--short=8", "HEAD"]);
+    const status = requiredGit(root, ["status", "--porcelain=v1", "--untracked-files=all"], "display-state observation");
+    const lines = status.stdout.split("\n").filter(Boolean);
+    const conflicted = lines.some((line) => {
+      const code = line.slice(0, 2);
+      return code.includes("U") || code === "AA" || code === "DD";
+    });
+    return {
+      vcs: "git",
+      ...(branch.status === 0 && branch.stdout.trim() ? { label: branch.stdout.trim() } : {}),
+      ...(head.status === 0 && head.stdout.trim() ? { revision: head.stdout.trim() } : {}),
+      state: conflicted ? "conflicted" : lines.length > 0 ? "dirty" : "clean",
+      ...(branch.status === 0 ? {} : { detached: true }),
     };
   }
 

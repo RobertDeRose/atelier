@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.12
+# Build Report — Atelier 0.14.0-alpha.13
 
 ## Result
 
@@ -17,16 +17,18 @@ dist/apps/pi-extension/src/index.js
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
 
-## Alpha.12 canonical-path correction
+## Alpha.13 footer correction
 
-Alpha.12 preserves the completed workspace-recoverability model and corrects canonical path handling
-exposed by the pinned macOS suite:
+Alpha.13 preserves the completed workspace-recoverability model and replaces the dense single-line Pi
+footer with a two-line responsive status surface:
 
-- typed Pi read, write, and edit targets are canonicalized before workspace and workflow evaluation;
-- designated plan writes compare effective access paths rather than lexical `/var` and `/private/var` aliases;
-- Git path classification and recovery canonicalize both the repository root and affected paths;
-- broken symlinks and ignored or untracked recovery targets retain their repository-relative identity; and
-- platform-independent tests assert canonical workspace and VCS state identities.
+- line one aligns Atelier/model/thinking/context on the left and workflow mode/task/blocker on the right;
+- line two aligns provider-native Git or Jujutsu identity and clean/dirty/conflicted state on the left
+  with code-intelligence health on the right;
+- headings use Pi theme bold/accent rendering while good, warning, and failure states use semantic colors;
+- wide terminals show human-readable Beads task titles, medium terminals truncate the title, and narrow
+  terminals fall back to the Beads ID; and
+- expected empty workflow states and duplicate VCS identity are omitted.
 
 ## Deterministic verification
 
@@ -47,7 +49,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:  247 passed, 0 failed
+Deterministic tests:  249 passed, 0 failed
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -57,10 +59,10 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.12
+Package:          atelier-prototype@0.14.0-alpha.13
 Files:            415
-Compressed size:  452,656 bytes
-Unpacked size:    2,120,922 bytes
+Compressed size:  458,001 bytes
+Unpacked size:    2,148,447 bytes
 ```
 
 ## Verification boundary
@@ -73,7 +75,7 @@ and live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.12` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.13` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

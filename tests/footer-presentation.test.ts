@@ -1,31 +1,77 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { installAtelierFooter } from "../apps/pi-extension/src/status-presentation.ts";
+import { installAtelierFooter, renderAtelierFooter } from "../apps/pi-extension/src/status-presentation.ts";
 
-const status = {
-  snapshot: { vcs: "jj", changeId: "abcdefgh123", headCommit: "12345678" },
-} as any;
+function status(overrides: Record<string, unknown> = {}): any {
+  return {
+    mode: "investigate",
+    workflowCheckpoint: "none",
+    closureStatus: "not applicable — no active task",
+    snapshot: { vcs: "jj", changeId: "abcdefgh123", headCommit: "12345678" },
+    repositoryDisplay: { vcs: "jj", revision: "abcdefgh", state: "clean" },
+    ...overrides,
+  };
+}
 
-test("Atelier footer preserves exposed Pi session metrics and truncates narrow terminals", () => {
-  let component: any;
-  const ctx = {
+function context(percent = 42): any {
+  return {
     mode: "tui",
     model: { id: "gpt-test" },
-    getContextUsage: () => ({ percent: 42 }),
-    ui: { setFooter: (factory: any) => { component = factory?.({}, {}, { cost: 1.25, tokens: 900, sessionName: "session" }); } },
-  } as any;
-  installAtelierFooter(ctx, status, "Atelier act", "atelier");
-  const wide = component.render(240)[0];
-  assert.match(wide, /session/);
-  assert.match(wide, /900 tokens/);
-  assert.match(wide, /\$1\.250/);
-  assert.ok(component.render(24)[0].length <= 24);
+    getContextUsage: () => ({ percent }),
+    ui: {},
+  };
+}
+
+test("Atelier footer uses two aligned lines without duplicated workflow or VCS state", () => {
+  const lines = renderAtelierFooter(context(), status(), "ready", 120, {}, "medium");
+  assert.equal(lines.length, 2);
+  const [line1 = "", line2 = ""] = lines;
+  assert.match(line1, /^Atelier: gpt-test · medium · ctx 42%\s+mode: investigate$/);
+  assert.match(line2, /^jj: abcdefgh · ✓ clean\s+intel: ready$/);
+  assert.equal((lines.join("\n").match(/abcdefgh/g) ?? []).length, 1);
+  assert.doesNotMatch(lines.join("\n"), /missing|no task|not applicable/i);
+});
+
+test("Atelier footer uses task titles when wide and Beads ids when narrow", () => {
+  const active = status({
+    mode: "act",
+    workflowCheckpoint: "executing",
+    currentTaskId: "repo-t0e",
+    currentTaskTitle: "Add stable product-name constant",
+    closureStatus: "blocked — Task closure blocked: the current diff has not been reviewed.",
+    repositoryDisplay: { vcs: "jj", label: "main", revision: "rpnoyzpv", state: "dirty" },
+  });
+  const wide = renderAtelierFooter(context(74), active, "ready", 160, {}, "high");
+  const [wide1 = "", wide2 = ""] = wide;
+  assert.match(wide1, /task: Add stable product-name constant/);
+  assert.match(wide1, /blocked: diff review/);
+  assert.match(wide2, /^jj: main · rpnoyzpv · ● dirty\s+intel: ready$/);
+
+  const narrow = renderAtelierFooter(context(74), active, "ready", 66, {}, "high");
+  const [narrow1 = ""] = narrow;
+  assert.match(narrow1, /task: repo-t0e/);
+  assert.doesNotMatch(narrow1, /Add stable product-name/);
+  assert.ok(narrow.every((line) => Array.from(line).length <= 66));
+});
+
+test("Atelier footer applies bold headings and semantic state colors", () => {
+  const theme = {
+    bold: (value: string) => `<b>${value}</b>`,
+    fg: (color: string, value: string) => `<${color}>${value}</${color}>`,
+  };
+  const lines = renderAtelierFooter(context(95), status({ repositoryDisplay: { vcs: "git", label: "main", revision: "12345678", state: "conflicted" } }), "offline", 180, theme, "low");
+  const [line1 = "", line2 = ""] = lines;
+  assert.match(line1, /<accent><b>Atelier:<\/b><\/accent>/);
+  assert.match(line1, /<error>ctx 95%<\/error>/);
+  assert.match(line2, /<accent><b>git:<\/b><\/accent>/);
+  assert.match(line2, /<error>! conflicted<\/error>/);
+  assert.match(line2, /<error>offline<\/error>/);
 });
 
 test("status-only and disabled footer modes release Pi footer ownership", () => {
   const values: unknown[] = [];
   const ctx = { mode: "tui", ui: { setFooter: (value: unknown) => values.push(value) } } as any;
-  installAtelierFooter(ctx, status, "Atelier", "status-only");
-  installAtelierFooter(ctx, status, "Atelier", "disabled");
+  installAtelierFooter(ctx, status(), "ready", undefined, "status-only");
+  installAtelierFooter(ctx, status(), "ready", undefined, "disabled");
   assert.deepEqual(values, [undefined, undefined]);
 });
