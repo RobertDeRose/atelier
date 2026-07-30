@@ -1,14 +1,29 @@
 import assert from "node:assert/strict";
-import { rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { AtelierCore, approveWorkspaceRoot } from "../packages/core/src/index.ts";
+import { AtelierCore } from "../packages/core/src/index.ts";
 import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
+import { spawnSync } from "node:child_process";
+
+function createNestedRepository(primary: string, name: string): string {
+  const root = join(primary, name);
+  mkdirSync(root, { recursive: true });
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
+  for (const args of [["init", "--quiet"], ["config", "user.name", "Atelier Test"], ["config", "user.email", "test@example.invalid"]]) {
+    const result = spawnSync("git", args, { cwd: root, env, encoding: "utf8", shell: false });
+    if (result.status !== 0) throw new Error(result.stderr);
+  }
+  writeFileSync(join(root, "README.md"), `# ${name}\n`, "utf8");
+  spawnSync("git", ["add", "README.md"], { cwd: root, env, shell: false });
+  const commit = spawnSync("git", ["commit", "--no-gpg-sign", "-m", "init"], { cwd: root, env, encoding: "utf8", shell: false });
+  if (commit.status !== 0) throw new Error(commit.stderr);
+  return root;
+}
 
 test("every approved workspace root receives a real revision snapshot and secondary drift is observable", async () => {
   const primary = createTemporaryRepository("atlr-multi-primary-");
-  const secondary = createTemporaryRepository("atlr-multi-secondary-");
-  approveWorkspaceRoot(primary, secondary);
+  const secondary = createNestedRepository(primary, "secondary");
   writeFileSync(join(primary, ".atelier", "config.json"), JSON.stringify({
     taskProvider: "none",
     repositoryProvider: "git",
@@ -40,14 +55,12 @@ test("every approved workspace root receives a real revision snapshot and second
   } finally {
     await core.close();
     rmSync(primary, { recursive: true, force: true });
-    rmSync(secondary, { recursive: true, force: true });
   }
 });
 
 test("exact approval and execution resume fail closed when a secondary workspace repository drifts", async () => {
   const primary = createTemporaryRepository("atlr-multi-approval-primary-");
-  const secondary = createTemporaryRepository("atlr-multi-approval-secondary-");
-  approveWorkspaceRoot(primary, secondary);
+  const secondary = createNestedRepository(primary, "secondary");
   writeFileSync(join(primary, ".atelier", "config.json"), JSON.stringify({
     taskProvider: "memory",
     repositoryProvider: "git",
@@ -73,7 +86,7 @@ test("exact approval and execution resume fail closed when a secondary workspace
     writeFileSync(driftPath, "export const drift = true;\n", "utf8");
     await assert.rejects(
       core.execution.approveAndApply(prepared.approval.id, true),
-      /workspace repository revision changed: secondary/i,
+      /workspace repository revision changed: secondary|source working state changed/i,
     );
 
     unlinkSync(driftPath);
@@ -91,6 +104,5 @@ test("exact approval and execution resume fail closed when a secondary workspace
   } finally {
     await core.close();
     rmSync(primary, { recursive: true, force: true });
-    rmSync(secondary, { recursive: true, force: true });
   }
 });

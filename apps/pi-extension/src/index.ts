@@ -11,9 +11,7 @@ import {
   ensurePlanDocument,
   sourceSnapshotFingerprint,
   hashFile,
-  projectTrustStatus,
   resolveEditorCommand,
-  trustProject,
   type ManualEditEditor,
   type Permission,
 } from "../../../packages/core/src/index.ts";
@@ -29,7 +27,8 @@ import {
 import { toolExecutionOutcome } from "./execution-outcome.ts";
 import { preparationSummary } from "./approval-presentation.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
-import { authorizeTool, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
+import { authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
+import { effectsForTool, effectsForUserBash } from "./tool-effects.ts";
 import {
   eventInputText,
   turnPolicyBlockReason,
@@ -546,23 +545,17 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     extensionState.advisorySent = false;
     delete extensionState.turnPolicy;
     const core = getCore(ctx);
-    if (core.config.projectTrusted) {
-      core.beginRetrievalSession();
-      ensureAtelierToolsActive(pi, core, WORKFLOW_AGENT_TOOLS, CODE_RETRIEVAL_TOOLS);
-      extensionState.stopIndexStatusUpdates?.();
-      extensionState.stopIndexStatusUpdates = core.code.onIndexStatus(() => {
-        void updateStatus(ctx, core);
-      });
-      try {
-        await core.execution.resume();
-      } catch (error) {
-        ctx.ui.notify(`Execution resume failed closed: ${errorMessage(error)}`, "error");
-      }
-    } else {
-      ctx.ui.notify(`Atelier project trust is required before repository reads or provider startup: ${core.config.repositoryRoot}. Use /atelier-trust.`, "warning");
+    core.beginRetrievalSession();
+    ensureAtelierToolsActive(pi, core, WORKFLOW_AGENT_TOOLS, CODE_RETRIEVAL_TOOLS);
+    extensionState.stopIndexStatusUpdates?.();
+    extensionState.stopIndexStatusUpdates = core.code.onIndexStatus(() => { void updateStatus(ctx, core); });
+    try {
+      await core.execution.resume();
+    } catch (error) {
+      ctx.ui.notify(`Execution resume failed closed: ${errorMessage(error)}`, "error");
     }
     await updateStatus(ctx, core);
-    if (core.config.projectTrusted && core.config.codeProvider !== "disabled") {
+    if (core.config.codeProvider !== "disabled") {
       void core.code.ensureIndex(core.codeWorkspace()).catch((error) => {
         ctx.ui.notify(`Code indexing failed: ${errorMessage(error)}`, "error");
       });
@@ -624,8 +617,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       });
       ctx.ui.notify("Atelier advisory: prefer current provider evidence or one focused code query before broad raw discovery. This is guidance, not an authorization block.", "warning");
     }
+    const workspaceAuthorization = await authorizeWorkspaceEffects(effectsForTool(event, ctx), ctx, core);
+    if (workspaceAuthorization.response !== undefined) return workspaceAuthorization.response;
     const request = requestForTool(event, ctx, core);
-    const authorization = await authorizeTool(request, ctx, core);
+    const authorization = await authorizeTool(request, ctx, core, { workspaceApproved: workspaceAuthorization.approvedOnce === true });
     if (
       authorization.response === undefined
       && request.action !== "read.repository"
@@ -645,6 +640,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       }
     }
     await updateStatus(ctx, core);
+    return authorization.response;
+  });
+
+  pi.on("user_bash", async (event, ctx) => {
+    const command = typeof event.command === "string" ? event.command : "";
+    const authorization = await authorizeWorkspaceEffects(effectsForUserBash(command, ctx.cwd), ctx, getCore(ctx));
     return authorization.response;
   });
 
@@ -739,27 +740,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     await reviewPlan(ctx, core);
   });
 
-  pi.registerCommand("atelier-trust", {
-    description: "Create the external Atelier trust decision for this project",
-    handler: async (_args, ctx) => {
-      const status = projectTrustStatus(ctx.cwd);
-      if (status.trusted) {
-        ctx.ui.notify(`Project is already trusted: ${status.root}`, "info");
-        return;
-      }
-      const confirmed = await ctx.ui.confirm(
-        "Trust Atelier project",
-        `Trust ${status.root}? Repository configuration may then start configured task, VCS, validation, editor, and code-provider commands. The trust record is stored outside the repository at ${status.storePath}.`,
-      );
-      if (!confirmed) return;
-      trustProject(status.root);
-      const core = await reopenCore(ctx);
-      core.beginRetrievalSession();
-      ensureAtelierToolsActive(pi, core, WORKFLOW_AGENT_TOOLS, CODE_RETRIEVAL_TOOLS);
-      await updateStatus(ctx, core);
-      ctx.ui.notify(`Trusted ${status.root}.`, "info");
-    },
-  });
 
   pi.registerCommand("review-diff", {
     description: "Display and record review of the exact current task diff",

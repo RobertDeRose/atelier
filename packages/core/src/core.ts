@@ -51,14 +51,16 @@ import { NoopTaskProvider } from "./tasks/noop-task-provider.ts";
 import type { TaskProvider } from "./tasks/task-provider.ts";
 import { hashFile, sha256 } from "./util/hash.ts";
 import { newId, nowIso } from "./util/ids.ts";
-import { isWorkspaceRootApproved, projectTrustStatus } from "./security/project-trust.ts";
 import { isPathWithin, resolveAccessPath } from "./security/path-boundary.ts";
 import { isSourcePath, sourcePaths } from "./repository/source-path.ts";
 import { repositoryRevisionBinding, type RepositoryRevisionBinding } from "./repository/revision-binding.ts";
+import { WorkspacePolicyEvaluator, type FilesystemEffect, type WorkspacePolicyDecision } from "./policy/workspace-policy.ts";
+import { RecoveryManager, type RecoveryCheckpoint } from "./recovery/recovery-manager.ts";
 
 export interface AtelierStatus {
   repositoryRoot: string;
-  projectTrusted: boolean;
+  workspaceRoot: string;
+  workspaceSource: "startup_cwd" | "explicit";
   runtimeDirectory: string;
   mode: WorkflowMode;
   planPath: string;
@@ -109,6 +111,8 @@ export class AtelierCore {
   readonly validation: ValidationService;
   readonly code: CodeService;
   readonly execution: ExecutionWorkflowCoordinator;
+  readonly workspacePolicy: WorkspacePolicyEvaluator;
+  readonly recovery: RecoveryManager;
 
   private constructor(
     config: AtelierConfig,
@@ -121,6 +125,8 @@ export class AtelierCore {
     this.ledger = ledger;
     this.taskProvider = taskProvider;
     this.repository = createRepositoryProvider(config, ledger);
+    this.workspacePolicy = new WorkspacePolicyEvaluator({ root: config.workspaceRoot, secretPatterns: config.secretPathPatterns });
+    this.recovery = new RecoveryManager({ workspaceRoot: config.workspaceRoot, runtimeDirectory: config.runtimeDirectory, maxBytes: config.checkpointMaxBytes });
     this.planReview = new PlanReviewService({
       repositoryRoot: config.repositoryRoot,
       planPath: config.planPath,
@@ -132,9 +138,9 @@ export class AtelierCore {
       root: config.repositoryRoot,
       database: ledger.database,
       manifestPath: config.validationPath,
-      trusted: config.projectTrusted,
+      trusted: true,
     });
-    const effectiveCodeProvider = config.projectTrusted ? codeProvider : new DisabledCodeProvider();
+    const effectiveCodeProvider = codeProvider;
     const selection = effectiveCodeProvider === undefined
       ? createCodeProviders(config)
       : { providers: [effectiveCodeProvider], defaultProvider: effectiveCodeProvider.name };
@@ -184,18 +190,16 @@ export class AtelierCore {
     retrievalSessionId?: string;
   } = {}): AtelierCore {
     const config = loadConfig(repositoryRoot);
-    if (options.taskProvider !== undefined && config.projectTrusted) config.taskProvider = options.taskProvider;
+    if (options.taskProvider !== undefined) config.taskProvider = options.taskProvider;
     mkdirSync(config.runtimeDirectory, { recursive: true, mode: 0o700 });
     const ledger = new SqliteLedger(config.databasePath);
-    const taskProvider: TaskProvider = !config.projectTrusted
-      ? new NoopTaskProvider()
-      : options.taskProviderInstance ?? (
-          config.taskProvider === "beads"
-            ? new BeadsCliTaskProvider({ cwd: config.repositoryRoot, executable: config.beadsCommand })
-            : config.taskProvider === "memory"
-              ? new InMemoryTaskProvider()
-              : new NoopTaskProvider()
-        );
+    const taskProvider: TaskProvider = options.taskProviderInstance ?? (
+      config.taskProvider === "beads"
+        ? new BeadsCliTaskProvider({ cwd: config.repositoryRoot, executable: config.beadsCommand })
+        : config.taskProvider === "memory"
+          ? new InMemoryTaskProvider()
+          : new NoopTaskProvider()
+    );
     return new AtelierCore(config, ledger, taskProvider, options.codeProvider, options.retrievalSessionId);
   }
 
@@ -259,7 +263,7 @@ export class AtelierCore {
       payload: {
         repositoryRoot: this.config.repositoryRoot,
         runtimeDirectory: this.config.runtimeDirectory,
-        projectTrusted: this.config.projectTrusted,
+        workspaceRoot: this.config.workspaceRoot,
         createdPlan,
       },
     });
@@ -271,9 +275,6 @@ export class AtelierCore {
   }
 
   setMode(mode: WorkflowMode, actor: "user" | "system" = "user"): void {
-    if (!this.config.projectTrusted && mode !== "investigate") {
-      throw new Error(`Trust the project before entering ${mode} mode: ${this.config.repositoryRoot}`);
-    }
     if (mode === "act" && this.ledger.getActiveExecutionGrant() === undefined) {
       throw new Error("Act mode requires an active task-scoped execution grant.");
     }
@@ -283,7 +284,6 @@ export class AtelierCore {
   }
 
   beginPlan(objective: string, options: { actor?: "user" | "system"; metadata?: Record<string, unknown> } = {}): string {
-    this.requireTrustedProject("begin planning");
     ensurePlanDocument(this.config.planPath);
     if (this.ledger.getActiveExecutionGrant() !== undefined) {
       this.execution.cancel("A new planning workflow invalidated the active execution grant.");
@@ -309,9 +309,9 @@ export class AtelierCore {
   evaluate(request: ActionRequest): PolicyDecision {
     const decision = this.policy.evaluate(request, {
       mode: this.mode(),
-      projectTrusted: this.config.projectTrusted,
-      repositoryRoot: this.config.repositoryRoot,
-      repositoryReadRoots: projectTrustStatus(this.config.repositoryRoot).record?.workspaceRoots ?? [this.config.repositoryRoot],
+      projectTrusted: true,
+      repositoryRoot: this.config.workspaceRoot,
+      repositoryReadRoots: [this.config.workspaceRoot],
       planPath: this.config.planPath,
       grants: this.ledger.listGrants(),
       ...(this.ledger.getActiveExecutionGrant() === undefined
@@ -355,7 +355,6 @@ export class AtelierCore {
     reason: string;
     expiresAt?: string;
   }): PermissionGrant {
-    this.requireTrustedProject("grant permission");
     const executionGrant = this.ledger.getActiveExecutionGrant();
     const scope = options.scope ?? "operation";
     const taskId = options.taskId ?? (scope === "task" ? executionGrant?.taskId : undefined);
@@ -418,14 +417,17 @@ export class AtelierCore {
     const matchedPermissionGrantId = decision.matchedRules
       .find((rule) => rule.startsWith("matched permission grant "))
       ?.slice("matched permission grant ".length);
-    if (matchedPermissionGrantId === undefined
-      || (input.permissionGrantId !== undefined && input.permissionGrantId !== matchedPermissionGrantId)) {
-      throw new Error("Mutation execution evidence requires the permission grant matched by policy.");
-    }
-    const permissionGrant = this.ledger.listGrants({ includeRevoked: true })
-      .find((grant) => grant.id === matchedPermissionGrantId);
-    if (permissionGrant?.executionGrantId !== executionGrant.id) {
-      throw new Error("Mutation execution evidence permission is not bound to the active execution grant.");
+    const concreteWorkspaceApproval = decision.matchedRules.includes("matched concrete workspace-policy approval");
+    if (!concreteWorkspaceApproval) {
+      if (matchedPermissionGrantId === undefined
+        || (input.permissionGrantId !== undefined && input.permissionGrantId !== matchedPermissionGrantId)) {
+        throw new Error("Mutation execution evidence requires the task authority matched by policy.");
+      }
+      const permissionGrant = this.ledger.listGrants({ includeRevoked: true })
+        .find((grant) => grant.id === matchedPermissionGrantId);
+      if (permissionGrant?.executionGrantId !== executionGrant.id) {
+        throw new Error("Mutation execution evidence authority is not bound to the active execution grant.");
+      }
     }
     const evidence: ExecutionEvidence = {
       id: newId("execution-evidence"),
@@ -436,7 +438,7 @@ export class AtelierCore {
       taskId: executionGrant.taskId,
       executionGrantId: executionGrant.id,
       policyDecisionId: input.policyDecisionId,
-      permissionGrantId: matchedPermissionGrantId,
+      ...(matchedPermissionGrantId === undefined ? {} : { permissionGrantId: matchedPermissionGrantId }),
       beforeSnapshot: currentSnapshot,
       requestedPaths: sourcePaths((input.request.paths ?? [])
         .flatMap((path) => repositoryRelativeSourcePath(this.config.repositoryRoot, path) ?? [])),
@@ -682,7 +684,6 @@ export class AtelierCore {
   }
 
   previewFinalDiff(): FinalDiffPreview {
-    this.requireTrustedProject("preview the final diff");
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("Final diff review requires an active execution grant.");
     if (executionGrant.repositorySnapshot.vcs === "none") {
@@ -730,7 +731,6 @@ export class AtelierCore {
   }
 
   commitActiveTask(message: string, actor: "user" | "agent" = "user"): RepositoryCommitResult {
-    this.requireTrustedProject("create the local task change");
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("A local task change requires an active execution grant.");
     const snapshot = this.repository.snapshot();
@@ -964,7 +964,6 @@ export class AtelierCore {
   }
 
   parsePlan() {
-    this.requireTrustedProject("read the plan");
     ensurePlanDocument(this.config.planPath);
     return parsePlanFile(this.config.planPath);
   }
@@ -974,12 +973,10 @@ export class AtelierCore {
   }
 
   beginPlanReview(options: { editor?: ManualEditEditor } = {}): ManualEdit {
-    this.requireTrustedProject("launch plan review");
     return this.planReview.begin(options);
   }
 
   completePlanReview(id: string, options: CompletePlanReviewOptions = {}): ManualEdit {
-    this.requireTrustedProject("complete plan review");
     return this.planReview.complete(id, options);
   }
 
@@ -1013,7 +1010,6 @@ export class AtelierCore {
   }
 
   beginRetrievalSession(sessionId?: string): string {
-    this.requireTrustedProject("start code retrieval");
     return sessionId === undefined
       ? this.code.beginRetrievalSession()
       : this.code.beginRetrievalSession(sessionId);
@@ -1027,8 +1023,8 @@ export class AtelierCore {
     const snapshot = this.repository.snapshot();
     return loadCodeWorkspace(this.config.repositoryRoot, snapshot, {
       workspacePath: this.config.workspacePath,
-      trusted: this.config.projectTrusted,
-      rootApproved: (root) => isWorkspaceRootApproved(this.config.repositoryRoot, root),
+      trusted: true,
+      rootApproved: (root) => isPathWithin(root, this.config.workspaceRoot, "read"),
       snapshotForRoot: (root) => createRepositoryProvider(this.config, this.ledger, root).snapshot(),
     });
   }
@@ -1040,7 +1036,6 @@ export class AtelierCore {
 
   validateConfiguration(): string[] {
     const issues = validateCodeWorkspace(this.codeWorkspace());
-    if (!this.config.projectTrusted) issues.push(`Project is not trusted: ${this.config.repositoryRoot}`);
     try {
       const manifest = this.validation.manifest();
       if (this.validation.closurePolicy().requireValidation
@@ -1075,7 +1070,6 @@ export class AtelierCore {
   }
 
   async buildWorkingState(explicitTaskId?: string): Promise<WorkingState> {
-    this.requireTrustedProject("build Working State");
     const plan = existsSync(this.config.planPath) ? this.parsePlan() : undefined;
     const snapshot = this.repository.snapshot();
     const built = await this.workingStateBuilder.build({
@@ -1127,7 +1121,6 @@ export class AtelierCore {
   }
 
   async nextAction(): Promise<string> {
-    if (!this.config.projectTrusted) return `Trust this project before Atelier executes repository tools: ${this.config.repositoryRoot}`;
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant !== undefined) {
       if (this.execution.isPaused()) return `Execution is paused for task ${executionGrant.taskId}; resume explicitly before agent mutation.`;
@@ -1202,7 +1195,8 @@ export class AtelierCore {
         : "not_approved" as const;
     return {
       repositoryRoot: this.config.repositoryRoot,
-      projectTrusted: this.config.projectTrusted,
+      workspaceRoot: this.config.workspaceRoot,
+      workspaceSource: this.config.workspaceSource,
       runtimeDirectory: this.config.runtimeDirectory,
       mode: this.mode(),
       planPath: this.config.planPath,
@@ -1225,10 +1219,20 @@ export class AtelierCore {
     this.ledger.close();
   }
 
-  private requireTrustedProject(operation: string): void {
-    if (!this.config.projectTrusted) {
-      throw new Error(`Trust the project before Atelier can ${operation}: ${this.config.repositoryRoot}`);
-    }
+  evaluateWorkspaceEffects(effects: readonly FilesystemEffect[]): WorkspacePolicyDecision {
+    return this.workspacePolicy.evaluate(effects, { classify: (path) => this.repository.classifyPath?.(path) ?? (existsSync(path) ? "untracked" : "missing") });
+  }
+
+  checkpointWorkspaceEffects(decision: WorkspacePolicyDecision): RecoveryCheckpoint {
+    const checkpoint = this.recovery.checkpoint(decision.effects.filter((effect) => effect.decision === "checkpoint_then_allow"));
+    this.ledger.append({ kind: "recovery.checkpoint_created", actor: "system", repositorySnapshot: this.repository.snapshot(), payload: checkpoint });
+    return checkpoint;
+  }
+
+  restoreCheckpoint(id: string): string[] {
+    const paths = this.recovery.restore(id);
+    this.ledger.append({ kind: "recovery.checkpoint_restored", actor: "user", repositorySnapshot: this.repository.snapshot(), payload: { id, paths } });
+    return paths;
   }
 }
 

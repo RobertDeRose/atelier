@@ -52,9 +52,12 @@ export * from "./repository/snapshot.ts";
 export * from "./repository/revision-binding.ts";
 export * from "./repository/directory-repository-provider.ts";
 export * from "./security/path-boundary.ts";
-export * from "./security/project-trust.ts";
 export * from "./workflow/execution-baseline.ts";
 export * from "./repository/source-path.ts";
 
 export * from "./workflow/capability-summary.ts";
 export * from "./planning/task-execution-scope.ts";
+export * from "./workspace/session-workspace.ts";
+export * from "./policy/workspace-policy.ts";
+export * from "./recovery/recovery-manager.ts";
+export * from "./security/project-trust.ts";

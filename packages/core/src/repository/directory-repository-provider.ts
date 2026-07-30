@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { RepositorySnapshot } from "./snapshot.ts";
-import type { RepositoryProvider, RepositoryProviderStatus, RepositoryCommitResult } from "./repository-provider.ts";
+import type { RepositoryProvider, RepositoryProviderStatus, RepositoryCommitResult, RepositoryPathState } from "./repository-provider.ts";
 import { sha256 } from "../util/hash.ts";
 
 /** Non-executing provider used before project trust or outside a supported VCS. */
@@ -41,6 +42,7 @@ export class DirectoryRepositoryProvider implements RepositoryProvider {
   diff(): string { return ""; }
   diffFrom(_reference: string, _path?: string): string { return ""; }
   listFiles(): string[] { return []; }
+  classifyPath(path: string): RepositoryPathState { return existsSync(resolve(path)) ? "untracked" : "missing"; }
   commitMetadata(_message: string, _paths: string[]): RepositoryCommitResult { throw new Error("Directory repository provider cannot create metadata commits."); }
   commit(_message: string, _paths?: string[]): RepositoryCommitResult { throw new Error(this.reason); }
 }

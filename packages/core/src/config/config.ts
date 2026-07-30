@@ -2,14 +2,17 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { ConfigurationError } from "../domain/errors.ts";
-import { isProjectTrusted } from "../security/project-trust.ts";
 import { isPathWithin } from "../security/path-boundary.ts";
 import { sha256 } from "../util/hash.ts";
 import { splitCommandLine } from "../util/command-line.ts";
+import { establishSessionWorkspace } from "../workspace/session-workspace.ts";
 
 export interface AtelierConfig {
   repositoryRoot: string;
-  projectTrusted: boolean;
+  workspaceRoot: string;
+  workspaceSource: "startup_cwd" | "explicit";
+  /** @deprecated Atelier no longer requires project trust. */
+  projectTrusted: true;
   projectDirectory: string;
   projectConfigPath: string;
   validationPath: string;
@@ -45,6 +48,9 @@ export interface AtelierConfig {
   codeMaxPersistedEntries: number;
   codeMaxPersistedBytes: number;
   providerFirstRetrieval: "advisory" | "off";
+  secretPathPatterns: string[];
+  checkpointMaxBytes: number;
+  footer: "atelier" | "status-only" | "disabled";
 }
 
 export interface PartialAtelierConfig {
@@ -78,6 +84,9 @@ export interface PartialAtelierConfig {
   codeMaxPersistedEntries?: number;
   codeMaxPersistedBytes?: number;
   providerFirstRetrieval?: AtelierConfig["providerFirstRetrieval"];
+  secretPathPatterns?: string[];
+  checkpointMaxBytes?: number;
+  footer?: AtelierConfig["footer"];
 }
 
 function canonicalRoot(path: string): string {
@@ -136,28 +145,18 @@ function validateChoice<T extends string>(value: T, allowed: readonly T[], field
   return value;
 }
 
-export function loadConfig(repositoryRoot: string, options: { projectTrusted?: boolean } = {}): AtelierConfig {
-  const root = canonicalRoot(repositoryRoot);
-  const projectTrusted = options.projectTrusted ?? isProjectTrusted(root);
+export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: string } = {}): AtelierConfig {
+  const workspace = establishSessionWorkspace(repositoryRoot, options.workspaceRoot);
+  const root = workspace.root;
   const projectDirectory = resolve(root, ".atelier");
   const projectConfigPath = resolve(projectDirectory, "config.json");
   const userConfig = readJsonConfig(userConfigPath());
-  // Repository-controlled configuration is data only after an out-of-repository trust decision.
-  const repositoryConfig = projectTrusted ? readJsonConfig(projectConfigPath) : {};
+  const repositoryConfig = readJsonConfig(projectConfigPath);
   const merged = mergeConfig(userConfig, repositoryConfig);
 
-  // Runtime paths are user-owned. Repository configuration can never redirect the ledger or caches.
   const runtimeValue = userConfig.runtimeDirectory ?? userConfig.stateDirectory;
-  const runtimeDirectory = requireExternalRuntimePath(
-    root,
-    runtimeValue ?? defaultRuntimeDirectory(root),
-    "runtimeDirectory",
-  );
-  const databasePath = requireExternalRuntimePath(
-    root,
-    userConfig.databasePath ?? join(runtimeDirectory, "atelier.db"),
-    "databasePath",
-  );
+  const runtimeDirectory = requireExternalRuntimePath(root, runtimeValue ?? defaultRuntimeDirectory(root), "runtimeDirectory");
+  const databasePath = requireExternalRuntimePath(root, userConfig.databasePath ?? join(runtimeDirectory, "atelier.db"), "databasePath");
   const planPath = requireProjectPath(root, merged.planPath ?? ".atelier/PLAN.md", "planPath");
   const validationPath = resolve(projectDirectory, "validation.json");
   const workspacePath = resolve(projectDirectory, "workspace.json");
@@ -167,50 +166,30 @@ export function loadConfig(repositoryRoot: string, options: { projectTrusted?: b
   const codeProvider = validateChoice(merged.codeProvider ?? "codesearch", ["disabled", "mock", "codesearch", "octocode"] as const, "codeProvider");
   const codeMode = validateChoice(merged.codeMode ?? "auto", ["auto", "local", "client"] as const, "codeMode");
   const providerFirstRetrieval = validateChoice(merged.providerFirstRetrieval ?? "advisory", ["advisory", "off"] as const, "providerFirstRetrieval");
+  const footer = validateChoice(merged.footer ?? "atelier", ["atelier", "status-only", "disabled"] as const, "footer");
 
-  const octocodeConfigPath = (() => {
-    if (userConfig.octocodeConfigPath !== undefined) return resolveFromRoot(root, userConfig.octocodeConfigPath);
-    return requireProjectPath(root, repositoryConfig.octocodeConfigPath ?? ".atelier/octocode-config.toml", "octocodeConfigPath");
-  })();
-
+  const octocodeConfigPath = userConfig.octocodeConfigPath !== undefined
+    ? resolveFromRoot(root, userConfig.octocodeConfigPath)
+    : requireProjectPath(root, repositoryConfig.octocodeConfigPath ?? ".atelier/octocode-config.toml", "octocodeConfigPath");
   const editor = process.env.ATLR_EDITOR ?? merged.editor;
   return {
     repositoryRoot: root,
-    projectTrusted,
-    projectDirectory,
-    projectConfigPath,
-    validationPath,
-    workspacePath,
-    runtimeDirectory,
-    stateDirectory: runtimeDirectory,
-    databasePath,
-    planPath,
+    workspaceRoot: root,
+    workspaceSource: workspace.source,
+    projectTrusted: true,
+    projectDirectory, projectConfigPath, validationPath, workspacePath, runtimeDirectory, stateDirectory: runtimeDirectory, databasePath, planPath,
     ...(editor === undefined ? {} : { editor }),
-    taskProvider,
-    beadsCommand: merged.beadsCommand ?? "bd",
-    repositoryProvider,
-    jjCommand: merged.jjCommand ?? "jj",
-    indexSchemaVersion: merged.indexSchemaVersion ?? 1,
-    longRunningThresholdMs: merged.longRunningThresholdMs ?? 300_000,
-    codeProvider,
-    codeCommand: merged.codeCommand ?? "codesearch",
-    octocodeCommand: merged.octocodeCommand ?? "octocode",
-    octocodeConfigPath,
-    codeMode,
-    codeTimeoutMs: merged.codeTimeoutMs ?? 60_000,
-    codeIndexTimeoutMs: merged.codeIndexTimeoutMs ?? 300_000,
-    codeMaxResults: merged.codeMaxResults ?? 10,
-    codeMaxPreviewBytes: merged.codeMaxPreviewBytes ?? 2_000,
-    codeMaxChunkBytes: merged.codeMaxChunkBytes ?? 16_000,
-    codeMaxFetches: merged.codeMaxFetches ?? 8,
-    codeMaxTotalBytes: merged.codeMaxTotalBytes ?? 64_000,
-    codeMaxProviderRequests: merged.codeMaxProviderRequests ?? 8,
-    codeMaxUniquePaths: merged.codeMaxUniquePaths ?? 32,
-    codeMaxEvidenceEntries: merged.codeMaxEvidenceEntries ?? 64,
-    codeRetainedSessions: merged.codeRetainedSessions ?? 4,
-    codeMaxPersistedEntries: merged.codeMaxPersistedEntries ?? 256,
-    codeMaxPersistedBytes: merged.codeMaxPersistedBytes ?? 256_000,
-    providerFirstRetrieval,
+    taskProvider, beadsCommand: merged.beadsCommand ?? "bd", repositoryProvider, jjCommand: merged.jjCommand ?? "jj",
+    indexSchemaVersion: merged.indexSchemaVersion ?? 1, longRunningThresholdMs: merged.longRunningThresholdMs ?? 300_000,
+    codeProvider, codeCommand: merged.codeCommand ?? "codesearch", octocodeCommand: merged.octocodeCommand ?? "octocode", octocodeConfigPath, codeMode,
+    codeTimeoutMs: merged.codeTimeoutMs ?? 60_000, codeIndexTimeoutMs: merged.codeIndexTimeoutMs ?? 300_000,
+    codeMaxResults: merged.codeMaxResults ?? 10, codeMaxPreviewBytes: merged.codeMaxPreviewBytes ?? 2_000, codeMaxChunkBytes: merged.codeMaxChunkBytes ?? 16_000,
+    codeMaxFetches: merged.codeMaxFetches ?? 8, codeMaxTotalBytes: merged.codeMaxTotalBytes ?? 64_000, codeMaxProviderRequests: merged.codeMaxProviderRequests ?? 8,
+    codeMaxUniquePaths: merged.codeMaxUniquePaths ?? 32, codeMaxEvidenceEntries: merged.codeMaxEvidenceEntries ?? 64, codeRetainedSessions: merged.codeRetainedSessions ?? 4,
+    codeMaxPersistedEntries: merged.codeMaxPersistedEntries ?? 256, codeMaxPersistedBytes: merged.codeMaxPersistedBytes ?? 256_000, providerFirstRetrieval,
+    secretPathPatterns: Array.isArray(merged.secretPathPatterns) ? merged.secretPathPatterns.filter((value): value is string => typeof value === "string") : [],
+    checkpointMaxBytes: Number.isFinite(merged.checkpointMaxBytes) && (merged.checkpointMaxBytes ?? 0) > 0 ? merged.checkpointMaxBytes! : 16 * 1024 * 1024,
+    footer,
   };
 }
 
@@ -220,9 +199,9 @@ export interface EditorCommand {
   source: "atlr" | "pi" | "VISUAL" | "EDITOR" | "fallback";
 }
 
-function readPiExternalEditor(repositoryRoot: string, projectTrusted: boolean): string | undefined {
+function readPiExternalEditor(repositoryRoot: string, piProjectTrusted: boolean): string | undefined {
   const candidates: string[] = [join(homedir(), ".pi", "agent", "settings.json")];
-  if (projectTrusted) candidates.unshift(join(repositoryRoot, ".pi", "settings.json"));
+  if (piProjectTrusted) candidates.unshift(join(repositoryRoot, ".pi", "settings.json"));
 
   for (const candidate of candidates) {
     if (!existsSync(candidate)) continue;
@@ -239,9 +218,6 @@ function readPiExternalEditor(repositoryRoot: string, projectTrusted: boolean): 
 }
 
 export function resolveEditorCommand(config: AtelierConfig, piProjectTrusted = false): EditorCommand {
-  if (!config.projectTrusted) {
-    throw new ConfigurationError(`Trust the project before launching an editor: ${config.repositoryRoot}`);
-  }
   const candidates: Array<[string | undefined, EditorCommand["source"]]> = [
     [config.editor, "atlr"],
     [readPiExternalEditor(config.repositoryRoot, piProjectTrusted), "pi"],

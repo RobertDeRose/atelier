@@ -94,8 +94,8 @@ test ! -e "$ATLR_STATE_HOME"
 Pass conditions: `doctor` is observational, trust is false, configured providers are disabled, no new
 project file appears, and runtime state is absent.
 
-Launch Pi, verify `/trust` belongs to Pi and `/atelier-trust` belongs to Atelier, then approve
-`/atelier-trust`:
+Launch Pi, verify `/trust` belongs to Pi and `/trust` (Pi resources only) belongs to Atelier, then approve
+`/trust` (Pi resources only):
 
 ```sh
 atlr launch

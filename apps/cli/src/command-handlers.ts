@@ -363,44 +363,11 @@ export async function handleTasks(core: AtelierCore, subcommand: string | undefi
   }
 }
 
-export async function handlePermissions(core: AtelierCore, subcommand: string | undefined, rest: string[], args: ParsedArgs): Promise<void> {
-  switch (subcommand) {
-    case "list": {
-      const grants = core.ledger.listGrants();
-      if (flagBoolean(args, "json")) asJson(grants);
-      else for (const grant of grants) process.stdout.write(`${grant.id}\t${grant.permission}\t${grant.scope}\t${grant.reason}\n`);
-      return;
-    }
-    case "grant": {
-      const permission = rest[0];
-      if (!permission || !PERMISSIONS.includes(permission as Permission)) {
-        throw new Error(`Permission must be one of: ${PERMISSIONS.join(", ")}`);
-      }
-      const scope = flagString(args, "scope") ?? "operation";
-      if (!(["operation", "task", "repository"] as const).includes(scope as never)) {
-        throw new Error("Invalid grant scope.");
-      }
-      const paths = flagString(args, "path")?.split(",").map((path) => path.trim()).filter(Boolean);
-      const taskId = flagString(args, "task");
-      const grant = core.grant({
-        permission: permission as Permission,
-        scope: scope as "operation" | "task" | "repository",
-        reason: flagString(args, "reason") ?? "Explicit CLI grant",
-        ...(taskId === undefined ? {} : { taskId }),
-        ...(paths === undefined ? {} : { paths }),
-      });
-      asJson(grant);
-      return;
-    }
-    case "revoke": {
-      const id = rest[0];
-      if (!id) throw new Error("Usage: atlr permission revoke ID");
-      if (!core.revoke(id)) throw new Error(`Active grant not found: ${id}`);
-      process.stdout.write(`Revoked ${id}.\n`);
-      return;
-    }
-    default:
-      throw new Error("Usage: atlr permission <list|grant|revoke>");
+export async function handlePermissions(core: AtelierCore, subcommand: string | undefined, _rest: string[], args: ParsedArgs): Promise<void> {
+  if (subcommand !== "list" && subcommand !== undefined) {
+    throw new Error("Atelier no longer supports manual permission grants. Use: atlr authority list [--json]");
   }
+  const grants = core.ledger.listGrants();
+  if (flagBoolean(args, "json")) asJson(grants);
+  else for (const grant of grants) process.stdout.write(`${grant.id}\t${grant.permission}\t${grant.scope}\t${grant.reason}\n`);
 }
-

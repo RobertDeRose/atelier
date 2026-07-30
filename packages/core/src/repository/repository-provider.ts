@@ -13,6 +13,8 @@ export interface RepositoryCommitResult {
   snapshot: RepositorySnapshot;
 }
 
+export type RepositoryPathState = "missing" | "tracked_clean" | "tracked_dirty" | "untracked" | "ignored" | "unknown";
+
 export interface RepositoryProvider {
   readonly name: "jj" | "git" | "none";
   status(): RepositoryProviderStatus;
@@ -23,6 +25,7 @@ export interface RepositoryProvider {
   diff(path?: string): string;
   diffFrom(reference: string, path?: string): string;
   listFiles(): string[];
+  classifyPath?(path: string): RepositoryPathState;
   commit(message: string, paths?: string[]): RepositoryCommitResult;
   commitMetadata(message: string, paths: string[]): RepositoryCommitResult;
 }

@@ -321,12 +321,12 @@ atlr launch
 mise run launch
 ```
 
-Pi reserves `/trust` for Pi-owned project resources. Atelier uses `/atelier-trust` for the separate external trust record that gates `.atelier` configuration and provider execution. The CLI remains `atlr trust ...`.
+Pi reserves `/trust` for Pi-owned project resources. Atelier uses `/trust` (Pi resources only) for the separate external trust record that gates `.atelier` configuration and provider execution. The CLI remains `atlr trust ...`.
 
 Core slash commands include:
 
 ```text
-/atelier-trust
+/trust
 /plan
 /review
 /approve

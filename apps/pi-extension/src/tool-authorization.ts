@@ -6,6 +6,7 @@ import {
   isDependencyPath,
   type ActionRequest,
   type PolicyDecision,
+  type FilesystemEffect,
 } from "../../../packages/core/src/index.ts";
 
 function toolReadPaths(event: any, ctx: ExtensionContext): string[] {
@@ -139,6 +140,46 @@ export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierC
   };
 }
 
+
+function consequenceMessage(decision: ReturnType<AtelierCore["evaluateWorkspaceEffects"]>): string {
+  const groups = new Map<string, string[]>();
+  for (const effect of decision.effects.filter((item) => item.decision === "ask" || item.decision === "deny")) {
+    const key = effect.reason;
+    const paths = groups.get(key) ?? [];
+    if (effect.resolvedPath !== undefined) paths.push(effect.resolvedPath);
+    groups.set(key, paths);
+  }
+  return [...groups.entries()].map(([reason, paths]) =>
+    paths.length === 0 ? reason : `${reason}\n${paths.slice(0, 5).map((path) => `  ${path}`).join("\n")}${paths.length > 5 ? `\n  … and ${paths.length - 5} more` : ""}`
+  ).join("\n\n");
+}
+
+export async function authorizeWorkspaceEffects(
+  effects: readonly FilesystemEffect[],
+  ctx: ExtensionContext,
+  core: AtelierCore,
+): Promise<{ response?: { block?: boolean; reason?: string }; checkpointId?: string; approvedOnce?: boolean }> {
+  const decision = core.evaluateWorkspaceEffects(effects);
+  core.ledger.append({ kind: "workspace_policy.decision", actor: "agent", repositorySnapshot: core.repository.snapshot(), payload: decision });
+  if (decision.result === "allow") return {};
+  if (decision.result === "checkpoint_then_allow") {
+    try {
+      const checkpoint = core.checkpointWorkspaceEffects(decision);
+      return { checkpointId: checkpoint.id };
+    } catch (error) {
+      const reason = `Atelier could not create an exact recovery checkpoint: ${error instanceof Error ? error.message : String(error)}`;
+      if (!ctx.hasUI) return { response: { block: true, reason: `${reason} Interactive approval is unavailable in ${ctx.mode} mode.` } };
+      const approved = await ctx.ui.confirm("Atelier recovery unavailable", `${reason}\n\nContinue once without a checkpoint?`);
+      return approved ? {} : { response: { block: true, reason: "The user declined an unrecoverable operation." } };
+    }
+  }
+  const reason = consequenceMessage(decision) || decision.reason;
+  if (decision.result === "deny") return { response: { block: true, reason } };
+  if (!ctx.hasUI) return { response: { block: true, reason: `${reason} Interactive approval is unavailable in ${ctx.mode} mode.` } };
+  const approved = await ctx.ui.confirm("Atelier approval required", `${reason}\n\nAllow this concrete operation once?`);
+  core.ledger.append({ kind: approved ? "workspace_policy.approval_granted" : "workspace_policy.approval_denied", actor: "user", repositorySnapshot: core.repository.snapshot(), payload: { decision } });
+  return approved ? { approvedOnce: true } : { response: { block: true, reason: "The user denied this Atelier operation." } };
+}
 interface ToolAuthorization {
   decision: PolicyDecision;
   permissionGrantId?: string;
@@ -161,12 +202,32 @@ export async function authorizeTool(
   request: ActionRequest,
   ctx: ExtensionContext,
   core: AtelierCore,
+  options: { workspaceApproved?: boolean } = {},
 ): Promise<ToolAuthorization> {
   const decision = core.evaluate(request);
   if (decision.result === "allow") {
     const permissionGrantId = matchedPermissionGrantId(decision);
     return { decision, ...(permissionGrantId === undefined ? {} : { permissionGrantId }) };
   }
+  if (decision.result === "require_approval" && options.workspaceApproved === true) {
+    const allowed: PolicyDecision = {
+      ...decision,
+      id: `${decision.id}-workspace-approved`,
+      result: "allow",
+      matchedRules: [...decision.matchedRules, "matched concrete workspace-policy approval"],
+      missingPermissions: [],
+      reason: "Allowed by the concrete workspace-policy approval.",
+    };
+    core.ledger.append({
+      kind: "policy.decision",
+      actor: "user",
+      ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
+      ...(request.repositorySnapshot === undefined ? {} : { repositorySnapshot: request.repositorySnapshot }),
+      payload: allowed,
+    });
+    return { decision: allowed };
+  }
+
   if (decision.result === "deny") {
     core.ledger.append({
       kind: "policy.blocked",
@@ -207,29 +268,27 @@ export async function authorizeTool(
     return { decision, response: { block: true, reason: "The user denied this Atelier operation." } };
   }
 
-  const grant = core.grant({
-    permission: decision.requiredPermission,
-    scope: "operation",
-    actor: "user",
-    ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
-    ...(request.paths === undefined ? {} : { paths: request.paths }),
-    ...(request.validationNames !== undefined
-      ? { validationNames: [...request.validationNames] }
-      : request.validationName === undefined ? {} : { validationNames: [request.validationName] }),
-    reason: `Approved once for ${request.action}`,
-  });
-  const allowed = core.evaluate(request);
-  core.revoke(grant.id);
+  const allowed: PolicyDecision = {
+    ...decision,
+    id: `${decision.id}-approved`,
+    result: "allow",
+    matchedRules: [...decision.matchedRules, "matched concrete workspace-policy approval"],
+    missingPermissions: [],
+    reason: "Allowed by one-time concrete user approval.",
+  };
   core.ledger.append({
     kind: "policy.approval_consumed",
     actor: "user",
     ...(request.repositorySnapshot === undefined ? {} : { repositorySnapshot: request.repositorySnapshot }),
-    payload: { grantId: grant.id, decisionId: allowed.id, action: request.action },
+    payload: { decisionId: decision.id, action: request.action },
   });
-  return {
-    decision: allowed,
-    permissionGrantId: grant.id,
-    ...(allowed.result === "allow" ? {} : { response: { block: true, reason: allowed.reason } }),
-  };
+  core.ledger.append({
+    kind: "policy.decision",
+    actor: "user",
+    ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
+    ...(request.repositorySnapshot === undefined ? {} : { repositorySnapshot: request.repositorySnapshot }),
+    payload: allowed,
+  });
+  return { decision: allowed };
 }
 

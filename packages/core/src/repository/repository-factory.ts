@@ -10,13 +10,6 @@ export function createRepositoryProvider(
   ledger: SqliteLedger,
   repositoryRoot = config.repositoryRoot,
 ): RepositoryProvider {
-  if (!config.projectTrusted) {
-    return new DirectoryRepositoryProvider({
-      root: repositoryRoot,
-      indexSchemaVersion: config.indexSchemaVersion,
-      reason: `Project trust is required before repository providers execute: ${config.repositoryRoot}`,
-    });
-  }
 
   const jj = new JujutsuRepositoryProvider({
     cwd: repositoryRoot,

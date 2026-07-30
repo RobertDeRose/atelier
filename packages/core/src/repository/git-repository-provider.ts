@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
-import type { RepositoryCommitResult, RepositoryProvider, RepositoryProviderStatus } from "./repository-provider.ts";
+import type { RepositoryCommitResult, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus } from "./repository-provider.ts";
 import { RepositoryObservationError } from "../domain/errors.ts";
 import { sha256 } from "../util/hash.ts";
 import { isSourcePath } from "./source-path.ts";
@@ -135,6 +135,20 @@ export class GitRepositoryProvider implements RepositoryProvider {
       ...result.stdout.split("\n").map((path) => path.trim()).filter(Boolean),
       ...this.untrackedPaths(),
     ])].filter(isSourcePath).sort();
+  }
+
+  classifyPath(path: string): RepositoryPathState {
+    const root = requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim();
+    const absolute = resolve(path);
+    const relativePath = absolute.startsWith(`${root}/`) ? absolute.slice(root.length + 1) : absolute;
+    const tracked = runGit(root, ["ls-files", "--error-unmatch", "--", relativePath]);
+    if (tracked.status === 0) {
+      const status = requiredGit(root, ["status", "--porcelain=v1", "--", relativePath], "path-state observation");
+      return status.stdout.trim() ? "tracked_dirty" : "tracked_clean";
+    }
+    const ignored = runGit(root, ["check-ignore", "-q", "--", relativePath]);
+    if (ignored.status === 0) return "ignored";
+    return existsSync(absolute) ? "untracked" : "missing";
   }
 
   listFiles(): string[] {

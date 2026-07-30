@@ -6,7 +6,7 @@ import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
 import { RepositoryObservationError } from "../domain/errors.ts";
 import { sha256 } from "../util/hash.ts";
 import { isSourcePath } from "./source-path.ts";
-import type { RepositoryCommitResult, RepositoryProvider, RepositoryProviderStatus } from "./repository-provider.ts";
+import type { RepositoryCommitResult, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus } from "./repository-provider.ts";
 
 interface CommandResult {
   status: number;
@@ -163,6 +163,19 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     const args = ["diff", "--from", reference, "--to", "@", "--git", "--color", "never"];
     if (path !== undefined) args.push("--", path);
     return required(this.executable, this.cwd, args, `diff from ${reference}`).stdout;
+  }
+
+  classifyPath(path: string): RepositoryPathState {
+    const root = required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim();
+    const absolute = resolve(path);
+    const relativePath = absolute.startsWith(`${root}/`) ? absolute.slice(root.length + 1) : absolute;
+    const listed = run(this.executable, root, ["file", "list", relativePath]);
+    if (listed.status === 0 && lines(listed.stdout).includes(relativePath)) {
+      return this.observeRawChangedPaths().includes(relativePath) ? "tracked_dirty" : "tracked_clean";
+    }
+    const ignored = spawnSync("git", ["check-ignore", "-q", "--", relativePath], { cwd: root, env: process.env, shell: false });
+    if (ignored.status === 0) return "ignored";
+    return existsSync(absolute) ? "untracked" : "missing";
   }
 
   listFiles(): string[] {

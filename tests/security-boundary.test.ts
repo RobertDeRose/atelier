@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -61,45 +61,23 @@ test("adversarial shell forms never inherit repository-read authorization", () =
   }
 });
 
-test("untrusted project configuration cannot execute providers or redirect runtime state", async () => {
-  const root = createUntrustedRepository("atlr-untrusted-open-");
-  const marker = join(root, "provider-executed");
-  const executable = join(root, "malicious-provider.mjs");
-  writeFileSync(executable, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed')\n`, "utf8");
-  chmodSync(executable, 0o755);
+test("startup workspace requires no Atelier trust and runtime state remains external", async () => {
+  const root = createUntrustedRepository("atlr-workspace-open-");
   writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
-    repositoryProvider: "jj",
-    jjCommand: executable,
-    taskProvider: "beads",
-    beadsCommand: executable,
-    codeProvider: "codesearch",
-    codeCommand: executable,
+    repositoryProvider: "git", taskProvider: "none", codeProvider: "disabled",
     runtimeDirectory: join(root, ".atelier", "runtime-escape"),
     databasePath: join(root, ".atelier", "project-owned.db"),
   }), "utf8");
-
   try {
     const config = loadConfig(root);
-    assert.equal(config.projectTrusted, false);
-    assert.notEqual(config.jjCommand, executable);
-    assert.notEqual(config.beadsCommand, executable);
-    assert.notEqual(config.codeCommand, executable);
+    assert.equal(config.projectTrusted, true);
+    assert.equal(config.workspaceRoot, realpathSync.native(root));
     assert.equal(isPathWithin(config.runtimeDirectory, root, "write"), false);
     assert.equal(isPathWithin(config.databasePath, root, "write"), false);
-
-    const core = AtelierCore.open(root);
-    try {
-      assert.equal(core.repository.name, "none");
-      assert.equal((await core.taskProvider.status()).provider, "none");
-      assert.equal(existsSync(marker), false);
-    } finally {
-      await core.close();
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    const core = AtelierCore.open(root, { taskProvider: "none" });
+    try { assert.equal(core.repository.name, "git"); } finally { await core.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
-
 
 test("user-level runtime configuration cannot move mutable state into the project", () => {
   const root = createTemporaryRepository("atlr-external-runtime-");
@@ -114,29 +92,21 @@ test("user-level runtime configuration cannot move mutable state into the projec
   }
 });
 
-test("doctor is observational and does not open repository-controlled providers or create project state", () => {
+test("doctor is observational and reports the automatic workspace without creating runtime state", () => {
   const root = createUntrustedRepository("atlr-doctor-observational-");
-  const marker = join(root, "doctor-provider-executed");
-  const executable = join(root, "doctor-provider.mjs");
-  writeFileSync(executable, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed')\n`, "utf8");
-  chmodSync(executable, 0o755);
-  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({ repositoryProvider: "jj", jjCommand: executable }), "utf8");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({ repositoryProvider: "git", taskProvider: "none", codeProvider: "disabled" }), "utf8");
   const runtime = loadConfig(root).runtimeDirectory;
-
   try {
     assert.equal(existsSync(runtime), false);
     const result = runCli(root, ["doctor"]);
     assert.equal(result.status, 0, result.stderr);
-    const report = JSON.parse(result.stdout) as { observational: boolean; trust: { trusted: boolean }; configuredProviders: Record<string, string> };
+    const report = JSON.parse(result.stdout) as { observational: boolean; workspace: { root: string; policy: string }; configuredProviders: Record<string, string> };
     assert.equal(report.observational, true);
-    assert.equal(report.trust.trusted, false);
-    assert.deepEqual(report.configuredProviders, { repository: "disabled", tasks: "disabled", code: "disabled" });
-    assert.equal(existsSync(marker), false);
-    assert.equal(existsSync(join(root, ".atelier", "atelier.db")), false);
+    assert.equal(report.workspace.root, realpathSync.native(root));
+    assert.equal(report.workspace.policy, "workspace_recoverability");
+    assert.deepEqual(report.configuredProviders, { repository: "git", tasks: "none", code: "disabled" });
     assert.equal(existsSync(runtime), false);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("real-path confinement rejects existing and not-yet-created targets below an escaping symlink", () => {

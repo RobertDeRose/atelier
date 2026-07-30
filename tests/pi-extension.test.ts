@@ -126,72 +126,23 @@ test("Pi status presentation distinguishes missing plans, execution grants, and 
   assert.equal(vcsStatusText(active), "git 12345678");
 });
 
-test("Pi reserves /trust while Atelier exposes a working /atelier-trust command", async () => {
+test("Pi /trust remains independent and Atelier establishes the startup workspace without a trust command", async () => {
   const { events, commands } = registerTrustCommandHarness();
-  assert.equal(commands.has("trust"), false, "Pi's built-in /trust command must remain unshadowed");
-  assert.ok(commands.has("atelier-trust"));
-
-  const root = createTemporaryRepository("atlr-pi-trust-command-");
-  const canonicalRoot = projectTrustStatus(root).root;
-  revokeProjectTrust(root);
-  const notifications: string[] = [];
-  const confirms = { count: 0 };
-  const context = fakeContext(root, confirms, [], { notifications });
+  assert.equal(commands.has("trust"), false, "Pi owns /trust");
+  assert.equal(commands.has("atelier-trust"), false, "Atelier no longer exposes a second trust UI");
+  const root = createTemporaryRepository("atlr-pi-workspace-");
+  const context = fakeContext(root, { count: 0 });
   try {
     await events.get("session_start")!({}, context);
-    assert.equal(projectTrustStatus(root).trusted, false);
-    assert.ok(notifications.some((message) => /Use \/atelier-trust\./.test(message)));
-
-    await commands.get("atelier-trust")!.handler("", context);
-    assert.equal(confirms.count, 1);
-    assert.equal(projectTrustStatus(root).trusted, true);
-    assert.ok(notifications.some((message) => message === `Trusted ${canonicalRoot}.`));
+    const core = AtelierCore.open(root, { taskProvider: "none" });
+    assert.equal(core.config.workspaceRoot, realpathSync.native(root));
+    assert.equal(core.config.workspaceSource, "startup_cwd");
+    await core.close();
   } finally {
     await events.get("session_shutdown")!({}, context);
-    revokeProjectTrust(root);
     rmSync(root, { recursive: true, force: true });
   }
 });
-
-test(
-  "Pi /atelier-trust reports one canonical project identity through repository aliases",
-  { skip: process.platform === "win32" },
-  async () => {
-    const { events, commands } = registerTrustCommandHarness();
-    const root = createTemporaryRepository("atlr-pi-trust-canonical-");
-    const aliasParent = mkdtempSync(join(tmpdir(), "atlr-pi-trust-alias-"));
-    const aliasRoot = join(aliasParent, "repository");
-    symlinkSync(root, aliasRoot, "dir");
-    const canonicalRoot = realpathSync.native(root);
-    revokeProjectTrust(aliasRoot);
-
-    const notifications: string[] = [];
-    const confirms = { count: 0 };
-    const context = fakeContext(aliasRoot, confirms, [], { notifications });
-    try {
-      const untrusted = projectTrustStatus(aliasRoot);
-      assert.equal(untrusted.root, canonicalRoot);
-      assert.equal(untrusted.trusted, false);
-
-      await events.get("session_start")!({}, context);
-      await commands.get("atelier-trust")!.handler("", context);
-
-      const aliasStatus = projectTrustStatus(aliasRoot);
-      const canonicalStatus = projectTrustStatus(root);
-      assert.equal(confirms.count, 1);
-      assert.equal(aliasStatus.trusted, true);
-      assert.equal(canonicalStatus.trusted, true);
-      assert.equal(aliasStatus.root, canonicalRoot);
-      assert.equal(canonicalStatus.root, canonicalRoot);
-      assert.ok(notifications.some((message) => message === `Trusted ${canonicalRoot}.`));
-    } finally {
-      await events.get("session_shutdown")!({}, context);
-      revokeProjectTrust(aliasRoot);
-      rmSync(aliasParent, { recursive: true, force: true });
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
 
 test("Pi extension keeps provider-first discovery advisory while confining typed reads and prompting for shell", async () => {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
@@ -227,7 +178,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   ]) {
     assert.ok(events.has(event), `missing event ${event}`);
   }
-  for (const command of ["atelier-trust", "status", "plan", "review", "approve", "execute", "cancel", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence", "review-diff", "commit", "close"]) {
+  for (const command of ["status", "plan", "review", "approve", "execute", "cancel", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence", "review-diff", "commit", "close"]) {
     assert.ok(commands.has(command), `missing command ${command}`);
   }
   assert.equal(commands.has("trust"), false, "Pi reserves /trust; Atelier must not register a conflicting command");
@@ -275,11 +226,13 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   assert.equal(readOnlyCompound, undefined);
   assert.equal(confirms.count, 1, "generic shell remains unconfined even when its command appears read-only");
   const shellLedger = new SqliteLedger(testDatabasePath(root));
-  const shellDecision = shellLedger.listEvents({ kind: "policy.decision", limit: 20 })
-    .map((event) => event.payload as { action?: string; result?: string })
-    .find((decision) => decision.action === "command.execute" && decision.result === "allow");
+  const shellDecision = shellLedger.listEvents({ kind: "policy.decision", limit: 30 })
+    .map((event) => event.payload as { action?: string; result?: string; matchedRules?: string[] })
+    .find((decision) => decision.action === "command.execute"
+      && decision.result === "allow"
+      && decision.matchedRules?.includes("matched concrete workspace-policy approval"));
   shellLedger.close();
-  assert.ok(shellDecision, "generic Pi shell must be authorized as command.execute even when classification is read-only");
+  assert.ok(shellDecision, "generic Pi shell must receive one concrete workspace-policy approval");
 
 
   for (const command of [

@@ -6,13 +6,8 @@ import { fileURLToPath } from "node:url";
 import {
   ATELIER_VERSION,
   AtelierCore,
-  approveWorkspaceRoot,
   classifyShellCommand,
   loadConfig,
-  projectTrustStatus,
-  revokeProjectTrust,
-  revokeWorkspaceRoot,
-  trustProject,
   resolveEditorCommand,
 } from "../../../packages/core/src/index.ts";
 import { flagBoolean, flagString, parseArgs } from "./arguments.ts";
@@ -43,8 +38,6 @@ Usage:
 
 Commands:
   launch [PI_ARGS...]              Launch Pi with the Atelier extension loaded
-  trust [status|add|revoke]         Manage the external project trust decision
-  trust workspace <add|revoke> PATH Approve additional multi-repository roots
   init [--beads] [--stealth]       Initialize project configuration and a plan document
   repo status [--json]             Show the selected repository provider and identity
   repo review-diff [--json]        Record review of the exact current task diff
@@ -66,9 +59,8 @@ Commands:
   task show ID [--json]             Read one provider task
   task start [ID] [--yes]           Explicitly activate a later approved-plan task
   task close ID --reason TEXT       Close a task with evidence
-  permission list [--json]          List active grants
-  permission grant NAME [options]   Grant an explicit permission
-  permission revoke ID              Revoke a grant
+  authority list [--json]           List active task authority
+  permission list [--json]          Deprecated alias for authority list
   policy command "COMMAND"          Classify and evaluate a shell command
   state [--task ID] [--json]        Build deterministic task-backed Working State
   code providers [--json]           List configured code-intelligence providers
@@ -86,17 +78,13 @@ Commands:
   validate run NAME [--json]        Run a configured validation and persist evidence
   evidence [--name NAME] [--json]   Show validation evidence and freshness
   ledger tail [--limit N] [--json]  Show recent durable events
+  recovery list [--json]            List automatic recovery checkpoints
+  recovery restore ID               Restore one checkpoint
 
 Code search options:
   --mode auto|semantic|hybrid|lexical
   --focus auto|source|tests|docs|all
   --hint IDENTIFIER[,IDENTIFIER...] Exact identifiers for bounded lexical augmentation
-
-Permission grant options:
-  --scope operation|task|repository
-  --task ID
-  --path PATH                       Repeat by using comma-separated paths
-  --reason TEXT
 
 Atelier owns the Code provider contract, provenance, and Working State integration. External providers own code indexing.
 `);
@@ -140,61 +128,22 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (command === "trust") {
-    const action = subcommand ?? "add";
-    if (action === "status") {
-      asJson(projectTrustStatus(root));
-      return;
-    }
-    if (action === "workspace") {
-      const workspaceAction = rest[0];
-      const workspaceRoot = rest[1];
-      if (!workspaceRoot || !["add", "revoke"].includes(workspaceAction ?? "")) {
-        throw new Error("Usage: atlr trust workspace <add|revoke> PATH --yes");
-      }
-      if (!await explicitConfirmation(parsed, `${workspaceAction === "add" ? "Approve" : "Revoke"} workspace root ${resolve(workspaceRoot)}?`)) {
-        process.stdout.write("Workspace trust change cancelled.\n");
-        return;
-      }
-      const record = workspaceAction === "add"
-        ? approveWorkspaceRoot(root, workspaceRoot)
-        : revokeWorkspaceRoot(root, workspaceRoot);
-      asJson(record);
-      return;
-    }
-    if (!["add", "revoke"].includes(action)) throw new Error("Usage: atlr trust [status|add|revoke] [--yes]");
-    if (!await explicitConfirmation(parsed, `${action === "add" ? "Trust" : "Revoke trust for"} project ${root}?`)) {
-      process.stdout.write("Project trust change cancelled.\n");
-      return;
-    }
-    if (action === "add") asJson({ trusted: true, record: trustProject(root), storePath: projectTrustStatus(root).storePath });
-    else asJson({ trusted: false, revoked: revokeProjectTrust(root), root, storePath: projectTrustStatus(root).storePath });
-    return;
-  }
 
   if (command === "doctor") {
-    const trust = projectTrustStatus(root);
-    const config = loadConfig(root, { projectTrusted: trust.trusted });
-    const editor = trust.trusted ? (() => {
+    const config = loadConfig(root);
+    const editor = (() => {
       try { return resolveEditorCommand(config, false); }
       catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
-    })() : { disabled: true, reason: "Project is not trusted; repository editor configuration was not loaded." };
+    })();
     asJson({
       observational: true,
       node: { version: process.version, supported: Number(process.versions.node.split(".")[0]) >= 24 },
-      git: commandAvailable("git"),
-      jj: commandAvailable("jj"),
-      pi: commandAvailable("pi"),
-      trust,
+      git: commandAvailable("git"), jj: commandAvailable("jj"), pi: commandAvailable("pi"),
+      workspace: { root: config.workspaceRoot, source: config.workspaceSource, policy: "workspace_recoverability" },
+      piTrust: "Pi /trust controls project-local Pi resources only.",
       editor,
-      configuredProviders: trust.trusted ? {
-        repository: config.repositoryProvider,
-        tasks: config.taskProvider,
-        code: config.codeProvider,
-      } : { repository: "disabled", tasks: "disabled", code: "disabled" },
-      projectConfigPath: config.projectConfigPath,
-      runtimeDirectory: config.runtimeDirectory,
-      repositoryRoot: root,
+      configuredProviders: { repository: config.repositoryProvider, tasks: config.taskProvider, code: config.codeProvider },
+      projectConfigPath: config.projectConfigPath, runtimeDirectory: config.runtimeDirectory, repositoryRoot: root,
     });
     return;
   }
@@ -392,6 +341,7 @@ async function main(): Promise<void> {
         return;
       }
 
+      case "authority":
       case "permission": {
         await handlePermissions(core, subcommand, rest, parsed);
         return;
@@ -493,6 +443,24 @@ async function main(): Promise<void> {
         if (flagBoolean(parsed, "json")) asJson(evidence);
         else for (const item of evidence) process.stdout.write(`${item.startedAt}\t${item.name}\t${item.status}\t${item.stale ? "stale" : "current"}\n`);
         return;
+      }
+
+      case "recovery": {
+        if (subcommand === "list" || subcommand === undefined) {
+          const checkpoints = core.recovery.list();
+          if (flagBoolean(parsed, "json")) asJson(checkpoints);
+          else for (const checkpoint of checkpoints) process.stdout.write(`${checkpoint.id}\t${checkpoint.createdAt}\t${checkpoint.paths.length} path(s)\n`);
+          return;
+        }
+        if (subcommand === "restore") {
+          const id = rest[0];
+          if (!id) throw new Error("Usage: atlr recovery restore ID");
+          const paths = core.restoreCheckpoint(id);
+          if (flagBoolean(parsed, "json")) asJson({ id, paths });
+          else process.stdout.write(`Restored ${paths.length} path(s) from ${id}.\n`);
+          return;
+        }
+        throw new Error("Usage: atlr recovery <list|restore ID>");
       }
 
       case "ledger": {
