@@ -261,15 +261,13 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
       select: async () => undefined,
       notify: (message: string) => { notifications.push(message); },
       setStatus: () => {},
-      custom: async (factory: any) => {
-        let result: unknown;
+      custom: async (factory: any) => await new Promise((resolve) => {
         factory({
           stop: () => { stopped += 1; },
           start: () => { started += 1; },
           requestRender: () => {},
-        }, {}, {}, (value: unknown) => { result = value; });
-        return result;
-      },
+        }, {}, {}, resolve);
+      }),
     },
   } as unknown as ExtensionCommandContext;
 
