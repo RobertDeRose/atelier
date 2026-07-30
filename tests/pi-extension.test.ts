@@ -9,8 +9,6 @@ import {
   AtelierCore,
   InMemoryTaskProvider,
   MockCodeProvider,
-  projectTrustStatus,
-  revokeProjectTrust,
   SqliteLedger,
 } from "../packages/core/src/index.ts";
 import type {

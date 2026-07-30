@@ -71,32 +71,19 @@ dist/packages/core/src/index.d.ts
 dist/apps/pi-extension/src/index.js
 ```
 
-## Project trust
+## Workspace policy and Pi trust
 
-Repository-owned configuration is ignored until the user trusts the project:
+Atelier establishes the canonical startup directory as the immutable filesystem workspace for the current session. No Atelier trust command, trust database, or persistent workspace approval is required.
 
 ```sh
-atlr trust status
-atlr trust add --yes
+cd /path/to/repository
+atlr doctor
 atlr init
 ```
 
-The trust record is stored under the user state directory, normally:
+Pi `/trust` remains independent. It controls loading project-local Pi resources; it does not grant Atelier filesystem authority. Atelier evaluates concrete filesystem effects against workspace containment, likely-secret paths, privilege escalation, and VCS/checkpoint recoverability.
 
-```text
-~/.local/state/atelier/trusted-projects.json
-```
-
-`ATLR_TRUST_STORE` can override that location, but the trust store must remain outside the project.
-Before trust, Atelier does not start repository-configured VCS, task, validation, editor, or code-provider
-commands. `atlr doctor` is observational: it does not open the ledger, start providers, or create project
-state.
-
-Revoke trust with:
-
-```sh
-atlr trust revoke --yes
-```
+`atlr doctor` is observational: it does not open the ledger, start providers, or create project state.
 
 ## Project files and runtime state
 
@@ -134,7 +121,6 @@ source. Missing, unknown, inconsistent, absolute, out-of-root, or non-source ent
 A normal CLI workflow is:
 
 ```sh
-atlr trust add --yes
 atlr init --beads
 atlr plan "describe the objective"
 atlr review
@@ -268,21 +254,16 @@ atlr changed --json
 
 ## Multi-repository workspaces
 
-An additional workspace root must be separately approved outside repository configuration:
+Start Atelier with an explicit common workspace root when repositories are siblings or nested below a shared directory:
 
 ```sh
-atlr trust workspace add ../another-repository --yes
+atlr --workspace ../workspace workspace status
+atlr --workspace ../workspace launch
 ```
 
-Then declare it in `.atelier/workspace.json`. Each repository receives a real VCS snapshot. Exact
-approval and resume bind every root independently; drift in a secondary repository invalidates the
-execution rather than reusing stale retrieval evidence.
+Declare repository identities in `.atelier/workspace.json`. Each repository receives an independent VCS snapshot. Task execution paths use `repository-id::relative/path` when they target a non-primary repository. Exact approval and resume bind every repository independently; secondary drift invalidates execution rather than reusing stale evidence.
 
-Remove an approved secondary root with:
-
-```sh
-atlr trust workspace revoke ../another-repository --yes
-```
+No persistent trust or workspace approval is created. The explicit workspace applies only to the current process.
 
 ## Code intelligence
 
@@ -318,12 +299,11 @@ atlr launch
 mise run launch
 ```
 
-Pi reserves `/trust` for Pi-owned project resources. Atelier uses `/trust` (Pi resources only) for the separate external trust record that gates `.atelier` configuration and provider execution. The CLI remains `atlr trust ...`.
+Pi reserves `/trust` for Pi-owned project resources. Atelier does not register another trust command and does not use Pi trust as filesystem authority. The Atelier workspace policy is established from the startup directory or `--workspace`.
 
 Core slash commands include:
 
 ```text
-/trust
 /plan
 /review
 /approve

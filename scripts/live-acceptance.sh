@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="5"
+HARNESS_VERSION="10"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
 PI_TIMEOUT_SECONDS="${ATELIER_PI_TIMEOUT_SECONDS:-600}"
 SOURCE_REPO=""
@@ -34,7 +34,7 @@ Commands:
   resume restart
                Reuse a run that passed the headless shell gate and stopped while
                verifying restart reconstruction. Continue without repeating the shell gate.
-  prepare-tui  Prepare an untrusted trust-smoke clone and a trusted workflow-smoke clone.
+  prepare-tui  Prepare a Pi-trust-independence clone and a workflow-control clone.
   archive      Archive the current run's evidence directory.
   status       Print the current run location and repository states.
 
@@ -296,7 +296,6 @@ write_environment() {
 export ATELIER_MANUAL_ROOT="$manual_root"
 export ATLR_REPO="$repo"
 export ATLR_STATE_HOME="$manual_root/state"
-export ATLR_TRUST_STORE="$manual_root/trusted-projects.json"
 export ATLR_USER_CONFIG="$manual_root/user-config.json"
 export VISUAL="\${VISUAL:-hx}"
 export EDITOR="\${EDITOR:-\$VISUAL}"
@@ -358,33 +357,29 @@ create_automated_workspace() {
   pass "created persistent automated workspace at $ATELIER_MANUAL_ROOT"
 }
 
-pretrust_and_trust() {
-  log "observational doctor before trust"
+verify_workspace_policy() {
+  log "observational doctor and startup workspace policy"
   find .atelier -type f -print 2>/dev/null | LC_ALL=C sort >"$EVIDENCE_DIR/files-before-doctor.txt"
-  "${ATLR_BIN[@]}" doctor >"$EVIDENCE_DIR/doctor-before-trust.json"
-  "${ATLR_BIN[@]}" trust status >"$EVIDENCE_DIR/trust-before.json"
+  "${ATLR_BIN[@]}" doctor >"$EVIDENCE_DIR/doctor.json"
   find .atelier -type f -print 2>/dev/null | LC_ALL=C sort >"$EVIDENCE_DIR/files-after-doctor.txt"
   diff -u "$EVIDENCE_DIR/files-before-doctor.txt" "$EVIDENCE_DIR/files-after-doctor.txt" >"$EVIDENCE_DIR/doctor-file-diff.txt" || {
     cat "$EVIDENCE_DIR/doctor-file-diff.txt" >&2
     fail "doctor changed project files"
   }
-  [[ ! -e "$ATLR_STATE_HOME" ]] || fail "doctor created runtime state before trust"
-  json_assert "$EVIDENCE_DIR/doctor-before-trust.json" '
+  [[ ! -e "$ATLR_STATE_HOME" ]] || fail "doctor created runtime state"
+  json_assert "$EVIDENCE_DIR/doctor.json" '
     assert(data.observational === true, "doctor was not observational");
-    assert(data.trust?.trusted === false, "project was unexpectedly trusted");
-    assert(data.configuredProviders?.repository === "disabled", "repository provider started before trust");
-    assert(data.configuredProviders?.tasks === "disabled", "task provider started before trust");
-    assert(data.configuredProviders?.code === "disabled", "code provider started before trust");
+    assert(data.workspace?.policy === "workspace_recoverability", `unexpected policy: ${data.workspace?.policy}`);
+    assert(data.workspace?.source === "startup_cwd", `unexpected workspace source: ${data.workspace?.source}`);
+    assert(typeof data.workspace?.root === "string" && data.workspace.root.length > 0, "workspace root missing");
+    assert(!("trust" in data), "legacy Atelier trust state is still exposed");
   '
-
-  "${ATLR_BIN[@]}" trust add --yes >"$EVIDENCE_DIR/trust-add.json"
-  "${ATLR_BIN[@]}" trust status >"$EVIDENCE_DIR/trust-after.json"
-  cp "$ATLR_TRUST_STORE" "$EVIDENCE_DIR/trusted-projects-snapshot.json"
-  json_assert "$EVIDENCE_DIR/trust-after.json" '
-    assert(data.trusted === true, "project trust was not recorded");
-    assert(data.record?.workspaceRoots?.includes(data.root), "canonical root was not approved as a workspace root");
-  '
-  pass "doctor remained observational and CLI trust was recorded externally"
+  [[ "$(canonical_dir "$ATLR_REPO")" == "$(json_value "$EVIDENCE_DIR/doctor.json" 'data.workspace.root')" ]] \
+    || fail "doctor workspace root does not match the canonical startup directory"
+  if "${ATLR_BIN[@]}" trust status >"$EVIDENCE_DIR/legacy-trust-command.txt" 2>&1; then
+    fail "legacy Atelier trust command is still available"
+  fi
+  pass "doctor remained observational and startup established the immutable workspace without Atelier trust"
 }
 
 initialize_and_baseline() {
@@ -857,7 +852,6 @@ write_aux_env() {
 export ATELIER_MANUAL_ROOT="$root"
 export ATLR_REPO="$repo"
 export ATLR_STATE_HOME="$root/state"
-export ATLR_TRUST_STORE="$root/trusted-projects.json"
 export ATLR_USER_CONFIG="$root/user-config.json"
 export VISUAL="\${VISUAL:-hx}"
 export EDITOR="\${EDITOR:-\$VISUAL}"
@@ -872,19 +866,19 @@ prepare_tui_workspaces() {
   rm -rf "$tui_root"
   mkdir -p "$tui_root"
 
-  log "prepare untrusted Pi/Atelier trust smoke workspace"
-  git clone --no-hardlinks "$SOURCE_REPO" "$tui_root/trust/repo"
-  write_aux_env "$tui_root/trust" "$tui_root/trust/repo"
+  log "prepare Pi-trust-independence workspace"
+  git clone --no-hardlinks "$SOURCE_REPO" "$tui_root/pi-trust/repo"
+  write_aux_env "$tui_root/pi-trust" "$tui_root/pi-trust/repo"
   (
     # shellcheck disable=SC1091
-    source "$tui_root/trust/env.sh"
+    source "$tui_root/pi-trust/env.sh"
     cd "$ATLR_REPO"
     jj git init --colocate
     mise install
     mise run install
   )
 
-  log "prepare trusted workflow-control TUI workspace"
+  log "prepare workflow-control TUI workspace"
   git clone --no-hardlinks "$SOURCE_REPO" "$tui_root/control/repo"
   write_aux_env "$tui_root/control" "$tui_root/control/repo"
   (
@@ -894,7 +888,6 @@ prepare_tui_workspaces() {
     jj git init --colocate
     mise install
     mise run install
-    node "$ATLR_REPO/bin/atlr.mjs" trust add --yes >/dev/null
     node "$ATLR_REPO/bin/atlr.mjs" init --beads >/dev/null
     cat >.atelier/validation.json <<'JSON'
 {
@@ -921,8 +914,8 @@ JSON
   )
 
   cat >"$tui_root/README.txt" <<EOF
-TUI trust smoke:
-  source "$tui_root/trust/env.sh"
+Pi trust independence smoke:
+  source "$tui_root/pi-trust/env.sh"
   cd "\$ATLR_REPO"
   mise run launch
 
@@ -931,7 +924,7 @@ TUI workflow/control smoke:
   cd "\$ATLR_REPO"
   mise run launch
 
-See docs/LOCAL_ACCEPTANCE.md in the alpha.8 repository for the interactive checklist.
+See docs/LOCAL_ACCEPTANCE.md in the current repository for the interactive checklist.
 EOF
   pass "prepared TUI-only workspaces under $tui_root"
 }
@@ -940,7 +933,7 @@ archive_evidence() {
   load_current_workspace
   local output="$ATELIER_MANUAL_ROOT/atelier-live-acceptance-evidence.tar.xz"
   tar -C "$ATELIER_MANUAL_ROOT" -cJf "$output" \
-    evidence env.sh trusted-projects.json tui 2>/dev/null || \
+    evidence env.sh tui 2>/dev/null || \
     tar -C "$ATELIER_MANUAL_ROOT" -cJf "$output" evidence env.sh
   printf '%s\n' "$output"
 }
@@ -952,8 +945,8 @@ show_status() {
   printf 'Evidence: %s\n' "$EVIDENCE_DIR"
   printf '\nAutomated repository state:\n'
   jj status || true
-  if [[ -d "$ATELIER_MANUAL_ROOT/tui/trust/repo" ]]; then
-    printf '\nTUI trust workspace: %s\n' "$ATELIER_MANUAL_ROOT/tui/trust/repo"
+  if [[ -d "$ATELIER_MANUAL_ROOT/tui/pi-trust/repo" ]]; then
+    printf '\nTUI Pi-trust-independence workspace: %s\n' "$ATELIER_MANUAL_ROOT/tui/pi-trust/repo"
   fi
   if [[ -d "$ATELIER_MANUAL_ROOT/tui/control/repo" ]]; then
     printf 'TUI control workspace: %s\n' "$ATELIER_MANUAL_ROOT/tui/control/repo"
@@ -963,7 +956,7 @@ show_status() {
 run_automated() {
   jsonl_parser_self_check
   create_automated_workspace "${1:-$PWD}"
-  pretrust_and_trust
+  verify_workspace_policy
   initialize_and_baseline
   verify_shell_policy
   verify_code_intelligence

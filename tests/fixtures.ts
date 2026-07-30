@@ -3,11 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { loadConfig } from "../packages/core/src/config/config.ts";
-import { trustProject } from "../packages/core/src/security/project-trust.ts";
 
 const TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), `atlr-test-state-${process.pid}-`));
 process.env.ATLR_STATE_HOME = join(TEST_STATE_ROOT, "runtime");
-process.env.ATLR_TRUST_STORE = join(TEST_STATE_ROOT, "trusted-projects.json");
 
 export const VALID_PLAN = `# Atelier Test Plan
 
@@ -116,7 +114,6 @@ export function createTemporaryRepository(prefix = "atlr-test-"): string {
     { cwd: root, encoding: "utf8", shell: false },
   );
   if (initial.status !== 0) throw new Error(initial.stderr || "Unable to commit test repository baseline");
-  trustProject(root);
   return root;
 }
 

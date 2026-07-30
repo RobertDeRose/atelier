@@ -35,10 +35,10 @@ export async function runInteractiveProcess(options: {
 export async function runConfiguredEditor(options: {
   config: AtelierConfig;
   path: string;
-  projectTrusted?: boolean;
+  piProjectTrusted?: boolean;
   signal?: AbortSignal | undefined;
 }): Promise<InteractiveProcessResult & { editor: EditorCommand }> {
-  const editor = resolveEditorCommand(options.config, options.projectTrusted ?? false);
+  const editor = resolveEditorCommand(options.config, options.piProjectTrusted ?? false);
   const result = await runInteractiveProcess({
     command: editor.executable,
     args: [...editor.args, options.path],

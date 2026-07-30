@@ -19,14 +19,14 @@ bypass execution evidence.
 
 **Verification:** adversarial command corpus in `tests/security-boundary.test.ts`.
 
-## Recommendation 2 — Add external project trust
+## Recommendation 2 — External project trust (superseded by workspace policy)
 
 **Status:** Corrected.
 
 Trust records are stored outside the repository. Repository configuration is ignored until the canonical
 root has an external trust record.
 
-**Implementation:** `packages/core/src/security/project-trust.ts`, `atlr trust ...`.
+**Superseded:** Atelier 0.14.0-alpha.10 removed project trust. ADR-0032 establishes the immutable startup workspace and recoverability policy; old trust stores are ignored.
 
 **Verification:** untrusted-open and external-trust tests in `tests/security-boundary.test.ts`.
 

@@ -47,7 +47,6 @@ const ROUTINE_ACT_ACTIONS = new Set<ActionKind>([
 
 export interface PolicyState {
   mode: WorkflowMode;
-  projectTrusted: boolean;
   repositoryRoot: string;
   repositoryReadRoots?: string[];
   planPath: string;
@@ -108,22 +107,9 @@ export class PolicyEngine {
     const matchedRules: string[] = [];
     const constraints: string[] = [];
 
-    if (!state.projectTrusted) {
-      matchedRules.push("repository operations are disabled until an external project trust decision exists");
-      return this.decision(
-        request.action,
-        "deny",
-        matchedRules,
-        [requiredPermission],
-        constraints,
-        "Trust this project before Atelier reads files or executes repository-controlled tools.",
-        requiredPermission,
-      );
-    }
-
     if (request.action === "read.repository" && request.boundary !== "unconfined" && readPathsWithinApprovedRoots(request, state)) {
       const roots = state.repositoryReadRoots?.length ? state.repositoryReadRoots : [state.repositoryRoot];
-      matchedRules.push("typed repository reads are allowed inside externally approved real-path boundaries");
+      matchedRules.push("typed repository reads are allowed inside session workspace real-path boundaries");
       constraints.push(`resolved paths must remain within ${roots.join(", ")}`);
       return this.decision(request.action, "allow", matchedRules, [], constraints, "Repository-scoped typed read allowed.", requiredPermission);
     }

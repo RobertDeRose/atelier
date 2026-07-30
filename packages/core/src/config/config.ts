@@ -11,8 +11,6 @@ export interface AtelierConfig {
   repositoryRoot: string;
   workspaceRoot: string;
   workspaceSource: "startup_cwd" | "explicit";
-  /** @deprecated Atelier no longer requires project trust. */
-  projectTrusted: true;
   projectDirectory: string;
   projectConfigPath: string;
   validationPath: string;
@@ -129,7 +127,7 @@ function resolveFromRoot(root: string, value: string): string {
 function requireProjectPath(root: string, value: string, field: string): string {
   const path = resolveFromRoot(root, value);
   if (!isPathWithin(path, root, "write")) {
-    throw new ConfigurationError(`${field} must remain inside the trusted project root: ${path}`);
+    throw new ConfigurationError(`${field} must remain inside the project root: ${path}`);
   }
   return path;
 }
@@ -181,7 +179,6 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
     repositoryRoot: root,
     workspaceRoot: root,
     workspaceSource: workspace.source,
-    projectTrusted: true,
     projectDirectory, projectConfigPath, validationPath, workspacePath, runtimeDirectory, stateDirectory: runtimeDirectory, databasePath, planPath,
     ...(editor === undefined ? {} : { editor }),
     taskProvider, beadsCommand: merged.beadsCommand ?? "bd", repositoryProvider, jjCommand: merged.jjCommand ?? "jj",

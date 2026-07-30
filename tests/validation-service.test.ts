@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { AtelierCore, DisabledCodeProvider, trustProject } from "../packages/core/src/index.ts";
+import { AtelierCore, DisabledCodeProvider } from "../packages/core/src/index.ts";
 
 function validationRoot(prefix: string, validations: Record<string, unknown>): string {
   const root = mkdtempSync(join(tmpdir(), prefix));
@@ -12,7 +12,6 @@ function validationRoot(prefix: string, validations: Record<string, unknown>): s
   mkdirSync(join(root, ".atelier"));
   writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({ validations }));
   writeFileSync(join(root, "source.txt"), "one\n");
-  trustProject(root);
   return root;
 }
 

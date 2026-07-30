@@ -10,7 +10,7 @@ errors and from observations the evidence did not prove.
 The manual run confirmed several boundaries that alpha.6 preserves:
 
 - pre-trust `doctor` was observational and did not create runtime state;
-- project trust and runtime SQLite state were external to the repository;
+- runtime SQLite state was external to the repository;
 - adversarial generic-shell commands were authorized as unconfined `command.execute` operations requiring
   one-operation approval;
 - rejecting exact approval performed no Beads mutation and installed no execution grant or permissions;
@@ -243,7 +243,7 @@ structured diagnostics retain complete detail.
 ### Trust-store snapshot truncated the authoritative file
 
 The previous procedure piped the trust store through `tee` to the same path, truncating it. The safe
-procedure copies it to `trusted-projects-snapshot.json`.
+legacy procedure copied it to `trusted-projects-snapshot.json`; this no longer applies because Atelier trust persistence was removed.
 
 ### Temporary workspaces were lost after reboot
 

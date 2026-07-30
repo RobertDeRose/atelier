@@ -3,7 +3,7 @@
 ## Product boundary
 
 Atelier is a local-first workflow control plane for an Agentic Development Environment. The CLI is
-`atlr`; Pi is the current interactive host. Atelier owns project trust, reviewed-plan execution,
+`atlr`; Pi is the current interactive host. Atelier owns session-workspace policy, reviewed-plan execution,
 authorization, task reconciliation, durable evidence, validation closure, Working State, and normalized
 code-provider orchestration.
 

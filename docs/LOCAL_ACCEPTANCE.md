@@ -1,6 +1,6 @@
 # Local Acceptance Workflow — 0.14.0-alpha.10
 
-This is the maintainer gate for Atelier's trusted plan-to-commit workflow. The deterministic suite is
+This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
 and a terminal.
 
@@ -13,7 +13,7 @@ npm run check
 npm pack --dry-run
 ```
 
-The suite covers trust, unconfined shell authorization, real-path confinement, structured task execution
+The suite covers startup-workspace selection, recoverability policy, sandboxed shell execution, real-path confinement, structured task execution
 contracts, exact capability disclosure, exact approval and rejection, passive incomplete-task handling,
 stop/pause/resume/cancel control, typed model workflow tools, per-turn hard tool restrictions, accurate
 failure/interruption and per-operation path evidence, source-only freshness, scoped commits, idempotent
@@ -39,7 +39,6 @@ cat > "$manual_root/env.sh" <<EOF_ENV
 export ATELIER_MANUAL_ROOT="$manual_root"
 export ATLR_REPO="$manual_root/repo"
 export ATLR_STATE_HOME="$manual_root/state"
-export ATLR_TRUST_STORE="$manual_root/trusted-projects.json"
 export ATLR_USER_CONFIG="$manual_root/user-config.json"
 export VISUAL="\${VISUAL:-hx}"
 export EDITOR="\${EDITOR:-\$VISUAL}"
@@ -78,38 +77,17 @@ Record the source and tools:
 } | tee "$ATELIER_MANUAL_ROOT/tool-versions.txt"
 ```
 
-## 1. Observational diagnostics and trust
-
-Before trust:
+## 1. Observational diagnostics and workspace selection
 
 ```sh
 find .atelier -type f -print 2>/dev/null | LC_ALL=C sort > "$ATELIER_MANUAL_ROOT/files-before-doctor.txt"
-atlr doctor | tee "$ATELIER_MANUAL_ROOT/doctor-before-trust.json"
-atlr trust status | tee "$ATELIER_MANUAL_ROOT/trust-before.json"
+atlr doctor | tee "$ATELIER_MANUAL_ROOT/doctor.json"
 find .atelier -type f -print 2>/dev/null | LC_ALL=C sort > "$ATELIER_MANUAL_ROOT/files-after-doctor.txt"
 diff -u "$ATELIER_MANUAL_ROOT/files-before-doctor.txt" "$ATELIER_MANUAL_ROOT/files-after-doctor.txt"
 test ! -e "$ATLR_STATE_HOME"
 ```
 
-Pass conditions: `doctor` is observational, trust is false, configured providers are disabled, no new
-project file appears, and runtime state is absent.
-
-Launch Pi, verify `/trust` belongs to Pi and `/trust` (Pi resources only) belongs to Atelier, then approve
-`/trust` (Pi resources only):
-
-```sh
-atlr launch
-```
-
-After exiting Pi:
-
-```sh
-atlr trust status | tee "$ATELIER_MANUAL_ROOT/trust-after.json"
-cp "$ATLR_TRUST_STORE" "$ATELIER_MANUAL_ROOT/trusted-projects-snapshot.json"
-cat "$ATELIER_MANUAL_ROOT/trusted-projects-snapshot.json"
-```
-
-Never pipe the trust store through `tee` to the same path; that truncates the authoritative file.
+Pass conditions: `doctor` is observational, reports the canonical startup directory as the workspace, creates no project or runtime state, and requires no Atelier trust setup. Pi `/trust` remains available only for Pi project-local resources.
 
 ## 2. Initialize and establish a clean baseline
 

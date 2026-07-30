@@ -54,14 +54,12 @@ function request(overrides: Partial<ActionRequest>): ActionRequest {
 test("plan mode allows only the designated plan document", () => {
   const allowed = policy.evaluate(request({ paths: [planPath] }), {
     mode: "plan",
-    projectTrusted: true,
     repositoryRoot,
     planPath,
     grants: [],
   });
   const denied = policy.evaluate(request({ paths: [resolve(repositoryRoot, "src/index.ts")] }), {
     mode: "plan",
-    projectTrusted: true,
     repositoryRoot,
     planPath,
     grants: [],
@@ -82,7 +80,6 @@ test("plan mode blocks task graph mutation even when a grant exists", () => {
   };
   const decision = policy.evaluate(request({ action: "task.create" }), {
     mode: "plan",
-    projectTrusted: true,
     repositoryRoot,
     planPath,
     grants: [grant],
@@ -116,23 +113,23 @@ test("act-mode agent mutation requires both execution authorization and action p
   const action = request({ paths: [sourcePath], taskId: executionGrant.taskId, repositorySnapshot: snapshot });
 
   assert.equal(policy.evaluate(action, {
-    mode: "act", projectTrusted: true, repositoryRoot, planPath, grants: [permission],
+    mode: "act", repositoryRoot, planPath, grants: [permission],
   }).result, "require_approval");
   assert.equal(policy.evaluate(action, {
-    mode: "act", projectTrusted: true, repositoryRoot, planPath, grants: [], executionGrant,
+    mode: "act", repositoryRoot, planPath, grants: [], executionGrant,
   }).result, "require_approval");
   assert.equal(policy.evaluate(action, {
-    mode: "act", projectTrusted: true, repositoryRoot, planPath, grants: [permission], executionGrant,
+    mode: "act", repositoryRoot, planPath, grants: [permission], executionGrant,
   }).result, "allow");
   assert.equal(policy.evaluate({ ...action, taskId: "other" }, {
-    mode: "act", projectTrusted: true, repositoryRoot, planPath, grants: [permission], executionGrant,
+    mode: "act", repositoryRoot, planPath, grants: [permission], executionGrant,
   }).result, "require_approval");
   assert.equal(policy.evaluate({ ...action, repositorySnapshot: { ...snapshot, workspaceId: "other" } }, {
-    mode: "act", projectTrusted: true, repositoryRoot, planPath, grants: [permission], executionGrant,
+    mode: "act", repositoryRoot, planPath, grants: [permission], executionGrant,
   }).result, "require_approval");
   const { paths: _paths, ...pathless } = action;
   assert.equal(policy.evaluate(pathless, {
-    mode: "act", projectTrusted: true, repositoryRoot, planPath, grants: [permission], executionGrant,
+    mode: "act", repositoryRoot, planPath, grants: [permission], executionGrant,
   }).result, "require_approval");
 });
 
@@ -157,7 +154,7 @@ test("focused validation permission never implies full-suite or command permissi
     reason: "focused only",
     createdAt: new Date().toISOString(),
   };
-  const state = { mode: "act" as const, projectTrusted: true, repositoryRoot, planPath, grants: [focusedGrant], executionGrant };
+  const state = { mode: "act" as const, repositoryRoot, planPath, grants: [focusedGrant], executionGrant };
   const base = { actor: "agent" as const, taskId: executionGrant.taskId, repositorySnapshot: snapshot, risk: "routine" as const, rationale: "validate" };
   assert.equal(policy.evaluate({ ...base, action: "validation.focused" }, state).result, "allow");
   assert.equal(policy.evaluate({ ...base, action: "validation.full_suite" }, state).result, "require_approval");
@@ -175,7 +172,7 @@ test("task closure is denied until required focused validation is current and pa
     reason: "close validated task", createdAt: new Date().toISOString(),
   };
   const action = request({ action: "task.close", taskId: executionGrant.taskId, repositorySnapshot: snapshot });
-  const base = { mode: "act" as const, projectTrusted: true, repositoryRoot, planPath, grants: [closeGrant], executionGrant };
+  const base = { mode: "act" as const, repositoryRoot, planPath, grants: [closeGrant], executionGrant };
   assert.equal(policy.evaluate(action, {
     ...base,
     taskClosure: { ready: false, blockers: [], required: ["focused"], missing: ["focused"], stale: [], failed: [], reason: "missing focused" },
@@ -194,8 +191,7 @@ test("act mode still requires approval for destructive, external, and unknown op
       command: [risk],
     }), {
       mode: "act",
-      projectTrusted: true,
-      repositoryRoot,
+        repositoryRoot,
       planPath,
       grants: [],
     });
@@ -220,7 +216,6 @@ test("an explicit scoped grant can authorize an exceptional operation", () => {
     },
   }), {
     mode: "act",
-    projectTrusted: true,
     repositoryRoot,
     planPath,
     executionGrant,
@@ -247,7 +242,6 @@ test("typed reads identify every externally approved workspace root without broa
   const outsideRoot = mkdtempSync(join(tmpdir(), "atlr-policy-outside-"));
   const base = {
     mode: "plan" as const,
-    projectTrusted: true,
     repositoryRoot,
     repositoryReadRoots: [repositoryRoot, secondaryRoot],
     planPath,

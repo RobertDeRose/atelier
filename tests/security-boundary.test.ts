@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
@@ -10,7 +10,6 @@ import {
   classifyShellCommand,
   isPathWithin,
   loadConfig,
-  projectTrustStatus,
   type ActionRequest,
   type ExecutionGrant,
   type PermissionGrant,
@@ -70,7 +69,6 @@ test("startup workspace requires no Atelier trust and runtime state remains exte
   }), "utf8");
   try {
     const config = loadConfig(root);
-    assert.equal(config.projectTrusted, true);
     assert.equal(config.workspaceRoot, realpathSync.native(root));
     assert.equal(isPathWithin(config.runtimeDirectory, root, "write"), false);
     assert.equal(isPathWithin(config.databasePath, root, "write"), false);
@@ -174,8 +172,7 @@ test("real-path confinement rejects existing and not-yet-created targets below a
     for (const path of [join(linked, "secret.txt"), join(linked, "new.txt")]) {
       assert.equal(policy.evaluate(request(path), {
         mode: "act",
-        projectTrusted: true,
-        repositoryRoot: root,
+            repositoryRoot: root,
         planPath: join(root, ".atelier", "PLAN.md"),
         grants: [grant],
         executionGrant,
@@ -187,13 +184,15 @@ test("real-path confinement rejects existing and not-yet-created targets below a
   }
 });
 
-test("project trust records remain external and validation manifests reject executable approval metadata", async () => {
-  const root = createTemporaryRepository("atlr-trust-manifest-");
+test("legacy Atelier trust state is ignored and validation manifests reject executable approval metadata", async () => {
+  const root = createTemporaryRepository("atlr-legacy-trust-manifest-");
+  const previousTrustStore = process.env.ATLR_TRUST_STORE;
+  const obsoleteStore = join(root, "obsolete-trust.json");
+  process.env.ATLR_TRUST_STORE = obsoleteStore;
+  writeFileSync(obsoleteStore, JSON.stringify({ version: 1, projects: { obsolete: { root: "/outside" } } }), "utf8");
   try {
-    const trust = projectTrustStatus(root);
-    assert.equal(trust.trusted, true);
-    assert.equal(resolve(trust.storePath).startsWith(`${resolve(root)}/`), false);
-    assert.equal(dirname(trust.storePath) === resolve(root), false);
+    const config = loadConfig(root);
+    assert.equal(config.workspaceRoot, realpathSync.native(root));
 
     writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({
       validations: {
@@ -213,6 +212,8 @@ test("project trust records remain external and validation manifests reject exec
       await core.close();
     }
   } finally {
+    if (previousTrustStore === undefined) delete process.env.ATLR_TRUST_STORE;
+    else process.env.ATLR_TRUST_STORE = previousTrustStore;
     rmSync(root, { recursive: true, force: true });
   }
 });

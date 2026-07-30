@@ -61,7 +61,6 @@ export * from "./planning/task-execution-scope.ts";
 export * from "./workspace/session-workspace.ts";
 export * from "./policy/workspace-policy.ts";
 export * from "./recovery/recovery-manager.ts";
-export * from "./security/project-trust.ts";
 
 export * from "./presentation/status-view.ts";
 

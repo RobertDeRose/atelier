@@ -314,7 +314,6 @@ export class AtelierCore {
   evaluate(request: ActionRequest): PolicyDecision {
     const decision = this.policy.evaluate(request, {
       mode: this.mode(),
-      projectTrusted: true,
       repositoryRoot: this.config.workspaceRoot,
       repositoryReadRoots: [this.config.workspaceRoot],
       planPath: this.config.planPath,
