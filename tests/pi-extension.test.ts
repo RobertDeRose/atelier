@@ -51,6 +51,7 @@ function fakeContext(
     abort?: () => void;
     waitForIdle?: () => Promise<void>;
     confirmResult?: boolean;
+    renderCustom?: boolean;
   } = {},
 ): ExtensionCommandContext {
   return {
@@ -79,7 +80,19 @@ function fakeContext(
         const component = factory({}, {}, {});
         observations.footers?.push(component.render(240).join("\n"));
       },
-      custom: async () => ({ exitCode: 0 }),
+      custom: async (factory: any) => {
+        if (!observations.renderCustom) return { exitCode: 0 };
+        return await new Promise((resolve) => {
+          const component = factory(
+            { stop(): void {}, start(): void {}, requestRender(): void {} },
+            {},
+            {},
+            resolve,
+          );
+          observations.widgets?.push(component.render(240));
+          component.handleInput(observations.confirmResult === false ? "escape" : "enter");
+        });
+      },
     },
   } as unknown as ExtensionCommandContext;
 }
@@ -692,12 +705,15 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
   const statuses: string[] = [];
   const confirmationBodies: string[] = [];
   const notifications: string[] = [];
+  const widgets: string[][] = [];
   let idle = true;
   let abortCount = 0;
   let waitForIdleCount = 0;
   const context = fakeContext(root, confirms, statuses, {
     confirmationBodies,
     notifications,
+    widgets,
+    renderCustom: true,
     isIdle: () => idle,
     abort: () => { abortCount += 1; idle = true; },
     waitForIdle: async () => { waitForIdleCount += 1; },
@@ -805,9 +821,10 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
     mkdirSync(join(root, "packages", "core", "src"), { recursive: true });
     writeFileSync(join(root, "packages", "core", "src", "completion-guard.ts"), "export const pending = true;\n");
     await commands.get("review-diff")!.handler("", context);
-    assert.match(confirmationBodies.at(-1) ?? "", /packages\/core\/src\/completion-guard\.ts/);
-    assert.match(confirmationBodies.at(-1) ?? "", /Diff SHA-256:/);
-    assert.equal(confirms.count, 4, "Pi must display and confirm the exact diff before recording review");
+    const reviewSurface = widgets.at(-1)?.join("\n") ?? "";
+    assert.match(reviewSurface, /packages\/core\/src\/completion-guard\.ts/);
+    assert.match(reviewSurface, /Diff SHA-256:/);
+    assert.equal(confirms.count, 3, "the dedicated diff surface must not fall back to a generic confirmation prompt");
     const sentBeforeSettle = sentMessages.length;
     for (let index = 0; index < 5; index += 1) await events.get("agent_settled")!({}, context);
     assert.equal(sentMessages.length, sentBeforeSettle, "an incomplete task must not enqueue a follow-up agent turn");

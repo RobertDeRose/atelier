@@ -32,6 +32,7 @@ import {
 import { toolExecutionOutcome } from "./execution-outcome.ts";
 import { preparationSummary } from "./approval-presentation.ts";
 import { confirmApprovalDialog } from "./approval-dialog.ts";
+import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "./navigation.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
 import { authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
 import { effectsForTool, effectsForUserBash } from "./tool-effects.ts";
@@ -760,20 +761,53 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   });
 
 
+  pi.registerCommand("atelier-open", {
+    description: "Open a repository path at an optional line in the configured editor",
+    handler: async (args, ctx) => {
+      if (!args.trim()) { ctx.ui.notify("Usage: /atelier-open PATH[:LINE]", "warning"); return; }
+      const core = getCore(ctx);
+      const editor = resolveEditorCommand(core.config, ctx.isProjectTrusted());
+      const location = parseFileLocation(args, core.config.repositoryRoot);
+      const result = await runInteractiveProcess({ command: editor.executable, args: editorArguments(editor, location), cwd: core.config.repositoryRoot });
+      if (result.exitCode !== 0) ctx.ui.notify(`Editor exited ${result.exitCode}${result.error ? `: ${result.error}` : ""}`, "error");
+    },
+  });
+
+  pi.registerCommand("atelier-files", {
+    description: "Select a tracked repository file and open it in the configured editor",
+    handler: async (_args, ctx) => {
+      const core = getCore(ctx);
+      const files = core.repository.listFiles();
+      const selected = await ctx.ui.select("Open repository file", files);
+      if (selected === undefined) return;
+      const editor = resolveEditorCommand(core.config, ctx.isProjectTrusted());
+      await runInteractiveProcess({ command: editor.executable, args: editorArguments(editor, { path: resolve(core.config.repositoryRoot, selected) }), cwd: core.config.repositoryRoot });
+    },
+  });
+
+  pi.registerCommand("atelier-tree", {
+    description: "Open Yazi when available or show a bounded repository tree",
+    handler: async (_args, ctx) => {
+      const core = getCore(ctx);
+      if (commandOnPath("yazi") && ctx.mode === "tui") {
+        await runInteractiveProcess({ command: "yazi", args: [core.config.repositoryRoot], cwd: core.config.repositoryRoot });
+        return;
+      }
+      ctx.ui.setWidget?.("atelier-tree", ["Atelier project tree", "", ...projectTree(core)], { placement: "aboveEditor" });
+      ctx.ui.notify("Yazi is unavailable; showing the bounded Atelier tree above the editor. Run /atelier-tree again after installing Yazi.", "info");
+    },
+  });
+
   pi.registerCommand("review-diff", {
     description: "Display and record review of the exact current task diff",
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const preview = core.previewFinalDiff();
-      const approved = await ctx.ui.confirm(
-        "Review exact Atelier task diff",
-        `${preview.diff.trimEnd()}
-
-Changed paths: ${preview.changedPaths.join(", ")}
-Diff SHA-256: ${preview.diffHash}
-
-Record this exact diff as reviewed?`,
-      );
+      const approved = await confirmApprovalDialog(ctx, {
+        title: "Review exact Atelier task diff",
+        lines: [...preview.diff.trimEnd().split("\n"), "", `Changed paths: ${preview.changedPaths.join(", ")}`, `Diff SHA-256: ${preview.diffHash}`],
+        approveLabel: "Record exact diff",
+      });
       if (!approved) {
         ctx.ui.notify("Final diff review was not recorded.", "warning");
         return;

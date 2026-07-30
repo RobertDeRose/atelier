@@ -12,6 +12,7 @@ import {
   createStatusView,
   statusViewText,
   resolveSandboxBackend,
+  runInteractiveProcess,
 } from "../../../packages/core/src/index.ts";
 import { flagBoolean, flagString, parseArgs } from "./arguments.ts";
 import {
@@ -85,6 +86,9 @@ Commands:
   data inspect|prune|delete|export  Manage redacted retained evidence
   sandbox status                    Show shell sandbox availability
   workspace status                  Show configured repository ownership and revisions
+  open PATH[:LINE]                  Open a path in the configured editor
+  files [--json]                    List tracked repository files
+  tree [--json]                     Show a bounded project tree
   recovery list [--json]            List automatic recovery checkpoints
   recovery restore ID               Restore one checkpoint
 
@@ -463,6 +467,31 @@ async function main(): Promise<void> {
 
 
 
+
+
+      case "files": {
+        const files = core.repository.listFiles();
+        if (flagBoolean(parsed, "json")) asJson(files); else process.stdout.write(`${files.join("\n")}\n`);
+        return;
+      }
+      case "tree": {
+        const files = core.repository.listFiles().slice(0, 250);
+        const lines = files.map((path) => `${"  ".repeat(path.split("/").length - 1)}${path.split("/").at(-1)}`);
+        if (flagBoolean(parsed, "json")) asJson({ files }); else process.stdout.write(`${lines.join("\n")}\n`);
+        return;
+      }
+      case "open": {
+        const value = [subcommand, ...rest].filter(Boolean).join(" ").trim();
+        if (!value) throw new Error("Usage: atlr open PATH[:LINE]");
+        const match = /^(.*?):(\d+)$/.exec(value);
+        const path = resolve(root, match?.[1] ?? value);
+        const editor = resolveEditorCommand(core.config, false);
+        const executable = editor.executable.split(/[\\/]/).at(-1) ?? editor.executable;
+        const args = match?.[2] !== undefined && ["hx", "helix"].includes(executable) ? [...editor.args, `${path}:${match[2]}`] : [...editor.args, path];
+        const result = await runInteractiveProcess({ command: editor.executable, args, cwd: core.config.repositoryRoot });
+        if (result.exitCode !== 0) throw new Error(result.error ?? `Editor exited ${result.exitCode}`);
+        return;
+      }
 
       case "workspace": {
         if (subcommand !== "status" && subcommand !== undefined) throw new Error("Usage: atlr workspace status");
