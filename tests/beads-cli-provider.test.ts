@@ -3,8 +3,17 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BeadsCliTaskProvider, normalizeBeadsTask } from "../packages/core/src/tasks/beads-cli-provider.ts";
+import { BeadsCliTaskProvider, normalizeBeadsTask, parseBeadsVersion, unwrapBeadsJson } from "../packages/core/src/tasks/beads-cli-provider.ts";
 import { assertTaskProviderConformance } from "./task-provider-conformance.ts";
+
+
+test("normalizes Beads v2 JSON envelopes while retaining legacy responses", () => {
+  assert.deepEqual(unwrapBeadsJson({ data: { issues: [{ id: "bd-2" }] }, meta: { version: 2 } }), [{ id: "bd-2" }]);
+  assert.deepEqual(unwrapBeadsJson({ data: [{ id: "bd-3" }] }), [{ id: "bd-3" }]);
+  assert.deepEqual(unwrapBeadsJson([{ id: "legacy" }]), [{ id: "legacy" }]);
+  assert.deepEqual(parseBeadsVersion("bd version 2.0.1"), { major: 2, supported: true, raw: "bd version 2.0.1" });
+  assert.equal(parseBeadsVersion("bd version 3.0.0").supported, false);
+});
 
 test("normalizes representative Beads JSON into Atelier task records", () => {
   const task = normalizeBeadsTask({

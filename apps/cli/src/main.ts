@@ -139,7 +139,7 @@ async function main(): Promise<void> {
     asJson({
       observational: true,
       node: { version: process.version, supported: Number(process.versions.node.split(".")[0]) >= 24 },
-      git: commandAvailable("git"), jj: commandAvailable("jj"), pi: commandAvailable("pi"),
+      git: commandAvailable("git"), jj: commandAvailable("jj"), pi: commandAvailable("pi"), beads: commandAvailable(config.beadsCommand),
       workspace: { root: config.workspaceRoot, source: config.workspaceSource, policy: "workspace_recoverability" },
       piTrust: "Pi /trust controls project-local Pi resources only.",
       editor,

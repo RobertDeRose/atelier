@@ -73,16 +73,31 @@ function normalizeType(value: unknown): TaskType {
   return "unknown";
 }
 
-function unwrapJson(value: unknown): unknown[] {
+export function unwrapBeadsJson(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
-  const record = asRecord(value);
+  let record = asRecord(value);
   if (record === undefined) return [];
-  for (const key of ["issues", "tasks", "results", "data", "items"]) {
+  // Beads v2 envelope: { data, meta, errors }. Unwrap data recursively while
+  // retaining legacy v1 object and array responses during migration.
+  if (record.data !== undefined) {
+    const data = record.data;
+    if (Array.isArray(data)) return data;
+    const nested = asRecord(data);
+    if (nested !== undefined) record = nested;
+    else return data === undefined || data === null ? [] : [data];
+  }
+  for (const key of ["issues", "tasks", "results", "items"]) {
     if (Array.isArray(record[key])) return record[key] as unknown[];
   }
   if (record.issue !== undefined) return [record.issue];
   if (record.task !== undefined) return [record.task];
   return [record];
+}
+
+export function parseBeadsVersion(value: string): { major?: number; supported: boolean; raw: string } {
+  const match = /(?:bd(?:\s+version)?\s+)?v?(\d+)\./i.exec(value.trim());
+  const major = match?.[1] === undefined ? undefined : Number(match[1]);
+  return { ...(major === undefined ? {} : { major }), supported: major === undefined || major === 1 || major === 2, raw: value.trim() };
 }
 
 function stablePlanTaskId(notes: string): string | undefined {
@@ -204,12 +219,14 @@ export class BeadsCliTaskProvider implements TaskProvider {
       ? await this.run(["list", "--json"], { allowFailure: true })
       : undefined;
     const initialized = where.status === 0 && list?.status === 0;
+    const parsedVersion = parseBeadsVersion(version.stdout.trim() || version.stderr.trim());
     return {
       provider: this.name,
-      available: true,
-      initialized,
-      version: version.stdout.trim() || version.stderr.trim(),
-      ...(initialized
+      available: parsedVersion.supported,
+      initialized: parsedVersion.supported && initialized,
+      version: parsedVersion.raw,
+      ...(!parsedVersion.supported ? { reason: `Unsupported Beads major version ${parsedVersion.major}; Atelier supports 1.x and 2.x.` } : {}),
+      ...(parsedVersion.supported && initialized
         ? {}
         : {
             reason: list?.stderr.trim()
@@ -238,19 +255,19 @@ export class BeadsCliTaskProvider implements TaskProvider {
 
   async ready(): Promise<TaskRecord[]> {
     const result = await this.run(["ready", "--json"]);
-    return unwrapJson(parseJsonOutput(result.stdout, ["ready", "--json"])).map(normalizeBeadsTask);
+    return unwrapBeadsJson(parseJsonOutput(result.stdout, ["ready", "--json"])).map(normalizeBeadsTask);
   }
 
   async get(taskId: string): Promise<TaskRecord | undefined> {
     const result = await this.run(["show", taskId, "--json"], { allowFailure: true });
     if (result.status !== 0) return undefined;
-    const items = unwrapJson(parseJsonOutput(result.stdout, ["show", taskId, "--json"]));
+    const items = unwrapBeadsJson(parseJsonOutput(result.stdout, ["show", taskId, "--json"]));
     return items.length === 0 ? undefined : normalizeBeadsTask(items[0]);
   }
 
   async list(): Promise<TaskRecord[]> {
     const result = await this.run(["list", "--json"]);
-    return unwrapJson(parseJsonOutput(result.stdout, ["list", "--json"])).map(normalizeBeadsTask);
+    return unwrapBeadsJson(parseJsonOutput(result.stdout, ["list", "--json"])).map(normalizeBeadsTask);
   }
 
   async create(request: CreateTaskRequest): Promise<TaskRecord> {
@@ -278,7 +295,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
       args.splice(args.length - 1, 0, "--labels", (request.labels ?? []).join(","));
     }
     const result = await this.run(args);
-    const items = unwrapJson(parseJsonOutput(result.stdout, args));
+    const items = unwrapBeadsJson(parseJsonOutput(result.stdout, args));
     if (items.length === 0) throw new ProviderError("Beads create returned no task", { result });
     const task = normalizeBeadsTask(items[0]);
     task.planTaskId = request.planTaskId;
@@ -297,7 +314,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
     if (patch.status !== undefined && patch.status !== "unknown") args.push("--status", patch.status);
     args.push("--json");
     const result = await this.run(args);
-    const items = unwrapJson(parseJsonOutput(result.stdout, args));
+    const items = unwrapBeadsJson(parseJsonOutput(result.stdout, args));
     if (items.length > 0) return normalizeBeadsTask(items[0]);
     const task = await this.get(taskId);
     if (task === undefined) throw new ProviderError(`Beads task disappeared after update: ${taskId}`);
@@ -307,7 +324,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
   async claim(taskId: string): Promise<TaskRecord> {
     const args = ["update", taskId, "--claim", "--json"];
     const result = await this.run(args);
-    const items = unwrapJson(parseJsonOutput(result.stdout, args));
+    const items = unwrapBeadsJson(parseJsonOutput(result.stdout, args));
     if (items.length > 0) return normalizeBeadsTask(items[0]);
     const task = await this.get(taskId);
     if (task === undefined) throw new ProviderError(`Unable to read claimed task: ${taskId}`);
@@ -333,7 +350,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
   async close(taskId: string, reason: string): Promise<TaskRecord> {
     const args = ["close", taskId, "--reason", reason, "--json"];
     const result = await this.run(args);
-    const items = unwrapJson(parseJsonOutput(result.stdout, args));
+    const items = unwrapBeadsJson(parseJsonOutput(result.stdout, args));
     if (items.length > 0) return normalizeBeadsTask(items[0]);
     const task = await this.get(taskId);
     if (task === undefined) throw new ProviderError(`Unable to read closed task: ${taskId}`);
