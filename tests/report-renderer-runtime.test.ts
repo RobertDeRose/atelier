@@ -37,10 +37,7 @@ test("persistent reports instantiate Pi's Markdown component instead of renderin
       renderer = candidate;
     },
   } as unknown as ExtensionAPI;
-  const runtime: MarkdownRuntime = {
-    Markdown: FakePiMarkdown,
-    getMarkdownTheme: () => ({ source: "pi" }),
-  };
+  const runtime: MarkdownRuntime = { Markdown: FakePiMarkdown };
 
   registerAtelierReportRenderer(pi, runtime);
   assert.ok(renderer);
@@ -52,7 +49,13 @@ test("persistent reports instantiate Pi's Markdown component instead of renderin
       markdown: "## Atelier status\n\n| field | value |\n|---|---|\n| **mode** | `act` |",
       createdAt: new Date(0).toISOString(),
     },
-  }, { expanded: true }, {});
+  }, { expanded: true }, {
+    fg: (_color: string, text: string) => text,
+    bold: (text: string) => text,
+    italic: (text: string) => text,
+    strikethrough: (text: string) => text,
+    underline: (text: string) => text,
+  });
   const output = component.render(100).join("\n");
 
   assert.equal(FakePiMarkdown.constructed, 1);
@@ -79,7 +82,7 @@ test("Markdown runtime resolves Pi host dependencies through the launched Pi exe
     type: "module",
     exports: "./dist/index.js",
   }));
-  writeFileSync(join(packageRoot, "dist", "index.js"), "export const getMarkdownTheme = () => ({ host: true });\n");
+  writeFileSync(join(packageRoot, "dist", "index.js"), "export const host = true;\n");
   writeFileSync(join(packageRoot, "dist", "cli.js"), "#!/usr/bin/env node\n");
   writeFileSync(join(tuiRoot, "package.json"), JSON.stringify({
     name: "@earendil-works/pi-tui",
@@ -93,7 +96,7 @@ test("Markdown runtime resolves Pi host dependencies through the launched Pi exe
   process.argv[1] = join(binRoot, "pi");
   try {
     const runtime = await loadPiMarkdownRuntime();
-    const component = new runtime.Markdown("# title", 0, 0, runtime.getMarkdownTheme());
+    const component = new runtime.Markdown("# title", 0, 0, {});
     assert.deepEqual(component.render(80), ["host markdown"]);
   } finally {
     if (priorArgv === undefined) process.argv.splice(1, 1);
@@ -115,7 +118,7 @@ test("Markdown runtime resolves mise's regular npm wrapper and lib/node_modules 
     type: "module",
     exports: { ".": { import: "./dist/index.js" } },
   }));
-  writeFileSync(join(packageRoot, "dist", "index.js"), "export const getMarkdownTheme = () => ({ mise: true });\n");
+  writeFileSync(join(packageRoot, "dist", "index.js"), "export const mise = true;\n");
   writeFileSync(join(packageRoot, "dist", "cli.js"), "#!/usr/bin/env node\n");
   writeFileSync(join(tuiRoot, "package.json"), JSON.stringify({
     name: "@earendil-works/pi-tui",
@@ -131,7 +134,7 @@ test("Markdown runtime resolves mise's regular npm wrapper and lib/node_modules 
   process.env.PATH = binRoot;
   try {
     const runtime = await loadPiMarkdownRuntime();
-    const component = new runtime.Markdown("# title", 0, 0, runtime.getMarkdownTheme());
+    const component = new runtime.Markdown("# title", 0, 0, {});
     assert.deepEqual(component.render(80), ["mise markdown"]);
   } finally {
     if (priorArgv === undefined) process.argv.splice(1, 1);

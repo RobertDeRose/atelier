@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0-alpha.17 — 2026-07-30
+
+### Fixed
+
+- Built Pi Markdown themes from the initialized theme supplied to each entry-renderer callback instead of calling the coding-agent global theme singleton.
+- Removed the deterministic and runtime dependency on `getMarkdownTheme()`, eliminating `Theme not initialized` failures outside a fully initialized Pi TUI.
+- Retained host resolution only for Pi's `Markdown` component and added a regression proving persistent reports consume Markdown markers with an uninitialized test-global theme.
+
 ## 0.14.0-alpha.16 — 2026-07-30
 
 - Resolve Pi Markdown runtime from mise/global npm wrapper layouts under `lib/node_modules`.

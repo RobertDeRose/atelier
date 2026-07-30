@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.16
+# Build Report — Atelier 0.14.0-alpha.17
 
 ## Result
 
@@ -17,17 +17,15 @@ dist/apps/pi-extension/src/index.js
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
 
-## Alpha.16 mise Pi Markdown resolution correction
+## Alpha.17 Pi callback-theme correction
 
-Alpha.16 keeps persistent TUI-only report entries and corrects Pi host discovery for mise and global npm layouts:
+Alpha.17 keeps mise/global Pi Markdown-component discovery and removes the remaining dependency on Pi's global theme singleton:
 
-- Pi's `Markdown` component and `getMarkdownTheme()` are resolved from the installed Pi coding-agent package;
-- discovery supports both symlinked npm bins and regular mise wrappers with packages under `lib/node_modules`;
-- wrapper scripts are inspected for an embedded coding-agent package path as an additional fallback;
-- the module-load TTY check is removed, so renderer selection does not happen before interactive mode is ready;
-- Pi TUI is declared as an optional peer dependency beside the Pi coding-agent host;
-- non-Pi hosts retain a deterministic fallback with a visible diagnostic rather than silently rendering raw Markdown; and
-- deterministic regressions verify host dependency resolution and actual Markdown-component construction.
+- Pi's `Markdown` component is still resolved from the active extension or installed Pi package;
+- the initialized theme supplied to `registerEntryRenderer()` is adapted directly into the Markdown component's theme contract;
+- report rendering no longer imports or calls `getMarkdownTheme()`;
+- deterministic render tests can exercise the real Markdown component without initializing Pi's global interactive theme; and
+- interactive reports continue to inherit the active Pi theme, including heading, link, code, quote, list, and text-decoration styles.
 
 ## Deterministic verification
 
@@ -59,10 +57,10 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.16
+Package:          atelier-prototype@0.14.0-alpha.17
 Files:            424
-Compressed size:  468,057 bytes
-Unpacked size:    2,189,533 bytes
+Compressed size:  468,044 bytes
+Unpacked size:    2,188,953 bytes
 ```
 
 ## Verification boundary
@@ -75,7 +73,7 @@ and live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.16` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.17` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

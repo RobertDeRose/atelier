@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; amended for alpha.15 — 2026-07-30
+Accepted; amended for alpha.17 — 2026-07-30
 
 ## Context
 
@@ -19,8 +19,9 @@ Pi theme made dim text difficult to read.
 
 Atelier registers a TUI-only custom session-entry renderer and appends report entries for structured
 slash-command output. Report entries do not participate in LLM context. They render through Pi's Markdown component resolved from the executable that launched Pi. Atelier
-declares the Pi coding-agent and Pi TUI packages as optional peers, resolves both through the host
-installation, and uses Pi's own `getMarkdownTheme()` output. A deterministic plain-text fallback remains
+declares the Pi coding-agent and Pi TUI packages as optional peers, resolves the Markdown component
+through the host installation, and adapts the initialized theme supplied to the entry-renderer callback
+into Pi TUI's Markdown theme contract. A deterministic plain-text fallback remains
 for tests and non-Pi hosts; failure to load the TUI runtime is displayed explicitly instead of silently
 showing raw Markdown source.
 

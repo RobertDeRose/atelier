@@ -1233,7 +1233,8 @@ test("Pi status and state commands append persistent Markdown report entries", a
     assert.match(entries[2]?.data.markdown ?? "", /^## Code intelligence/m);
     assert.match(entries[2]?.data.markdown ?? "", /\| \*\*state\*\* \| disabled \|/);
     const component = registeredRenderer!({ type: "custom", customType: "atelier-report", data: entries[0]?.data }, { expanded: true }, {});
-    assert.ok(component?.render(100).join("\n").includes("Atelier status"));
+    const rendered = component?.render(100).join("\n") ?? "";
+    assert.match(rendered, /Atelier status/);
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });

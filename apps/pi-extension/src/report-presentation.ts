@@ -5,7 +5,6 @@ import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const REPORT_ENTRY_TYPE = "atelier-report";
-const CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
 const TUI_PACKAGE = "@earendil-works/pi-tui";
 
 interface ReportComponent {
@@ -28,8 +27,32 @@ type MarkdownConstructor = new (
 
 export interface MarkdownRuntime {
   Markdown: MarkdownConstructor;
-  getMarkdownTheme: () => unknown;
 }
+
+type PiRenderTheme = {
+  fg?: (color: string, text: string) => string;
+  bold?: (text: string) => string;
+  italic?: (text: string) => string;
+  strikethrough?: (text: string) => string;
+  underline?: (text: string) => string;
+};
+
+type MarkdownTheme = {
+  heading: (text: string) => string;
+  link: (text: string) => string;
+  linkUrl: (text: string) => string;
+  code: (text: string) => string;
+  codeBlock: (text: string) => string;
+  codeBlockBorder: (text: string) => string;
+  quote: (text: string) => string;
+  quoteBorder: (text: string) => string;
+  hr: (text: string) => string;
+  listBullet: (text: string) => string;
+  bold: (text: string) => string;
+  italic: (text: string) => string;
+  strikethrough: (text: string) => string;
+  underline: (text: string) => string;
+};
 
 function addUniquePath(paths: string[], candidate: string): void {
   if (!paths.includes(candidate)) paths.push(candidate);
@@ -85,25 +108,7 @@ function packageJsonCandidates(): string[] {
   return candidates;
 }
 
-function packageEntry(packageRoot: string, packageJson: Record<string, unknown>): string {
-  const exportsValue = packageJson.exports;
-  if (typeof exportsValue === "string") return resolve(packageRoot, exportsValue);
-  if (exportsValue !== null && typeof exportsValue === "object") {
-    const dot = (exportsValue as Record<string, unknown>)["."];
-    if (typeof dot === "string") return resolve(packageRoot, dot);
-    if (dot !== null && typeof dot === "object") {
-      const imported = (dot as Record<string, unknown>).import;
-      if (typeof imported === "string") return resolve(packageRoot, imported);
-    }
-  }
-  if (typeof packageJson.main === "string") return resolve(packageRoot, packageJson.main);
-  return resolve(packageRoot, "dist", "index.js");
-}
-
 async function runtimeFromCodingAgentPackage(packageJsonPath: string): Promise<MarkdownRuntime> {
-  const packageRoot = dirname(packageJsonPath);
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as Record<string, unknown>;
-  const codingAgent = await import(pathToFileURL(packageEntry(packageRoot, packageJson)).href) as Record<string, unknown>;
   const requireFromHost = createRequire(pathToFileURL(packageJsonPath).href);
   const tuiEntry = requireFromHost.resolve(TUI_PACKAGE);
   const tui = await import(pathToFileURL(tuiEntry).href) as Record<string, unknown>;
@@ -111,13 +116,7 @@ async function runtimeFromCodingAgentPackage(packageJsonPath: string): Promise<M
   if (typeof tui.Markdown !== "function") {
     throw new Error("Pi TUI did not export the Markdown component.");
   }
-  if (typeof codingAgent.getMarkdownTheme !== "function") {
-    throw new Error("Pi coding agent did not export getMarkdownTheme().");
-  }
-  return {
-    Markdown: tui.Markdown as MarkdownConstructor,
-    getMarkdownTheme: codingAgent.getMarkdownTheme as () => unknown,
-  };
+  return { Markdown: tui.Markdown as MarkdownConstructor };
 }
 
 export async function loadPiMarkdownRuntime(): Promise<MarkdownRuntime> {
@@ -125,20 +124,14 @@ export async function loadPiMarkdownRuntime(): Promise<MarkdownRuntime> {
 
   // First allow normal Pi package resolution. Pi's extension loader provides
   // its core packages for standard imports when the extension is installed as
-  // a Pi package.
+  // a Pi package. The active renderer callback supplies the initialized Pi
+  // theme, so only the TUI Markdown component must be resolved here.
   try {
     const extensionRequire = createRequire(import.meta.url);
-    const codingAgentEntry = extensionRequire.resolve(CODING_AGENT_PACKAGE);
     const tuiEntry = extensionRequire.resolve(TUI_PACKAGE);
-    const [codingAgent, tui] = await Promise.all([
-      import(pathToFileURL(codingAgentEntry).href) as Promise<Record<string, unknown>>,
-      import(pathToFileURL(tuiEntry).href) as Promise<Record<string, unknown>>,
-    ]);
-    if (typeof tui.Markdown === "function" && typeof codingAgent.getMarkdownTheme === "function") {
-      return {
-        Markdown: tui.Markdown as MarkdownConstructor,
-        getMarkdownTheme: codingAgent.getMarkdownTheme as () => unknown,
-      };
+    const tui = await import(pathToFileURL(tuiEntry).href) as Record<string, unknown>;
+    if (typeof tui.Markdown === "function") {
+      return { Markdown: tui.Markdown as MarkdownConstructor };
     }
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
@@ -154,7 +147,7 @@ export async function loadPiMarkdownRuntime(): Promise<MarkdownRuntime> {
   }
 
   throw new Error(
-    `Unable to load Pi Markdown runtime from the extension or Pi installation. ` +
+    `Unable to load Pi Markdown component from the extension or Pi installation. ` +
     `Checked ${packageJsonCandidates().filter(existsSync).length} installed package root(s). ` +
     `${errors.at(-1) ?? "No Pi installation package was found."}`,
   );
@@ -195,19 +188,44 @@ function fallbackMarkdown(markdown: string, diagnostic: string | undefined): Rep
   };
 }
 
-function markdownComponent(markdown: string, runtime: MarkdownRuntime | undefined): ReportComponent {
+function rendererMarkdownTheme(theme: unknown): MarkdownTheme {
+  const piTheme = (theme ?? {}) as PiRenderTheme;
+  const fg = (color: string, text: string): string => piTheme.fg?.(color, text) ?? text;
+  return {
+    heading: (text) => fg("mdHeading", text),
+    link: (text) => fg("mdLink", text),
+    linkUrl: (text) => fg("mdLinkUrl", text),
+    code: (text) => fg("mdCode", text),
+    codeBlock: (text) => fg("mdCodeBlock", text),
+    codeBlockBorder: (text) => fg("mdCodeBlockBorder", text),
+    quote: (text) => fg("mdQuote", text),
+    quoteBorder: (text) => fg("mdQuoteBorder", text),
+    hr: (text) => fg("mdHr", text),
+    listBullet: (text) => fg("mdListBullet", text),
+    bold: (text) => piTheme.bold?.(text) ?? text,
+    italic: (text) => piTheme.italic?.(text) ?? text,
+    strikethrough: (text) => piTheme.strikethrough?.(text) ?? text,
+    underline: (text) => piTheme.underline?.(text) ?? text,
+  };
+}
+
+function markdownComponent(
+  markdown: string,
+  runtime: MarkdownRuntime | undefined,
+  theme: unknown,
+): ReportComponent {
   if (runtime === undefined) return fallbackMarkdown(markdown, markdownRuntimeError);
-  return new runtime.Markdown(markdown, 1, 0, runtime.getMarkdownTheme());
+  return new runtime.Markdown(markdown, 1, 0, rendererMarkdownTheme(theme));
 }
 
 export function registerAtelierReportRenderer(
   pi: ExtensionAPI,
   runtime: MarkdownRuntime | undefined = markdownRuntime,
 ): void {
-  pi.registerEntryRenderer?.<AtelierReportEntry>(REPORT_ENTRY_TYPE, (entry) => {
+  pi.registerEntryRenderer?.<AtelierReportEntry>(REPORT_ENTRY_TYPE, (entry, _options, theme) => {
     const data = entry.data;
     if (data === undefined || typeof data.markdown !== "string") return undefined;
-    return markdownComponent(data.markdown, runtime);
+    return markdownComponent(data.markdown, runtime, theme);
   });
 }
 

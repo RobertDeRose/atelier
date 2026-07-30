@@ -1,4 +1,8 @@
-# Migration Report — Atelier 0.14.0-alpha.16
+# Migration Report — Atelier 0.14.0-alpha.17
+
+## Alpha.17 callback-theme compatibility
+
+No state migration is required. Persistent report rendering now derives its Markdown theme from the initialized theme object Pi passes to the entry-renderer callback. Atelier still resolves Pi's `Markdown` component from the active Pi installation, but no longer imports or calls the coding-agent global `getMarkdownTheme()` singleton. This removes initialization-order coupling in deterministic tests and nonstandard hosts while preserving the active Pi theme in interactive sessions.
 
 ## Alpha.15 Pi Markdown rendering compatibility
 

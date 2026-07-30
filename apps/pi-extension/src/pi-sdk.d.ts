@@ -28,7 +28,6 @@ declare module "@earendil-works/pi-coding-agent" {
     ): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown; isError?: boolean }>;
   }
 
-  export function getMarkdownTheme(): unknown;
 
   export function createBashTool(
     cwd: string,
