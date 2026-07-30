@@ -14,6 +14,7 @@ import { sha256 } from "../util/hash.ts";
 import { nowIso, newId } from "../util/ids.ts";
 import { sourceSnapshotFingerprint } from "../repository/snapshot.ts";
 import { minimalEnvironment } from "../process/environment.ts";
+import { redactText } from "../security/redaction.ts";
 
 export interface ValidationDefinition {
   command: string[];
@@ -296,8 +297,8 @@ export class ValidationService {
           durationMs: Date.now() - started,
           exitCode,
           status: interrupted ? "interrupted" : exitCode === 0 ? "passed" : "failed",
-          stdout: redactOutput(stdout.toString("utf8")),
-          stderr: redactOutput(finalStderr.toString("utf8")),
+          stdout: redactText(stdout.toString("utf8")),
+          stderr: redactText(finalStderr.toString("utf8")),
           stdoutTruncated,
           stderrTruncated,
         });
@@ -648,14 +649,6 @@ function validationEnvironment(allow: readonly string[] = []): NodeJS.ProcessEnv
   return minimalEnvironment({ allow: [...configured, ...allow] });
 }
 
-function redactOutput(value: string): string {
-  let output = value;
-  for (const [name, secret] of Object.entries(process.env)) {
-    if (!secret || secret.length < 8 || !/(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL)/i.test(name)) continue;
-    output = output.split(secret).join("[REDACTED]");
-  }
-  return output;
-}
 
 function terminateProcess(child: ChildProcess, signal: NodeJS.Signals): void {
   if (child.pid === undefined) return;

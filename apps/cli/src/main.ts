@@ -78,6 +78,7 @@ Commands:
   validate run NAME [--json]        Run a configured validation and persist evidence
   evidence [--name NAME] [--json]   Show validation evidence and freshness
   ledger tail [--limit N] [--json]  Show recent durable events
+  data inspect|prune|delete|export  Manage redacted retained evidence
   recovery list [--json]            List automatic recovery checkpoints
   recovery restore ID               Restore one checkpoint
 
@@ -461,6 +462,30 @@ async function main(): Promise<void> {
           return;
         }
         throw new Error("Usage: atlr recovery <list|restore ID>");
+      }
+
+
+      case "data": {
+        if (subcommand === "inspect" || subcommand === undefined) {
+          asJson(core.ledger.dataSummary());
+          return;
+        }
+        if (subcommand === "prune") {
+          const days = Number(flagString(parsed, "days") ?? "30");
+          const keep = Number(flagString(parsed, "keep") ?? "1000");
+          asJson(core.ledger.pruneData({ before: new Date(Date.now() - Math.max(0, days) * 86_400_000).toISOString(), keep }));
+          return;
+        }
+        if (subcommand === "delete") {
+          if (!flagBoolean(parsed, "yes")) throw new Error("atlr data delete requires --yes");
+          asJson(core.ledger.deleteHistoricalData());
+          return;
+        }
+        if (subcommand === "export") {
+          asJson(core.ledger.exportData());
+          return;
+        }
+        throw new Error("Usage: atlr data <inspect|prune [--days N --keep N]|delete --yes|export>");
       }
 
       case "ledger": {

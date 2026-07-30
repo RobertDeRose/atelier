@@ -25,6 +25,7 @@ import type {
   RetrievalPersistenceLimits,
 } from "../code/retrieval.ts";
 import { newId, nowIso } from "../util/ids.ts";
+import { redactValue } from "../security/redaction.ts";
 import {
   normalizeExecutionGrant,
   normalizePlanApproval,
@@ -241,18 +242,18 @@ export class SqliteLedger {
       ...(checkpoint.lastDecision === undefined ? {} : { lastDecision: checkpoint.lastDecision }),
       decisions: checkpoint.decisions,
     };
-    const sessionJson = JSON.stringify(sessionRecord);
+    const sessionJson = JSON.stringify(redactValue(sessionRecord));
     const requestRecords = [...checkpoint.requests]
       .sort((left, right) => left.query.digest.localeCompare(right.query.digest))
-      .map((record) => ({ record, json: JSON.stringify(record) }));
+      .map((record) => ({ record, json: JSON.stringify(redactValue(record)) }));
     const evidenceRecords = [...checkpoint.evidence]
       .sort((left, right) => left.digest.localeCompare(right.digest))
       .map((record) => {
         const { provenance, ...compact } = record;
         return {
           record,
-          json: JSON.stringify(compact),
-          provenance: provenance.map((observation) => JSON.stringify(observation)),
+          json: JSON.stringify(redactValue(compact)),
+          provenance: provenance.map((observation) => JSON.stringify(redactValue(observation))),
         };
       });
     const diagnosticRecords = [
@@ -260,13 +261,13 @@ export class SqliteLedger {
         id: `invalidation:${index}:${record.invalidatedAt}`,
         kind: "invalidation",
         occurredAt: record.invalidatedAt,
-        json: JSON.stringify(record),
+        json: JSON.stringify(redactValue(record)),
       })),
       ...checkpoint.diagnostics.map((record, index) => ({
         id: `diagnostic:${index}:${checkpoint.updatedAt}`,
         kind: "diagnostic",
         occurredAt: checkpoint.updatedAt,
-        json: JSON.stringify(record),
+        json: JSON.stringify(redactValue(record)),
       })),
     ];
 
@@ -556,7 +557,7 @@ export class SqliteLedger {
   }
 
   saveExecutionEvidence(evidence: ExecutionEvidence): void {
-    const record = JSON.stringify(evidence);
+    const record = JSON.stringify(redactValue(evidence));
     this.database.prepare(`
       INSERT INTO execution_evidence(
         id, tool_call_id, status, task_id, execution_grant_id, record_json, updated_at
@@ -1115,7 +1116,7 @@ export class SqliteLedger {
       actor: input.actor,
       ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
       ...(input.repositorySnapshot === undefined ? {} : { repositorySnapshot: input.repositorySnapshot }),
-      payload: input.payload,
+      payload: redactValue(input.payload),
     };
   }
 
@@ -1140,6 +1141,54 @@ export class SqliteLedger {
       INSERT INTO state(key, value_json, updated_at) VALUES (?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
     `).run(key, valueJson, updatedAt);
+  }
+
+  private hasTable(table: string): boolean {
+    return this.database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !== undefined;
+  }
+
+  dataSummary(): Record<string, number> {
+    const tables = ["ledger_events", "execution_evidence", "validation_evidence", "retrieval_sessions", "retrieval_requests", "retrieval_evidence", "retrieval_provenance"];
+    return Object.fromEntries(tables.map((table) => {
+      if (!this.hasTable(table)) return [table, 0];
+      const row = this.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
+      return [table, Number(row.count)];
+    }));
+  }
+
+  pruneData(options: { before?: string; keep?: number } = {}): Record<string, number> {
+    const before = options.before ?? new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const keep = Math.max(0, options.keep ?? 1_000);
+    const changes: Record<string, number> = {};
+    const deleteOld = (table: string, timeColumn: string, idColumn = "id"): void => {
+      if (!this.hasTable(table)) { changes[table] = 0; return; }
+      const result = this.database.prepare(`DELETE FROM ${table} WHERE ${timeColumn} < ? AND ${idColumn} NOT IN (SELECT ${idColumn} FROM ${table} ORDER BY ${timeColumn} DESC LIMIT ?)`).run(before, keep);
+      changes[table] = Number(result.changes);
+    };
+    deleteOld("ledger_events", "occurred_at");
+    deleteOld("execution_evidence", "updated_at");
+    deleteOld("validation_evidence", "started_at");
+    deleteOld("retrieval_sessions", "updated_at");
+    return changes;
+  }
+
+  deleteHistoricalData(): Record<string, number> {
+    const tables = ["retrieval_provenance", "retrieval_invalidations", "retrieval_evidence", "retrieval_requests", "retrieval_sessions", "validation_evidence", "focused_validation_selections", "execution_evidence", "ledger_events"];
+    const changes: Record<string, number> = {};
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const table of tables) changes[table] = this.hasTable(table) ? Number(this.database.prepare(`DELETE FROM ${table}`).run().changes) : 0;
+      this.database.exec("COMMIT");
+      return changes;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  exportData(): Record<string, unknown[]> {
+    const tables = ["ledger_events", "execution_evidence", "validation_evidence", "retrieval_sessions", "retrieval_requests", "retrieval_evidence", "retrieval_provenance"];
+    return Object.fromEntries(tables.map((table) => [table, this.hasTable(table) ? this.database.prepare(`SELECT * FROM ${table}`).all() as unknown[] : []]));
   }
 
   close(): void {
