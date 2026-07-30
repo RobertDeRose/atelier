@@ -16,6 +16,7 @@ import {
   statusViewText,
   runSandboxedShell,
   resolveSandboxBackend,
+  rankPresentedHits,
   type ManualEditEditor,
   type Permission,
 } from "../../../packages/core/src/index.ts";
@@ -450,13 +451,13 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       try {
         const input = params as { query: string; focus?: "auto" | "source" | "tests" | "docs" | "all"; mode?: "auto" | "lexical" | "semantic" | "hybrid"; limit?: number };
         const workspace = core.codeWorkspace();
-        const results = await core.code.search({
+        const results = rankPresentedHits(await core.code.search({
           workspace,
           text: input.query,
           ...(input.focus === undefined ? {} : { focus: input.focus }),
           mode: input.mode ?? "semantic",
           ...(input.limit === undefined ? {} : { limit: input.limit }),
-        });
+        }));
         const status = await core.code.status(undefined, workspace);
         const retrieval = core.code.retrievalStatus();
         const readGuidance = results.length === 0
@@ -1034,7 +1035,7 @@ Record this exact diff as reviewed?`,
       }
       const core = getCore(ctx);
       const workspace = core.codeWorkspace();
-      const results = await core.code.search({ workspace, text: query, mode: "semantic", limit: 10 });
+      const results = rankPresentedHits(await core.code.search({ workspace, text: query, mode: "semantic", limit: 10 }));
       const retrieval = core.code.retrievalStatus();
       const message = (results.length === 0
         ? "No code matches."
@@ -1054,7 +1055,7 @@ Record this exact diff as reviewed?`,
       }
       const core = getCore(ctx);
       const workspace = core.codeWorkspace();
-      const results = await core.code.symbols({ workspace, text: query, limit: 20, requireUnresolved: false });
+      const results = rankPresentedHits(await core.code.symbols({ workspace, text: query, limit: 20, requireUnresolved: false }));
       const retrieval = core.code.retrievalStatus();
       const message = (results.length === 0
         ? retrieval.lastDecision?.kind === "no_provider_call"

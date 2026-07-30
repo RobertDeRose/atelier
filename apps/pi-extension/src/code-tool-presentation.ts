@@ -1,6 +1,8 @@
 import {
   type AtelierCore,
   type RetrievalSessionStatus,
+  codeResultCategory,
+  usefulCodePreview,
 } from "../../../packages/core/src/index.ts";
 
 const TYPEBOX_KIND = Symbol.for("TypeBox.Kind");
