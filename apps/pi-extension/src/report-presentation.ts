@@ -14,6 +14,7 @@ interface ReportComponent {
 
 interface AtelierReportEntry {
   title: string;
+  summary: string;
   markdown: string;
   createdAt: string;
 }
@@ -218,14 +219,75 @@ function markdownComponent(
   return new runtime.Markdown(markdown, 1, 0, rendererMarkdownTheme(theme));
 }
 
+function plainWidth(value: string): number {
+  return Array.from(value).length;
+}
+
+function truncate(value: string, width: number): string {
+  if (width <= 0) return "";
+  const chars = Array.from(value);
+  if (chars.length <= width) return value;
+  if (width === 1) return "…";
+  return `${chars.slice(0, width - 1).join("")}…`;
+}
+
+function reportTime(createdAt: string): string {
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function reportCard(
+  entry: AtelierReportEntry,
+  content: ReportComponent,
+  expanded: boolean,
+  theme: unknown,
+): ReportComponent {
+  const piTheme = (theme ?? {}) as PiRenderTheme;
+  const fg = (color: string, text: string): string => piTheme.fg?.(color, text) ?? text;
+  const bold = (text: string): string => piTheme.bold?.(text) ?? text;
+
+  return {
+    render(width: number): string[] {
+      const safeWidth = Math.max(8, width);
+      const divider = fg("border", "─".repeat(safeWidth));
+      const arrow = expanded ? "▼" : "➤";
+      const time = reportTime(entry.createdAt);
+      const suffix = [entry.summary, time].filter(Boolean).join(" · ");
+      const plainHeader = `${arrow} ${entry.title}${suffix === "" ? "" : ` · ${suffix}`}`;
+      const visibleHeader = truncate(plainHeader, safeWidth);
+      const styledPrefix = `${fg("accent", arrow)} ${fg("accent", bold(entry.title))}`;
+      const remainder = visibleHeader.slice(plainWidth(`${arrow} ${entry.title}`));
+      const header = `${styledPrefix}${fg("dim", remainder)}`;
+
+      if (!expanded) return [divider, header, divider];
+      return [divider, header, "", ...content.render(safeWidth), divider];
+    },
+    invalidate(): void {
+      content.invalidate();
+    },
+  };
+}
+
 export function registerAtelierReportRenderer(
   pi: ExtensionAPI,
   runtime: MarkdownRuntime | undefined = markdownRuntime,
 ): void {
-  pi.registerEntryRenderer?.<AtelierReportEntry>(REPORT_ENTRY_TYPE, (entry, _options, theme) => {
+  pi.registerEntryRenderer?.<AtelierReportEntry>(REPORT_ENTRY_TYPE, (entry, options, theme) => {
     const data = entry.data;
     if (data === undefined || typeof data.markdown !== "string") return undefined;
-    return markdownComponent(data.markdown, runtime, theme);
+    const normalized: AtelierReportEntry = {
+      title: typeof data.title === "string" ? data.title : "Atelier report",
+      summary: typeof data.summary === "string" ? data.summary : "",
+      markdown: data.markdown,
+      createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
+    };
+    return reportCard(
+      normalized,
+      markdownComponent(normalized.markdown, runtime, theme),
+      options.expanded,
+      theme,
+    );
   });
 }
 
@@ -234,9 +296,11 @@ export function appendAtelierReport(
   ctx: ExtensionContext,
   title: string,
   markdown: string,
+  summary = "",
 ): void {
   const entry: AtelierReportEntry = {
     title,
+    summary,
     markdown,
     createdAt: new Date().toISOString(),
   };
@@ -254,6 +318,10 @@ export function markdownTable(rows: ReadonlyArray<readonly [string, string]>): s
     "|---|---|",
     ...rows.map(([field, value]) => `| **${field}** | ${value.replaceAll("|", "\\|")} |`),
   ].join("\n");
+}
+
+export function markdownFields(rows: ReadonlyArray<readonly [string, string]>): string {
+  return rows.map(([field, value]) => `**${field}:** ${value}`).join("  \n");
 }
 
 export function code(value: string): string {

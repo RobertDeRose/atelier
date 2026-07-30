@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; amended for alpha.17 — 2026-07-30
+Accepted; amended for alpha.18 — 2026-07-30
 
 ## Context
 
@@ -28,7 +28,7 @@ showing raw Markdown source.
 The following commands create persistent reports:
 
 - `/status`
-- `/state`
+- `/workflow` (`/state` compatibility alias)
 - `/ready` when listing work
 - `/code-status`
 - `/code-index`
@@ -38,8 +38,11 @@ The following commands create persistent reports:
 - `/validate`
 - `/evidence`
 
-Status-like reports use compact Markdown tables. Working State uses headings and lists. Code results group
-definitions, source, tests, documentation, generated files, and references separately.
+Every report is presented as a visually separated card with a horizontal rule and concise summary header.
+Collapsed cards show `➤`; expanded cards show `▼` and render the full Markdown body. Sparse status and
+workflow summaries use bold field/value lines. Dense ready-task and code-result collections use tables or
+grouped sections. `/workflow` is the canonical durable workflow report; `/state` remains a compatibility
+alias, and `full`/`--full` exposes the complete diagnostic Working State when required.
 
 The footer uses a neutral `disabled` intelligence state when no provider is configured. `offline` is
 reserved for a configured provider that is unavailable or failed. Thinking-level text uses normal
@@ -53,7 +56,7 @@ recorder, and gathers authoritative CLI/VCS/ledger evidence afterward.
 
 - Structured command output remains visible in transcript scrollback without starting an agent turn.
 - Reports are excluded from model context and do not consume conversation authority.
-- Manual testing can compare `/state`, `/status`, and code results after subsequent commands.
+- Manual testing can distinguish consecutive cards and compare `/workflow`, `/status`, and code results after subsequent commands.
 - TUI hosts lacking the current entry-renderer API fall back to notifications; this compatibility path is
   intentionally less capable.
 - The Pi coding-agent and Pi TUI Markdown/entry-renderer APIs are explicit optional peer dependencies.

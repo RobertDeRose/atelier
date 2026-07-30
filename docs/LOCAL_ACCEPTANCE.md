@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.17
+# Local Acceptance Workflow — 0.14.0-alpha.18
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -170,9 +170,9 @@ silently authorized by an active task or by sandbox availability alone.
 
 ## Persistent report presentation
 
-Before continuing, run `/status`, `/state`, and `/code-status` in sequence. Each result must remain visible
-in transcript scrollback after the next command. `/status` and `/code-status` should render Markdown tables;
-`/state` should render headings and lists. A workspace configured with `codeProvider: "disabled"` must show
+Before continuing, run `/status`, `/workflow`, and `/code-status` in sequence. Each result must remain visible
+in transcript scrollback after the next command. `/status` and `/code-status` should render expandable report cards with bold field/value summaries;
+`/workflow` should render a concise workflow report and remain distinguishable from `/status`. A workspace configured with `codeProvider: "disabled"` must show
 `intel: disabled`, not `offline`.
 
 For a guided, evidence-gathering walkthrough that clears each terminal transition and identifies the
@@ -236,7 +236,7 @@ reviewable execution contract (formatting/order may differ):
 Planning may change only `.atelier/PLAN.md`; Beads and product source must remain unchanged. Preparation
 must fail when the execution contract is removed or names an unknown validation.
 
-After automatic editor review, run `/status` and `/state`. Then run `/approve` and reject once. Verify
+After automatic editor review, run `/status` and `/workflow`. Then run `/approve` and reject once. Verify
 `bd list --json` remains empty and `atlr status --json` reports no active execution grant and zero reviewed
 task constraints.
 

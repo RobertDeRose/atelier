@@ -1,4 +1,12 @@
-# Migration Report — Atelier 0.14.0-alpha.17
+# Migration Report — Atelier 0.14.0-alpha.18
+
+## Alpha.18 report-card compatibility
+
+No state migration is required. Persistent reports now render as expandable cards with divider lines and
+concise summaries. `/workflow` is the canonical durable workflow report; `/state` remains a compatibility
+alias, and `full` or `--full` retains the previous complete diagnostic Working State. Existing persisted
+report entries without summaries continue to render with their title only. Pi's global persistent-entry
+expansion state controls `➤` and `▼`; no new keybinding or per-entry state is stored by Atelier.
 
 ## Alpha.17 callback-theme compatibility
 

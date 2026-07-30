@@ -52,12 +52,16 @@ import { appendAtelierReport, registerAtelierReportRenderer } from "./report-pre
 import {
   changedMarkdown,
   codeStatusMarkdown,
+  codeStatusSummary,
   evidenceMarkdown,
   focusedSelectionMarkdown,
   readyTasksMarkdown,
   statusMarkdown,
+  statusSummary,
   validationListMarkdown,
   validationResultsMarkdown,
+  workflowMarkdown,
+  workflowSummary,
 } from "./command-reports.ts";
 import {
   executionGrantText,
@@ -933,7 +937,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const status = await core.status();
-      appendAtelierReport(pi, ctx, "Atelier status", statusMarkdown(status));
+      appendAtelierReport(pi, ctx, "Atelier status", statusMarkdown(status), statusSummary(status));
       await updateStatus(ctx, core);
     },
   });
@@ -1111,7 +1115,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const core = getCore(ctx);
       const ready = await core.taskProvider.ready();
       if (ready.length === 0) {
-        appendAtelierReport(pi, ctx, "Ready tasks", readyTasksMarkdown([]));
+        appendAtelierReport(pi, ctx, "Ready tasks", readyTasksMarkdown([]), "none ready");
         return;
       }
       const requested = args.trim();
@@ -1123,7 +1127,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         selected = index < 0 ? undefined : ready[index];
       }
       if (selected === undefined) {
-        appendAtelierReport(pi, ctx, "Ready tasks", readyTasksMarkdown(ready));
+        appendAtelierReport(pi, ctx, "Ready tasks", readyTasksMarkdown(ready), `${ready.length} ready`);
         return;
       }
       core.ledger.setState("currentTaskId", selected.id);
@@ -1138,13 +1142,27 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     },
   });
 
+  const showWorkflowReport = async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+    const core = getCore(ctx);
+    const state = await core.buildWorkingState();
+    const full = args.trim() === "--full" || args.trim() === "full";
+    appendAtelierReport(
+      pi,
+      ctx,
+      full ? "Atelier workflow · full" : "Atelier workflow",
+      full ? core.workingStateBuilder.toMarkdown(state) : workflowMarkdown(state),
+      workflowSummary(state),
+    );
+  };
+
+  pi.registerCommand("workflow", {
+    description: "Show durable workflow context; use /workflow full for the complete diagnostic state",
+    handler: showWorkflowReport,
+  });
+
   pi.registerCommand("state", {
-    description: "Show the deterministic Atelier Working State",
-    handler: async (_args, ctx) => {
-      const core = getCore(ctx);
-      const state = await core.buildWorkingState();
-      appendAtelierReport(pi, ctx, "Atelier Working State", core.workingStateBuilder.toMarkdown(state));
-    },
+    description: "Compatibility alias for /workflow",
+    handler: showWorkflowReport,
   });
 
   pi.registerCommand("code-status", {
@@ -1153,7 +1171,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const core = getCore(ctx);
       const status = await core.code.status(undefined, core.codeWorkspace());
       const retrieval = core.code.retrievalStatus();
-      appendAtelierReport(pi, ctx, "Code intelligence", codeStatusMarkdown(status, retrieval));
+      appendAtelierReport(pi, ctx, "Code intelligence", codeStatusMarkdown(status, retrieval), codeStatusSummary(status, retrieval));
     },
   });
 
@@ -1162,7 +1180,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const state = await core.code.ensureIndex(core.codeWorkspace());
-      appendAtelierReport(pi, ctx, "Code index", `## Code index\n\nState: **${state}**`);
+      appendAtelierReport(pi, ctx, "Code index", `**state:** ${state}`, state);
     },
   });
 
@@ -1178,7 +1196,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const workspace = core.codeWorkspace();
       const results = rankPresentedHits(await core.code.search({ workspace, text: query, mode: "semantic", limit: 10 }));
       const retrieval = core.code.retrievalStatus();
-      appendAtelierReport(pi, ctx, "Code search", codeSearchMarkdown(query, results, retrieval));
+      appendAtelierReport(pi, ctx, "Code search", codeSearchMarkdown(query, results, retrieval), `${results.length} result(s) · ${retrieval.inventory.freshness}`);
     },
   });
 
@@ -1194,7 +1212,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const workspace = core.codeWorkspace();
       const results = rankPresentedHits(await core.code.symbols({ workspace, text: query, limit: 20, requireUnresolved: false }));
       const retrieval = core.code.retrievalStatus();
-      appendAtelierReport(pi, ctx, "Symbol search", codeSymbolsMarkdown(query, results, retrieval));
+      appendAtelierReport(pi, ctx, "Symbol search", codeSymbolsMarkdown(query, results, retrieval), `${results.length} match(es) · ${retrieval.inventory.freshness}`);
     },
   });
 
@@ -1203,7 +1221,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const paths = core.repository.changedPaths();
-      appendAtelierReport(pi, ctx, "Changed paths", changedMarkdown(paths, core.repository.snapshot().vcs));
+      appendAtelierReport(pi, ctx, "Changed paths", changedMarkdown(paths, core.repository.snapshot().vcs), `${paths.length} path(s) · ${core.repository.snapshot().vcs}`);
     },
   });
 
@@ -1214,13 +1232,13 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const name = args.trim();
       if (!name) {
         const manifest = core.validation.manifest();
-        appendAtelierReport(pi, ctx, "Configured validations", validationListMarkdown(manifest.validations));
+        appendAtelierReport(pi, ctx, "Configured validations", validationListMarkdown(manifest.validations), `${Object.keys(manifest.validations).length} configured`);
         return;
       }
       if (name === "plan" || name === "focused") {
         if (name === "plan") {
           const selection = core.selectFocusedValidation();
-          appendAtelierReport(pi, ctx, "Focused validation plan", focusedSelectionMarkdown(selection));
+          appendAtelierReport(pi, ctx, "Focused validation plan", focusedSelectionMarkdown(selection), `${selection.selected.length} selected`);
           return;
         }
         const selection = core.selectFocusedValidation();
@@ -1232,12 +1250,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
             ...(signal === undefined ? {} : { signal }),
           }));
         }
-        appendAtelierReport(pi, ctx, "Validation results", validationResultsMarkdown(results));
+        appendAtelierReport(pi, ctx, "Validation results", validationResultsMarkdown(results), `${results.filter((item) => item.status === "passed").length}/${results.length} passed`);
         return;
       }
       const signal = contextSignal(ctx);
       const evidence = await core.runValidation(name, signal === undefined ? {} : { signal });
-      appendAtelierReport(pi, ctx, "Validation result", validationResultsMarkdown([evidence]));
+      appendAtelierReport(pi, ctx, "Validation result", validationResultsMarkdown([evidence]), `${evidence.name} · ${evidence.status}`);
     },
   });
 
@@ -1250,7 +1268,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         currentChangedPaths: core.repository.changedPaths()
           .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/")),
       });
-      appendAtelierReport(pi, ctx, "Validation evidence", evidenceMarkdown(items));
+      appendAtelierReport(pi, ctx, "Validation evidence", evidenceMarkdown(items), `${items.filter((item) => !item.stale).length} current · ${items.filter((item) => item.stale).length} stale`);
     },
   });
 

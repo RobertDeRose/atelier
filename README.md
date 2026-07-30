@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.17**. Persistent inspection reports are rendered by the Markdown component and theme supplied by the active Pi host.
+Current release: **0.14.0-alpha.18**. Persistent inspection reports are rendered by the Markdown component and theme supplied by the active Pi host.
 
 ## Current status
 
@@ -32,7 +32,7 @@ Atelier currently provides:
 - codesearch, Octocode, mock, and disabled code providers;
 - CLI and Pi integration, including a responsive two-line footer with model/context, workflow mode,
   human-readable task titles, code-index health, and provider-native Jujutsu/Git cleanliness;
-- persistent TUI-only Markdown reports for status, Working State, code intelligence, changed paths,
+- expandable TUI-only Markdown report cards for status, workflow context, code intelligence, changed paths,
   validation, evidence, and ready-work inspection without adding those reports to model context;
 - approval-only plan activation that leaves Pi idle until the user explicitly requests implementation.
 
@@ -307,10 +307,10 @@ mise run launch
 
 Pi reserves `/trust` for Pi-owned project resources. Atelier does not register another trust command and does not use Pi trust as filesystem authority. The Atelier workspace policy is established from the startup directory or `--workspace`.
 
-Structured inspection commands render as persistent Markdown entries in Pi transcript scrollback. Status-like
-reports use compact tables; Working State uses headings and lists; code search separates definitions,
-references, source, tests, documentation, and generated results. Short lifecycle events continue to use
-transient notifications.
+Structured inspection commands render as expandable report cards in Pi transcript scrollback. Each report
+has a divider and a concise `➤` summary; Pi's expansion control switches it to `▼` and reveals the full
+Markdown body. Sparse summaries use bold field/value lines, while dense task lists and code results retain
+tables or grouped sections. Short lifecycle events continue to use transient notifications.
 
 Core slash commands include:
 
@@ -324,7 +324,8 @@ Core slash commands include:
 /atelier-resume
 /cancel
 /status
-/state
+/workflow
+/state        # compatibility alias for /workflow
 /code-status
 /code-index
 /code-search

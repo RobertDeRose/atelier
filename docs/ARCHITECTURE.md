@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.17
+# Atelier Architecture — 0.14.0-alpha.18
 
 ## Product boundary
 
@@ -60,10 +60,12 @@ are applied by state, and expected empty workflow fields are deliberately omitte
 ## Persistent Pi report presentation
 
 Atelier registers a custom TUI-only session-entry renderer for structured slash-command output. `/status`,
-`/state`, `/ready`, code-intelligence commands, `/changed`, `/validate`, and `/evidence` append Markdown
-entries that remain in transcript scrollback but do not participate in LLM context. Pi's Markdown component
-renders tables, headings, lists, and inline code when the host API is available; deterministic tests retain
-a plain-text fallback. Transient notifications are reserved for short warnings and lifecycle events.
+`/workflow` (`/state` remains a compatibility alias), `/ready`, code-intelligence commands, `/changed`,
+`/validate`, and `/evidence` append expandable report cards that remain in transcript scrollback but do not
+participate in LLM context. Each card renders a divider and compact `➤` summary while collapsed; Pi's global
+entry expansion state changes it to `▼` and reveals the Markdown body. Sparse reports use bold field/value
+lines, while dense result sets use tables or grouped sections. Transient notifications remain reserved for
+short warnings and lifecycle events.
 
 A workspace with no configured code provider is presented as `intel: disabled`, a neutral configuration
 state. `offline` is reserved for a configured provider that cannot be reached or has failed. Footer thinking

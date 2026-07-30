@@ -1198,7 +1198,7 @@ test("model Bash and direct user shell share one workspace-policy authorization 
   }
 });
 
-test("Pi status and state commands append persistent Markdown report entries", async () => {
+test("Pi status, workflow, and code commands append expandable persistent report cards", async () => {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const commands = new Map<string, RegisteredCommand>();
   const entries: Array<{ customType: string; data: any }> = [];
@@ -1223,18 +1223,22 @@ test("Pi status and state commands append persistent Markdown report entries", a
   try {
     await events.get("session_start")!({}, context);
     await commands.get("status")!.handler("", context);
-    await commands.get("state")!.handler("", context);
+    assert.ok(commands.has("workflow"), "Atelier must expose /workflow as the clear durable-state command");
+    await commands.get("workflow")!.handler("", context);
     await commands.get("code-status")!.handler("", context);
     assert.equal(entries.length, 3);
     assert.equal(entries[0]?.customType, "atelier-report");
-    assert.match(entries[0]?.data.markdown ?? "", /^## Atelier status/m);
-    assert.match(entries[0]?.data.markdown ?? "", /\| \*\*workspace\*\* \|/);
-    assert.match(entries[1]?.data.markdown ?? "", /^# Atelier Working State/m);
-    assert.match(entries[2]?.data.markdown ?? "", /^## Code intelligence/m);
-    assert.match(entries[2]?.data.markdown ?? "", /\| \*\*state\*\* \| disabled \|/);
+    assert.match(entries[0]?.data.markdown ?? "", /^\*\*workspace:\*\*/m);
+    assert.doesNotMatch(entries[0]?.data.markdown ?? "", /^\| field \| value \|/m);
+    assert.match(entries[0]?.data.summary ?? "", /investigate/);
+    assert.match(entries[1]?.data.markdown ?? "", /^\*\*mode:\*\*/m);
+    assert.match(entries[1]?.data.summary ?? "", /no active task/);
+    assert.match(entries[2]?.data.markdown ?? "", /^\*\*provider:\*\*/m);
+    assert.match(entries[2]?.data.markdown ?? "", /^\*\*state:\*\* disabled/m);
     const component = registeredRenderer!({ type: "custom", customType: "atelier-report", data: entries[0]?.data }, { expanded: true }, {});
     const rendered = component?.render(100).join("\n") ?? "";
-    assert.match(rendered, /Atelier status/);
+    assert.match(rendered, /▼ Atelier status/);
+    assert.match(rendered, /^─+$/m);
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });

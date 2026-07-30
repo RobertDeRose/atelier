@@ -31,7 +31,7 @@ function retrieval(): any {
   };
 }
 
-test("status report is a persistent-friendly Markdown table", () => {
+test("status report uses concise bold field-value Markdown", () => {
   const report = statusMarkdown({
     repositoryRoot: "/workspace",
     workspaceRoot: "/workspace",
@@ -52,8 +52,9 @@ test("status report is a persistent-friendly Markdown table", () => {
     approvedPlanHash: undefined,
     currentPlanHash: undefined,
   } as any);
-  assert.match(report, /^## Atelier status/m);
-  assert.match(report, /\| \*\*workspace\*\* \| `\/workspace`/);
+  assert.match(report, /^\*\*workspace:\*\* `\/workspace`/m);
+  assert.match(report, /^\*\*mode:\*\* `investigate`/m);
+  assert.doesNotMatch(report, /^\| field \| value \|/m);
   assert.match(report, /^### Next action/m);
 });
 
@@ -66,7 +67,7 @@ test("disabled code intelligence is neutral and explicit", () => {
     capabilities: [],
     detail: "Code intelligence is disabled or no provider is configured.",
   } as any, retrieval());
-  assert.match(report, /\| \*\*state\*\* \| disabled \|/);
+  assert.match(report, /^\*\*state:\*\* disabled/m);
   assert.doesNotMatch(report, /offline/);
 });
 

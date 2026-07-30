@@ -196,7 +196,7 @@ write_guides() {
 Run these commands inside Pi:
 
 1. `/status`
-2. `/state`
+2. `/workflow`
 3. `/code-status`
 4. `/code-index`
 5. `/code-search Where is the authoritative task closure predicate implemented?`
@@ -208,8 +208,9 @@ Expected:
 - `intel:` becomes `ready` after indexing.
 - The thinking level uses normal readable text rather than dim text.
 - Every slash-command result remains in transcript scrollback after the next command.
-- `/status` and `/code-status` render Markdown tables.
-- `/state` renders persistent Markdown headings and lists.
+- `/status` and `/code-status` render expandable cards with bold field/value summaries.
+- `/workflow` renders a concise durable workflow card distinct from `/status`.
+- Card headers use `➤` when collapsed and `▼` when expanded, with dividers between consecutive reports.
 - Symbol results separate the exact `AtelierCore` definition from references.
 
 Exit Pi with Ctrl-D.
@@ -293,7 +294,7 @@ Then:
 1. Run `/approve` and reject it. Verify no task starts.
 2. Run `/approve` again and accept it.
 3. Verify Pi remains idle and source files are unchanged.
-4. Run `/status` and `/state`; both reports must remain in scrollback.
+4. Run `/status` and `/workflow`; both reports must remain in scrollback.
 
 Exit Pi with Ctrl-D.
 GUIDE

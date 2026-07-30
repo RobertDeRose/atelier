@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.17 (2026-07-30).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.18 (2026-07-30).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -35,7 +35,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.17
+## Implementation Status — v0.14.0-alpha.18
 
 The current prototype delivers the guarded local workflow:
 
@@ -156,7 +156,7 @@ atlr plan       /plan
 atlr review     /review
 atlr approve    /approve
 atlr ready      /ready
-atlr state      /state
+atlr state      /workflow (`/state` alias)
 ```
 
 The CLI uses spaces for command hierarchy. Pi uses hyphens because slash-command names are single tokens. The semantic verb must remain identical across both interfaces.
@@ -403,7 +403,7 @@ atlr plan      /plan
 atlr review    /review
 atlr approve   /approve
 atlr ready     /ready
-atlr state     /state
+atlr state     /workflow (`/state` alias)
 ```
 
 Additional CLI-only command groups may include `task`, `permission`, `policy`, `ledger`, `validate`, `evidence`, `files`, `history`, and `tool`. When a corresponding Pi command is added, it must use the same verb without a product prefix; aliases such as `plan-review`, `plan-approve`, `tasks`, or `context` are prohibited.

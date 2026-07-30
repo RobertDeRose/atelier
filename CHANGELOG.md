@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0-alpha.18 — 2026-07-30
+
+- Added expandable, visually separated report cards with horizontal dividers and `➤`/`▼` headers driven by Pi's persistent-entry expansion state.
+- Replaced sparse status and code-provider tables with concise bold field/value lines while retaining tables for dense task collections and grouped sections for code results.
+- Added `/workflow` as the canonical durable workflow report and retained `/state` as a compatibility alias; `/workflow full` exposes the complete diagnostic Working State.
+- Reduced the default workflow report to actionable task, execution, validation, retrieval, and diagnostic summaries instead of the complete raw Working State.
+- Added concise per-report summaries for status, workflow, code search, symbols, changed paths, validation, evidence, and ready tasks.
+
 ## 0.14.0-alpha.17 — 2026-07-30
 
 ### Fixed

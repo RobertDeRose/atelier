@@ -390,10 +390,10 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     await events.get("session_start")!({ reason: "resume" }, context);
     await commands.get("state")!.handler("", context);
     const resumedState = reportEntries.at(-1) ?? "";
-    assert.match(resumedState, /Mode: act/);
-    assert.match(resumedState, /Execution grant: .*active/);
-    assert.equal((resumedState.match(/write\/write\.file: succeeded/g) ?? []).length, 2);
-    assert.match(resumedState, /focused: passed/);
+    assert.match(resumedState, /\*\*mode:\*\* `act`/);
+    assert.match(resumedState, /\*\*execution:\*\* .*active/);
+    assert.equal((resumedState.match(/\*\*write:\*\* succeeded/g) ?? []).length, 2);
+    assert.match(resumedState, /\*\*validation evidence:\*\* focused: passed/);
     assert.equal(mutationLog(fake.logPath).filter((args) => args[0] === "create").length, createCountBeforeResume);
 
     await commands.get("cancel")!.handler("acceptance cancellation", context);

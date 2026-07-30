@@ -45,7 +45,8 @@ test("persistent reports instantiate Pi's Markdown component instead of renderin
     type: "custom",
     customType: "atelier-report",
     data: {
-      title: "Status",
+      title: "Atelier status",
+      summary: "act · git dirty",
       markdown: "## Atelier status\n\n| field | value |\n|---|---|\n| **mode** | `act` |",
       createdAt: new Date(0).toISOString(),
     },
@@ -59,6 +60,8 @@ test("persistent reports instantiate Pi's Markdown component instead of renderin
   const output = component.render(100).join("\n");
 
   assert.equal(FakePiMarkdown.constructed, 1);
+  assert.match(output, /^─+$/m);
+  assert.match(output, /▼ Atelier status · act · git dirty/);
   assert.match(output, /Atelier status/);
   assert.doesNotMatch(output, /^##/m);
   assert.doesNotMatch(output, /\*\*mode\*\*/);
@@ -143,4 +146,35 @@ test("Markdown runtime resolves mise's regular npm wrapper and lib/node_modules 
     else process.env.PATH = priorPath;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test("persistent report cards collapse to a summary header", () => {
+  let renderer: ((entry: any, options: any, theme: any) => any) | undefined;
+  const pi = {
+    registerEntryRenderer(_type: string, candidate: typeof renderer): void {
+      renderer = candidate;
+    },
+  } as unknown as ExtensionAPI;
+  const runtime: MarkdownRuntime = { Markdown: FakePiMarkdown };
+
+  registerAtelierReportRenderer(pi, runtime);
+  const component = renderer!({
+    type: "custom",
+    customType: "atelier-report",
+    data: {
+      title: "Atelier workflow",
+      summary: "act · task repo-123 · diff review",
+      markdown: "## Full body\n\nThis should be hidden.",
+      createdAt: new Date(0).toISOString(),
+    },
+  }, { expanded: false }, {
+    fg: (_color: string, text: string) => text,
+    bold: (text: string) => text,
+  });
+  const output = component.render(72).join("\n");
+
+  assert.match(output, /➤ Atelier workflow · act · task repo-123/);
+  assert.doesNotMatch(output, /Full body/);
+  assert.equal(output.split("\n").length, 3);
 });

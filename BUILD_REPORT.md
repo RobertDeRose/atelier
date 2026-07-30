@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.17
+# Build Report — Atelier 0.14.0-alpha.18
 
 ## Result
 
@@ -17,15 +17,17 @@ dist/apps/pi-extension/src/index.js
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
 
-## Alpha.17 Pi callback-theme correction
+## Alpha.18 expandable report-card correction
 
-Alpha.17 keeps mise/global Pi Markdown-component discovery and removes the remaining dependency on Pi's global theme singleton:
+Alpha.18 makes consecutive persistent reports visually distinct and reduces sparse or diagnostic-heavy output:
 
-- Pi's `Markdown` component is still resolved from the active extension or installed Pi package;
-- the initialized theme supplied to `registerEntryRenderer()` is adapted directly into the Markdown component's theme contract;
-- report rendering no longer imports or calls `getMarkdownTheme()`;
-- deterministic render tests can exercise the real Markdown component without initializing Pi's global interactive theme; and
-- interactive reports continue to inherit the active Pi theme, including heading, link, code, quote, list, and text-decoration styles.
+- every report renders a horizontal divider plus a concise summary header;
+- collapsed entries use `➤`, expanded entries use `▼`, following Pi's persistent-entry expansion state;
+- `/status` uses concise bold field/value lines instead of a sparse table;
+- `/workflow` is the canonical durable workflow report and `/state` remains a compatibility alias;
+- `/workflow full` retains the complete diagnostic Working State when deep inspection is required;
+- default workflow output omits empty sections and summarizes task, execution, validation, retrieval, and blockers; and
+- dense ready-task and code-result collections retain tables or grouped sections where they improve scanning.
 
 ## Deterministic verification
 
@@ -47,7 +49,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:  257 passed, 0 failed
+Deterministic tests:  258 passed, 0 failed
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -57,10 +59,10 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.17
-Files:            424
-Compressed size:  468,044 bytes
-Unpacked size:    2,188,953 bytes
+Package:          atelier-prototype@0.14.0-alpha.18
+Files:            425
+Compressed size:  473,005 bytes
+Unpacked size:    2,212,956 bytes
 ```
 
 ## Verification boundary
@@ -73,7 +75,7 @@ and live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.17` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.18` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.
