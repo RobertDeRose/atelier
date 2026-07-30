@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { minimalEnvironment } from "../process/environment.ts";
 import { resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { RepositorySnapshot } from "./snapshot.ts";
@@ -17,7 +18,7 @@ interface CommandResult {
 function run(executable: string, cwd: string, args: string[]): CommandResult {
   const result = spawnSync(executable, args, {
     cwd,
-    env: process.env,
+    env: minimalEnvironment(),
     encoding: "utf8",
     shell: false,
     windowsHide: true,
@@ -173,7 +174,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     if (listed.status === 0 && lines(listed.stdout).includes(relativePath)) {
       return this.observeRawChangedPaths().includes(relativePath) ? "tracked_dirty" : "tracked_clean";
     }
-    const ignored = spawnSync("git", ["check-ignore", "-q", "--", relativePath], { cwd: root, env: process.env, shell: false });
+    const ignored = spawnSync("git", ["check-ignore", "-q", "--", relativePath], { cwd: root, env: minimalEnvironment(), shell: false });
     if (ignored.status === 0) return "ignored";
     return existsSync(absolute) ? "untracked" : "missing";
   }

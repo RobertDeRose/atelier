@@ -9,6 +9,7 @@ import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, rankCodePathsByFocus, resolveCodeSearchFocus } from "./focus.ts";
 import { ATELIER_VERSION } from "../version.ts";
+import { minimalEnvironment } from "../process/environment.ts";
 import type {
   CodeCapability,
   CodeChunk,
@@ -181,7 +182,7 @@ export class CodesearchProvider implements CodeProvider {
   private runIndexCommand(args: string[], repositoryRoot: string, operation: string): void {
     const result = spawnSync(this.command, args, {
       cwd: repositoryRoot,
-      env: { ...process.env, ...this.environment },
+      env: minimalEnvironment({ overrides: this.environment }),
       encoding: "utf8",
       shell: false,
       timeout: this.indexTimeoutMs,
@@ -195,7 +196,7 @@ export class CodesearchProvider implements CodeProvider {
   private readLocalVectorHealth(repositoryRoot: string): { state: CodeIndexState; detail: string } {
     const result = spawnSync(this.command, ["stats", repositoryRoot], {
       cwd: repositoryRoot,
-      env: { ...process.env, ...this.environment },
+      env: minimalEnvironment({ overrides: this.environment }),
       encoding: "utf8",
       shell: false,
       timeout: this.timeoutMs,
@@ -599,7 +600,7 @@ export class CodesearchProvider implements CodeProvider {
   private detectVersion(): string | undefined {
     const result = spawnSync(this.command, ["--version"], {
       cwd: this.cwd,
-      env: { ...process.env, ...this.environment },
+      env: minimalEnvironment({ overrides: this.environment }),
       encoding: "utf8",
       shell: false,
       timeout: 5_000,

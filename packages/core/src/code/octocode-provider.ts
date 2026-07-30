@@ -7,6 +7,7 @@ import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "
 import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus, type ResolvedCodeSearchFocus } from "./focus.ts";
 import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
 import { ATELIER_VERSION } from "../version.ts";
+import { minimalEnvironment } from "../process/environment.ts";
 import type {
   CodeCapability,
   CodeChunk,
@@ -137,7 +138,7 @@ export class OctocodeProvider implements CodeProvider {
       const indexArgs = ["index"];
       const result = spawnSync(this.command, indexArgs, {
         cwd: repository.root,
-        env: { ...process.env, ...this.environment },
+        env: minimalEnvironment({ overrides: this.environment }),
         encoding: "utf8",
         timeout: this.indexTimeoutMs,
         shell: false,
@@ -298,7 +299,7 @@ export class OctocodeProvider implements CodeProvider {
   private inspectStats(root: string): OctocodeStats {
     const result = spawnSync(this.command, ["stats"], {
       cwd: root,
-      env: { ...process.env, ...this.environment },
+      env: minimalEnvironment({ overrides: this.environment }),
       encoding: "utf8",
       timeout: Math.min(this.timeoutMs, 30_000),
       shell: false,
@@ -326,7 +327,7 @@ export class OctocodeProvider implements CodeProvider {
       : provider === "together" ? "TOGETHER_API_KEY"
       : undefined;
     if (!required) return undefined;
-    const environment = { ...process.env, ...this.environment };
+    const environment = minimalEnvironment({ overrides: this.environment });
     if (environment[required]?.trim()) return undefined;
     return `${required} is not set for configured code embedding model ${model}. Set the key, or install/configure an Octocode build with a local embedding provider.`;
   }
@@ -343,7 +344,7 @@ export class OctocodeProvider implements CodeProvider {
   private probeVersion(): OctocodeVersionProbe {
     const result = spawnSync(this.command, ["--version"], {
       cwd: this.cwd,
-      env: { ...process.env, ...this.environment },
+      env: minimalEnvironment({ overrides: this.environment }),
       encoding: "utf8",
       timeout: Math.min(this.timeoutMs, 10_000),
       shell: false,

@@ -13,6 +13,7 @@ import type { SqliteDatabase } from "../ledger/sqlite-runtime.ts";
 import { sha256 } from "../util/hash.ts";
 import { nowIso, newId } from "../util/ids.ts";
 import { sourceSnapshotFingerprint } from "../repository/snapshot.ts";
+import { minimalEnvironment } from "../process/environment.ts";
 
 export interface ValidationDefinition {
   command: string[];
@@ -23,6 +24,7 @@ export interface ValidationDefinition {
   required?: boolean;
   paths?: string[];
   symbols?: string[];
+  environment?: string[];
 }
 
 export interface ValidationClosurePolicy {
@@ -194,7 +196,7 @@ export class ValidationService {
     if (definition === undefined) throw new Error(`Unknown validation: ${name}`);
     const [executable, ...args] = definition.command;
     if (executable === undefined) throw new Error(`Validation ${name} has no executable.`);
-    const environment = validationEnvironment();
+    const environment = validationEnvironment(definition.environment);
     const environmentFingerprint = this.environmentFingerprint(name, definition, environment);
     const startedAt = nowIso();
     const started = Date.now();
@@ -331,7 +333,7 @@ export class ValidationService {
       const definition = this.trusted ? this.definition(evidence.name) : undefined;
       const currentEnvironment = definition === undefined
         ? undefined
-        : this.environmentFingerprint(evidence.name, definition, validationEnvironment());
+        : this.environmentFingerprint(evidence.name, definition, validationEnvironment(definition.environment));
       const repositoryStale = options.currentSnapshot !== undefined
         && sourceSnapshotFingerprint(options.currentSnapshot) !== evidence.snapshotFingerprint;
       const environmentStale = currentEnvironment !== undefined
@@ -611,7 +613,7 @@ function validateDefinition(name: string, definition: ValidationDefinition): voi
   if (definition.longRunningAfterMs !== undefined && (!Number.isFinite(definition.longRunningAfterMs) || definition.longRunningAfterMs <= 0)) {
     throw new Error(`Validation ${name}.longRunningAfterMs must be positive.`);
   }
-  for (const field of ["paths", "symbols"] as const) {
+  for (const field of ["paths", "symbols", "environment"] as const) {
     if (definition[field] !== undefined && (!Array.isArray(definition[field]) || !definition[field]!.every((item) => typeof item === "string" && item.length > 0))) {
       throw new Error(`Validation ${name}.${field} must be a string array.`);
     }
@@ -641,14 +643,9 @@ function evidenceFromRow(row: Record<string, unknown>): ValidationEvidence {
   };
 }
 
-function validationEnvironment(): NodeJS.ProcessEnv {
-  const allowed = new Set([
-    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP",
-    "LANG", "TERM", "COLORTERM", "NO_COLOR", "CI",
-    ...Object.keys(process.env).filter((key) => key.startsWith("LC_")),
-    ...(process.env.ATLR_VALIDATION_ENV_ALLOWLIST ?? "").split(",").map((item) => item.trim()).filter(Boolean),
-  ]);
-  return Object.fromEntries(Object.entries(process.env).filter(([key]) => allowed.has(key)));
+function validationEnvironment(allow: readonly string[] = []): NodeJS.ProcessEnv {
+  const configured = (process.env.ATLR_VALIDATION_ENV_ALLOWLIST ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+  return minimalEnvironment({ allow: [...configured, ...allow] });
 }
 
 function redactOutput(value: string): string {

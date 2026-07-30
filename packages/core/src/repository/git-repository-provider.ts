@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { minimalEnvironment } from "../process/environment.ts";
 import { resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { RepositorySnapshot } from "./snapshot.ts";
@@ -23,7 +24,7 @@ interface GitResult {
 function runGit(cwd: string, args: string[]): GitResult {
   const result = spawnSync("git", args, {
     cwd,
-    env: process.env,
+    env: minimalEnvironment(),
     encoding: "utf8",
     shell: false,
     windowsHide: true,

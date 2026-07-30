@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { newId } from "../util/ids.ts";
 import { ATELIER_VERSION } from "../version.ts";
+import { minimalEnvironment } from "../process/environment.ts";
 
 interface JsonRpcSuccess<T> { jsonrpc: "2.0"; id: string | number; result: T }
 interface JsonRpcFailure { jsonrpc: "2.0"; id: string | number; error: { code: number; message: string; data?: unknown } }
@@ -46,7 +47,7 @@ export class McpStdioClient {
     if (this.child !== undefined) return;
     const child = spawn(this.command, this.args, {
       cwd: this.options.cwd,
-      env: { ...process.env, ...this.options.environment },
+      env: minimalEnvironment({ overrides: this.options.environment }),
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
     });

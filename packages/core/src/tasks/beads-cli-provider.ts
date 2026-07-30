@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { minimalEnvironment } from "../process/environment.ts";
 import { chmodSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { ProviderError } from "../domain/errors.ts";
@@ -168,7 +169,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
   private run(args: string[], options: { input?: string; allowFailure?: boolean } = {}): CommandResult {
     const result = spawnSync(this.executable, args, {
       cwd: this.cwd,
-      env: process.env,
+      env: minimalEnvironment(),
       encoding: "utf8",
       input: options.input,
       timeout: this.timeoutMs,
