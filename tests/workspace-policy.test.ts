@@ -18,7 +18,7 @@ test("startup directory establishes one immutable canonical workspace", () => {
   const nested = join(root, "nested");
   mkdirSync(nested);
   const workspace = establishSessionWorkspace(nested);
-  assert.equal(workspace.root, resolve(nested));
+  assert.equal(workspace.root, realpathSync.native(nested));
   assert.equal(workspace.source, "startup_cwd");
 });
 
@@ -31,7 +31,10 @@ test("workspace policy allows recoverable work and asks for protected consequenc
   writeFileSync(dirty, "b");
   writeFileSync(untracked, "c");
   const evaluator = new WorkspacePolicyEvaluator({ root });
-  const states = resolver({ [tracked]: "tracked_clean", [dirty]: "tracked_dirty", [untracked]: "untracked" });
+  const canonicalTracked = realpathSync.native(tracked);
+  const canonicalDirty = realpathSync.native(dirty);
+  const canonicalUntracked = realpathSync.native(untracked);
+  const states = resolver({ [canonicalTracked]: "tracked_clean", [canonicalDirty]: "tracked_dirty", [canonicalUntracked]: "untracked" });
   assert.equal(evaluator.evaluate([{ kind: "read", path: tracked }], states).result, "allow");
   assert.equal(evaluator.evaluate([{ kind: "mutate", path: tracked }], states).result, "allow");
   assert.equal(evaluator.evaluate([{ kind: "delete", path: dirty, destructive: true }], states).result, "checkpoint_then_allow");

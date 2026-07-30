@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.11
+# Build Report — Atelier 0.14.0-alpha.12
 
 ## Result
 
@@ -17,23 +17,16 @@ dist/apps/pi-extension/src/index.js
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
 
-## Alpha.11 authorization correction
+## Alpha.12 canonical-path correction
 
-Alpha.11 completes the workspace-recoverability migration rather than layering it over the earlier
-granular permission system:
+Alpha.12 preserves the completed workspace-recoverability model and corrects canonical path handling
+exposed by the pinned macOS suite:
 
-- the legacy policy engine, permission grants, permission profiles, remembered approvals, active
-  permission table, and filesystem capability bundle are removed;
-- reviewed plan execution metadata remains only as workflow and task constraints;
-- the canonical startup directory or explicit `--workspace` is the immutable session workspace;
-- structured tools, model Bash, and direct user Bash share one effect-analysis and workspace-policy path;
-- the Bash executor requires a matching pre-execution authorization token;
-- Git checkpoints preserve and verify exact scoped index and worktree state, including partially staged
-  files, flags, modes, renames, symlinks, ignored files, and untracked files;
-- Jujutsu checkpoints capture and restore the native operation and verify the working-copy identity;
-- checkpoints are atomic, size-bounded, externally stored, and associated with their tool call and Pi
-  session; and
-- old trust state is ignored while the ledger migration deletes legacy permission storage.
+- typed Pi read, write, and edit targets are canonicalized before workspace and workflow evaluation;
+- designated plan writes compare effective access paths rather than lexical `/var` and `/private/var` aliases;
+- Git path classification and recovery canonicalize both the repository root and affected paths;
+- broken symlinks and ignored or untracked recovery targets retain their repository-relative identity; and
+- platform-independent tests assert canonical workspace and VCS state identities.
 
 ## Deterministic verification
 
@@ -64,10 +57,10 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.11
+Package:          atelier-prototype@0.14.0-alpha.12
 Files:            415
-Compressed size:  452,503 bytes
-Unpacked size:    2,120,475 bytes
+Compressed size:  452,656 bytes
+Unpacked size:    2,120,922 bytes
 ```
 
 ## Verification boundary
@@ -80,7 +73,7 @@ and live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.11` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.12` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

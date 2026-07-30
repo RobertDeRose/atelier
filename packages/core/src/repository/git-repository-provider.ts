@@ -8,6 +8,7 @@ import type { RepositoryCommitResult, RepositoryPathState, RepositoryProvider, R
 import { RepositoryObservationError } from "../domain/errors.ts";
 import { sha256 } from "../util/hash.ts";
 import { isSourcePath } from "./source-path.ts";
+import { resolveAccessPath } from "../security/path-boundary.ts";
 
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
@@ -151,8 +152,8 @@ export class GitRepositoryProvider implements RepositoryProvider {
   }
 
   classifyPath(path: string): RepositoryPathState {
-    const root = requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim();
-    const absolute = resolve(path);
+    const root = resolveAccessPath(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim(), "read");
+    const absolute = resolveAccessPath(path, "write");
     const relativePath = absolute.startsWith(`${root}/`) ? absolute.slice(root.length + 1) : absolute;
     const tracked = runGit(root, ["ls-files", "--error-unmatch", "--", relativePath]);
     if (tracked.status === 0) {
@@ -165,9 +166,9 @@ export class GitRepositoryProvider implements RepositoryProvider {
   }
 
   captureRecoveryState(paths: string[]): RepositoryRecoveryState {
-    const root = requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim();
+    const root = resolveAccessPath(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim(), "read");
     const relativePaths = paths.map((path) => {
-      const absolute = resolve(path);
+      const absolute = resolveAccessPath(path, "write");
       if (absolute === root) return ".";
       if (!absolute.startsWith(`${root}/`)) throw new Error(`Git recovery path is outside the repository: ${absolute}`);
       return absolute.slice(root.length + 1);

@@ -7,13 +7,15 @@ import {
   type WorkflowActionRequest,
   type WorkflowDecision,
   type FilesystemEffect,
+  resolveAccessPath,
+  sameAccessPath,
 } from "../../../packages/core/src/index.ts";
 
 function toolReadPaths(event: any, ctx: ExtensionContext): string[] {
   const candidates = [event.input?.path, event.input?.directory, event.input?.cwd]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
   const paths = candidates.length === 0 ? [ctx.cwd] : candidates;
-  return [...new Set(paths.map((path) => resolve(ctx.cwd, path)))];
+  return [...new Set(paths.map((path) => resolveAccessPath(resolve(ctx.cwd, path), "read")))];
 }
 
 export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore, effects: readonly FilesystemEffect[] = []): WorkflowActionRequest {
@@ -94,7 +96,7 @@ export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierC
 
   if (event.toolName === "write" || event.toolName === "edit") {
     const path = typeof event.input?.path === "string"
-      ? resolve(ctx.cwd, event.input.path)
+      ? resolveAccessPath(resolve(ctx.cwd, event.input.path), "write")
       : undefined;
     const dependency = path !== undefined
       && isDependencyPath(relative(core.config.repositoryRoot, path));
@@ -183,7 +185,7 @@ export function isDesignatedPlanWrite(request: WorkflowActionRequest, core: Atel
   return core.mode() === "plan"
     && request.action === "write.file"
     && (request.paths?.length ?? 0) > 0
-    && request.paths?.every((path) => resolve(path) === resolve(core.config.planPath)) === true;
+    && request.paths?.every((path) => sameAccessPath(path, core.config.planPath, "write")) === true;
 }
 
 export async function authorizeTool(

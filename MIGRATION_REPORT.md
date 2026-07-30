@@ -1,4 +1,10 @@
-# Migration Report — Atelier 0.14.0-alpha.11
+# Migration Report — Atelier 0.14.0-alpha.12
+
+## Alpha.12 canonical path compatibility
+
+No state migration is required. Alpha.12 canonicalizes typed tool and Git recovery paths before
+comparison. This removes macOS `/var` versus `/private/var` alias mismatches without changing workspace
+selection, checkpoint format, task state, or policy decisions.
 
 ## Filesystem authority migration
 

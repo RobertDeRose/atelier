@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0-alpha.12 — 2026-07-30
+
+### Fixed
+
+- Canonicalized typed Pi read, write, and edit paths before workflow evaluation so macOS `/var`
+  aliases match Atelier's `/private/var` session workspace and designated plan path.
+- Made designated plan writes compare effective access paths rather than lexical path strings.
+- Canonicalized Git repository roots and recovery targets through existing ancestors, preserving ignored
+  files and broken symlinks reached through macOS path aliases.
+- Corrected workspace-policy regressions to assert canonical session identities and canonical VCS path-state keys across platforms.
+
 ## 0.14.0-alpha.11 — 2026-07-29
 
 ### Changed
