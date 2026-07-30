@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.0-alpha.10 — 2026-07-29
+
+### Changed
+
+- Replaced Atelier project trust and granular permissions with an immutable startup-workspace and recoverability policy.
+- Added VCS-aware recovery checkpoints, consequence-based approvals, and structured-tool and shell effect interception.
+- Isolated subprocess environments, redacted retained evidence, and added inspect, export, prune, and delete lifecycle commands.
+- Added cancellable asynchronous provider execution and Beads v2 JSON-envelope compatibility.
+- Added configurable footer ownership and one typed status model across CLI, Pi, footer, and Working State.
+- Added Seatbelt/Bubblewrap-backed workspace-confined shell execution when a supported backend is available.
+- Added cancelled-task resumption, dedicated approval surfaces, definition-first retrieval presentation, and explicit multi-repository workspace scopes.
+- Added repository navigation, editor open-at-line, project-tree, and scrollable exact-diff surfaces.
+- Added canonical plan-scope editing and authoritative per-turn context capsules independent of compaction.
+- Added a local serialized Atelier Core service with status, state, workspace, and code-intelligence RPC methods.
+
 ## 0.14.0-alpha.9 — 2026-07-29
 
 - keep exact plan approval as an approval-only transaction; accepting `/approve` no longer injects a user message or starts implementation automatically

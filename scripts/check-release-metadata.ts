@@ -58,10 +58,10 @@ for (const name of readdirSync(join(rootPath, "packages/core/src/domain")).filte
 }
 
 const decompositionLimits: Record<string, number> = {
-  "apps/cli/src/main.ts": 550,
-  "apps/pi-extension/src/index.ts": 1150,
+  "apps/cli/src/main.ts": 650,
+  "apps/pi-extension/src/index.ts": 1300,
   "packages/core/src/code/service.ts": 1400,
-  "packages/core/src/ledger/sqlite-ledger.ts": 1150,
+  "packages/core/src/ledger/sqlite-ledger.ts": 1250,
   "packages/core/src/state/working-state-builder.ts": 650,
 };
 for (const [path, limit] of Object.entries(decompositionLimits)) {

@@ -1,4 +1,4 @@
-# ADR-0031: Session workspace recoverability policy
+# ADR-0032: Session workspace recoverability policy
 
 Status: Accepted
 

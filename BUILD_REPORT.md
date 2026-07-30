@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.9
+# Build Report — Atelier 0.14.0-alpha.10
 
 ## Result
 
@@ -17,6 +17,11 @@ dist/apps/pi-extension/src/index.js
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
 
+
+
+## Alpha.10 roadmap implementation
+
+Alpha.10 delivers the revised sixteen-item roadmap: workspace recoverability policy, subprocess isolation and cancellation, redacted evidence lifecycle, Beads v2 envelopes, composable footer and unified status, sandboxed shell execution, cancelled-task recovery, dedicated approval surfaces, improved retrieval and multi-repository scope, repository navigation and diff UI, canonical plan-scope editing, authoritative context capsules, and the initial local Core service.
 
 ## Alpha.9 TUI control correction
 
@@ -75,7 +80,7 @@ In the construction environment, release metadata, type-checking, compilation, p
 The package dry-run reports:
 
 ```text
-Package: atelier-prototype@0.14.0-alpha.9
+Package: atelier-prototype@0.14.0-alpha.10
 Files: 335
 Compressed size: 395,486 bytes
 Unpacked size: 1,877,567 bytes
@@ -85,7 +90,7 @@ CI executes the deterministic gate on the pinned Node 24.18.0 toolchain on Ubunt
 
 ## Release classification
 
-`0.14.0-alpha.9` remains a trusted-repository, interactive alpha. It does not provide an operating-system
+`0.14.0-alpha.10` remains an interactive alpha. It provides an operating-system
 sandbox for arbitrary shell commands and is not approved for unattended or untrusted-repository use.
 Prompt clarification improves agent behavior but is not a security boundary; typed policy, explicit user
 denial, and durable authorization remain authoritative.

@@ -68,3 +68,7 @@ export * from "./presentation/status-view.ts";
 export * from "./sandbox/sandbox.ts";
 
 export * from "./code/result-presentation.ts";
+
+export * from "./service/protocol.ts";
+export * from "./service/server.ts";
+export * from "./service/client.ts";

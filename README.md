@@ -5,18 +5,15 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.9**.
+Current release: **0.14.0-alpha.10**.
 
 ## Current status
 
-This release is intended for interactive use in explicitly trusted repositories. It is not a shell
-sandbox and does not claim that arbitrary shell commands are confined to a repository. Generic shell
-execution is classified as an unconfined boundary and requires a one-operation approval. Routine
-approved-task work is approval-free only through typed Atelier/Pi tools whose paths and effects can be
-checked.
+Atelier establishes an immutable session workspace from the canonical startup directory. Ordinary non-secret reads, file creation, and recoverable in-workspace mutations proceed without setup or repetitive approval. Atelier asks only when an operation may escape the workspace, expose a likely secret, require privilege escalation, or cannot be recovered exactly.
 
-Do not use this alpha for unattended execution or arbitrary cloned repositories. Trust is a deliberate
-user decision stored outside the repository.
+Pi `/trust` remains independent and controls only project-local Pi resources. Generic shell execution uses a workspace sandbox through macOS Seatbelt or Linux Bubblewrap when available; otherwise indeterminate persistent effects require explicit one-operation approval.
+
+This remains an interactive alpha. Do not use it for unattended privileged execution.
 
 ## Delivered workflow
 

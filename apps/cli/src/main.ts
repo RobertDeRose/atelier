@@ -14,6 +14,8 @@ import {
   resolveSandboxBackend,
   runInteractiveProcess,
   updatePlanTaskScopeFile,
+  AtelierServiceClient,
+  AtelierServiceServer,
 } from "../../../packages/core/src/index.ts";
 import { flagBoolean, flagString, parseArgs } from "./arguments.ts";
 import {
@@ -91,6 +93,8 @@ Commands:
   open PATH[:LINE]                  Open a path in the configured editor
   files [--json]                    List tracked repository files
   tree [--json]                     Show a bounded project tree
+  serve [--socket PATH]             Run the local Atelier Core service
+  service <status|state|stop>       Query a running local Core service
   recovery list [--json]            List automatic recovery checkpoints
   recovery restore ID               Restore one checkpoint
 
@@ -143,6 +147,17 @@ async function main(): Promise<void> {
   }
 
 
+  if (command === "service") {
+    const config = loadConfig(root);
+    const socketPath = resolve(flagString(parsed, "socket") ?? resolve(config.runtimeDirectory, "atelier.sock"));
+    const client = new AtelierServiceClient(socketPath);
+    if (subcommand === "status" || subcommand === undefined) asJson(await client.request("status"));
+    else if (subcommand === "state") asJson(await client.request("state"));
+    else if (subcommand === "stop") asJson(await client.request("shutdown"));
+    else throw new Error("Usage: atlr service <status|state|stop> [--socket PATH]");
+    return;
+  }
+
   if (command === "doctor") {
     const config = loadConfig(root);
     const editor = (() => {
@@ -165,6 +180,19 @@ async function main(): Promise<void> {
   const core = AtelierCore.open(root, coreOpenOptions);
   try {
     switch (command) {
+      case "serve": {
+        const socketPath = resolve(flagString(parsed, "socket") ?? resolve(core.config.runtimeDirectory, "atelier.sock"));
+        const service = new AtelierServiceServer({ core, socketPath });
+        await service.start();
+        process.stdout.write(`Atelier service listening on ${socketPath}\n`);
+        await new Promise<void>((resolveStop) => {
+          const stop = (): void => resolveStop();
+          process.once("SIGINT", stop);
+          process.once("SIGTERM", stop);
+        });
+        await service.stop();
+        return;
+      }
       case "init": {
         const initialized = core.initialize({ createPlan: true });
         let beads: unknown;
