@@ -14,7 +14,7 @@ export * from "./planning/plan-review-service.ts";
 export * from "./planning/plan-reconciler.ts";
 export * from "./planning/structural-plan-diff.ts";
 export * from "./policy/action-classifier.ts";
-export * from "./policy/policy-engine.ts";
+export * from "./workflow/workflow-guard.ts";
 export * from "./process/interactive-process.ts";
 export * from "./repository/repository-provider.ts";
 export * from "./repository/repository-factory.ts";
@@ -56,7 +56,7 @@ export * from "./security/path-boundary.ts";
 export * from "./workflow/execution-baseline.ts";
 export * from "./repository/source-path.ts";
 
-export * from "./workflow/capability-summary.ts";
+export * from "./workflow/task-constraint-summary.ts";
 export * from "./planning/task-execution-scope.ts";
 export * from "./workspace/session-workspace.ts";
 export * from "./policy/workspace-policy.ts";

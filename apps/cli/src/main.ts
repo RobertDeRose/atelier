@@ -22,7 +22,6 @@ import {
   asJson,
   explicitConfirmation,
   handleCode,
-  handlePermissions,
   handlePlan,
   handleTasks,
   handleTaskStart,
@@ -61,15 +60,13 @@ Commands:
   approve [--approval ID]           Prepare, inspect, or explicitly apply an exact transaction
   execute [TASK_ID] [--yes]         Explicitly activate a later approved-plan task
   resume-task [TASK_ID] [--yes]     Resume a cancelled approved task
-  pause --reason TEXT               Pause active execution without revoking task capabilities
+  pause --reason TEXT               Pause active execution without revoking task constraints
   resume                            Resume a paused execution without starting agent work
   cancel --reason TEXT              Revoke the current execution without closing its task
   ready [--json]                    Return provider-reported unblocked work
   task show ID [--json]             Read one provider task
   task start [ID] [--yes]           Explicitly activate a later approved-plan task
   task close ID --reason TEXT       Close a task with evidence
-  authority list [--json]           List active task authority
-  permission list [--json]          Deprecated alias for authority list
   policy command "COMMAND"          Classify and evaluate a shell command
   state [--task ID] [--json]        Build deterministic task-backed Working State
   code providers [--json]           List configured code-intelligence providers
@@ -396,27 +393,13 @@ async function main(): Promise<void> {
         return;
       }
 
-      case "authority":
-      case "permission": {
-        await handlePermissions(core, subcommand, rest, parsed);
-        return;
-      }
 
       case "policy": {
         if (subcommand !== "command") throw new Error("Usage: atlr policy command \"COMMAND\"");
         const shellCommand = rest.join(" ");
         const classification = classifyShellCommand(shellCommand);
-        const decision = core.evaluate({
-          // The classifier is explanatory only for arbitrary shell. Policy
-          // always treats the command as unconfined executable code.
-          action: "command.execute",
-          risk: classification.risk,
-          actor: "user",
-          repositorySnapshot: core.repository.snapshot(),
-          command: [shellCommand],
-          boundary: "unconfined",
-          rationale: `${classification.rationale.join("; ")} Generic shell is always authorized as unconfined command execution.`,
-        });
+        const effects = [{ kind: "execute" as const, description: shellCommand }];
+        const decision = core.evaluateWorkspaceEffects(effects);
         asJson({ classification, decision });
         return;
       }

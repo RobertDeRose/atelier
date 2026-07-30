@@ -2,7 +2,7 @@ import type {
   WorkingState,
   LedgerEvent,
   ParsedPlan,
-  PermissionGrant,
+  ApprovedTaskConstraint,
   PlanTask,
   RepositorySnapshot,
   TaskRecord,
@@ -74,7 +74,7 @@ export class WorkingStateBuilder {
     const planTask = this.findPlanTask(request.plan, activeTask);
     const taskDependencies = await this.taskDependencies(activeTask, omissions);
     const taskBlockers = taskDependencies.filter((task) => task.status !== "closed");
-    const permissions = this.activePermissions(this.ledger.listGrants());
+    const taskConstraints = this.activeTaskConstraints();
     const activeExecutionGrant = this.ledger.getActiveExecutionGrant();
     const executionGrant = activeExecutionGrant ?? this.ledger.listExecutionGrants()[0];
     const workflowRun = this.ledger.getCurrentWorkflowRun();
@@ -334,7 +334,7 @@ export class WorkingStateBuilder {
     retrievalExplanation.push(
       `Included ${taskDependencies.length} direct dependency record(s), including ${taskBlockers.length} blocker(s).`,
     );
-    retrievalExplanation.push(`Included ${permissions.length} active permission grant(s).`);
+    retrievalExplanation.push(`Included ${taskConstraints.length} reviewed task constraint record(s).`);
     retrievalExplanation.push(
       `Included ${corrections.length} correction(s), ${findings.length} finding/decision record(s), `
       + `and ${manualEdits.length} ManualEdit record(s).`,
@@ -360,7 +360,7 @@ export class WorkingStateBuilder {
       ...(workflowRun === undefined ? {} : { workflowCheckpoint: workflowRun.checkpoint }),
       ...(planApproval === undefined ? {} : { planApproval }),
       ...(reconciliationTransaction === undefined ? {} : { reconciliationTransaction }),
-      permissions,
+      taskConstraints,
       executionEvidence,
       focusedValidationSelections,
       currentValidationEvidence: validationSummaries.current,
@@ -490,9 +490,11 @@ export class WorkingStateBuilder {
     return mapping === undefined ? undefined : plan.tasks.find((candidate) => candidate.id === mapping.planTaskId);
   }
 
-  private activePermissions(grants: PermissionGrant[]): PermissionGrant[] {
-    const now = Date.now();
-    return grants.filter((grant) => grant.revokedAt === undefined && (grant.expiresAt === undefined || Date.parse(grant.expiresAt) > now));
+  private activeTaskConstraints(): ApprovedTaskConstraint[] {
+    const grant = this.ledger.getActiveExecutionGrant();
+    if (grant === undefined) return [];
+    const approval = this.ledger.getPlanApproval(grant.planApprovalId);
+    return approval?.taskConstraints.filter((constraint) => constraint.planTaskId === grant.planTaskId) ?? [];
   }
 
   private relevantEvents(events: LedgerEvent[], activeTask: TaskRecord | undefined, limit: number): LedgerEvent[] {

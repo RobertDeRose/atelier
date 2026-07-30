@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -50,4 +50,48 @@ test("workspace guard rejects descendants of an escaping symlink", () => {
   const decision = evaluator.evaluate([{ kind: "create", path: join(root, "escape", "file") }], resolver({}));
   assert.equal(decision.result, "ask");
   assert.equal(decision.effects[0]?.state, "outside_workspace");
+});
+
+
+test("explicit workspace selection is canonical and remains immutable after process directory changes", () => {
+  const startup = mkdtempSync(join(tmpdir(), "atlr-startup-cwd-"));
+  const explicit = mkdtempSync(join(tmpdir(), "atlr-explicit-workspace-"));
+  const alias = join(startup, "workspace-alias");
+  symlinkSync(explicit, alias, "dir");
+  const original = process.cwd();
+  try {
+    const workspace = establishSessionWorkspace(startup, alias);
+    assert.equal(workspace.root, realpathSync.native(explicit));
+    assert.equal(workspace.source, "explicit");
+    process.chdir(startup);
+    assert.equal(workspace.root, realpathSync.native(explicit));
+    process.chdir(explicit);
+    assert.equal(workspace.root, realpathSync.native(explicit));
+  } finally {
+    process.chdir(original);
+  }
+});
+
+test("runtime confinement does not by itself make unknown destructive effects recoverable", () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-confined-unknown-"));
+  const evaluator = new WorkspacePolicyEvaluator({ root });
+  const decision = evaluator.evaluate([{
+    kind: "execute",
+    path: root,
+    runtimeConfined: true,
+    description: "unknown build script",
+  }], resolver({ [root]: "tracked_dirty" }));
+  assert.equal(decision.result, "ask");
+  assert.match(decision.reason, /cannot guarantee recovery/i);
+});
+
+test("secret classification is narrow and does not treat every ignored path as protected", () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-secret-policy-"));
+  const evaluator = new WorkspacePolicyEvaluator({ root });
+  const states = resolver({
+    [join(root, ".env.local")]: "ignored",
+    [join(root, "dist", "bundle.js")]: "ignored",
+  });
+  assert.equal(evaluator.evaluate([{ kind: "read", path: join(root, ".env.local") }], states).result, "ask");
+  assert.equal(evaluator.evaluate([{ kind: "read", path: join(root, "dist", "bundle.js") }], states).result, "allow");
 });

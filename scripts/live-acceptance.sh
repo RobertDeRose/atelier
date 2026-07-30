@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="10"
+HARNESS_VERSION="11"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
 PI_TIMEOUT_SECONDS="${ATELIER_PI_TIMEOUT_SECONDS:-600}"
 SOURCE_REPO=""
@@ -34,7 +34,7 @@ Commands:
   resume restart
                Reuse a run that passed the headless shell gate and stopped while
                verifying restart reconstruction. Continue without repeating the shell gate.
-  prepare-tui  Prepare a Pi-trust-independence clone and a workflow-control clone.
+  prepare-tui  Prepare a Pi-resource-trust independence clone and a workflow-control clone.
   archive      Archive the current run's evidence directory.
   status       Print the current run location and repository states.
 
@@ -473,14 +473,12 @@ verify_shell_policy() {
     local output="$EVIDENCE_DIR/policy-$index.json"
     "${ATLR_BIN[@]}" policy command "$command" >"$output"
     json_assert "$output" '
-      assert(data.decision?.result === "require_approval", "shell operation did not require approval");
-      assert(data.decision?.action === "command.execute", "shell operation was not treated as command.execute");
-      assert(data.decision?.requiredPermission === "command.execute", "wrong required permission");
-      assert(data.decision?.reason?.includes("Unconfined shell execution"), "missing unconfined-shell explanation");
+        assert(data.decision?.result === "ask", `shell decision was ${data.decision?.result}`);
+      assert(typeof data.decision?.reason === "string" && data.decision.reason.length > 0, "missing concrete consequence explanation");
     '
     index=$((index + 1))
   done
-  pass "all adversarial shell forms require one-operation command.execute approval"
+  pass "all adversarial shell forms ask once for their concrete unrecoverable consequence"
 }
 
 verify_code_intelligence() {
@@ -566,7 +564,7 @@ Expose a stable Atelier product-name constant and verify it independently of rel
 ### Notes
 
 - Use typed repository file tools.
-- Generic shell execution is not part of the task capability bundle.
+- Shell effects remain governed independently by workspace containment and exact recoverability.
 PLAN
 
   local editor="$ATELIER_MANUAL_ROOT/replace-plan-editor.sh"
@@ -659,13 +657,11 @@ review_reject_and_approve() {
 
   bd list --json >"$EVIDENCE_DIR/beads-after-rejection.json" 2>"$EVIDENCE_DIR/beads-after-rejection.stderr"
   "${ATLR_BIN[@]}" status --json >"$EVIDENCE_DIR/status-after-rejection.json"
-  "${ATLR_BIN[@]}" permission list --json >"$EVIDENCE_DIR/permissions-after-rejection.json"
   json_assert "$EVIDENCE_DIR/beads-after-rejection.json" 'assert(Array.isArray(data) && data.length === 0, "rejection mutated Beads");'
   json_assert "$EVIDENCE_DIR/status-after-rejection.json" '
-    assert(data.mode === "plan", "rejection left plan mode");
-    assert(data.currentTaskId == null, "rejection selected a task");
+    assert(data.workflow?.mode === "plan", `rejection left plan mode: ${data.workflow?.mode}`);
+    assert(data.task?.current === "none", `rejection selected a task: ${data.task?.current}`);
   '
-  json_assert "$EVIDENCE_DIR/permissions-after-rejection.json" 'assert(Array.isArray(data) && data.length === 0, "rejection installed permissions");'
 
   "${ATLR_BIN[@]}" plan prepare --json >"$EVIDENCE_DIR/approval-prepared-accept.json"
   local approval_id approval_digest
@@ -676,23 +672,22 @@ review_reject_and_approve() {
 
   bd list --json >"$EVIDENCE_DIR/beads-after-approval.json" 2>"$EVIDENCE_DIR/beads-after-approval.stderr"
   "${ATLR_BIN[@]}" status --json >"$EVIDENCE_DIR/status-after-approval.json"
-  "${ATLR_BIN[@]}" permission list --json >"$EVIDENCE_DIR/permissions-after-approval.json"
   json_assert "$EVIDENCE_DIR/beads-after-approval.json" 'assert(Array.isArray(data) && data.length === 1, "approval did not create exactly one task");'
   json_assert "$EVIDENCE_DIR/status-after-approval.json" '
-    assert(data.mode === "act", "approval did not enter act mode");
-    assert(typeof data.currentTaskId === "string", "approval did not activate a task");
+    assert(data.workflow?.mode === "act", `approval did not enter act mode: ${data.workflow?.mode}`);
+    assert(typeof data.task?.current === "string" && data.task.current !== "none", "approval did not activate a task");
   '
-  json_assert "$EVIDENCE_DIR/permissions-after-approval.json" '
-    const names = data.map((item) => item.permission).sort();
-    assert(JSON.stringify(names) === JSON.stringify(["file.write", "repository.change.create", "task.close", "validation.focused"]), `unexpected capabilities: ${names}`);
-    const writes = data.find((item) => item.permission === "file.write");
-    const commit = data.find((item) => item.permission === "repository.change.create");
-    const validation = data.find((item) => item.permission === "validation.focused");
-    assert(writes.paths.length === 2 && writes.paths.every((path) => /\/(packages\/core\/src\/version\.ts|tests\/version\.test\.ts)$/.test(path)), "file.write is not exactly path-scoped");
-    assert(JSON.stringify(commit.paths) === JSON.stringify(writes.paths), "commit paths differ from write paths");
-    assert(JSON.stringify(validation.validationNames) === JSON.stringify(["manual-acceptance"]), "focused validation is not name-scoped");
+  json_assert "$EVIDENCE_DIR/status-after-approval.json" '
+    assert(data.execution?.grant !== "none", "approval did not create an execution grant");
+    assert(data.execution?.constraints === 1, `expected one reviewed task constraint, got ${data.execution?.constraints}`);
+    assert(data.workflow?.mode === "act", `workflow mode is ${data.workflow?.mode}`);
   '
-  pass "rejection was zero-mutation and acceptance installed only the reviewed capability bundle"
+  json_assert "$EVIDENCE_DIR/plan-parse.json" '
+    const execution = data.tasks[0].execution;
+    assert(JSON.stringify(execution.writePaths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]), "reviewed write constraints drifted");
+    assert(JSON.stringify(execution.validations) === JSON.stringify(["manual-acceptance"]), "reviewed validation constraints drifted");
+  '
+  pass "rejection was zero-mutation and acceptance installed only the reviewed task constraints"
 }
 
 run_pi_json() {
@@ -741,18 +736,19 @@ EOF
 }
 
 verify_headless_shell_block() {
-  log "JSON-mode shell request fails closed without UI"
-  rm -f .atelier/headless-shell-ran
+  log "JSON-mode outside-workspace shell request fails closed without UI"
+  local outside_marker="$ATELIER_MANUAL_ROOT/headless-shell-ran"
+  rm -f "$outside_marker"
   run_pi_json "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" "bash" \
-    "Use Bash to run exactly: printf 'headless-shell-ran\\n' > .atelier/headless-shell-ran. Do not use any other tool."
+    "Use Bash to run exactly: printf 'headless-shell-ran\n' > '$outside_marker'. Do not use any other tool."
   jsonl_tool_assert "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" "bash" "write,edit"
-  [[ ! -e .atelier/headless-shell-ran ]] || fail "unapproved shell command executed in JSON mode"
+  [[ ! -e "$outside_marker" ]] || fail "outside-workspace shell command executed in JSON mode"
   jsonl_assert_string "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" \
-    "Unconfined shell execution requires a distinct single-operation approval."
+    "outside the Atelier workspace"
   jsonl_assert_string "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" \
     "Interactive approval is unavailable in json mode."
   jsonl_assert_no_forced_continuation "$EVIDENCE_DIR/pi-headless-shell-block.jsonl"
-  pass "headless JSON-mode shell request was denied with the Atelier policy reason"
+  pass "headless JSON-mode outside-workspace write was denied with the concrete Atelier policy reason"
 }
 
 continue_headless_after_shell() {
@@ -763,7 +759,7 @@ continue_headless_after_shell() {
 
   local task_id
   "${ATLR_BIN[@]}" status --json >"$EVIDENCE_DIR/status-before-premature-close.json"
-  task_id="$(json_value "$EVIDENCE_DIR/status-before-premature-close.json" 'data.currentTaskId')"
+  task_id="$(json_value "$EVIDENCE_DIR/status-before-premature-close.json" 'data.task.current')"
   printf '%s\n' "$task_id" >"$EVIDENCE_DIR/active-task-id.txt"
   set +e
   "${ATLR_BIN[@]}" task close "$task_id" --reason "premature automated acceptance" \
@@ -817,7 +813,6 @@ continue_headless_after_shell() {
   jsonl_tool_assert "$EVIDENCE_DIR/pi-close.jsonl" "atlr_task_close,atlr_state" "bash,write,edit"
 
   "${ATLR_BIN[@]}" status --json >"$EVIDENCE_DIR/status-after-close.json"
-  "${ATLR_BIN[@]}" permission list --json >"$EVIDENCE_DIR/permissions-after-close.json"
   "${ATLR_BIN[@]}" task show "$task_id" --json >"$EVIDENCE_DIR/task-after-close.json"
   bd list --json >"$EVIDENCE_DIR/beads-after-close.json" 2>"$EVIDENCE_DIR/beads-after-close.stderr" || true
   "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-after-close.json"
@@ -825,10 +820,9 @@ continue_headless_after_shell() {
   jj status --color never >"$EVIDENCE_DIR/jj-status-after-close.txt"
 
   json_assert "$EVIDENCE_DIR/status-after-close.json" '
-    assert(data.currentTaskId == null, "task remained active after closure");
-    assert(data.mode !== "act", "workflow remained in act mode after closure");
+    assert(data.task?.current === "none", `task remained active after closure: ${data.task?.current}`);
+    assert(data.workflow?.mode !== "act", "workflow remained in act mode after closure");
   '
-  json_assert "$EVIDENCE_DIR/permissions-after-close.json" 'assert(Array.isArray(data) && data.length === 0, "execution-linked permissions remained active after closure");'
   json_assert "$EVIDENCE_DIR/task-after-close.json" '
     const task = data.task ?? data;
     assert(task.status === "closed", `task status is ${task.status}`);
@@ -980,8 +974,8 @@ validate_code_resume_state() {
   "${ATLR_BIN[@]}" status --json >"$EVIDENCE_DIR/status-before-code-resume.json"
   bd list --json >"$EVIDENCE_DIR/beads-before-code-resume.json" 2>"$EVIDENCE_DIR/beads-before-code-resume.stderr"
   json_assert "$EVIDENCE_DIR/status-before-code-resume.json" '
-    assert(data.currentTaskId == null, "an Atelier task is already active; code-stage resume is unsafe");
-    assert(data.mode !== "act", "workflow is already in act mode; code-stage resume is unsafe");
+    assert(data.task?.current === "none", "an Atelier task is already active; code-stage resume is unsafe");
+    assert(data.workflow?.mode !== "act", "workflow is already in act mode; code-stage resume is unsafe");
   '
   json_assert "$EVIDENCE_DIR/beads-before-code-resume.json" '
     assert(Array.isArray(data) && data.length === 0, "Beads is no longer empty; code-stage resume is unsafe");
@@ -1010,16 +1004,15 @@ validate_shell_resume_state() {
   log "validate persistent run before resuming at the headless shell gate"
 
   "${ATLR_BIN[@]}" status --json >"$EVIDENCE_DIR/status-before-shell-resume.json"
-  "${ATLR_BIN[@]}" permission list --json >"$EVIDENCE_DIR/permissions-before-shell-resume.json"
   "${ATLR_BIN[@]}" changed --json >"$EVIDENCE_DIR/changed-before-shell-resume.json"
 
   json_assert "$EVIDENCE_DIR/status-before-shell-resume.json" '
-    assert(data.mode === "act", `workflow mode is ${data.mode}, expected act`);
-    assert(typeof data.currentTaskId === "string" && data.currentTaskId.length > 0, "no active task exists");
+    assert(data.workflow?.mode === "act", `workflow mode is ${data.workflow?.mode}, expected act`);
+    assert(typeof data.task?.current === "string" && data.task.current !== "none", "no active task exists");
   '
-  json_assert "$EVIDENCE_DIR/permissions-before-shell-resume.json" '
-    const names = data.map((item) => item.permission).sort();
-    assert(JSON.stringify(names) === JSON.stringify(["file.write", "repository.change.create", "task.close", "validation.focused"]), `unexpected active capabilities: ${names}`);
+  json_assert "$EVIDENCE_DIR/status-before-shell-resume.json" '
+    assert(data.execution?.grant !== "none", "active execution grant is missing");
+    assert(data.execution?.constraints === 1, `unexpected reviewed task constraint count: ${data.execution?.constraints}`);
   '
   json_assert "$EVIDENCE_DIR/changed-before-shell-resume.json" '
     const paths = [...data.paths].sort();
@@ -1028,7 +1021,7 @@ validate_shell_resume_state() {
   grep -q 'export const ATELIER_PRODUCT_NAME = "Atelier"' packages/core/src/version.ts \
     || fail "ATELIER_PRODUCT_NAME is missing before shell resume"
   [[ -f tests/version.test.ts ]] || fail "tests/version.test.ts is missing before shell resume"
-  [[ ! -e .atelier/headless-shell-ran ]] || fail "headless shell marker already exists; resume is unsafe"
+  [[ ! -e "$ATELIER_MANUAL_ROOT/headless-shell-ran" ]] || fail "outside-workspace shell marker already exists; resume is unsafe"
   pass "persistent run retains the approved task and exactly the two typed implementation changes"
 }
 
@@ -1054,10 +1047,10 @@ validate_restart_resume_state() {
   [[ -f "$shell_log" ]] || fail "missing completed shell-gate evidence: $shell_log"
   jsonl_tool_assert "$shell_log" "bash" "write,edit"
   jsonl_assert_string "$shell_log" \
-    "Unconfined shell execution requires a distinct single-operation approval."
+    "outside the Atelier workspace"
   jsonl_assert_string "$shell_log" \
     "Interactive approval is unavailable in json mode."
-  [[ ! -e .atelier/headless-shell-ran ]] || fail "headless shell marker exists; restart resume is unsafe"
+  [[ ! -e "$ATELIER_MANUAL_ROOT/headless-shell-ran" ]] || fail "outside-workspace shell marker exists; restart resume is unsafe"
   pass "headless shell gate is complete and the active task remains safe to resume"
 }
 

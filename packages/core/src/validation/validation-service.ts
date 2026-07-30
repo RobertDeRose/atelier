@@ -61,18 +61,15 @@ export class ValidationService {
   private readonly root: string;
   private readonly database: SqliteDatabase;
   private readonly manifestPath: string;
-  private readonly trusted: boolean;
 
-  constructor(options: { root: string; database: SqliteDatabase; manifestPath?: string; trusted?: boolean }) {
+  constructor(options: { root: string; database: SqliteDatabase; manifestPath?: string }) {
     this.root = resolve(options.root);
     this.database = options.database;
     this.manifestPath = resolve(options.manifestPath ?? resolve(this.root, ".atelier", "validation.json"));
-    this.trusted = options.trusted ?? true;
     this.migrate();
   }
 
   manifest(): ValidationManifest {
-    if (!this.trusted) return { closurePolicy: DEFAULT_CLOSURE_POLICY, validations: {} };
     if (!existsSync(this.manifestPath)) return { closurePolicy: DEFAULT_CLOSURE_POLICY, validations: {} };
     const parsed = JSON.parse(readFileSync(this.manifestPath, "utf8")) as ValidationManifest;
     if (parsed === null || typeof parsed !== "object" || parsed.validations === null || typeof parsed.validations !== "object" || Array.isArray(parsed.validations)) {
@@ -133,7 +130,6 @@ export class ValidationService {
   }
 
   saveFocusedSelection(input: Omit<FocusedValidationSelection, "id" | "selected" | "noMatch" | "createdAt">): FocusedValidationSelection {
-    this.requireTrusted();
     const selected = this.planFocused(input.changedPaths, input.changedSymbols);
     const selection: FocusedValidationSelection = {
       id: newId("validation-selection"),
@@ -192,7 +188,6 @@ export class ValidationService {
       maxOutputBytes?: number;
     } = {},
   ): Promise<ValidationEvidence> {
-    this.requireTrusted();
     const definition = this.manifest().validations[name];
     if (definition === undefined) throw new Error(`Unknown validation: ${name}`);
     const [executable, ...args] = definition.command;
@@ -331,7 +326,7 @@ export class ValidationService {
     const rows = this.database.prepare(`SELECT * FROM validation_evidence ${where} ORDER BY started_at DESC, id DESC LIMIT ?`).all(...parameters);
     return (rows as unknown as Array<Record<string, unknown>>).map((row) => {
       const evidence = evidenceFromRow(row);
-      const definition = this.trusted ? this.definition(evidence.name) : undefined;
+      const definition = this.definition(evidence.name);
       const currentEnvironment = definition === undefined
         ? undefined
         : this.environmentFingerprint(evidence.name, definition, validationEnvironment(definition.environment));
@@ -531,10 +526,6 @@ export class ValidationService {
         SELECT id FROM focused_validation_selections ORDER BY created_at DESC, id DESC LIMIT 100
       )
     `).run();
-  }
-
-  private requireTrusted(): void {
-    if (!this.trusted) throw new Error(`Trust the project before executing repository validations: ${this.root}`);
   }
 
   private migrate(): void {

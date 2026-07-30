@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.10
+# Local Acceptance Workflow — 0.14.0-alpha.11
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -14,7 +14,7 @@ npm pack --dry-run
 ```
 
 The suite covers startup-workspace selection, recoverability policy, sandboxed shell execution, real-path confinement, structured task execution
-contracts, exact capability disclosure, exact approval and rejection, passive incomplete-task handling,
+constraints, exact constraint disclosure, exact approval and rejection, passive incomplete-task handling,
 stop/pause/resume/cancel control, typed model workflow tools, per-turn hard tool restrictions, accurate
 failure/interruption and per-operation path evidence, source-only freshness, scoped commits, idempotent
 Beads initialization, symbol-state convergence, validation staleness, exact diff review, restart,
@@ -164,8 +164,9 @@ atlr policy command 'cat <(rm -rf build)'
 atlr policy command 'sed --in-place s/a/b/ src/file.ts'
 ```
 
-Every decision must require one-operation `command.execute` approval. Stop if any is authorized as a
-repository read or by a task capability.
+Every decision must be `ask` with a concrete unrecoverable consequence. Read-only commands that the
+effect analyzer can bound may be allowed, but these destructive or indeterminate examples must never be
+silently authorized by an active task or by sandbox availability alone.
 
 ## 4. Verify code intelligence
 
@@ -219,8 +220,8 @@ Planning may change only `.atelier/PLAN.md`; Beads and product source must remai
 must fail when the execution contract is removed or names an unknown validation.
 
 After automatic editor review, run `/status` and `/state`. Then run `/approve` and reject once. Verify
-`bd list --json`, `atlr status --json`, and `atlr permission list --json` show no task mutation, execution
-grant, or task capability.
+`bd list --json` remains empty and `atlr status --json` reports no active execution grant and zero reviewed
+task constraints.
 
 Run `/approve` again and inspect the unchanged transaction before accepting it. The dialog must disclose:
 
@@ -230,11 +231,12 @@ Run `/approve` again and inspect the unchanged transaction before accepting it. 
 - full suite not permitted;
 - one local change limited to the two reviewed paths;
 - task close only after the completion predicate;
-- generic shell, publication, external effects, and out-of-scope paths not permitted.
+- shell effects remain independently governed by workspace containment and exact recoverability;
+- publication, external effects, and out-of-scope task paths are excluded.
 
-Accept it. Verify exactly one Beads task is active and `atlr permission list --json` contains only
-`file.write`, named `validation.focused`, path-scoped `repository.change.create`, and `task.close`. It must
-not contain `dependency.modify`, `validation.full_suite`, `task.update`, `task.link`, or `command.execute`.
+Accept it. Verify exactly one Beads task is active and `atlr status --json` reports an active execution
+grant plus one reviewed task constraint. Re-open `atlr plan parse --json` and verify the constraint still
+names exactly the two write paths and `manual-acceptance`; no filesystem permission grants should exist.
 
 ## 6. Typed edits, denial, pause, and cancellation
 
@@ -255,8 +257,9 @@ Use Bash to run exactly: printf 'shell-boundary-ok\n'
 
 During the implementation turn, any model attempt to use Bash, validation, commit, close, or autonomous
 continuation must be blocked before an approval dialog because that same user message prohibited it.
-After the model settles, the exact Bash request above is a new turn and may request one-operation
-approval; deny it. The command must not execute. After denial, Pi must become idle. Atelier may show
+After the model settles, the outside-workspace Bash request above is a new turn and must request one
+concrete approval; deny it. The command must not execute. A read-only `printf` without persistent output
+should not prompt. After denial, Pi must become idle. Atelier may show
 one passive incomplete-task warning, but it must not enqueue another turn or return to an endless
 `Working...` loop. Pressing Escape must also end the current turn without forcing continuation.
 
@@ -271,7 +274,7 @@ Exercise the distinct controls in a separate active turn:
 
 Pass conditions: `/atelier-stop` aborts only the turn; `/atelier-pause` keeps the grant/task active but
 denies agent mutation; `/atelier-resume` restores mutation without starting a model turn; `/cancel` does
-not wait for idle, atomically records a cancelled workflow, revokes linked capabilities, preserves the
+not wait for idle, atomically records a cancelled workflow, revokes execution, preserves the
 open/in-progress Beads task, and preserves repository changes.
 
 Use a separate run for cancellation if the remaining closure workflow is also being tested.
@@ -300,7 +303,7 @@ Declared validation must not request generic Bash approval. A failed test is rec
 structured cancellation or the exact tool abort sentinel is `interrupted`.
 
 Edit source after a passing validation and verify evidence becomes stale. Quit and relaunch Pi while the
-task is active; approval, task, capabilities, changed paths, and next action must reconstruct without
+task is active; approval, task constraints, changed paths, recovery state, and next action must reconstruct without
 conversation history.
 
 Complete the task either through typed model tools or the human commands:
@@ -322,14 +325,13 @@ attribute only the path changed by that operation, not every path that was alrea
 metadata-only edits must not stale source retrieval/validation evidence.
 
 Closure succeeds only when validation is current, the exact baseline diff was reviewed, a path-scoped
-local commit/change exists, and configured cleanliness holds. After closure, execution-linked capabilities are
-revoked and no later task starts automatically.
+local commit/change exists, and configured cleanliness holds. After closure, the execution grant is revoked, reviewed task constraints are inactive, and no later task starts automatically.
 
 ## 8. Optional boundary tests
 
 In separate disposable runs, test:
 
-- absolute typed writes outside the trusted root;
+- absolute typed writes outside the session workspace;
 - typed writes through a symlink escaping the root;
 - secondary-repository drift after exact approval;
 - cancellation followed by explicit `/execute TASK_ID` recovery.
@@ -343,8 +345,8 @@ Record each item as `PASS`, `FAIL`, or `STOP`:
 ```text
 Version and clean source
 Persistent workspace and reboot resume
-Pre-trust doctor observational
-Atelier/Pi trust separation
+Workspace doctor observational
+Pi /trust independence
 External runtime database
 Beads 0700 directory and idempotent initialization
 Generic shell boundary
@@ -353,8 +355,8 @@ Explicit human symbol lookup
 Canonical scoped symbol inventory
 Plan-mode source protection
 Approval rejection zero-mutation
-Exact execution contract and capability disclosure
-Exact approval and narrow typed capabilities
+Exact execution contract and constraint disclosure
+Exact approval and reviewed task constraints
 Typed edits without extra prompt
 Per-turn no-Bash policy
 Denied operation leaves agent idle
@@ -368,5 +370,5 @@ Restart reconstruction
 Validation staleness
 Exact diff review
 Authoritative closure
-Permission revocation after closure
+Execution revocation after closure
 ```

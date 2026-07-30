@@ -57,9 +57,11 @@ export function workingStateToMarkdown(state: WorkingState): string {
     if (state.planTask.outOfScope.length > 0) lines.push("", "Out of scope:", ...state.planTask.outOfScope.map((item) => `- ${item}`));
   }
 
-  lines.push("", "## Active permissions");
-  if (state.permissions.length === 0) lines.push("", "No mutation permissions are active.");
-  for (const grant of state.permissions) lines.push(`- ${grant.permission} (${grant.scope}): ${grant.reason}`);
+  lines.push("", "## Reviewed task constraints");
+  if (state.taskConstraints.length === 0) lines.push("", "No reviewed task constraints are active.");
+  for (const constraint of state.taskConstraints) {
+    lines.push(`- ${constraint.planTaskId}: writes ${constraint.writePaths.join(", ") || "none"}; validations ${constraint.focusedValidations.join(", ") || "none"}; local change ${constraint.allowLocalChange ? "allowed" : "not allowed"}.`);
+  }
 
   lines.push("", "## Execution evidence");
   if (state.executionEvidence.length === 0) lines.push("", "No mutating tool execution evidence is recorded.");

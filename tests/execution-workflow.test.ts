@@ -145,8 +145,8 @@ test("approval rechecks and serializes against an execution grant that became ac
       repositorySnapshot: prepared.approval.repositorySnapshot,
       repositoryBindings: prepared.approval.repositoryBindings,
       retrievalBindings: prepared.approval.retrievalBindings,
-      approvalCapabilityDigest: prepared.approval.capabilityDigest,
-      capabilityDigest: prepared.approval.capabilityDigest,
+      approvalConstraintDigest: prepared.approval.constraintDigest,
+      constraintDigest: prepared.approval.constraintDigest,
       taskId: "other-task",
       planTaskId: "OTHER",
       issuedAt: "2026-01-01T00:00:00.000Z",
@@ -180,7 +180,7 @@ test("successful exact approval reconciles, claims, then atomically enters act m
     assert.equal(result.executionGrant?.taskId, result.task?.id);
     assert.equal(context.ledger.getState("workflowMode"), "act");
     assert.equal(context.ledger.getState("currentTaskId"), result.task?.id);
-    assert.equal(context.ledger.listGrants().length, prepared.approval.capabilities.filter((item) => item.planTaskId === result.task?.planTaskId).length, "approval atomically installs only the active task capability bundle");
+    assert.equal(prepared.approval.taskConstraints.filter((item) => item.planTaskId === result.task?.planTaskId).length, 1, "approval retains one reviewed task constraint for the active task");
   } finally {
     context.ledger.close();
     rmSync(context.root, { recursive: true, force: true });
@@ -234,28 +234,17 @@ test("provider preparation is separately confirmed and unavailable providers can
   }
 });
 
-test("cancellation revokes execution-linked permissions without altering task status", async () => {
+test("cancellation revokes execution without altering task status", async () => {
   const context = setup("atlr-execution-cancel-");
   try {
     const prepared = await context.coordinator.prepare();
     const started = await context.coordinator.approveAndApply(prepared.approval.id, true);
     const grant = started.executionGrant;
     assert.ok(grant);
-    context.ledger.saveGrant({
-      id: "operation-permission",
-      executionGrantId: grant.id,
-      permission: "file.write",
-      scope: "operation",
-      actor: "user",
-      taskId: grant.taskId,
-      repositoryId: grant.repositoryId,
-      reason: "one operation",
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
 
     const cancelled = context.coordinator.cancel("user cancelled execution");
     assert.equal(cancelled?.status, "revoked");
-    assert.equal(context.ledger.listGrants().length, 0);
+    assert.equal(context.ledger.getActiveExecutionGrant(), undefined);
     assert.equal((await context.provider.get(grant.taskId))?.status, "in_progress");
     assert.equal(context.ledger.getState("workflowMode"), "plan");
   } finally {
@@ -264,37 +253,15 @@ test("cancellation revokes execution-linked permissions without altering task st
   }
 });
 
-test("one-operation permissions are consumed at authorization before operation outcome", async () => {
+test("workspace approval decisions are concrete and never create remembered grants", async () => {
   const root = createTemporaryRepository("atlr-execution-operation-");
-  const planPath = join(root, ".atelier", "PLAN.md");
-  writeFileSync(planPath, VALID_PLAN, "utf8");
   const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
   try {
-    core.beginPlan("Authorize one operation");
-    const edit = core.beginPlanReview();
-    core.completePlanReview(edit.id, { exitCode: 0 });
-    const prepared = await core.execution.prepare();
-    const started = await core.execution.approveAndApply(prepared.approval.id, true);
-    assert.ok(started.task);
-    const permission = core.grant({
-      permission: "command.execute",
-      scope: "operation",
-      taskId: started.task.id,
-      reason: "single unconfined shell operation",
-    });
-    const decision = core.evaluate({
-      action: "command.execute",
-      risk: "unknown",
-      actor: "agent",
-      taskId: started.task.id,
-      repositorySnapshot: core.repository.snapshot(),
-      command: ["custom-command"],
-      boundary: "unconfined",
-      rationale: "operation may later succeed, fail, or be interrupted",
-    });
-    assert.equal(decision.result, "allow");
-    assert.equal(core.ledger.listGrants().some((grant) => grant.id === permission.id), false);
-    assert.equal(core.ledger.listGrants({ includeRevoked: true }).find((grant) => grant.id === permission.id)?.revokedAt !== undefined, true);
+    const effect = [{ kind: "unknown" as const, description: "unbounded command" }];
+    assert.equal(core.evaluateWorkspaceEffects(effect).result, "ask");
+    assert.equal(core.evaluateWorkspaceEffects(effect).result, "ask");
+    const table = core.ledger.database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'permission_grants'").get();
+    assert.equal(table, undefined);
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });
@@ -461,7 +428,7 @@ test("starting an explicitly requested later task works after explicit closure r
 });
 
 
-test("legacy execution records without an exact capability bundle fail closed on resume", async () => {
+test("legacy execution records without an exact task constraint projection fail closed on resume", async () => {
   const context = setup("atlr-execution-legacy-capabilities-");
   try {
     const prepared = await context.coordinator.prepare();
@@ -473,8 +440,9 @@ test("legacy execution records without an exact capability bundle fail closed on
     ] as const) {
       const row = context.ledger.database.prepare(`SELECT record_json FROM ${table} WHERE id = ?`).get(id) as { record_json: string };
       const record = JSON.parse(row.record_json) as Record<string, unknown>;
-      delete record.capabilityDigest;
-      if (table === "plan_approvals") delete record.capabilities;
+      delete record.constraintDigest;
+      if (table === "execution_grants") delete record.approvalConstraintDigest;
+      if (table === "plan_approvals") delete record.taskConstraints;
       context.ledger.database.prepare(`UPDATE ${table} SET record_json = ? WHERE id = ?`).run(JSON.stringify(record), id);
     }
     context.ledger.close();
@@ -489,8 +457,7 @@ test("legacy execution records without an exact capability bundle fail closed on
     });
     try {
       assert.equal(await coordinator.resume(), undefined);
-      assert.match(reopened.listExecutionGrants()[0]?.invalidationReason ?? "", /capability bundle/i);
-      assert.equal(reopened.listGrants().length, 0);
+      assert.match(reopened.listExecutionGrants()[0]?.invalidationReason ?? "", /constraint projection/i);
     } finally {
       reopened.close();
     }
@@ -521,7 +488,6 @@ test("alpha.5 plans without structured execution contracts invalidate active exe
       context.ledger.listExecutionGrants().at(-1)?.invalidationReason ?? "",
       /execution contract|machine-readable/i,
     );
-    assert.equal(context.ledger.listGrants().length, 0);
   } finally {
     context.ledger.close();
     rmSync(context.root, { recursive: true, force: true });

@@ -79,7 +79,7 @@ export function registerValidationTool(
           const selection = core.selectFocusedValidation();
           const results = [];
           for (const item of selection.selected) {
-            results.push(await core.runValidation(item.name, { selectionId: selection.id, signal }));
+            results.push(await core.runValidation(item.name, { selectionId: selection.id, ...(signal === undefined ? {} : { ...(signal === undefined ? {} : { signal }) }) }));
           }
           requirePassingValidation(results);
           return {
@@ -90,7 +90,7 @@ export function registerValidationTool(
 
         const name = input.name?.trim();
         if (!name) throw new Error("action=run requires a configured validation name");
-        const evidence = await core.runValidation(name, { signal });
+        const evidence = await core.runValidation(name, { ...(signal === undefined ? {} : { signal }) });
         requirePassingValidation([evidence]);
         return {
           content: [{ type: "text", text: `${name}: ${evidence.status} (${evidence.durationMs} ms)` }],

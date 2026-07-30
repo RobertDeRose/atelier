@@ -1,5 +1,5 @@
 import {
-  executionCapabilitySummary,
+  taskConstraintSummary,
   type AtelierCore,
 } from "../../../packages/core/src/index.ts";
 
@@ -20,6 +20,6 @@ export function preparationSummary(
     ...prepared.reconciliation.operations.map((operation) => `- ${operation.kind}: ${operation.planTaskId}`),
     `Retirements: ${retirements.length}${retirements.length === 0 ? "" : ` (${retirements.map((operation) => operation.planTaskId).join(", ")})`}`,
     `Proposed first task: ${first === undefined ? "none" : `${first.id} — ${first.title}`}`,
-    ...executionCapabilitySummary(prepared.approval.capabilities, core.config.repositoryRoot),
+    ...taskConstraintSummary(prepared.approval.taskConstraints, core.config.repositoryRoot),
   ].join("\n");
 }

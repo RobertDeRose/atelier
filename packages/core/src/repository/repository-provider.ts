@@ -7,6 +7,18 @@ export interface RepositoryProviderStatus {
   reason?: string;
 }
 
+
+export interface RepositoryRecoveryState {
+  provider: "jj" | "git" | "none";
+  /** Provider-native state needed to restore staged/working-copy semantics. */
+  native?: Record<string, unknown>;
+}
+
+export interface RepositoryRecoveryCheckpoint {
+  paths: string[];
+  state: RepositoryRecoveryState;
+}
+
 export interface RepositoryCommitResult {
   message: string;
   changedPaths: string[];
@@ -26,6 +38,9 @@ export interface RepositoryProvider {
   diffFrom(reference: string, path?: string): string;
   listFiles(): string[];
   classifyPath?(path: string): RepositoryPathState;
+  captureRecoveryState?(paths: string[]): RepositoryRecoveryState;
+  restoreRecoveryState?(state: RepositoryRecoveryState, paths: string[]): void;
+  verifyRecoveryState?(state: RepositoryRecoveryState, paths: string[]): void;
   commit(message: string, paths?: string[]): RepositoryCommitResult;
   commitMetadata(message: string, paths: string[]): RepositoryCommitResult;
 }

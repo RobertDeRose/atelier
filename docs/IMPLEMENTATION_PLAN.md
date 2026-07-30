@@ -1,16 +1,19 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.10 (2026-07-29).** The guarded vertical workflow is the release
-> authority. Repository trust is external; generic shell is unconfined and individually approved;
-> exact approval binds source, all workspace roots, retrieval revisions, reconciliation, and a
-> machine-readable per-task execution contract. Capabilities are limited to reviewed paths, named
-> validations, optional dependency manifests, optional path-scoped local change, and task closure.
-> Closure requires current required validation, exact final-diff review, a local change, and configured
-> clean state. An incomplete task may remain idle or paused, denial never schedules a follow-up model
-> turn, stop/pause/resume/cancel remain user-controlled, and typed model tools cover state, validation,
-> commit, and close. Provider-first retrieval is advisory. IDE-facing expansion is paused until this
-> workflow remains reliable. Historical notes are superseded where they conflict with ADR-0024 through
-> ADR-0029.
+> **Current release: 0.14.0-alpha.11 (2026-07-30).** The canonical startup directory, or one explicit
+> `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
+> trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
+> plan metadata constrains the active task; the independent workspace evaluator decides whether each
+> concrete effect is contained, secret-sensitive, privileged, read-only, or exactly recoverable. Dirty
+> tracked and practical untracked/ignored destruction receives a verified Git/Jujutsu checkpoint before
+> execution. Model Bash and direct user shell share one pre-execution evaluator and OS sandbox path.
+> Exact approval binds source, all workspace roots, retrieval revisions, reconciliation, and reviewed task
+> constraints, but remains idle until the user explicitly requests implementation. Closure requires
+> current required validation, exact final-diff review, a local change, and configured clean state.
+>
+> **Historical permission sections below are non-normative.** ADR-0032 and the delivered-status section
+> supersede every older design involving trusted projects, permission grants, capability bundles,
+> repository grants, remembered shell approval, or an independently authorized generic Bash boundary.
 
 > **v0.13.0 local acceptance:** The delivered CLI/Pi workflow now uses exact reviewed-plan approval, convergent provider reconciliation, task-scoped execution grants, post-tool mutation evidence, focused-validation freshness, deterministic restart reconstruction, and a portable end-to-end acceptance fixture. See ADR-0019 and `LOCAL_ACCEPTANCE.md`.
 
@@ -32,15 +35,15 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.13.0
+## Implementation Status — v0.14.0-alpha.11
 
 The current prototype delivers the guarded local workflow:
 
 - automatic configured-editor plan review with durable `ManualEdit` structural evidence;
 - exact plan/provider/reconciliation preparation and approval with zero-mutation rejection;
 - convergent `TaskProvider` create, adopt, update, link, unlink, retirement, and ready-task claim;
-- task/workspace-scoped execution grants derived from structured reviewed paths and named validations; unconfined shell remains independently approved;
-- Pi `tool_call` preflight and structured `tool_result` success/failure/interruption evidence;
+- task-scoped execution grants carrying structured reviewed paths and named validations as workflow constraints; filesystem effects remain governed independently by workspace recoverability;
+- Pi `tool_call` and `user_bash` workspace-effect preflight, exact recovery checkpoints, and structured `tool_result` success/failure/interruption evidence;
 - typed model-facing state, validation, path-scoped commit, and task-close operations; asynchronous
   abort-aware execution, explainable focused selection, strict source fingerprint freshness, and closure
   gates;
@@ -51,7 +54,7 @@ The current prototype delivers the guarded local workflow:
 - bounded provider-first codesearch retrieval with provenance, reuse, invalidation, and multi-repository isolation; and
 - matching CLI/Pi commands for review, approval, execution, cancellation, validation, evidence, status, and state.
 
-The portable acceptance fixture in `tests/acceptance-workflow.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `LOCAL_ACCEPTANCE.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their “planned” wording does not override this delivered-status section.
+The portable acceptance fixtures in `tests/acceptance-workflow.test.ts`, `tests/workspace-policy.test.ts`, and `tests/recovery-manager.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `LOCAL_ACCEPTANCE.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their “planned” wording does not override this delivered-status section.
 
 ---
 
@@ -60,7 +63,7 @@ The portable acceptance fixture in `tests/acceptance-workflow.test.ts` runs with
 Atelier should be built as a local-first development operating environment composed of two cooperating systems:
 
 1. **Atelier Core** — a harness-independent repository intelligence, Working State construction, execution evidence, and tool lifecycle service.
-2. **Atelier Shell** — a terminal-native, Pi-based user experience that enforces permissions, coordinates agent activity, invokes external development tools, and records provenance.
+2. **Atelier Shell** — a terminal-native, Pi-based user experience that enforces workflow constraints plus workspace recoverability, coordinates agent activity, invokes external development tools, and records provenance.
 
 This separation resolves the main tension in the source material:
 

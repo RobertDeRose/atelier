@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.10**.
+Current release: **0.14.0-alpha.11**.
 
 ## Current status
 
@@ -22,9 +22,9 @@ Atelier currently provides:
 - durable `ManualEdit` plan review with exact plan hashes and structural diffs;
 - preview-before-mutation task-provider reconciliation;
 - exact approval bound to source revisions, every approved workspace repository, retrieval revisions,
-  provider identity, reconciliation digest, and a typed task-capability bundle;
-- atomic task claim, execution activation, and capability installation;
-- restart-safe execution, invalidation, permission, mutation, validation, and retrieval evidence;
+  provider identity, reconciliation digest, and reviewed task constraints;
+- atomic task claim and execution activation with reviewed task constraints;
+- restart-safe execution, invalidation, recovery-checkpoint, mutation, validation, and retrieval evidence;
 - an authoritative task-closure predicate requiring current required validations, an exact final-diff
   review, a local commit/change, and the configured clean-repository state;
 - Jujutsu-first and Git-compatible repository providers;
@@ -114,8 +114,7 @@ Every approvable task includes a structured execution contract in its `atlr:task
 <!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["src/example.ts","tests/example.test.ts"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
 ```
 
-Free-form Scope and Out-of-scope sections remain human context; the `execution` object is the authorization
-source. Missing, unknown, inconsistent, absolute, out-of-root, or non-source entries fail preparation. See
+Free-form Scope and Out-of-scope sections remain human context; the `execution` object is the reviewed task-constraint source. Missing, unknown, inconsistent, absolute, out-of-root, or non-source entries fail preparation. See
 `docs/PLAN_FORMAT.md` for the complete contract.
 
 A normal CLI workflow is:
@@ -137,17 +136,17 @@ Preparation records and approval rechecks:
 - the primary source snapshot;
 - revision bindings for every approved workspace repository;
 - retrieval provider/index bindings used by the plan;
-- the typed task-capability bundle and its digest.
+- the reviewed task constraints and their digest.
 
 Rejection performs no provider mutation. Approval reconciles the provider, verifies convergence, claims
-one approved-plan ready task, and atomically installs the execution grant plus its typed capabilities.
+one approved-plan ready task, and atomically installs the execution grant plus its reviewed task constraints.
 A later approved task still requires explicit activation:
 
 ```sh
 atlr execute TASK_ID --yes
 ```
 
-Cancellation revokes the active execution and linked permissions without silently closing the task:
+Cancellation revokes the active execution without silently closing the task:
 
 ```sh
 atlr cancel --reason "why execution stopped"
@@ -159,34 +158,38 @@ revokes execution without waiting for idle. Denial, Escape, or normal settlement
 follow-up. The completion predicate is enforced when closure is requested, not by preventing the user
 from regaining control.
 
-## Authorization model
+## Workflow constraints and workspace recoverability
 
-Plan approval is not blanket command authorization.
+Plan approval constrains the active task; it does not create a second filesystem permission system.
+The reviewed execution contract limits agent work to exact source paths, explicitly named validations,
+optional dependency manifests, task closure, and an optional path-scoped local commit/change. Workflow
+mode and task identity remain hard constraints, while the workspace policy independently decides whether
+each concrete filesystem effect is contained and exactly recoverable.
 
-The approved task receives only the capabilities derived from its machine-readable execution contract:
-exact source paths, explicitly named validations, optional dependency manifests, task closure, and an
-optional path-scoped local commit/change. Task update/link permissions are not granted implicitly. A typed
-operation is allowed only when its resolved real path, validation name, task, repository, and execution
-bindings match the reviewed contract.
+The workspace policy evaluates four things:
 
-Generic shell commands use the `unconfined` boundary. They never inherit typed task capabilities, even
-when a classifier recognizes a read-like command. Each unconfined shell operation requires an explicit
-single-operation grant. Destructive, network, publication, unknown, and out-of-scope effects remain
-approval-gated or denied according to policy.
+1. resolved path containment inside the immutable session workspace;
+2. likely-secret and privilege-escalation consequences;
+3. VCS path state through Git or Jujutsu;
+4. exact recovery through VCS state or a verified Atelier checkpoint.
 
-Atelier resolves existing paths and the nearest existing ancestor for new paths. Symlink escapes do not
-satisfy repository confinement. This path check protects typed operations; it is not an operating-system
-sandbox for arbitrary child processes.
+Ordinary non-secret reads, new files, clean tracked mutations/deletions, and content-preserving untracked
+mutations proceed without approval. Dirty tracked destruction and recoverable untracked/ignored
+destruction receive an automatic checkpoint. Outside-workspace effects, likely-secret access, privilege
+escalation, indeterminate destructive path sets, and any operation Atelier cannot restore exactly ask once
+for the concrete consequence.
 
-The durable model now exposes only meaningful grant scopes:
+Git checkpoints preserve the exact index, staged/unstaged and partially staged contents, modes, renames,
+symlinks, ignored files, and affected untracked files without changing branch history or staging user work.
+Jujutsu checkpoints capture and verify the native operation-log boundary. Checkpoints are associated with
+the triggering Pi session and tool call and expose an explicit restore command.
 
-```text
-operation   consumed when one authorization is attempted
-task        bound to the active execution/task
-repository  bound to a trusted repository identity
-```
-
-Legacy `turn` and `session` grants are revoked during migration.
+Pi's model Bash tool and direct `user_bash` execution share the same pre-execution evaluator. Seatbelt on
+macOS or Bubblewrap on Linux is used when available. An unavailable sandbox does not bypass policy:
+execution may fall back only after the concrete effects were allowed, checkpointed, or explicitly approved.
+Sandbox confinement alone never turns an indeterminate destructive operation into a recoverable one.
+Existing targets and nearest existing ancestors are resolved securely, so lexical traversal, nested
+symlinks, broken symlinks, and nonexistent descendants cannot escape the workspace boundary.
 
 ## Validation and task closure
 
@@ -218,10 +221,10 @@ rejected rather than silently ignored. Validation output is bounded and redacted
 abort-aware, and evidence includes repository and environment fingerprints. Repository, command,
 toolchain, platform, architecture, PATH, or lockfile drift makes prior evidence stale.
 
-Pi exposes `atlr_validate` as the model-facing typed validation tool. It plans or runs trusted declared
+Pi exposes `atlr_validate` as the model-facing typed validation tool. It plans or runs configured declared
 validations without routing them through generic Bash. Failed declared checks fail the tool operation; an
 explicitly interrupted check returns a structured interrupted result so user cancellation is not recast as
-a validation failure. Durable validation evidence is retained in both cases. Capability is not instruction: a user request not
+a validation failure. Durable validation evidence is retained in both cases. A reviewed constraint is not an instruction: a user request not
 to validate remains binding.
 
 A typical completion sequence is:
@@ -341,8 +344,7 @@ atlr_task_close
 Explicit user prohibitions such as “do not use Bash”, “do not validate”, “do not commit”, or “do not
 close” form a temporary turn policy that blocks those tools before an exceptional approval prompt. A
 “stop after” instruction is also injected into the current-turn prompt, while `/atelier-stop` is the
-enforceable active-turn control. A capability authorizes an operation; it never instructs the model to use
-it.
+enforceable active-turn control. A reviewed task constraint permits a bounded workflow operation; it never instructs the model to use it.
 
 Each Pi session owns its own Atelier Core, repository root, review state, retrieval session, and index
 coordination. Shutdown awaits provider disposal before closing SQLite. Compaction receives a projection
@@ -365,12 +367,11 @@ live provider result.
 
 ## Current limitations
 
-- Generic shell execution is unconfined and individually approved; no OS sandbox is delivered.
-- Trusting a project permits its declared providers, validators, and editor command to execute.
-- Live provider conformance depends on locally available external tools and is separate from deterministic
-  CI.
-- Multi-repository source/retrieval revision correctness is delivered, but richer coordinated editing UX
-  remains limited.
-- `session_before_compact` reconstructs durable Working State into Pi compaction; compaction has not yet
-  been eliminated entirely.
-- The IDE-facing palette, tree, navigator, and dedicated diff surfaces are not yet implemented.
+- Static shell effect analysis is deliberately conservative. Interpreter, build-system, and compound
+  commands ask when their persistent effects cannot be enumerated exactly, even when an OS sandbox is active.
+- Seatbelt and Bubblewrap are platform facilities, not a complete VM boundary; network policy remains a
+  separate concern and privileged execution always asks.
+- Live provider conformance depends on locally available external tools and is separate from deterministic CI.
+- Multi-repository source/retrieval revision correctness is delivered, but richer coordinated editing UX remains limited.
+- Every turn reconstructs authoritative Working State, but Pi's transcript and compaction mechanism still exist.
+- The current palette, tree, navigator, and diff surfaces are functional command surfaces rather than a complete IDE chrome.

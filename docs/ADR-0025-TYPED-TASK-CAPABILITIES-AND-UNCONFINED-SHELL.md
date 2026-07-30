@@ -1,4 +1,4 @@
-# ADR-0025: Approve typed task capabilities and treat shell as unconfined
+# ADR-0025: Approve typed task constraints and treat shell as unconfined
 
 - **Status:** Accepted
 - **Date:** 2026-07-27
@@ -11,7 +11,7 @@ Classifying arbitrary shell text as read-only was not a defensible authorization
 
 Exact plan approval atomically creates a narrow task capability bundle for typed in-repository file writes, declared validation, task operations, dependency changes, and local change creation. The bundle is hashed and bound to the execution grant.
 
-Generic shell is always an unconfined `command.execute` operation. It never inherits task capabilities and requires a single-operation approval. Shell classification remains diagnostic metadata only. Typed reads and writes carry resolved real paths and are constrained to approved roots with symlink-aware checks.
+Generic shell is always an unconfined `command.execute` operation. It never inherits task constraints and requires a single-operation approval. Shell classification remains diagnostic metadata only. Typed reads and writes carry resolved real paths and are constrained to approved roots with symlink-aware checks.
 
 ## Consequences
 
@@ -19,3 +19,8 @@ Generic shell is always an unconfined `command.execute` operation. It never inhe
 - Each generic shell operation remains visible and independently authorized.
 - Atelier does not claim that string parsing confines a shell process.
 - An operating-system sandbox remains the future mechanism for stronger shell confinement.
+
+
+## Supersession
+
+ADR-0032 removed filesystem permission grants and the universally unconfined-shell model. Reviewed task metadata now constrains workflow scope only. Concrete tool and shell effects are evaluated through immutable workspace containment, VCS recoverability, exact checkpoints, likely-secret rules, privilege escalation, and the shared OS sandbox path.

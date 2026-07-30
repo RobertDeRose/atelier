@@ -21,6 +21,7 @@ export interface RunProcessOptions {
   maxOutputBytes?: number | undefined;
   signal?: AbortSignal | undefined;
   inheritStdio?: boolean | undefined;
+  onData?: ((chunk: string) => void) | undefined;
 }
 
 export async function runProcess(command: string, args: readonly string[], options: RunProcessOptions): Promise<ProcessResult> {
@@ -74,8 +75,8 @@ export async function runProcess(command: string, args: readonly string[], optio
     }
     resetIdle();
     if (!options.inheritStdio) {
-      child.stdout?.on("data", (chunk: Buffer) => { [stdout, stdoutTruncated] = append(stdout, chunk); resetIdle(); });
-      child.stderr?.on("data", (chunk: Buffer) => { [stderr, stderrTruncated] = append(stderr, chunk); resetIdle(); });
+      child.stdout?.on("data", (chunk: Buffer) => { [stdout, stdoutTruncated] = append(stdout, chunk); options.onData?.(chunk.toString("utf8")); resetIdle(); });
+      child.stderr?.on("data", (chunk: Buffer) => { [stderr, stderrTruncated] = append(stderr, chunk); options.onData?.(chunk.toString("utf8")); resetIdle(); });
       if (options.input !== undefined) child.stdin?.end(options.input); else child.stdin?.end();
     }
     child.once("error", (error) => {

@@ -7,7 +7,7 @@ import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
 import { RepositoryObservationError } from "../domain/errors.ts";
 import { sha256 } from "../util/hash.ts";
 import { isSourcePath } from "./source-path.ts";
-import type { RepositoryCommitResult, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus } from "./repository-provider.ts";
+import type { RepositoryCommitResult, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus, RepositoryRecoveryState } from "./repository-provider.ts";
 
 interface CommandResult {
   status: number;
@@ -177,6 +177,69 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     const ignored = spawnSync("git", ["check-ignore", "-q", "--", relativePath], { cwd: root, env: minimalEnvironment(), shell: false });
     if (ignored.status === 0) return "ignored";
     return existsSync(absolute) ? "untracked" : "missing";
+  }
+
+  captureRecoveryState(paths: string[]): RepositoryRecoveryState {
+    const root = required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim();
+    // Reading @ snapshots the current working copy before the operation ID is
+    // captured, making the operation log the exact recovery boundary.
+    const identity = required(this.executable, root, [
+      "log", "-r", "@", "--no-graph", "--color", "never",
+      "-T", 'change_id ++ "\n" ++ commit_id ++ "\n"',
+    ], "recovery working-copy capture");
+    const [changeId = "", commitId = ""] = lines(identity.stdout);
+    const operationId = required(this.executable, root, [
+      "op", "log", "--limit", "1", "--no-graph", "--color", "never", "-T", 'id ++ "\n"',
+    ], "recovery operation capture").stdout.trim();
+    const relativePaths = paths.map((path) => {
+      const absolute = resolve(path);
+      if (absolute === root) return ".";
+      if (!absolute.startsWith(`${root}/`)) throw new Error(`Jujutsu recovery path is outside the repository: ${absolute}`);
+      return absolute.slice(root.length + 1);
+    });
+    return { provider: "jj", native: { root, changeId, commitId, operationId, relativePaths, restoreScope: "repository-operation" } };
+  }
+
+  restoreRecoveryState(state: RepositoryRecoveryState, paths: string[]): void {
+    if (state.provider !== "jj" || state.native === undefined) throw new Error("Jujutsu recovery state is unavailable.");
+    const root = String(state.native.root);
+    const operationId = String(state.native.operationId ?? "");
+    if (!operationId) throw new Error("Jujutsu recovery operation is missing.");
+    required(this.executable, root, ["op", "restore", operationId], "recovery operation restore");
+    const updated = run(this.executable, root, ["workspace", "update-stale"]);
+    if (updated.status !== 0 && !/not stale|already.*current|up[- ]to[- ]date/i.test(updated.stderr)) {
+      throw new RepositoryObservationError(`Jujutsu recovery workspace update failed: ${updated.stderr.trim() || `exit ${updated.status}`}`, {
+        cwd: root,
+        command: [this.executable, "workspace", "update-stale"],
+        status: updated.status,
+      });
+    }
+    this.verifyRecoveryState(state, paths);
+  }
+
+  verifyRecoveryState(state: RepositoryRecoveryState, _paths: string[]): void {
+    if (state.provider !== "jj" || state.native === undefined) throw new Error("Jujutsu recovery state is unavailable.");
+    const root = String(state.native.root);
+    const operationId = String(state.native.operationId ?? "");
+    const expectedChange = String(state.native.changeId ?? "");
+    const expectedCommit = String(state.native.commitId ?? "");
+    if (!operationId || !expectedChange || !expectedCommit) throw new Error("Jujutsu recovery identity is incomplete.");
+    const historical = required(this.executable, root, [
+      `--at-op=${operationId}`, "log", "-r", "@", "--no-graph", "--color", "never",
+      "-T", 'change_id ++ "\n" ++ commit_id ++ "\n"',
+    ], "recovery operation verification");
+    const [historicalChange = "", historicalCommit = ""] = lines(historical.stdout);
+    if (historicalChange !== expectedChange || historicalCommit !== expectedCommit) {
+      throw new Error("Jujutsu recovery checkpoint no longer resolves to the captured working-copy state.");
+    }
+    const current = required(this.executable, root, [
+      "log", "-r", "@", "--no-graph", "--color", "never",
+      "-T", 'change_id ++ "\n" ++ commit_id ++ "\n"',
+    ], "recovery current-state verification");
+    const [currentChange = "", currentCommit = ""] = lines(current.stdout);
+    if (currentChange !== expectedChange || currentCommit !== expectedCommit) {
+      throw new Error("Jujutsu recovery did not restore the captured working-copy commit.");
+    }
   }
 
   listFiles(): string[] {

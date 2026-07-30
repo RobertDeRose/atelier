@@ -13,7 +13,7 @@ export function createAuthoritativeContextCapsule(input: {
   const markdown = [
     "## Atelier authoritative context",
     "",
-    "Conversation history and compaction summaries are non-authoritative. The state below is reconstructed from the durable ledger, current repository, reviewed plan, task provider, permissions, and validation evidence for this turn.",
+    "Conversation history and compaction summaries are non-authoritative. The state below is reconstructed from the durable ledger, current repository, reviewed plan, task provider, reviewed task constraints, and validation evidence for this turn.",
     "",
     input.modeInstruction.trim(),
     input.turnPolicyInstruction?.trim() ?? "",

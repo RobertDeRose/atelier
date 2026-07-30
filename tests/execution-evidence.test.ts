@@ -37,17 +37,12 @@ async function activeCore(prefix: string): Promise<{ root: string; core: Atelier
   return { root, core };
 }
 
-function authorize(core: AtelierCore, request: Parameters<AtelierCore["evaluate"]>[0]): {
-  policyDecisionId: string;
-  permissionGrantId: string;
+function authorize(core: AtelierCore, request: Parameters<AtelierCore["evaluateWorkflow"]>[0]): {
+  workflowDecisionId: string;
 } {
-  const decision = core.evaluate(request);
+  const decision = core.evaluateWorkflow(request);
   assert.equal(decision.result, "allow");
-  const permissionGrantId = decision.matchedRules
-    .find((rule) => rule.startsWith("matched permission grant "))
-    ?.slice("matched permission grant ".length);
-  assert.ok(permissionGrantId);
-  return { policyDecisionId: decision.id, permissionGrantId };
+  return { workflowDecisionId: decision.id };
 }
 
 test("authorized tool attempts record observed success, failure, interruption, and bounded errors", async () => {
@@ -68,7 +63,7 @@ test("authorized tool attempts record observed success, failure, interruption, a
       toolCallId: "unauthorized",
       toolName: "write",
       request,
-      policyDecisionId: "invented-decision",
+      workflowDecisionId: "invented-decision",
     }), /matching allow policy decision/i);
     core.beginExecutionEvidence({ toolCallId: "success", toolName: "write", request, ...authorize(core, request) });
     writeFileSync(join(root, "src.ts"), "export const changed = true;\n", "utf8");

@@ -1,4 +1,38 @@
 declare module "@earendil-works/pi-coding-agent" {
+
+  export interface BashOperations {
+    exec(
+      command: string,
+      cwd: string,
+      options: {
+        onData: (chunk: string | Uint8Array) => void;
+        signal?: AbortSignal;
+        timeout?: number;
+      },
+    ): Promise<{ exitCode: number | null }>;
+  }
+
+  export interface BashToolDefinition {
+    name: string;
+    label: string;
+    description: string;
+    promptSnippet?: string;
+    promptGuidelines?: string[];
+    parameters: unknown;
+    execute(
+      toolCallId: string,
+      params: any,
+      signal: AbortSignal | undefined,
+      onUpdate: ((update: unknown) => void) | undefined,
+      ctx?: ExtensionContext,
+    ): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown; isError?: boolean }>;
+  }
+
+  export function createBashTool(
+    cwd: string,
+    options?: { operations?: BashOperations },
+  ): BashToolDefinition;
+
   export interface ExtensionUIContext {
     confirm(title: string, message: string): Promise<boolean>;
     select(title: string, options: string[]): Promise<string | undefined>;
@@ -74,7 +108,7 @@ declare module "@earendil-works/pi-coding-agent" {
       execute(
         toolCallId: string,
         params: any,
-        signal: AbortSignal,
+        signal: AbortSignal | undefined,
         onUpdate: ((update: unknown) => void) | undefined,
         ctx: ExtensionContext,
       ): Promise<{

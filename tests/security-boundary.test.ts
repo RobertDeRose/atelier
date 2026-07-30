@@ -6,14 +6,11 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
   AtelierCore,
-  PolicyEngine,
   classifyShellCommand,
   isPathWithin,
   loadConfig,
-  type ActionRequest,
-  type ExecutionGrant,
-  type PermissionGrant,
   SqliteLedger,
+  WorkspacePolicyEvaluator,
 } from "../packages/core/src/index.ts";
 import { createTemporaryRepository, testDatabasePath } from "./fixtures.ts";
 
@@ -113,70 +110,15 @@ test("real-path confinement rejects existing and not-yet-created targets below a
   const linked = join(root, "linked");
   writeFileSync(join(outside, "secret.txt"), "outside\n", "utf8");
   symlinkSync(outside, linked, "dir");
-
-  const snapshot = {
-    repositoryId: "repository",
-    workspaceId: "workspace",
-    vcs: "git" as const,
-    headCommit: "head",
-    dirtyGeneration: 0,
-    dirtyFingerprint: "clean",
-    indexSchemaVersion: 1,
-  };
-  const executionGrant: ExecutionGrant = {
-    id: "execution",
-    status: "active",
-    planApprovalId: "approval",
-    reconciliationTransactionId: "transaction",
-    planHash: "plan",
-    reconciliationDigest: "reconciliation",
-    provider: { name: "memory", version: "1" },
-    workspaceId: snapshot.workspaceId,
-    repositoryId: snapshot.repositoryId,
-    repositorySnapshot: snapshot,
-    repositoryBindings: [],
-    retrievalBindings: [],
-    approvalCapabilityDigest: "approval-capabilities",
-  capabilityDigest: "capabilities",
-    taskId: "task",
-    planTaskId: "ATLR-001",
-    issuedAt: new Date().toISOString(),
-  };
-  const grant: PermissionGrant = {
-    id: "grant",
-    executionGrantId: executionGrant.id,
-    permission: "file.write",
-    scope: "task",
-    actor: "user",
-    taskId: executionGrant.taskId,
-    repositoryId: executionGrant.repositoryId,
-    paths: [root],
-    reason: "typed writes only",
-    createdAt: new Date().toISOString(),
-  };
-  const request = (path: string): ActionRequest => ({
-    action: "write.file",
-    risk: "routine",
-    actor: "agent",
-    taskId: executionGrant.taskId,
-    repositorySnapshot: snapshot,
-    paths: [path],
-    boundary: "typed",
-    rationale: "boundary regression",
-  });
-
   try {
     assert.equal(isPathWithin(join(linked, "secret.txt"), root, "read"), false);
     assert.equal(isPathWithin(join(linked, "new.txt"), root, "write"), false);
-    const policy = new PolicyEngine();
+    const policy = new WorkspacePolicyEvaluator({ root });
+    const resolver = { classify: () => "missing" as const };
     for (const path of [join(linked, "secret.txt"), join(linked, "new.txt")]) {
-      assert.equal(policy.evaluate(request(path), {
-        mode: "act",
-            repositoryRoot: root,
-        planPath: join(root, ".atelier", "PLAN.md"),
-        grants: [grant],
-        executionGrant,
-      }).result, "require_approval");
+      const decision = policy.evaluate([{ kind: "create", path }], resolver);
+      assert.equal(decision.result, "ask");
+      assert.equal(decision.effects[0]?.state, "outside_workspace");
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -219,26 +161,30 @@ test("legacy Atelier trust state is ignored and validation manifests reject exec
 });
 
 
-test("legacy turn and session grants are revoked by the scope migration", () => {
-  const root = createTemporaryRepository("atlr-legacy-grant-scopes-");
+test("legacy permission storage is deleted rather than reinterpreted", () => {
+  const root = createTemporaryRepository("atlr-legacy-permission-storage-");
   const databasePath = testDatabasePath(root);
   let ledger = new SqliteLedger(databasePath);
   try {
-    ledger.database.prepare("DELETE FROM schema_migrations WHERE version = 7").run();
-    ledger.database.prepare(`
-      INSERT INTO permission_grants(
-        id, execution_grant_id, permission, scope, actor, task_id, repository_id, paths_json,
-        command_prefix_json, reason, created_at, expires_at, revoked_at
-      ) VALUES (?, NULL, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL)
-    `).run("legacy-session", "command.execute", "session", "user", "legacy unsupported scope", new Date().toISOString());
+    ledger.database.prepare("DELETE FROM schema_migrations WHERE version = 9").run();
+    ledger.database.exec(`
+      CREATE TABLE permission_grants(
+        id TEXT PRIMARY KEY,
+        permission TEXT NOT NULL,
+        scope TEXT NOT NULL
+      );
+      INSERT INTO permission_grants(id, permission, scope)
+      VALUES ('legacy-session', 'command.execute', 'session');
+    `);
     ledger.close();
 
     ledger = new SqliteLedger(databasePath);
-    assert.equal(ledger.listGrants().some((grant) => grant.id === "legacy-session"), false);
-    const migrated = ledger.listGrants({ includeRevoked: true }).find((grant) => grant.id === "legacy-session");
-    assert.ok(migrated?.revokedAt);
+    assert.equal(
+      ledger.database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'permission_grants'").get(),
+      undefined,
+    );
     const versions = ledger.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ version: number }>;
-    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
   } finally {
     ledger.close();
     rmSync(root, { recursive: true, force: true });

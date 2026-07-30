@@ -3,7 +3,8 @@ import { relative, resolve } from "node:path";
 import { loadConfig, type AtelierConfig } from "./config/config.ts";
 import { WorkingStateBuilder } from "./state/working-state-builder.ts";
 import type {
-  ActionRequest,
+  ApprovedTaskConstraint,
+  WorkflowActionRequest,
   ExecutionEvidence,
   ExecutionGrant,
   FinalDiffPreview,
@@ -11,9 +12,7 @@ import type {
   ManualEdit,
   ManualEditEditor,
   WorkingState,
-  Permission,
-  PermissionGrant,
-  PolicyDecision,
+  WorkflowDecision,
   TaskClosureReadiness,
   TaskProviderStatus,
   TaskReconciliation,
@@ -29,9 +28,9 @@ import {
   type CompletePlanReviewOptions,
 } from "./planning/plan-review-service.ts";
 import { PlanReconciler } from "./planning/plan-reconciler.ts";
-import { PolicyEngine } from "./policy/policy-engine.ts";
+import { WorkflowGuard } from "./workflow/workflow-guard.ts";
 import { ExecutionWorkflowCoordinator } from "./workflow/execution-workflow-coordinator.ts";
-import { capabilitiesForPlanTask, sourceBaselineMismatch } from "./workflow/execution-baseline.ts";
+import { constraintsForPlanTask, sourceBaselineMismatch } from "./workflow/execution-baseline.ts";
 import { createRepositoryProvider } from "./repository/repository-factory.ts";
 import type { RepositoryCommitResult, RepositoryProvider } from "./repository/repository-provider.ts";
 import { sourceSnapshotFingerprint } from "./repository/snapshot.ts";
@@ -51,7 +50,7 @@ import { NoopTaskProvider } from "./tasks/noop-task-provider.ts";
 import type { TaskProvider } from "./tasks/task-provider.ts";
 import { hashFile, sha256 } from "./util/hash.ts";
 import { newId, nowIso } from "./util/ids.ts";
-import { isPathWithin, resolveAccessPath } from "./security/path-boundary.ts";
+import { isPathWithin } from "./security/path-boundary.ts";
 import { isSourcePath, sourcePaths } from "./repository/source-path.ts";
 import { repositoryRevisionBinding, type RepositoryRevisionBinding } from "./repository/revision-binding.ts";
 import { WorkspacePolicyEvaluator, type FilesystemEffect, type WorkspacePolicyDecision } from "./policy/workspace-policy.ts";
@@ -73,7 +72,7 @@ export interface AtelierStatus {
   activeExecutionGrant?: ExecutionGrant;
   taskProvider: TaskProviderStatus;
   snapshot: ReturnType<RepositoryProvider["snapshot"]>;
-  activePermissions: PermissionGrant[];
+  activeTaskConstraints: ApprovedTaskConstraint[];
   workflowCheckpoint: string;
   closureStatus: string;
   nextAction: string;
@@ -106,7 +105,7 @@ export class AtelierCore {
   readonly config: AtelierConfig;
   readonly ledger: SqliteLedger;
   readonly taskProvider: TaskProvider;
-  readonly policy = new PolicyEngine();
+  readonly workflowGuard = new WorkflowGuard();
   readonly repository: RepositoryProvider;
   readonly planReview: PlanReviewService;
   readonly workingStateBuilder: WorkingStateBuilder;
@@ -128,7 +127,7 @@ export class AtelierCore {
     this.taskProvider = taskProvider;
     this.repository = createRepositoryProvider(config, ledger);
     this.workspacePolicy = new WorkspacePolicyEvaluator({ root: config.workspaceRoot, secretPatterns: config.secretPathPatterns });
-    this.recovery = new RecoveryManager({ workspaceRoot: config.workspaceRoot, runtimeDirectory: config.runtimeDirectory, maxBytes: config.checkpointMaxBytes });
+    this.recovery = new RecoveryManager({ workspaceRoot: config.workspaceRoot, runtimeDirectory: config.runtimeDirectory, maxBytes: config.checkpointMaxBytes, repository: this.repository });
     this.planReview = new PlanReviewService({
       repositoryRoot: config.repositoryRoot,
       planPath: config.planPath,
@@ -140,7 +139,6 @@ export class AtelierCore {
       root: config.repositoryRoot,
       database: ledger.database,
       manifestPath: config.validationPath,
-      trusted: true,
     });
     const effectiveCodeProvider = codeProvider;
     const selection = effectiveCodeProvider === undefined
@@ -174,7 +172,7 @@ export class AtelierCore {
       repositoryRoot: config.repositoryRoot,
       repositoryBindings: () => this.repositoryRevisionBindings(),
       retrievalBindings: () => this.code.retrievalStatus().bindings,
-      validationCapabilities: () => Object.entries(this.validation.manifest().validations)
+      validationConstraints: () => Object.entries(this.validation.manifest().validations)
         .map(([name, definition]) => ({
           name,
           category: definition.category === "full" ? "full" as const : "focused" as const,
@@ -311,105 +309,49 @@ export class AtelierCore {
     return normalized;
   }
 
-  evaluate(request: ActionRequest): PolicyDecision {
-    const decision = this.policy.evaluate(request, {
+  activeTaskConstraints(): ApprovedTaskConstraint[] {
+    const grant = this.ledger.getActiveExecutionGrant();
+    if (grant === undefined) return [];
+    const approval = this.ledger.listPlanApprovals().find((candidate) => candidate.id === grant.planApprovalId);
+    if (approval === undefined) return [];
+    return constraintsForPlanTask(approval.taskConstraints, grant.planTaskId);
+  }
+
+  evaluateWorkflow(request: WorkflowActionRequest): WorkflowDecision {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    const decision = this.workflowGuard.evaluate(request, {
       mode: this.mode(),
-      repositoryRoot: this.config.workspaceRoot,
-      repositoryReadRoots: [this.config.workspaceRoot],
+      workspaceRoot: this.config.workspaceRoot,
       planPath: this.config.planPath,
-      grants: this.ledger.listGrants(),
-      ...(this.ledger.getActiveExecutionGrant() === undefined
-        ? {}
-        : {
-            executionGrant: this.ledger.getActiveExecutionGrant()!,
-            executionPaused: this.execution.isPaused(),
-          }),
+      ...(executionGrant === undefined ? {} : { executionGrant, executionPaused: this.execution.isPaused() }),
+      taskConstraints: this.activeTaskConstraints(),
       ...(request.action === "task.close" ? { taskClosure: this.taskClosureReadiness() } : {}),
     });
     this.ledger.append({
-      kind: "policy.decision",
+      kind: "workflow.authorization_decision",
       actor: request.actor,
       ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
       ...(request.repositorySnapshot === undefined ? {} : { repositorySnapshot: request.repositorySnapshot }),
       payload: decision,
     });
-    if (decision.result === "allow") {
-      const matched = decision.matchedRules.find((rule) => rule.startsWith("matched permission grant "));
-      const grantId = matched?.slice("matched permission grant ".length);
-      const grant = grantId === undefined ? undefined : this.ledger.listGrants().find((item) => item.id === grantId);
-      if (grant?.scope === "operation" && this.ledger.revokeGrant(grant.id)) {
-        this.ledger.append({
-          kind: "permission.consumed",
-          actor: "system",
-          ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
-          payload: { grantId: grant.id, executionGrantId: grant.executionGrantId, decisionId: decision.id },
-        });
-      }
-    }
     return decision;
-  }
-
-  grant(options: {
-    permission: Permission;
-    scope?: PermissionGrant["scope"];
-    actor?: PermissionGrant["actor"];
-    taskId?: string;
-    paths?: string[];
-    validationNames?: string[];
-    reason: string;
-    expiresAt?: string;
-  }): PermissionGrant {
-    const executionGrant = this.ledger.getActiveExecutionGrant();
-    const scope = options.scope ?? "operation";
-    const taskId = options.taskId ?? (scope === "task" ? executionGrant?.taskId : undefined);
-    if (scope === "task" && (executionGrant === undefined || taskId !== executionGrant.taskId)) {
-      throw new Error("Task-scoped grants require the active execution task.");
-    }
-    const access = options.permission === "repository.read" ? "read" : "write";
-    const paths = options.paths?.map((path) => resolveAccessPath(path, access, this.config.repositoryRoot));
-    const snapshot = this.repository.snapshot();
-    const grant: PermissionGrant = {
-      id: newId("grant"),
-      ...(executionGrant !== undefined && (taskId === undefined || taskId === executionGrant.taskId)
-        ? { executionGrantId: executionGrant.id }
-        : {}),
-      permission: options.permission,
-      scope,
-      actor: options.actor ?? "user",
-      ...(taskId === undefined ? {} : { taskId }),
-      repositoryId: snapshot.repositoryId,
-      ...(paths === undefined ? {} : { paths }),
-      ...(options.validationNames === undefined ? {} : { validationNames: [...options.validationNames] }),
-      reason: options.reason,
-      createdAt: nowIso(),
-      ...(options.expiresAt === undefined ? {} : { expiresAt: options.expiresAt }),
-    };
-    this.ledger.saveGrant(grant);
-    this.ledger.append({
-      kind: "permission.granted",
-      actor: "user",
-      ...(taskId === undefined ? {} : { taskId }),
-      repositorySnapshot: snapshot,
-      payload: grant,
-    });
-    return grant;
   }
 
   beginExecutionEvidence(input: {
     toolCallId: string;
     toolName: string;
-    request: ActionRequest;
-    policyDecisionId: string;
-    permissionGrantId?: string;
+    request: WorkflowActionRequest;
+    workflowDecisionId: string;
+    checkpointId?: string;
   }): ExecutionEvidence {
     if (input.request.action === "read.repository") throw new Error("Read-only tools do not create mutation execution evidence.");
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined || input.request.taskId !== executionGrant.taskId) {
       throw new Error("Mutation execution evidence requires the active task execution grant.");
     }
-    const decisionEvent = this.ledger.listEvents({ kind: "policy.decision", limit: 100 })
-      .find((event) => (event.payload as PolicyDecision).id === input.policyDecisionId);
-    const decision = decisionEvent?.payload as PolicyDecision | undefined;
+    const decisionEvent = this.ledger.listEvents({ kind: "workflow.authorization_decision", limit: 100 })
+      .find((event) => (event.payload as WorkflowDecision).id === input.workflowDecisionId);
+    const decision = decisionEvent?.payload as WorkflowDecision | undefined;
     const authorizedSnapshot = decisionEvent?.repositorySnapshot;
     const currentSnapshot = this.repository.snapshot();
     if (decision === undefined || decision.result !== "allow" || decision.action !== input.request.action
@@ -417,21 +359,6 @@ export class AtelierCore {
       || authorizedSnapshot === undefined
       || sourceBaselineMismatch(authorizedSnapshot, currentSnapshot) !== undefined) {
       throw new Error("Mutation execution evidence requires a current matching allow policy decision.");
-    }
-    const matchedPermissionGrantId = decision.matchedRules
-      .find((rule) => rule.startsWith("matched permission grant "))
-      ?.slice("matched permission grant ".length);
-    const concreteWorkspaceApproval = decision.matchedRules.includes("matched concrete workspace-policy approval");
-    if (!concreteWorkspaceApproval) {
-      if (matchedPermissionGrantId === undefined
-        || (input.permissionGrantId !== undefined && input.permissionGrantId !== matchedPermissionGrantId)) {
-        throw new Error("Mutation execution evidence requires the task authority matched by policy.");
-      }
-      const permissionGrant = this.ledger.listGrants({ includeRevoked: true })
-        .find((grant) => grant.id === matchedPermissionGrantId);
-      if (permissionGrant?.executionGrantId !== executionGrant.id) {
-        throw new Error("Mutation execution evidence authority is not bound to the active execution grant.");
-      }
     }
     const evidence: ExecutionEvidence = {
       id: newId("execution-evidence"),
@@ -441,8 +368,8 @@ export class AtelierCore {
       status: "started",
       taskId: executionGrant.taskId,
       executionGrantId: executionGrant.id,
-      policyDecisionId: input.policyDecisionId,
-      ...(matchedPermissionGrantId === undefined ? {} : { permissionGrantId: matchedPermissionGrantId }),
+      workflowDecisionId: input.workflowDecisionId,
+      ...(input.checkpointId === undefined ? {} : { checkpointId: input.checkpointId }),
       beforeSnapshot: currentSnapshot,
       requestedPaths: sourcePaths((input.request.paths ?? [])
         .flatMap((path) => repositoryRelativeSourcePath(this.config.repositoryRoot, path) ?? [])),
@@ -604,15 +531,14 @@ export class AtelierCore {
     const snapshot = this.repository.snapshot();
     if (executionGrant !== undefined) {
       const action = this.validation.action(name);
-      const decision = this.evaluate({
+      const decision = this.evaluateWorkflow({
         action,
         risk: "routine",
         actor: "agent",
         taskId: executionGrant.taskId,
         repositorySnapshot: snapshot,
         validationName: name,
-        boundary: "typed",
-        rationale: `Run configured ${action === "validation.focused" ? "focused" : "full-suite"} validation ${name}.`,
+          rationale: `Run configured ${action === "validation.focused" ? "focused" : "full-suite"} validation ${name}.`,
       });
       if (decision.result !== "allow") throw new Error(decision.reason);
     }
@@ -643,24 +569,17 @@ export class AtelierCore {
     return evidence;
   }
 
-  activeExecutionCapabilities() {
-    const grant = this.ledger.getActiveExecutionGrant();
-    if (grant === undefined) return [];
-    const approval = this.ledger.getPlanApproval(grant.planApprovalId);
-    return approval === undefined ? [] : capabilitiesForPlanTask(approval.capabilities, grant.planTaskId);
+  activeExecutionConstraints(): ApprovedTaskConstraint[] {
+    return this.activeTaskConstraints();
   }
 
   approvedTaskPaths(): string[] {
-    return [...new Set(this.activeExecutionCapabilities()
-      .filter((capability) => capability.permission === "file.write" || capability.permission === "dependency.modify")
-      .flatMap((capability) => capability.paths ?? []))].sort();
+    return [...new Set(this.activeExecutionConstraints().flatMap((constraint) => constraint.writePaths))].sort();
   }
 
   approvedValidationNames(category: "focused" | "full"): string[] {
-    const permission = category === "focused" ? "validation.focused" : "validation.full_suite";
-    return [...new Set(this.activeExecutionCapabilities()
-      .filter((capability) => capability.permission === permission)
-      .flatMap((capability) => capability.validationNames ?? []))].sort();
+    return [...new Set(this.activeExecutionConstraints().flatMap((constraint) =>
+      category === "focused" ? constraint.focusedValidations : constraint.fullValidations))].sort();
   }
 
   private approvedChangedPaths(fromBaseline = false): string[] {
@@ -741,14 +660,13 @@ export class AtelierCore {
     const changedPaths = this.approvedChangedPaths(false);
     if (changedPaths.length === 0) throw new Error("No approved source changes are available to commit.");
     const absolutePaths = changedPaths.map((path) => resolve(this.config.repositoryRoot, path));
-    const decision = this.evaluate({
+    const decision = this.evaluateWorkflow({
       action: "repository.change.create",
       risk: "routine",
       actor,
       taskId: executionGrant.taskId,
       repositorySnapshot: snapshot,
       paths: absolutePaths,
-      boundary: "typed",
       rationale: "Create the local repository change required by the approved task.",
     });
     if (decision.result !== "allow") throw new Error(decision.reason);
@@ -862,13 +780,12 @@ export class AtelierCore {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("No active execution task is available to close.");
     const snapshot = this.repository.snapshot();
-    const decision = this.evaluate({
+    const decision = this.evaluateWorkflow({
       action: "task.close",
       risk: "routine",
       actor,
       taskId: executionGrant.taskId,
       repositorySnapshot: snapshot,
-      boundary: "typed",
       rationale: reason,
     });
     if (decision.result !== "allow") throw new Error(decision.reason);
@@ -961,12 +878,6 @@ export class AtelierCore {
     return (await this.taskProvider.ready()).filter((candidate) => mappings.has(candidate.id));
   }
 
-  revoke(grantId: string): boolean {
-    const revoked = this.ledger.revokeGrant(grantId);
-    if (revoked) this.ledger.append({ kind: "permission.revoked", actor: "user", payload: { grantId } });
-    return revoked;
-  }
-
   parsePlan() {
     ensurePlanDocument(this.config.planPath);
     return parsePlanFile(this.config.planPath);
@@ -1027,8 +938,7 @@ export class AtelierCore {
     const snapshot = this.repository.snapshot();
     return loadCodeWorkspace(this.config.repositoryRoot, snapshot, {
       workspacePath: this.config.workspacePath,
-      trusted: true,
-      rootApproved: (root) => isPathWithin(root, this.config.workspaceRoot, "read"),
+      rootWithinWorkspace: (root) => isPathWithin(root, this.config.workspaceRoot, "read"),
       snapshotForRoot: (root) => createRepositoryProvider(this.config, this.ledger, root).snapshot(),
     });
   }
@@ -1213,7 +1123,7 @@ export class AtelierCore {
       ...(activeExecutionGrant === undefined ? {} : { activeExecutionGrant }),
       taskProvider,
       snapshot: this.repository.snapshot(),
-      activePermissions: this.ledger.listGrants(),
+      activeTaskConstraints: this.activeTaskConstraints(),
       workflowCheckpoint: this.currentWorkflowRun()?.checkpoint ?? "none",
       closureStatus: activeExecutionGrant === undefined
         ? this.currentWorkflowRun()?.checkpoint === "completed" ? "completed" : "not applicable — no active task"
@@ -1231,8 +1141,14 @@ export class AtelierCore {
     return this.workspacePolicy.evaluate(effects, { classify: (path) => this.repository.classifyPath?.(path) ?? (existsSync(path) ? "untracked" : "missing") });
   }
 
-  checkpointWorkspaceEffects(decision: WorkspacePolicyDecision): RecoveryCheckpoint {
-    const checkpoint = this.recovery.checkpoint(decision.effects.filter((effect) => effect.decision === "checkpoint_then_allow"));
+  checkpointWorkspaceEffects(
+    decision: WorkspacePolicyDecision,
+    options: { toolCallId?: string; sessionId?: string } = {},
+  ): RecoveryCheckpoint {
+    const checkpoint = this.recovery.checkpoint(
+      decision.effects.filter((effect) => effect.decision === "checkpoint_then_allow"),
+      options,
+    );
     this.ledger.append({ kind: "recovery.checkpoint_created", actor: "system", repositorySnapshot: this.repository.snapshot(), payload: checkpoint });
     return checkpoint;
   }

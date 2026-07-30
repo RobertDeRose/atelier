@@ -29,22 +29,6 @@ export function migrateLedgerSchema(database: SqliteDatabase): void {
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS permission_grants (
-      id TEXT PRIMARY KEY,
-      execution_grant_id TEXT,
-      permission TEXT NOT NULL,
-      scope TEXT NOT NULL,
-      actor TEXT NOT NULL,
-      task_id TEXT,
-      repository_id TEXT,
-      paths_json TEXT,
-      command_prefix_json TEXT,
-      reason TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      expires_at TEXT,
-      revoked_at TEXT
-    );
-
     CREATE TABLE IF NOT EXISTS plan_task_mappings (
       plan_task_id TEXT PRIMARY KEY,
       provider TEXT NOT NULL,
@@ -158,13 +142,6 @@ export function migrateLedgerSchema(database: SqliteDatabase): void {
     .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
     .run(4, nowIso());
 
-  const permissionColumns = database.prepare("PRAGMA table_info(permission_grants)").all() as unknown as Array<{ name: string }>;
-  if (!permissionColumns.some((column) => column.name === "execution_grant_id")) {
-    database.exec("ALTER TABLE permission_grants ADD COLUMN execution_grant_id TEXT");
-  }
-  if (!permissionColumns.some((column) => column.name === "validation_names_json")) {
-    database.exec("ALTER TABLE permission_grants ADD COLUMN validation_names_json TEXT");
-  }
   database.exec(`
     CREATE TABLE IF NOT EXISTS plan_approvals (
       id TEXT PRIMARY KEY,
@@ -216,27 +193,27 @@ export function migrateLedgerSchema(database: SqliteDatabase): void {
     .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
     .run(6, nowIso());
 
-  const migration7 = database.prepare("SELECT 1 AS present FROM schema_migrations WHERE version = 7").get() as
+  database
+    .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
+    .run(7, nowIso());
+  database
+    .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
+    .run(8, nowIso());
+
+  const migration9 = database.prepare("SELECT 1 AS present FROM schema_migrations WHERE version = 9").get() as
     | { present: number }
     | undefined;
-  if (migration7 === undefined) {
+  if (migration9 === undefined) {
     const timestamp = nowIso();
     database.exec("BEGIN IMMEDIATE");
     try {
-      database.prepare(`
-        UPDATE permission_grants SET revoked_at = COALESCE(revoked_at, ?)
-        WHERE scope NOT IN ('operation', 'task', 'repository')
-      `).run(timestamp);
-      database
-        .prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)")
-        .run(7, timestamp);
+      database.exec("DROP TABLE IF EXISTS permission_grants");
+      database.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)").run(9, timestamp);
       database.exec("COMMIT");
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;
     }
   }
-  database
-    .prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
-    .run(8, nowIso());
+
 }

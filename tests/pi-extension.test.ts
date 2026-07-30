@@ -235,19 +235,18 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     input: { command: "git log -3 --oneline && printf 'status\\n' && git status --short" },
   }, context);
   assert.equal(readOnlyCompound, undefined);
-  assert.equal(confirms.count, 1, "generic shell remains unconfined even when its command appears read-only");
+  assert.equal(confirms.count, 0, "read-only shell effects inside the workspace should not prompt");
   const shellLedger = new SqliteLedger(testDatabasePath(root));
-  const shellDecision = shellLedger.listEvents({ kind: "policy.decision", limit: 30 })
-    .map((event) => event.payload as { action?: string; result?: string; matchedRules?: string[] })
-    .find((decision) => decision.action === "command.execute"
-      && decision.result === "allow"
-      && decision.matchedRules?.includes("matched concrete workspace-policy approval"));
+  const shellDecision = shellLedger.listEvents({ kind: "workspace_policy.decision", limit: 30 })
+    .map((event) => event.payload as { result?: string; effects?: Array<{ kind?: string; decision?: string }> })
+    .find((decision) => decision.result === "allow"
+      && decision.effects?.every((effect) => effect.kind === "read" && effect.decision === "allow"));
   shellLedger.close();
-  assert.ok(shellDecision, "generic Pi shell must receive one concrete workspace-policy approval");
+  assert.ok(shellDecision, "sandboxed read-only shell effects must be allowed by the workspace policy");
 
 
   for (const command of [
-    "find . -maxdepth 3 -type f | sort | head -250 && printf '\n--- package ---\n' && test -f package.json && node -e 'console.log(1)'",
+    "find . -maxdepth 3 -type f | sort | head -250 && printf '\n--- package ---\n' && test -f package.json",
     "rg -n -i 'demo|walkthrough|showcase|golden path' --glob '!node_modules/**' . | head -300",
     "find apps packages tests scripts docs -maxdepth 4 -type f | sort",
   ]) {
@@ -257,7 +256,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     }, context);
     assert.equal(allowed, undefined, `provider-first discovery must remain advisory for: ${command}`);
   }
-  assert.equal(confirms.count, 4, "each unconfined shell operation requires one explicit approval");
+  assert.equal(confirms.count, 0, "read-only sandboxed discovery must not prompt");
   assert.ok(notifications.some((message) => /Atelier advisory: prefer current provider evidence/i.test(message)));
 
   const allowedRawScan = await events.get("tool_call")!({
@@ -265,7 +264,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     input: { command: "find examples -type f 2>/dev/null; rg -n 'policy' packages | head -20" },
   }, context);
   assert.equal(allowedRawScan, undefined);
-  assert.equal(confirms.count, 5);
+  assert.equal(confirms.count, 0);
 
   const agentStart = await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
   assert.match(agentStart?.systemPrompt ?? "", /Provider-first retrieval is advisory/i);
@@ -291,7 +290,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     input: { path: root, pattern: "*.ts" },
   }, context);
   assert.equal(allowedFallback, undefined);
-  assert.equal(confirms.count, 5, "typed reads within the trusted root do not inherit shell approvals");
+  assert.equal(confirms.count, 0, "typed reads inside the workspace do not require shell approvals");
 
   await events.get("session_shutdown")!({}, context);
 });
@@ -514,15 +513,15 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
     const sentBeforeApproval = sentMessages.length;
     await commands.get("approve")!.handler("", context);
     assert.equal(confirms.count, 1);
-    assert.match(confirmationBodies[0] ?? "", /Review the complete transaction and capability summary shown above/i);
+    assert.match(confirmationBodies[0] ?? "", /Review the complete transaction and task-constraint summary shown above/i);
     const approvalSummary = notifications.find((message) => /Plan hash:/i.test(message) && /Provider:/i.test(message)) ?? "";
     assert.match(approvalSummary, /Provider:/i);
     assert.match(approvalSummary, /Operations:/i);
     assert.match(approvalSummary, /Proposed first task:/i);
-    assert.match(approvalSummary, /Writes: packages\/core, src, src\.ts/i);
-    assert.match(approvalSummary, /Dependencies: not permitted/i);
-    assert.match(approvalSummary, /Full suite: not permitted/i);
-    assert.match(approvalSummary, /Generic shell, publication, external effects, and out-of-scope paths: not permitted/i);
+    assert.match(approvalSummary, /Expected writes: packages\/core, src, src\.ts/i);
+    assert.match(approvalSummary, /Dependency changes: excluded/i);
+    assert.match(approvalSummary, /Full suite: excluded/i);
+    assert.match(approvalSummary, /Filesystem approval is decided separately from concrete workspace effects and recoverability/i);
     assert.ok(widgets.some((lines) => lines.join("\n").includes("Atelier exact execution transaction")));
     assert.equal(sentMessages.length, sentBeforeApproval, "approval must remain idle and must not enqueue implementation");
     assert.ok(notifications.some((message) => /Atelier is idle; send an explicit implementation instruction/i.test(message)));
@@ -977,9 +976,8 @@ test("an explicit per-turn no-Bash/no-validation/no-commit/no-close instruction 
       toolName: "bash",
       input: { command: "printf ok" },
     }, context);
-    assert.equal(afterSettle?.block, true);
-    assert.match(afterSettle?.reason ?? "", /user denied/i);
-    assert.equal(confirms.count, 1, "the next turn returns to ordinary one-operation approval semantics");
+    assert.equal(afterSettle, undefined, "the next turn returns to ordinary workspace-recoverability semantics");
+    assert.equal(confirms.count, 0, "a read-only sandboxed shell command should not prompt after the turn policy clears");
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });
@@ -1108,6 +1106,87 @@ test("typed workflow tools remain active when code intelligence is disabled", as
     for (const name of ["atlr_code_status", "atlr_code_search", "atlr_code_symbols"]) {
       assert.equal(active.includes(name), false, `disabled code tool ${name} must not be activated`);
     }
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("model Bash and direct user shell share one workspace-policy authorization boundary", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const tools = new Map<string, RegisteredTool>();
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(): void {},
+    registerTool(tool: RegisteredTool): void { tools.set(tool.name, tool); },
+    getActiveTools(): string[] { return ["read", "edit", "write", "bash"]; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+  registerAtelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-pi-shared-shell-boundary-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "none",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+    sandboxBackend: "none",
+  }), "utf8");
+  const confirms = { count: 0 };
+  const context = fakeContext(root, confirms, [], { confirmResult: false });
+  try {
+    await events.get("session_start")!({}, context);
+    const bash = tools.get("bash");
+    assert.ok(bash, "Atelier must replace Pi Bash with the workspace-aware implementation");
+
+    const authorized = await events.get("tool_call")!({
+      toolCallId: "model-read-shell",
+      toolName: "bash",
+      input: { command: "printf model-ok" },
+    }, context);
+    assert.equal(authorized, undefined);
+    assert.equal(confirms.count, 0, "a parsed read-only command must not prompt");
+    const modelResult = await bash!.execute(
+      "model-read-shell",
+      { command: "printf model-ok" },
+      new AbortController().signal,
+      undefined,
+      context,
+    );
+    assert.match(modelResult.content.map((item) => item.text).join("\n"), /model-ok/);
+
+    const missingAuthorization = await bash!.execute(
+      "missing-authorization",
+      { command: "printf forbidden" },
+      new AbortController().signal,
+      undefined,
+      context,
+    ) as { isError?: boolean; content: Array<{ text: string }> };
+    assert.equal(missingAuthorization.isError, true);
+    assert.match(missingAuthorization.content[0]?.text ?? "", /no matching workspace-policy authorization/i);
+
+    const userRead = await events.get("user_bash")!({ command: "printf user-ok" }, context);
+    assert.ok(userRead?.operations);
+    let userOutput = "";
+    const userResult = await userRead.operations.exec("printf user-ok", root, {
+      onData(chunk: string | Uint8Array) { userOutput += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"); },
+    });
+    assert.equal(userResult.exitCode, 0);
+    assert.match(userOutput, /user-ok/);
+    assert.equal(confirms.count, 0);
+
+    const deniedModel = await events.get("tool_call")!({
+      toolCallId: "model-unknown-shell",
+      toolName: "bash",
+      input: { command: "node unknown-script.js" },
+    }, context);
+    assert.equal(deniedModel?.block, true);
+    assert.match(deniedModel?.reason ?? "", /user denied/i);
+
+    const deniedUser = await events.get("user_bash")!({ command: "node unknown-script.js" }, context);
+    assert.equal(deniedUser?.block, true);
+    assert.match(deniedUser?.reason ?? "", /user denied/i);
+    assert.equal(confirms.count, 2, "model and direct-user unknown execution each require one concrete approval");
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });

@@ -1,11 +1,11 @@
-# Atelier Architecture — 0.14.0-alpha.10
+# Atelier Architecture — 0.14.0-alpha.11
 
 ## Product boundary
 
 Atelier is a local-first workflow control plane for an Agentic Development Environment. The CLI is
-`atlr`; Pi is the current interactive host. Atelier owns session-workspace policy, reviewed-plan execution,
-authorization, task reconciliation, durable evidence, validation closure, Working State, and normalized
-code-provider orchestration.
+`atlr`; Pi is the current interactive host. Atelier owns immutable session-workspace policy, reviewed-plan
+execution, task reconciliation, exact recovery checkpoints, durable evidence, validation closure, Working
+State, and normalized code-provider orchestration.
 
 External tools retain their native ownership:
 
@@ -14,7 +14,7 @@ External tools retain their native ownership:
 - Beads or another `TaskProvider` owns task storage;
 - codesearch and Octocode own indexing and retrieval implementation;
 - configured commands own validation behavior;
-- the operating system owns process isolation. Atelier does not currently provide a shell sandbox.
+- macOS Seatbelt or Linux Bubblewrap provides the available OS shell boundary.
 
 ## Runtime topology
 
@@ -22,46 +22,31 @@ External tools retain their native ownership:
 flowchart TD
     CLI[atlr CLI] --> Core[AtelierCore]
     Pi[Pi extension / per-session state] --> Core
-    Core --> Trust[External Project Trust]
-    Core --> Policy[Policy Engine]
+    Core --> Workspace[Immutable Session Workspace]
+    Core --> Effects[Effect Analyzer]
+    Effects --> Guard[Workspace Guard]
+    Guard --> Recovery[Recovery Manager]
+    Recovery --> VCS[Git / Jujutsu Provider]
+    Core --> Flow[Workflow Guard]
     Core --> Exec[Execution Workflow Coordinator]
     Core --> Review[Plan Review / ManualEdit]
     Core --> Tasks[Plan Reconciler / TaskProvider]
-    Core --> Repo[RepositoryProvider]
     Core --> Validation[ValidationService]
     Core --> Code[CodeService / Provider Registry]
     Core --> State[WorkingStateBuilder]
     Core --> Ledger[(External SQLite Ledger)]
 ```
 
-There is no daemon or transport boundary in this release. Core is an in-process TypeScript runtime used
-by the CLI and Pi extension.
+The session workspace is captured from the canonical startup directory, or from one explicit
+`--workspace` override, before later directory changes. It is immutable for that process. A repository may
+occupy a subdirectory of the workspace; Atelier never silently expands the workspace to a VCS root.
 
-## Trust boundary
+## Pi trust independence
 
-Trust is decided before repository-owned configuration is loaded. The record is stored in the user state
-directory, outside the project.
-
-```mermaid
-flowchart LR
-    Repo[Repository files] -->|untrusted: ignored for execution| Safe[Non-executing defaults]
-    User[External trust record] --> Gate{Trusted?}
-    Gate -->|No| Safe
-    Gate -->|Yes| Config[Load project config]
-    Config --> Providers[Start VCS / tasks / validation / editor / code providers]
-```
-
-Before trust:
-
-- repository `config.json` does not override executable commands;
-- validation, editor, task, VCS, and code-provider commands do not start;
-- Pi does not start background indexing;
-- `doctor` remains observational and does not open SQLite;
-- runtime state remains outside the repository and is not redirected by project configuration.
-
-Additional multi-repository roots require separate external approval.
-
-See ADR-0024.
+Pi `/trust` controls loading Pi-owned project resources. Atelier does not register a trust command, persist
+trusted-project records, or derive filesystem authority from Pi trust. Repository configuration is read as
+ordinary workspace data; its subprocesses receive a minimal environment and remain subject to the same
+workspace, recovery, secret, privilege, and sandbox constraints as other operations.
 
 ## Project data and runtime data
 
@@ -79,10 +64,13 @@ User-owned runtime state:
 ```text
 ${ATLR_STATE_HOME:-${XDG_STATE_HOME:-~/.local/state}}/
   atelier/repositories/<canonical-root-hash>/atelier.db
+  atelier/repositories/<canonical-root-hash>/checkpoints/<checkpoint-id>/
 ```
 
-The runtime database contains approvals, execution and permission grants, task mappings, tool evidence,
-validation evidence, retrieval evidence, workflow checkpoints, and Working State inputs.
+The runtime database contains plan approvals, execution grants, task mappings, tool evidence, validation
+evidence, retrieval evidence, workflow checkpoints, and Working State inputs. It contains no active
+filesystem permission-grant table. A migration drops obsolete `permission_grants` storage rather than
+reinterpreting old records.
 
 ## Exact approval transaction
 
@@ -92,19 +80,14 @@ Preparation records:
 - task-provider identity and version;
 - deterministic reconciliation digest and operation set;
 - primary repository snapshot;
-- revision bindings for every approved workspace root;
+- revision bindings for every workspace repository;
 - retrieval provider/index revision bindings;
-- exact typed capability bundle and digest.
+- reviewed task constraints and their digest.
 
-Approval reparses and recomputes all of those values immediately before mutation. Rejection performs no
-provider mutation. Acceptance applies reconciliation, verifies convergence, claims one approved-plan
-task, then atomically stores:
-
-- accepted plan approval;
-- applied reconciliation transaction;
-- active execution grant;
-- typed task-capability grants;
-- workflow mode and current task state.
+Approval reparses and recomputes all values immediately before mutation. Rejection performs no provider
+mutation. Acceptance applies reconciliation, verifies convergence, claims one reviewed-plan task, then
+atomically stores the accepted plan approval, reconciliation transaction, active execution grant, reviewed
+task constraints, workflow mode, and current task. Approval does not start an agent turn.
 
 ```mermaid
 stateDiagram-v2
@@ -124,36 +107,48 @@ stateDiagram-v2
     Active --> Invalidated: resume binding failure
 ```
 
-Legacy execution records without the structured task contract and matching exact capability bundle fail
-closed. See ADR-0019, ADR-0025, ADR-0028, and ADR-0029.
+## Workflow constraints and filesystem policy
 
-## Authorization
+The workflow guard and workspace evaluator are deliberately separate:
 
-The permission boundary is effect- and execution-aware:
+- **Workflow guard:** enforces investigate/plan/act mode, active-task identity, reviewed source paths,
+  named validations, local-change scope, pause state, and task-closure readiness.
+- **Workspace evaluator:** decides whether concrete effects are inside the immutable workspace, protected
+  as likely secrets, privileged, read-only, or exactly recoverable.
 
-```text
-typed       Atelier knows the operation and resolves/checks its paths
-sandboxed   reserved for a future verifiable process sandbox
-unconfined  generic shell or process execution
-```
+The evaluator returns `allow`, `checkpoint_then_allow`, `ask`, or `deny`. Clean tracked changes are
+recoverable directly from VCS. Dirty tracked destruction and practical untracked/ignored destruction use a
+verified checkpoint. Outside-workspace access, likely-secret access, privilege escalation, indeterminate
+destructive path sets, and failed or unsuitable checkpoints ask once for the concrete consequence.
 
-Every approvable task carries a machine-readable execution contract in its `atlr:task` metadata. Exact
-plan approval derives only path-scoped non-dependency writes, explicitly reviewed dependency manifests,
-named focused/full validations, optional reviewed-path local-change creation, and task closure. Task
-update/link, dependency, full-suite, and generic-shell authority are not implicit. Preparation rejects a
-missing or inconsistent contract, and the approval surface displays the full capability projection.
+The effect analyzer resolves structured read/write/edit calls precisely and parses straightforward shell
+commands, redirections, chains, pipelines, file replacements, VCS restores, and common inspection
+commands. It does not decide policy. Unknown interpreter/build/script effects remain conservative.
 
-Typed file operations must remain inside the approved root after real-path resolution, including
-nearest-existing-ancestor checks for new files. Validation names, commit paths, task identity, repository
-identity, and execution identity must all match the active reviewed contract.
+## Exact recovery
 
-Generic shell is always unconfined in this release. It does not inherit typed task capabilities and
-requires a one-operation grant. The shell classifier provides effect/risk information, not a security
-proof of repository confinement.
+`RecoveryManager` copies affected untracked/ignored contents and captures provider-native state before a
+destructive operation:
 
-Supported grant lifecycles are `operation`, `task`, and `repository`. Operation grants are consumed at
-authorization attempt. Task grants are bound to an active execution. Legacy `turn` and `session` grants
-are revoked by migration.
+- Git stores the exact index entries and flags plus scoped porcelain state, preserving staged,
+  unstaged, partially staged, mode, rename, symlink, ignored, and affected untracked state without
+  changing branch history or silently staging user work.
+- Jujutsu snapshots the working copy and captures the native operation-log identity, then restores and
+  verifies that operation when recovery is requested.
+
+File copies preserve regular-file contents and modes, directories where practical, normal and broken
+symlinks, and missing-path state. Size and unsuitable-directory limits fail atomically. Every checkpoint
+records its Pi session, tool call, affected paths, provider state, verification result, and explicit restore
+command.
+
+## Shell execution
+
+Pi's model-facing `bash` replacement and direct `user_bash` event both pass through the same effect and
+workspace evaluation. A matching pre-execution authorization token is required before the executor runs.
+When available, Seatbelt or Bubblewrap grants one writable workspace, hides common credential paths,
+uses a minimal environment, disables network by default, and enforces process timeouts. When no sandbox
+backend exists, execution can fall back only after the concrete effects were allowed, checkpointed, or
+approved. Sandbox confinement alone does not make unknown destructive effects recoverable.
 
 ## Repository authority and source baselines
 
@@ -219,11 +214,11 @@ without waiting for idle. See ADR-0026, ADR-0028, and ADR-0029.
 
 Working State is deterministic reconstruction from durable sources:
 
-- trust and workflow mode;
+- immutable session workspace and workflow mode;
 - reviewed plan and exact approval;
 - reconciliation and active execution;
 - current task, approved-plan ready tasks, dependencies, and blockers;
-- active capabilities and one-operation grants;
+- reviewed task constraints and recovery checkpoints;
 - mutation and validation evidence;
 - repository snapshots and closure readiness;
 - bounded code evidence with provenance and freshness;

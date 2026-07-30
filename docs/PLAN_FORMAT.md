@@ -2,7 +2,7 @@
 
 An Atelier plan is Markdown with one machine-readable metadata comment directly below each task heading.
 Human-readable sections explain intent; the metadata supplies stable identity and exact execution authority.
-Atelier never infers permissions from prose.
+Atelier never widens reviewed task constraints from prose. Filesystem authorization is decided separately by the session workspace recoverability policy.
 
 ## Required task structure
 
@@ -34,7 +34,7 @@ The execution object is mandatory before ManualEdit review can advance to approv
 | Field | Meaning |
 |---|---|
 | `writePaths` | Non-empty repository-relative source files or directories the task may modify. Absolute paths and `..` escapes are rejected. |
-| `allowDependencyChanges` | Whether dependency manifests/locks named in `writePaths` receive `dependency.modify`. Plain `file.write` never covers them. |
+| `allowDependencyChanges` | Whether dependency manifests/locks named in `writePaths` are included in the reviewed task constraint. Ordinary source-path scope never implies dependency changes. |
 | `validations` | Exact names from `.atelier/validation.json` that this task may run. Unknown names are rejected. |
 | `allowFullSuite` | Whether named validations whose category is `full` may run. Naming one while this is false is rejected. |
 | `allowLocalChange` | Whether Atelier may create one path-scoped local Git commit or Jujutsu change for the task. |
@@ -82,7 +82,7 @@ copy of the Markdown document.
 - Absolute, parent-escaping, non-source, or empty write scope.
 - Unknown named validation.
 - Dependency manifest named while dependency changes are false.
-- Full validation named while full-suite permission is false.
+- Full validation named while the full-suite constraint is false.
 - No named configured required validation when closure requires one.
 - Missing completion criteria.
 - Self-dependency.
@@ -102,7 +102,7 @@ for the exact current content hash. Preparation then binds that reviewed hash to
 - primary source baseline;
 - every approved workspace repository source binding;
 - retrieval provider/index bindings used by planning; and
-- the complete multi-task capability projection and digest.
+- the complete multi-task reviewed-constraint projection and digest.
 
 CLI automation supplies the explicit transaction identity:
 
@@ -116,7 +116,7 @@ task, exact paths, named validations, optional dependency/full-suite/local-chang
 exclusions before confirmation.
 
 Rejection records the decision and performs zero provider mutation. Any plan, provider, reconciliation,
-source, workspace, retrieval, capability, or concurrent-execution drift invalidates the prepared
+source, workspace, retrieval, reviewed-constraint, or concurrent-execution drift invalidates the prepared
 transaction.
 
 ## Reconciliation
@@ -128,7 +128,7 @@ Reconciliation supports:
 - updating mapped title, description, design notes, acceptance criteria, priority, and type;
 - adding and removing managed dependency relationships;
 - retiring a mapped task removed from the reviewed plan by closing it with an explicit reason; and
-- surfacing ambiguous identity, unsupported capability, provider drift, and unexpected edits as conflicts.
+- surfacing ambiguous identity, unsupported task constraint, provider drift, and unexpected edits as conflicts.
 
 Every provider task retains `Atelier plan task: <stable-id>` in its notes. Mappings and operation
 checkpoints make reconciliation idempotent across restart, including a crash after provider creation but

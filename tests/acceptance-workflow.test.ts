@@ -302,12 +302,12 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
 
     const messagesBeforeApproval = sentMessages.length;
     await commands.get("approve")!.handler("", context);
-    const approvalSummary = notifications.find((message) => /Capabilities for ATLR-B:/.test(message)) ?? "";
-    assert.match(approvalSummary, /Writes: src/);
-    assert.match(approvalSummary, /Dependencies: not permitted/);
+    const approvalSummary = notifications.find((message) => /Reviewed task constraints for ATLR-B:/.test(message)) ?? "";
+    assert.match(approvalSummary, /Expected writes: src/);
+    assert.match(approvalSummary, /Dependency changes: excluded/);
     assert.match(approvalSummary, /Focused validations: focused/);
-    assert.match(approvalSummary, /Full suite: not permitted/);
-    assert.match(approvalSummary, /Generic shell, publication, external effects, and out-of-scope paths: not permitted/);
+    assert.match(approvalSummary, /Full suite: excluded/);
+    assert.match(approvalSummary, /Filesystem approval is decided separately from concrete workspace effects and recoverability/);
     assert.equal(sentMessages.length, messagesBeforeApproval, "approval must not start an agent turn");
     assert.match(notifications.at(-1) ?? "", /Atelier is idle; send an explicit implementation instruction/i);
     const operations = mutationLog(fake.logPath);
@@ -324,9 +324,10 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     const grant = ledger.getActiveExecutionGrant();
     assert.ok(grant);
     assert.equal(ledger.getState("workflowMode"), "act");
-    const capabilities = ledger.listGrants();
-    assert.equal(capabilities.length, 4, "exact approval must install only the active task capability bundle");
-    assert.ok(capabilities.every((item) => item.scope === "task" && item.executionGrantId === grant.id));
+    const approval = ledger.getPlanApproval(grant.planApprovalId);
+    const constraints = approval?.taskConstraints.filter((item) => item.planTaskId === grant.planTaskId) ?? [];
+    assert.equal(constraints.length, 1, "exact approval must retain one reviewed constraint for the active task");
+    assert.deepEqual(constraints[0]?.focusedValidations, ["focused"]);
     assert.equal(ledger.getTaskMapping("ATLR-D")?.providerTaskId === undefined, false);
     ledger.close();
 
@@ -340,9 +341,9 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     assert.equal(firstRequest, undefined);
     assert.equal(confirmationCount, 2, "typed task writes use the exact approved capability bundle");
     ledger = new SqliteLedger(testDatabasePath(root));
-    const fileCapability = ledger.listGrants()
-      .find((item) => item.permission === "file.write" && item.scope === "task");
-    assert.equal(fileCapability?.executionGrantId, grant.id);
+    const activeApproval = ledger.getPlanApproval(grant.planApprovalId);
+    const activeConstraint = activeApproval?.taskConstraints.find((item) => item.planTaskId === grant.planTaskId);
+    assert.ok(activeConstraint?.writePaths.some((path) => path.endsWith("/src")));
     ledger.close();
     writeFileSync(join(root, "src", "accepted.ts"), "export const accepted = 1;\n", "utf8");
     await events.get("tool_result")!({

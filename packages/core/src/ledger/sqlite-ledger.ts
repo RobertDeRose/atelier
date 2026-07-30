@@ -9,7 +9,6 @@ import type {
   ExecutionPause,
   LedgerEvent,
   ManualEdit,
-  PermissionGrant,
   PlanApproval,
   ReconciliationOperationCheckpoint,
   ReconciliationTransaction,
@@ -32,7 +31,6 @@ import {
   validatePersistenceLimits,
   type EventRow,
   type ManualEditRow,
-  type PermissionRow,
   type WorkflowRunRow,
 } from "./ledger-records.ts";
 
@@ -769,11 +767,7 @@ export class SqliteLedger {
     approval: PlanApproval;
     transaction: ReconciliationTransaction;
     grant: ExecutionGrant;
-    permissionGrants: PermissionGrant[];
   }): void {
-    if (input.permissionGrants.some((grant) => grant.executionGrantId !== input.grant.id || grant.taskId !== input.grant.taskId)) {
-      throw new Error("Every task capability grant must be bound to the execution grant and active task.");
-    }
     const approvalJson = JSON.stringify(input.approval);
     const transactionJson = JSON.stringify(input.transaction);
     const grantJson = JSON.stringify(input.grant);
@@ -812,15 +806,7 @@ export class SqliteLedger {
         INSERT INTO execution_grants(id, status, task_id, record_json, updated_at) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET status = excluded.status, task_id = excluded.task_id, record_json = excluded.record_json, updated_at = excluded.updated_at
       `).run(input.grant.id, input.grant.status, input.grant.taskId, grantJson, input.grant.issuedAt);
-      for (const permissionGrant of input.permissionGrants) {
-        this.saveGrant(permissionGrant);
-        this.insertEvent(this.createEvent({
-          kind: "permission.granted",
-          actor: "user",
-          taskId: input.grant.taskId,
-          payload: permissionGrant,
-        }));
-      }
+
       this.upsertState("approvedPlanHash", JSON.stringify(input.approval.planHash), input.grant.issuedAt);
       this.upsertState("currentPlanApprovalId", JSON.stringify(input.approval.id), input.grant.issuedAt);
       this.upsertState("currentExecutionGrantId", JSON.stringify(input.grant.id), input.grant.issuedAt);
@@ -872,10 +858,6 @@ export class SqliteLedger {
       this.database.prepare(`
         UPDATE execution_grants SET status = ?, record_json = ?, updated_at = ? WHERE id = ?
       `).run(next.status, record, occurredAt, id);
-      this.database.prepare(`
-        UPDATE permission_grants SET revoked_at = ?
-        WHERE execution_grant_id = ? AND revoked_at IS NULL
-      `).run(occurredAt, id);
       if (nextRun !== undefined) {
         this.database.prepare(`
           UPDATE workflow_runs SET status = ?, checkpoint = ?, record_json = ?, updated_at = ? WHERE id = ?
@@ -991,73 +973,6 @@ export class SqliteLedger {
       this.database.exec("ROLLBACK");
       throw error;
     }
-  }
-
-  saveGrant(grant: PermissionGrant): void {
-    this.database
-      .prepare(`
-        INSERT INTO permission_grants(
-          id, execution_grant_id, permission, scope, actor, task_id, repository_id, paths_json,
-          validation_names_json, command_prefix_json, reason, created_at, expires_at, revoked_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          execution_grant_id = excluded.execution_grant_id,
-          permission = excluded.permission,
-          scope = excluded.scope,
-          actor = excluded.actor,
-          task_id = excluded.task_id,
-          repository_id = excluded.repository_id,
-          paths_json = excluded.paths_json,
-          validation_names_json = excluded.validation_names_json,
-          command_prefix_json = excluded.command_prefix_json,
-          reason = excluded.reason,
-          expires_at = excluded.expires_at,
-          revoked_at = excluded.revoked_at
-      `)
-      .run(
-        grant.id,
-        grant.executionGrantId ?? null,
-        grant.permission,
-        grant.scope,
-        grant.actor,
-        grant.taskId ?? null,
-        grant.repositoryId ?? null,
-        grant.paths === undefined ? null : JSON.stringify(grant.paths),
-        grant.validationNames === undefined ? null : JSON.stringify(grant.validationNames),
-        null,
-        grant.reason,
-        grant.createdAt,
-        grant.expiresAt ?? null,
-        grant.revokedAt ?? null,
-      );
-  }
-
-  revokeGrant(id: string, revokedAt = nowIso()): boolean {
-    const result = this.database
-      .prepare("UPDATE permission_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
-      .run(revokedAt, id);
-    return Number(result.changes) > 0;
-  }
-
-  listGrants(options: { includeRevoked?: boolean } = {}): PermissionGrant[] {
-    const rows = this.database
-      .prepare(`SELECT * FROM permission_grants ${options.includeRevoked ? "" : "WHERE revoked_at IS NULL"} ORDER BY created_at`)
-      .all() as unknown as PermissionRow[];
-    return rows.map((row) => ({
-      id: row.id,
-      ...(row.execution_grant_id === null ? {} : { executionGrantId: row.execution_grant_id }),
-      permission: row.permission,
-      scope: row.scope,
-      actor: row.actor,
-      ...(row.task_id === null ? {} : { taskId: row.task_id }),
-      ...(row.repository_id === null ? {} : { repositoryId: row.repository_id }),
-      ...(row.paths_json === null ? {} : { paths: JSON.parse(row.paths_json) as string[] }),
-      ...(row.validation_names_json === null ? {} : { validationNames: JSON.parse(row.validation_names_json) as string[] }),
-      reason: row.reason,
-      createdAt: row.created_at,
-      ...(row.expires_at === null ? {} : { expiresAt: row.expires_at }),
-      ...(row.revoked_at === null ? {} : { revokedAt: row.revoked_at }),
-    }));
   }
 
   setTaskMapping(planTaskId: string, provider: string, providerTaskId: string, planHash: string): void {

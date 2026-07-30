@@ -1,25 +1,48 @@
-# Migration Report — Atelier 0.14.0-alpha.10
+# Migration Report — Atelier 0.14.0-alpha.11
 
-## Permission and trust migration
+## Filesystem authority migration
 
-Atelier no longer uses a project-trust database, `/atelier-trust`, permission profiles, or remembered blanket approvals. Old Atelier trust records are ignored and are not reinterpreted as workspace roots.
+Atelier now has one filesystem authority: the immutable session workspace and recoverability policy.
+The workspace defaults to the canonical startup working directory. `--workspace PATH` explicitly selects
+a different canonical root for the current process. Changing directory later does not change the boundary.
 
-The session workspace defaults to the canonical directory from which Atelier starts. `--workspace PATH` explicitly overrides it for the current process. Pi `/trust` remains independent and controls only project-local Pi resources.
+Pi `/trust` remains independent and controls only Pi project-local resources. Atelier does not provide
+`/atelier-trust`, `atlr trust`, a trusted-project database, remembered approval, or workspace trust UI.
+Old Atelier trust files are ignored and are never reinterpreted as workspace roots.
 
-Existing execution-linked task grants remain part of exact plan execution, but filesystem authorization is decided by workspace containment, secret sensitivity, privilege escalation, and recoverability.
+## Legacy permission removal
 
-## Plan migration
+The legacy policy engine, permission profiles, permission grants, active permission table, and filesystem
+capability bundle have been deleted. The ledger migration drops old permission storage rather than
+converting it. Existing reviewed plan `execution` metadata remains valid, but it now constrains task scope
+and completion only; it does not grant filesystem permission.
 
-Existing plans with valid `execution` metadata continue to parse. Use `atlr plan scope` or `/plan-scope` to update execution metadata canonically and generate a readable Authorization section.
+## Recovery checkpoints
 
-## Beads migration
+Destructive dirty tracked operations create an exact verified checkpoint before execution when practical.
+Git checkpoints preserve the scoped index and worktree state, including partial staging, modes, renames,
+symlinks, ignored files, and untracked files. Jujutsu checkpoints use the native operation log and verify
+the restored operation and working-copy identity. Each checkpoint records its tool call, Pi session, and
+`atlr recovery restore CHECKPOINT_ID` command.
 
-Atelier opts into `BD_JSON_ENVELOPE=1` and accepts both legacy and v2 envelope responses. No Beads data migration is performed.
+Checkpoint creation is atomic and bounded. Failed or unsuitable checkpoints are removed and the concrete
+operation asks before continuing.
+
+## Shell execution
+
+Pi model Bash and direct user shell commands share the same effect analyzer, workspace guard, recovery
+manager, and one-time consequence prompt. The Bash executor requires a matching pre-execution
+authorization token. Seatbelt or Bubblewrap adds runtime confinement where available; without a backend,
+only operations already allowed or explicitly approved by the policy may use the fallback executor.
+
+## Plan and provider compatibility
+
+Existing plans with valid `execution` metadata continue to parse. Use `atlr plan scope` or `/plan-scope`
+to update task constraints canonically. Beads continues to use `BD_JSON_ENVELOPE=1` while accepting both
+legacy and v2 envelope responses. No task-provider data migration is required.
 
 ## Runtime and evidence
 
-Subprocesses receive a minimal environment. Persisted evidence is redacted. New `atlr data` commands inspect, export, prune, or delete historical retained evidence.
-
-## Service
-
-`atlr serve` starts a serialized local Core service. `atlr service status|state|stop` queries it through the runtime socket. Existing Pi and CLI use remains compatible without running the service.
+Runtime state remains external to the repository. Minimal subprocess environments, evidence redaction,
+data lifecycle commands, async providers, unified status presentation, navigation, diff review, and the
+optional local Core service from alpha.10 remain compatible.

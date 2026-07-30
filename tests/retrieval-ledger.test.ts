@@ -112,7 +112,16 @@ test("version-two ledgers migrate retrieval inventory in place without altering 
   const ledger = new SqliteLedger(path);
   ledger.setState("approvedPlanHash", "preserved");
   ledger.setTaskMapping("ATLR-1", "beads", "task-1", "plan-hash");
+  ledger.database.prepare("DELETE FROM schema_migrations WHERE version = 9").run();
   ledger.database.exec(`
+    CREATE TABLE permission_grants(
+      id TEXT PRIMARY KEY,
+      permission TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     INSERT INTO permission_grants(
       id, permission, scope, actor, reason, created_at
     ) VALUES ('grant-1', 'repository.read', 'session', 'user', 'preserve', 'before');
@@ -138,11 +147,11 @@ test("version-two ledgers migrate retrieval inventory in place without altering 
   try {
     assert.equal(reopened.getState("approvedPlanHash"), "preserved");
     assert.equal(reopened.getTaskMapping("ATLR-1")?.providerTaskId, "task-1");
-    assert.equal(reopened.listGrants().length, 1);
+    assert.equal(reopened.database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'permission_grants'").get(), undefined);
     assert.equal((reopened.database.prepare("SELECT COUNT(*) AS count FROM manual_edits").get() as { count: number }).count, 1);
     assert.equal((reopened.database.prepare("SELECT COUNT(*) AS count FROM validation_evidence").get() as { count: number }).count, 1);
     const versions = reopened.database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ version: number }>;
-    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual(versions.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
     reopened.saveRetrievalCheckpoint(checkpoint("session-a", "2026-01-01T00:00:00.000Z"), persistenceLimits);
     assert.equal(reopened.loadRetrievalCheckpoint("session-a")?.evidence.length, 1);
   } finally {

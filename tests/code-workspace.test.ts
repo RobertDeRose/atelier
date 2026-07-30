@@ -12,8 +12,7 @@ test("loads explicit multi-repository workspace configuration", () => {
   mkdirSync(join(root, ".atelier")); mkdirSync(join(root, "api")); mkdirSync(join(root, "ui"));
   writeFileSync(join(root, ".atelier", "workspace.json"), JSON.stringify({ name: "product", repositories: [{ id: "api", path: "api", role: "backend" }, { id: "ui", path: "ui", tags: ["frontend"] }] }));
   const workspace = loadCodeWorkspace(root, snapshot, {
-    trusted: true,
-    rootApproved: () => true,
+    rootWithinWorkspace: () => true,
     snapshotForRoot: (repositoryRoot) => ({
       ...snapshot,
       repositoryId: `repository:${repositoryRoot}`,

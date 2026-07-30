@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
-import type { RepositoryCommitResult, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus } from "./repository-provider.ts";
+import type { RepositoryCommitResult, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus, RepositoryRecoveryState } from "./repository-provider.ts";
 import { RepositoryObservationError } from "../domain/errors.ts";
 import { sha256 } from "../util/hash.ts";
 import { isSourcePath } from "./source-path.ts";
@@ -34,6 +34,18 @@ function runGit(cwd: string, args: string[]): GitResult {
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? result.error?.message ?? "",
   };
+}
+
+function runGitInput(cwd: string, args: string[], input: string): GitResult {
+  const result = spawnSync("git", args, {
+    cwd,
+    env: minimalEnvironment(),
+    encoding: "utf8",
+    input,
+    shell: false,
+    windowsHide: true,
+  });
+  return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? result.error?.message ?? "" };
 }
 
 function requiredGit(cwd: string, args: string[], purpose: string): GitResult {
@@ -150,6 +162,72 @@ export class GitRepositoryProvider implements RepositoryProvider {
     const ignored = runGit(root, ["check-ignore", "-q", "--", relativePath]);
     if (ignored.status === 0) return "ignored";
     return existsSync(absolute) ? "untracked" : "missing";
+  }
+
+  captureRecoveryState(paths: string[]): RepositoryRecoveryState {
+    const root = requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim();
+    const relativePaths = paths.map((path) => {
+      const absolute = resolve(path);
+      if (absolute === root) return ".";
+      if (!absolute.startsWith(`${root}/`)) throw new Error(`Git recovery path is outside the repository: ${absolute}`);
+      return absolute.slice(root.length + 1);
+    });
+    const head = runGit(root, ["rev-parse", "HEAD"]);
+    const headCommit = head.status === 0 ? head.stdout.trim() : "unborn";
+    const index = requiredGit(root, ["ls-files", "--stage", "-z", "--", ...relativePaths], "recovery index capture").stdout;
+    const flags = requiredGit(root, ["ls-files", "-v", "-z", "--", ...relativePaths], "recovery index flag capture").stdout;
+    const status = requiredGit(root, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--", ...relativePaths], "recovery status capture").stdout;
+    return {
+      provider: "git",
+      native: {
+        root,
+        relativePaths,
+        headCommit,
+        index: Buffer.from(index, "utf8").toString("base64"),
+        flags: Buffer.from(flags, "utf8").toString("base64"),
+        status: Buffer.from(status, "utf8").toString("base64"),
+      },
+    };
+  }
+
+  restoreRecoveryState(state: RepositoryRecoveryState, paths: string[]): void {
+    if (state.provider !== "git" || state.native === undefined) throw new Error("Git recovery state is unavailable.");
+    const root = String(state.native.root);
+    const relativePaths = Array.isArray(state.native.relativePaths) ? state.native.relativePaths.map(String) : [];
+    if (relativePaths.length === 0) return;
+    const head = runGit(root, ["rev-parse", "HEAD"]);
+    const currentHead = head.status === 0 ? head.stdout.trim() : "unborn";
+    const expectedHead = String(state.native.headCommit ?? "unborn");
+    if (currentHead !== expectedHead) {
+      throw new Error(`Git HEAD changed from ${expectedHead} to ${currentHead}; exact checkpoint restoration is unsafe.`);
+    }
+    requiredGit(root, ["update-index", "--force-remove", "--", ...relativePaths], "recovery index reset");
+    const index = Buffer.from(String(state.native.index ?? ""), "base64").toString("utf8");
+    if (index.length > 0) {
+      const restored = runGitInput(root, ["update-index", "-z", "--index-info"], index);
+      if (restored.status !== 0) throw new RepositoryObservationError(`Git recovery index restore failed: ${restored.stderr.trim() || `exit ${restored.status}`}`);
+    }
+    const flags = Buffer.from(String(state.native.flags ?? ""), "base64").toString("utf8").split("\0").filter(Boolean);
+    for (const record of flags) {
+      const flag = record[0];
+      const path = record.slice(2);
+      if (flag === "S") requiredGit(root, ["update-index", "--skip-worktree", "--", path], "skip-worktree flag restore");
+      if (flag === "h") requiredGit(root, ["update-index", "--assume-unchanged", "--", path], "assume-unchanged flag restore");
+    }
+    this.verifyRecoveryState(state, paths);
+  }
+
+  verifyRecoveryState(state: RepositoryRecoveryState, paths: string[]): void {
+    if (state.provider !== "git" || state.native === undefined) throw new Error("Git recovery state is unavailable.");
+    const current = this.captureRecoveryState(paths);
+    for (const field of ["root", "headCommit", "index", "flags", "status"] as const) {
+      if (current.native?.[field] !== state.native[field]) {
+        throw new Error(`Git recovery checkpoint verification failed for ${field}.`);
+      }
+    }
+    const expectedPaths = JSON.stringify(state.native.relativePaths ?? []);
+    const actualPaths = JSON.stringify(current.native?.relativePaths ?? []);
+    if (actualPaths !== expectedPaths) throw new Error("Git recovery checkpoint verification failed for path scope.");
   }
 
   listFiles(): string[] {

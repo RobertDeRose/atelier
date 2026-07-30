@@ -1,7 +1,6 @@
 import type {
   Actor,
   ExecutionGrant,
-  PermissionGrant,
   PlanApproval,
 } from "../domain/types.ts";
 import { repositoryRevisionBinding } from "../repository/revision-binding.ts";
@@ -25,24 +24,8 @@ export interface ManualEditRow {
   record_json: string;
 }
 
-export interface PermissionRow {
-  id: string;
-  execution_grant_id: string | null;
-  permission: PermissionGrant["permission"];
-  scope: PermissionGrant["scope"];
-  actor: Actor;
-  task_id: string | null;
-  repository_id: string | null;
-  paths_json: string | null;
-  validation_names_json: string | null;
-  command_prefix_json: string | null;
-  reason: string;
-  created_at: string;
-  expires_at: string | null;
-  revoked_at: string | null;
-}
 
-const LEGACY_CAPABILITY_DIGEST = "legacy-capability-bundle-unsupported";
+const LEGACY_CONSTRAINT_DIGEST = "legacy-permission-bundle-unsupported";
 
 export function normalizePlanApproval(record: string): PlanApproval {
   const parsed = JSON.parse(record) as PlanApproval & Partial<PlanApproval>;
@@ -52,10 +35,10 @@ export function normalizePlanApproval(record: string): PlanApproval {
       ? parsed.repositoryBindings
       : [repositoryRevisionBinding(parsed.repositoryId, parsed.repositorySnapshot)],
     retrievalBindings: Array.isArray(parsed.retrievalBindings) ? parsed.retrievalBindings : [],
-    capabilities: Array.isArray(parsed.capabilities) ? parsed.capabilities : [],
-    capabilityDigest: typeof parsed.capabilityDigest === "string"
-      ? parsed.capabilityDigest
-      : LEGACY_CAPABILITY_DIGEST,
+    taskConstraints: Array.isArray((parsed as any).taskConstraints) ? (parsed as any).taskConstraints : [],
+    constraintDigest: typeof (parsed as any).constraintDigest === "string"
+      ? (parsed as any).constraintDigest
+      : LEGACY_CONSTRAINT_DIGEST,
   };
 }
 
@@ -67,12 +50,12 @@ export function normalizeExecutionGrant(record: string): ExecutionGrant {
       ? parsed.repositoryBindings
       : [repositoryRevisionBinding(parsed.repositoryId, parsed.repositorySnapshot)],
     retrievalBindings: Array.isArray(parsed.retrievalBindings) ? parsed.retrievalBindings : [],
-    approvalCapabilityDigest: typeof parsed.approvalCapabilityDigest === "string"
-      ? parsed.approvalCapabilityDigest
-      : LEGACY_CAPABILITY_DIGEST,
-    capabilityDigest: typeof parsed.capabilityDigest === "string"
-      ? parsed.capabilityDigest
-      : LEGACY_CAPABILITY_DIGEST,
+    approvalConstraintDigest: typeof (parsed as any).approvalConstraintDigest === "string"
+      ? (parsed as any).approvalConstraintDigest
+      : LEGACY_CONSTRAINT_DIGEST,
+    constraintDigest: typeof (parsed as any).constraintDigest === "string"
+      ? (parsed as any).constraintDigest
+      : LEGACY_CONSTRAINT_DIGEST,
   };
 }
 

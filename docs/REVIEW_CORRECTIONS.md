@@ -1,4 +1,8 @@
-# Review Corrections — Atelier 0.14.0-alpha.10
+# Review Corrections — historical alpha.10 traceability
+
+> **Superseded authorization model:** This document preserves the historical disposition of the original
+> 29 recommendations. Alpha.11 removes the policy engine, permission grants, trust gates, and universally
+> unconfined-shell model described in older entries. ADR-0032 is the current filesystem authority.
 
 This document maps each recommendation from the critical review of commit `286e2bc14edb` to the
 0.14.0-alpha.10 implementation. The release remains a trusted-repository alpha. “Corrected” means the
@@ -98,7 +102,7 @@ tests prove narrow derivation, visible disclosure, atomic installation, and fail
 
 **Status:** Corrected.
 
-The injected prompt distinguishes typed task capabilities from unconfined shell approval, describes
+The injected prompt distinguishes typed task constraints from unconfined shell approval, describes
 provider-first retrieval as advisory, states that authorization does not override the user's latest
 constraints, and directs declared model validation through `atlr_validate` rather than Bash.
 
@@ -164,7 +168,7 @@ that matches no required check, and missing required configuration.
 **Status:** Corrected by removal.
 
 `approval` is not part of `ValidationDefinition`; manifests containing it are rejected. Authorization is
-owned by policy and typed capabilities rather than executable repository metadata.
+owned by policy and typed task operations rather than executable repository metadata.
 
 **Verification:** `tests/security-boundary.test.ts`.
 

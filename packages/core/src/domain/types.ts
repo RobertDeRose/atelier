@@ -28,42 +28,16 @@ export const ACTION_KINDS = [
   "command.execute",
   "command.long_running",
   "network.access",
-  "capability.forge",
-  "capability.promote",
 ] as const;
 
 export type ActionKind = (typeof ACTION_KINDS)[number];
-
-export const PERMISSIONS = [
-  "repository.read",
-  "file.write",
-  "file.write.outside_scope",
-  "dependency.modify",
-  "repository.change.create",
-  "repository.workspace.create",
-  "repository.publish",
-  "task.create",
-  "task.update",
-  "task.link",
-  "task.close",
-  "validation.focused",
-  "validation.full_suite",
-  "command.execute",
-  "command.long_running",
-  "network.access",
-  "capability.forge",
-  "capability.promote",
-] as const;
-
-export type Permission = (typeof PERMISSIONS)[number];
 export type Actor = "user" | "agent" | "tool" | "system";
 export type WorkflowMode = "investigate" | "plan" | "act";
-export type GrantScope = "operation" | "task" | "repository";
-export type ExecutionBoundary = "typed" | "sandboxed" | "unconfined";
 export type OperationRisk = "routine" | "destructive" | "external" | "unknown";
 
-
-export interface ActionRequest {
+/** Workflow/task-scope request. Filesystem containment and recoverability are
+ * evaluated separately from these reviewed task constraints. */
+export interface WorkflowActionRequest {
   action: ActionKind;
   risk?: OperationRisk;
   taskId?: string;
@@ -74,34 +48,14 @@ export interface ActionRequest {
   validationNames?: string[];
   command?: string[];
   estimatedDurationMs?: number;
-  requestedPermissions?: Permission[];
-  boundary?: ExecutionBoundary;
   rationale: string;
 }
 
-export interface PermissionGrant {
+export interface WorkflowDecision {
   id: string;
-  executionGrantId?: string;
-  permission: Permission;
-  scope: GrantScope;
-  actor: Actor;
-  taskId?: string;
-  repositoryId?: string;
-  paths?: string[];
-  validationNames?: string[];
-  reason: string;
-  createdAt: string;
-  expiresAt?: string;
-  revokedAt?: string;
-}
-
-export interface PolicyDecision {
-  id: string;
-  result: "allow" | "deny" | "require_approval";
+  result: "allow" | "deny";
   action: ActionKind;
-  requiredPermission?: Permission;
   matchedRules: string[];
-  missingPermissions: Permission[];
   constraints: string[];
   reason: string;
 }
@@ -162,7 +116,7 @@ export interface TaskProviderStatus {
 export interface TaskExecutionContract {
   /** Repository-relative source paths or directories this task may modify. */
   writePaths: string[];
-  /** Dependency manifests still require a separate dependency capability. */
+  /** Dependency manifests still require a separate dependency constraint. */
   allowDependencyChanges: boolean;
   /** Exact configured validation names this task may run. */
   validations: string[];
@@ -380,11 +334,17 @@ export interface TaskReconciliation {
 
 export type PlanApprovalStatus = "prepared" | "accepted" | "approved" | "rejected" | "invalidated" | "cancelled";
 
-export interface ExecutionCapability {
+export interface ApprovedTaskConstraint {
   planTaskId: string;
-  permission: Permission;
-  paths?: string[];
-  validationNames?: string[];
+  /** Canonical absolute paths selected by the reviewed execution contract. */
+  writePaths: string[];
+  /** Dependency manifests, if dependency changes were explicitly reviewed. */
+  dependencyPaths: string[];
+  allowDependencyChanges: boolean;
+  focusedValidations: string[];
+  fullValidations: string[];
+  allowFullSuite: boolean;
+  allowLocalChange: boolean;
   reason: string;
 }
 
@@ -400,8 +360,8 @@ export interface PlanApproval {
   repositorySnapshot: RepositorySnapshot;
   repositoryBindings: RepositoryRevisionBinding[];
   retrievalBindings: RetrievalRevisionBinding[];
-  capabilities: ExecutionCapability[];
-  capabilityDigest: string;
+  taskConstraints: ApprovedTaskConstraint[];
+  constraintDigest: string;
   preparedAt: string;
   decidedAt?: string;
   invalidationReason?: string;
@@ -445,10 +405,10 @@ export interface ExecutionGrant {
   repositorySnapshot: RepositorySnapshot;
   repositoryBindings: RepositoryRevisionBinding[];
   retrievalBindings: RetrievalRevisionBinding[];
-  /** Digest of the full approved multi-task capability projection. */
-  approvalCapabilityDigest: string;
-  /** Digest of capabilities installed for this one active plan task. */
-  capabilityDigest: string;
+  /** Digest of the full reviewed multi-task constraint projection. */
+  approvalConstraintDigest: string;
+  /** Digest of constraints installed for this one active plan task. */
+  constraintDigest: string;
   taskId: string;
   planTaskId: string;
   issuedAt: string;
@@ -483,8 +443,8 @@ export interface ExecutionEvidence {
   status: ExecutionEvidenceStatus;
   taskId: string;
   executionGrantId: string;
-  policyDecisionId: string;
-  permissionGrantId?: string;
+  workflowDecisionId: string;
+  checkpointId?: string;
   beforeSnapshot: RepositorySnapshot;
   afterSnapshot?: RepositorySnapshot;
   requestedPaths: string[];
@@ -665,7 +625,7 @@ export interface WorkingState {
   workflowCheckpoint?: WorkflowCheckpoint;
   planApproval?: PlanApproval;
   reconciliationTransaction?: ReconciliationTransaction;
-  permissions: PermissionGrant[];
+  taskConstraints: ApprovedTaskConstraint[];
   executionEvidence: ExecutionEvidence[];
   focusedValidationSelections: FocusedValidationSelection[];
   currentValidationEvidence: ValidationEvidenceSummary[];

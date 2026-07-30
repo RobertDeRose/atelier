@@ -1,4 +1,8 @@
-# Manual Acceptance Corrections — Atelier 0.14.0-alpha.10
+# Manual Acceptance Corrections — historical alpha.10 evidence
+
+> **Historical record:** The behaviors below explain the alpha.5–alpha.10 correction path. Alpha.11
+> replaces permission grants and the unconfined-shell approval model with ADR-0032 workspace
+> recoverability, exact checkpoints, and shared sandbox-aware shell execution.
 
 This document records the disposition of the complete alpha.5 manual-testing archive. The archive includes
 the Pi transcript, external SQLite ledger, trust records, exact approval and permission state, Beads data,

@@ -32,6 +32,10 @@ export interface FilesystemEffect {
   destructive?: boolean;
   preservesPrevious?: boolean;
   description?: string;
+  /** True when OS-level execution guarantees persistent writes remain inside the workspace. */
+  runtimeConfined?: boolean;
+  /** True when destructive targets cannot be enumerated precisely enough to checkpoint. */
+  indeterminateDestructive?: boolean;
 }
 
 export type WorkspaceDecisionKind = "allow" | "checkpoint_then_allow" | "ask" | "deny";
@@ -101,6 +105,9 @@ export class WorkspacePolicyEvaluator {
   private evaluateOne(effect: FilesystemEffect, resolver: WorkspaceStateResolver): EvaluatedEffect {
     if (effect.kind === "privilege_escalation") {
       return { ...effect, state: "unknown", decision: "ask", reason: "Privilege escalation requires one-time user approval." };
+    }
+    if (effect.indeterminateDestructive === true) {
+      return { ...effect, state: "unknown", decision: "ask", reason: "The destructive operation does not identify every affected path, so Atelier cannot create an exact checkpoint." };
     }
     if (effect.path === undefined) {
       if (effect.kind === "read") return { ...effect, state: "unknown", decision: "ask", reason: "The read target could not be determined." };

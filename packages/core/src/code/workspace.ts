@@ -18,9 +18,8 @@ interface WorkspaceFile {
 
 export interface CodeWorkspaceLoadOptions {
   workspacePath?: string;
-  trusted?: boolean;
   snapshotForRoot?: (root: string) => RepositorySnapshot;
-  rootApproved?: (root: string) => boolean;
+  rootWithinWorkspace?: (root: string) => boolean;
 }
 
 function canonicalRoot(path: string): string {
@@ -35,10 +34,8 @@ export function loadCodeWorkspace(
 ): CodeWorkspace {
   const projectRoot = canonicalRoot(root);
   const options: CodeWorkspaceLoadOptions = typeof snapshotForRootOrOptions === "function"
-    ? { snapshotForRoot: snapshotForRootOrOptions, trusted: true }
+    ? { snapshotForRoot: snapshotForRootOrOptions }
     : (snapshotForRootOrOptions ?? {});
-  if (options.trusted === false) return singleWorkspace(projectRoot, primary);
-
   const workspacePath = resolve(options.workspacePath ?? resolve(projectRoot, ".atelier", "workspace.json"));
   if (!existsSync(workspacePath)) return singleWorkspace(projectRoot, primary);
   const parsed = JSON.parse(readFileSync(workspacePath, "utf8")) as WorkspaceFile;
@@ -52,10 +49,10 @@ export function loadCodeWorkspace(
     }
     const unresolved = isAbsolute(entry.path) ? resolve(entry.path) : resolve(projectRoot, entry.path);
     const repositoryRoot = canonicalRoot(unresolved);
-    if (options.rootApproved !== undefined && !options.rootApproved(repositoryRoot)) {
+    if (options.rootWithinWorkspace !== undefined && !options.rootWithinWorkspace(repositoryRoot)) {
       throw new ConfigurationError(
-        `Workspace root is not approved for this project: ${repositoryRoot}. `
-        + `Approve it explicitly before indexing or retrieval.`,
+        `Workspace repository is outside the immutable session workspace: ${repositoryRoot}. `
+        + `Start Atelier from a common parent workspace or use --workspace.`,
       );
     }
     const snapshot = repositoryRoot === projectRoot

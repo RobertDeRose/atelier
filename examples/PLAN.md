@@ -3,7 +3,7 @@
 <!-- atlr:plan version="1" -->
 
 ## ATLR-001 — Establish guarded runtime
-<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["packages/core/src/policy","tests/action-classifier.test.ts","tests/policy-engine.test.ts"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->
+<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["packages/core/src/policy","tests/action-classifier.test.ts","tests/workspace-policy.test.ts"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->
 
 ### Goal
 
@@ -12,7 +12,7 @@ Create the policy and provenance boundary required before repository mutation.
 ### Scope
 
 - Action classification
-- Explicit permission grants
+- Workspace effect analysis and exact recovery checkpoints
 - Durable policy decisions
 
 ### Out of scope
@@ -31,8 +31,8 @@ Create the policy and provenance boundary required before repository mutation.
 ### Completion criteria
 
 - Read-only actions are allowed by default
-- Mutations require an explicit matching grant
-- Plan mode permits writes only to the designated plan document
+- Contained recoverable mutations proceed without repetitive approval
+- Unrecoverable, secret, privileged, or outside-workspace effects ask once
 
 ### Notes
 

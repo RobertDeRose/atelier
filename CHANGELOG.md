@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.0-alpha.11 — 2026-07-29
+
+### Changed
+
+- Removed the legacy policy engine, permission grants, permission profiles, remembered approvals, active permission table, and filesystem capability bundle.
+- Retained reviewed plan execution metadata only as workflow and task constraints.
+- Made the canonical startup directory, or explicit `--workspace`, the immutable session workspace.
+- Added quote-aware structured and shell effect analysis with concrete consequence prompts.
+- Routed Pi model Bash and direct `user_bash` through one pre-execution workspace-policy path and one sandbox-aware executor.
+- Added exact verified Git recovery for staged, unstaged, partially staged, rename, mode, symlink, ignored, and untracked state.
+- Added native Jujutsu operation checkpoints and restoration verification.
+- Associated every automatic checkpoint with its initiating tool call and Pi session, exposed a restore command, and removed partial checkpoints on failure.
+- Removed remaining validation and code-workspace trust switches and deleted legacy permission storage during ledger migration.
+- Expanded policy and acceptance coverage for workspace overrides, `chdir` immutability, secret paths, symlink escape, failed checkpoints, and unauthorized shell execution.
+
 ## 0.14.0-alpha.10 — 2026-07-29
 
 ### Changed
@@ -129,8 +144,8 @@ fix(safety): make reviewed execution truthful and fail closed
 - move runtime state outside the repository and make doctor observational
 - treat generic shell as unconfined, single-operation approval only
 - add symlink-safe typed path confinement and an adversarial command corpus
-- bind exact approval to source, every workspace root, retrieval revisions, and typed capabilities
-- atomically install task capabilities while excluding arbitrary shell execution
+- bind exact approval to source, every workspace root, retrieval revisions, and typed task operations
+- atomically install task constraints while excluding arbitrary shell execution
 - enforce required validation, exact final-diff review, a local change, and clean closure state
 - make Git/Jujutsu observation failure explicit and include staged/untracked Git evidence
 - isolate Pi sessions and await asynchronous provider shutdown

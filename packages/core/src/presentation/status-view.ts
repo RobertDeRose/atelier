@@ -5,7 +5,7 @@ export interface AtelierStatusView {
   repository: { provider: string; identity: string; workspaceId: string; dirtyGeneration: number };
   workflow: { mode: string; checkpoint: string; plan: string; objective?: string; nextAction: string };
   task: { current: string; provider: string; providerState: string };
-  execution: { grant: string; permissions: number; closure: string };
+  execution: { grant: string; constraints: number; closure: string };
 }
 
 export function createStatusView(status: AtelierStatus): AtelierStatusView {
@@ -23,7 +23,7 @@ export function createStatusView(status: AtelierStatus): AtelierStatusView {
     repository: { provider: status.snapshot.vcs, identity: repositoryIdentity, workspaceId: status.snapshot.workspaceId, dirtyGeneration: status.snapshot.dirtyGeneration },
     workflow: { mode: status.mode, checkpoint: status.workflowCheckpoint, plan, ...(status.planObjective ? { objective: status.planObjective } : {}), nextAction: status.nextAction },
     task: { current: status.currentTaskId ?? "none", provider: status.taskProvider.provider, providerState: !status.taskProvider.available ? "unavailable" : status.taskProvider.initialized ? "ready" : "not initialized" },
-    execution: { grant, permissions: status.activePermissions.length, closure: status.closureStatus },
+    execution: { grant, constraints: status.activeTaskConstraints?.length ?? 0, closure: status.closureStatus },
   };
 }
 
@@ -38,7 +38,7 @@ export function statusViewLines(view: AtelierStatusView): string[] {
     `Task: ${view.task.current}`,
     `Task provider: ${view.task.provider} (${view.task.providerState})`,
     `Execution grant: ${view.execution.grant}`,
-    `Active authority: ${view.execution.permissions}`,
+    `Reviewed task constraints: ${view.execution.constraints}`,
     `Task closure: ${view.execution.closure}`,
     `Next action: ${view.workflow.nextAction}`,
   ];

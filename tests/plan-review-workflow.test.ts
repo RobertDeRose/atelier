@@ -221,7 +221,7 @@ test("version-one ledgers migrate in place and workflow transitions are atomic",
     const migrations = ledger.database.prepare(
       "SELECT version FROM schema_migrations ORDER BY version",
     ).all() as Array<{ version: number }>;
-    assert.deepEqual(migrations.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual(migrations.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
     const run: WorkflowRun = {
       id: "workflow-atomic",

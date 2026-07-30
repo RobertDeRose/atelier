@@ -2,7 +2,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { PlanTask } from "../domain/types.ts";
 import { isDependencyPath, isSourcePath } from "../repository/source-path.ts";
 
-export interface ValidationCapabilityDescriptor {
+export interface ValidationConstraintDescriptor {
   name: string;
   category: "focused" | "full";
   required?: boolean;
@@ -43,7 +43,7 @@ function resolveApprovedPath(repositoryRoot: string, candidate: string, options:
 export function deriveTaskExecutionScope(
   task: PlanTask,
   repositoryRoot: string,
-  descriptors: ValidationCapabilityDescriptor[],
+  descriptors: ValidationConstraintDescriptor[],
   options: TaskExecutionScopeOptions = {},
 ): TaskExecutionScope {
   if (task.execution === undefined) {

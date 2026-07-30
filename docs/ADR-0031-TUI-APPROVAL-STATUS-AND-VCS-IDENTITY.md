@@ -10,8 +10,8 @@ Manual TUI acceptance showed that accepting an exact execution transaction injec
 
 ## Decision
 
-- Exact approval performs reconciliation and installs the reviewed capability bundle, then returns Pi to idle. It uses a passive notification rather than `sendUserMessage`.
-- The complete reconciliation and capability summary is rendered as a persistent widget and notification before the final confirmation.
+- Exact approval performs reconciliation and installs the reviewed task constraints, then returns Pi to idle. It uses a passive notification rather than `sendUserMessage`.
+- The complete reconciliation and task-constraint summary is rendered as a persistent widget and notification before the final confirmation.
 - Core status owns an explicit `planStatus` and exposes the active execution grant.
 - Pi and CLI status surfaces render the same plan, task, execution-grant, and VCS identity.
 - Working State renders closure as not applicable when no active task exists.

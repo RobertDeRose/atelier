@@ -6,12 +6,12 @@ import test from "node:test";
 import {
   AtelierCore,
   DisabledCodeProvider,
-  createExecutionCapabilities,
-  executionCapabilitySummary,
+  createTaskConstraints,
+  taskConstraintSummary,
   parsePlanText,
   repositoryRevisionBinding,
   sameRepositoryBindings,
-  type ActionRequest,
+  type WorkflowActionRequest,
   type RepositorySnapshot,
 } from "../packages/core/src/index.ts";
 import { createTemporaryRepository } from "./fixtures.ts";
@@ -79,7 +79,7 @@ async function exactCore(prefix: string): Promise<{ root: string; core: AtelierC
     taskProvider: "memory",
     codeProvider: new DisabledCodeProvider(),
   });
-  core.beginPlan("Exercise exact task capabilities");
+  core.beginPlan("Exercise exact task constraints");
   const review = core.beginPlanReview();
   core.completePlanReview(review.id, { exitCode: 0 });
   const prepared = await core.execution.prepare();
@@ -88,7 +88,7 @@ async function exactCore(prefix: string): Promise<{ root: string; core: AtelierC
   return { root, core };
 }
 
-function request(core: AtelierCore, input: Omit<ActionRequest, "risk" | "actor" | "taskId" | "repositorySnapshot">): ActionRequest {
+function request(core: AtelierCore, input: Omit<WorkflowActionRequest, "risk" | "actor" | "taskId" | "repositorySnapshot">): WorkflowActionRequest {
   const grant = core.ledger.getActiveExecutionGrant();
   assert.ok(grant);
   return {
@@ -100,18 +100,14 @@ function request(core: AtelierCore, input: Omit<ActionRequest, "risk" | "actor" 
   };
 }
 
-function allow(core: AtelierCore, action: ActionRequest): { policyDecisionId: string; permissionGrantId: string } {
-  const decision = core.evaluate(action);
+function allow(core: AtelierCore, action: WorkflowActionRequest): { workflowDecisionId: string } {
+  const decision = core.evaluateWorkflow(action);
   assert.equal(decision.result, "allow", decision.reason);
-  const permissionGrantId = decision.matchedRules
-    .find((rule) => rule.startsWith("matched permission grant "))
-    ?.slice("matched permission grant ".length);
-  assert.ok(permissionGrantId);
-  return { policyDecisionId: decision.id, permissionGrantId };
+  return { workflowDecisionId: decision.id };
 }
 
-test("reviewed task metadata produces a narrow, named capability bundle", async () => {
-  const { root, core } = await exactCore("atlr-exact-capabilities-");
+test("reviewed task metadata produces one narrow task constraint", async () => {
+  const { root, core } = await exactCore("atlr-exact-constraints-");
   const canonicalRoot = realpathSync.native(root);
   assert.equal(core.config.repositoryRoot, canonicalRoot);
   try {
@@ -119,73 +115,43 @@ test("reviewed task metadata produces a narrow, named capability bundle", async 
     assert.ok(grant);
     const approval = core.ledger.getPlanApproval(grant.planApprovalId);
     assert.ok(approval);
-    const capabilities = approval.capabilities.filter((item) => item.planTaskId === "ATLR-001");
-    assert.deepEqual(
-      capabilities.map((item) => item.permission).sort(),
-      ["file.write", "repository.change.create", "task.close", "validation.focused"],
-    );
-    assert.equal(capabilities.some((item) => item.permission === "dependency.modify"), false);
-    assert.equal(capabilities.some((item) => item.permission === "validation.full_suite"), false);
-    assert.deepEqual(
-      capabilities.find((item) => item.permission === "validation.focused")?.validationNames,
-      ["manual-acceptance"],
-    );
-    assert.deepEqual(
-      capabilities.find((item) => item.permission === "file.write")?.paths,
-      [
-        join(core.config.repositoryRoot, "src", "allowed.ts"),
-        join(core.config.repositoryRoot, "tests", "allowed.test.ts"),
-      ],
-    );
+    const constraints = approval.taskConstraints.filter((item) => item.planTaskId === "ATLR-001");
+    assert.equal(constraints.length, 1);
+    const constraint = constraints[0]!;
+    assert.deepEqual(constraint.focusedValidations, ["manual-acceptance"]);
+    assert.equal(constraint.allowDependencyChanges, false);
+    assert.equal(constraint.allowFullSuite, false);
+    assert.equal(constraint.allowLocalChange, true);
+    assert.deepEqual(constraint.writePaths, [
+      join(core.config.repositoryRoot, "src", "allowed.ts"),
+      join(core.config.repositoryRoot, "tests", "allowed.test.ts"),
+    ]);
 
-    const summary = executionCapabilitySummary(capabilities, core.config.repositoryRoot).join("\n");
-    assert.match(summary, /Writes: src\/allowed\.ts, tests\/allowed\.test\.ts/);
-    assert.match(summary, /Dependencies: not permitted/);
+    const summary = taskConstraintSummary(constraints, core.config.repositoryRoot).join("\n");
+    assert.match(summary, /Expected writes: src\/allowed\.ts, tests\/allowed\.test\.ts/);
+    assert.match(summary, /Dependency changes: excluded/);
     assert.match(summary, /Focused validations: manual-acceptance/);
-    assert.match(summary, /Full suite: not permitted/);
+    assert.match(summary, /Full suite: excluded/);
 
-    assert.equal(core.evaluate(request(core, {
-      action: "write.file",
-      paths: [join(root, "src", "allowed.ts")],
-      boundary: "typed",
-      rationale: "approved path",
+    assert.equal(core.evaluateWorkflow(request(core, {
+      action: "write.file", paths: [join(root, "src", "allowed.ts")], rationale: "approved path",
     })).result, "allow");
-    assert.equal(core.evaluate(request(core, {
-      action: "write.file",
-      paths: [join(root, "src", "outside.ts")],
-      boundary: "typed",
-      rationale: "outside reviewed scope",
-    })).result, "require_approval");
-    assert.equal(core.evaluate(request(core, {
-      action: "dependency.modify",
-      paths: [join(root, "package.json")],
-      boundary: "typed",
-      rationale: "dependencies excluded",
-    })).result, "require_approval");
-    assert.equal(core.evaluate(request(core, {
-      action: "validation.focused",
-      validationName: "manual-acceptance",
-      boundary: "typed",
-      rationale: "named focused validation",
+    assert.equal(core.evaluateWorkflow(request(core, {
+      action: "write.file", paths: [join(root, "src", "outside.ts")], rationale: "outside reviewed scope",
+    })).result, "deny");
+    assert.equal(core.evaluateWorkflow(request(core, {
+      action: "dependency.modify", paths: [join(root, "package.json")], rationale: "dependencies excluded",
+    })).result, "deny");
+    assert.equal(core.evaluateWorkflow(request(core, {
+      action: "validation.focused", validationName: "manual-acceptance", rationale: "named focused validation",
     })).result, "allow");
-    assert.equal(core.evaluate(request(core, {
-      action: "validation.focused",
-      validationName: "other-check",
-      boundary: "typed",
-      rationale: "unnamed validation",
-    })).result, "require_approval");
-    assert.equal(core.evaluate(request(core, {
-      action: "validation.full_suite",
-      validationName: "full-suite",
-      boundary: "typed",
-      rationale: "full suite excluded",
-    })).result, "require_approval");
+    assert.equal(core.evaluateWorkflow(request(core, {
+      action: "validation.focused", validationName: "other-check", rationale: "unnamed validation",
+    })).result, "deny");
 
     const closure = core.taskClosureReadiness();
     assert.equal(closure.ready, false);
-    assert.ok(closure.blockers.some((blocker) => blocker.code === "validation_selection_missing"));
-    assert.match(closure.reason, /No focused validation selection is recorded/i);
-    assert.doesNotMatch(closure.reason, /none applies/i);
+    assert.ok(closure.blockers.some((item) => item.code === "validation_selection_missing"));
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });
@@ -205,20 +171,18 @@ test("pause, resume, and cancellation are atomic and execution resume is idempot
     core.execution.pause("manual pause");
     assert.equal(core.execution.isPaused(), true);
     assert.equal(core.ledger.getCurrentWorkflowRun()?.checkpoint, "paused");
-    assert.equal(core.evaluate(request(core, {
+    assert.equal(core.evaluateWorkflow(request(core, {
       action: "write.file",
       paths: [join(root, "src", "allowed.ts")],
-      boundary: "typed",
       rationale: "paused mutation",
     })).result, "deny");
 
     core.execution.resumePaused();
     assert.equal(core.execution.isPaused(), false);
     assert.equal(core.ledger.getCurrentWorkflowRun()?.checkpoint, "executing");
-    assert.equal(core.evaluate(request(core, {
+    assert.equal(core.evaluateWorkflow(request(core, {
       action: "write.file",
       paths: [join(root, "src", "allowed.ts")],
-      boundary: "typed",
       rationale: "resumed mutation",
     })).result, "allow");
 
@@ -228,7 +192,7 @@ test("pause, resume, and cancellation are atomic and execution resume is idempot
     assert.equal(core.ledger.getActiveExecutionGrant(), undefined);
     assert.equal(core.ledger.getCurrentWorkflowRun()?.status, "cancelled");
     assert.equal(core.ledger.getCurrentWorkflowRun()?.checkpoint, "cancelled");
-    assert.equal(core.ledger.listGrants().length, 0);
+    assert.equal(core.activeTaskConstraints().length, 0);
     assert.equal((await core.taskProvider.get(taskId))?.status, "in_progress");
   } finally {
     await core.close();
@@ -246,7 +210,6 @@ test("execution evidence attributes only paths changed by the individual operati
     const createTest = request(core, {
       action: "write.file",
       paths: [join(root, "tests", "allowed.test.ts")],
-      boundary: "typed",
       rationale: "create focused test",
     });
     core.beginExecutionEvidence({
@@ -264,7 +227,6 @@ test("execution evidence attributes only paths changed by the individual operati
     const modifyExisting = request(core, {
       action: "write.file",
       paths: [join(root, "src", "allowed.ts")],
-      boundary: "typed",
       rationale: "modify existing dirty path",
     });
     core.beginExecutionEvidence({
@@ -375,19 +337,16 @@ test("dependency manifests require an explicit dependency contract and never inh
   try {
     const excluded = parsePlanText(`# Dependency exclusion\n\n## ATLR-DEP — Exclude dependencies\n<!-- atlr:task {"id":"ATLR-DEP","priority":1,"type":"task","execution":{"writePaths":["package.json"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->\n\n### Goal\nNo dependency changes.\n\n### Scope\n- package.json\n\n### Out of scope\n- None\n\n### Depends on\n- None\n\n### Validation\n- Manual\n\n### Completion criteria\n- Complete\n`);
     assert.throws(
-      () => createExecutionCapabilities(excluded.tasks, root),
+      () => createTaskConstraints(excluded.tasks, root),
       /dependency manifests.*allowDependencyChanges is false/i,
     );
 
     const included = parsePlanText(`# Dependency inclusion\n\n## ATLR-DEP — Include dependency manifest\n<!-- atlr:task {"id":"ATLR-DEP","priority":1,"type":"task","execution":{"writePaths":["package.json"],"allowDependencyChanges":true,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->\n\n### Goal\nUpdate one dependency manifest.\n\n### Scope\n- package.json\n\n### Out of scope\n- None\n\n### Depends on\n- None\n\n### Validation\n- Manual\n\n### Completion criteria\n- Complete\n`);
-    const capabilities = createExecutionCapabilities(included.tasks, root);
-    assert.deepEqual(capabilities.map((item) => item.permission).sort(), [
-      "dependency.modify",
-      "repository.change.create",
-      "task.close",
-    ]);
-    assert.deepEqual(capabilities.find((item) => item.permission === "dependency.modify")?.paths, [join(root, "package.json")]);
-    assert.equal(capabilities.some((item) => item.permission === "file.write"), false);
+    const constraints = createTaskConstraints(included.tasks, root);
+    assert.equal(constraints.length, 1);
+    assert.equal(constraints[0]?.allowDependencyChanges, true);
+    assert.deepEqual(constraints[0]?.dependencyPaths, [join(root, "package.json")]);
+    assert.deepEqual(constraints[0]?.writePaths, [join(root, "package.json")]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -399,7 +358,7 @@ test("a validation-required workflow cannot approve a task that names no configu
   try {
     const parsed = parsePlanText(EXACT_PLAN.replace('"validations":["manual-acceptance"]', '"validations":[]'));
     assert.throws(
-      () => createExecutionCapabilities(
+      () => createTaskConstraints(
         parsed.tasks,
         root,
         [{ name: "manual-acceptance", category: "focused", required: true }],
@@ -465,23 +424,14 @@ test("typed reads allow nonexistent in-root targets but reject nonexistent paths
   try {
     mkdirSync(outside, { recursive: true });
     const inRoot = join(root, "tests", "not-created-yet.test.ts");
-    const allowed = core.evaluate(request(core, {
-      action: "read.repository",
-      paths: [inRoot],
-      boundary: "typed",
-      rationale: "read a reviewed path before creation",
-    }));
+    const allowed = core.evaluateWorkspaceEffects([{ kind: "read", path: inRoot, description: "read a future in-workspace path" }]);
     assert.equal(allowed.result, "allow", allowed.reason);
 
     const { symlinkSync } = await import("node:fs");
     symlinkSync(outside, join(root, "escape"), "dir");
-    const escaped = core.evaluate(request(core, {
-      action: "read.repository",
-      paths: [join(root, "escape", "missing.ts")],
-      boundary: "typed",
-      rationale: "escaping symlink",
-    }));
-    assert.notEqual(escaped.result, "allow");
+    const escaped = core.evaluateWorkspaceEffects([{ kind: "read", path: join(root, "escape", "missing.ts"), description: "read below an escaping symlink" }]);
+    assert.equal(escaped.result, "ask");
+    assert.equal(escaped.effects[0]?.state, "outside_workspace");
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });
@@ -515,7 +465,6 @@ test("task closure finalizes workflow metadata and leaves the complete Git repos
 
     const closeRequest = request(core, {
       action: "task.close",
-      boundary: "typed",
       rationale: "complete repository finalization",
     });
     const closeAuthorization = allow(core, closeRequest);

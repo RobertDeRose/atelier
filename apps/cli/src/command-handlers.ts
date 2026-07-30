@@ -1,9 +1,8 @@
 import { createInterface } from "node:readline/promises";
 import {
   AtelierCore,
-  PERMISSIONS,
   ensurePlanDocument,
-  executionCapabilitySummary,
+  taskConstraintSummary,
   parsePlanFile,
   resolveEditorCommand,
   runInteractiveProcess,
@@ -12,7 +11,6 @@ import {
   type CodeWorkspace,
   type ExecutionPreparation,
   type ManualEdit,
-  type Permission,
   type PlanDiagnostic,
   type RetrievalSessionStatus,
   type TaskReconciliation,
@@ -291,7 +289,7 @@ function preparationText(core: AtelierCore, prepared: ExecutionPreparation): str
     ...prepared.reconciliation.operations.map((operation) => `- ${operation.kind}: ${operation.planTaskId}`),
     `Retirements: ${retirements.length}${retirements.length === 0 ? "" : ` (${retirements.map((operation) => operation.planTaskId).join(", ")})`}`,
     `Proposed first task: ${proposed === undefined ? "none" : `${proposed.id} — ${proposed.title}`}`,
-    ...executionCapabilitySummary(prepared.approval.capabilities, core.config.repositoryRoot),
+    ...taskConstraintSummary(prepared.approval.taskConstraints, core.config.repositoryRoot),
   ].join("\n");
 }
 
@@ -361,13 +359,4 @@ export async function handleTasks(core: AtelierCore, subcommand: string | undefi
     default:
       throw new Error("Usage: atlr task <show|start|close>");
   }
-}
-
-export async function handlePermissions(core: AtelierCore, subcommand: string | undefined, _rest: string[], args: ParsedArgs): Promise<void> {
-  if (subcommand !== "list" && subcommand !== undefined) {
-    throw new Error("Atelier no longer supports manual permission grants. Use: atlr authority list [--json]");
-  }
-  const grants = core.ledger.listGrants();
-  if (flagBoolean(args, "json")) asJson(grants);
-  else for (const grant of grants) process.stdout.write(`${grant.id}\t${grant.permission}\t${grant.scope}\t${grant.reason}\n`);
 }

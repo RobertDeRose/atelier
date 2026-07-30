@@ -38,7 +38,7 @@ const DEPENDENCY_BASENAMES = new Set([
   "mise.lock",
 ]);
 
-/** Dependency manifests and locks require dependency.modify, never plain file.write. */
+/** Dependency manifests and locks are governed by the reviewed dependency-change constraint. */
 export function isDependencyPath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/").replace(/^\.\//, "");
   const basename = normalized.split("/").at(-1) ?? normalized;

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type {
@@ -15,11 +16,8 @@ import {
   runInteractiveProcess,
   createStatusView,
   statusViewText,
-  runSandboxedShell,
-  resolveSandboxBackend,
   rankPresentedHits,
   type ManualEditEditor,
-  type Permission,
 } from "../../../packages/core/src/index.ts";
 import {
   codeHitText,
@@ -35,6 +33,7 @@ import { preparationSummary } from "./approval-presentation.ts";
 import { confirmApprovalDialog } from "./approval-dialog.ts";
 import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "./navigation.ts";
 import { contextCapsulePrompt, createAuthoritativeContextCapsule } from "./authoritative-context.ts";
+import { createAtelierBashOperations } from "./bash-operations.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
 import { authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
 import { effectsForTool, effectsForUserBash } from "./tool-effects.ts";
@@ -82,6 +81,7 @@ export interface AtelierExtensionOptions {
 }
 
 interface ExtensionSessionState {
+  sessionId: string;
   core?: AtelierCore;
   root?: string;
   reviewInProgress: boolean;
@@ -89,6 +89,7 @@ interface ExtensionSessionState {
   stopIndexStatusUpdates?: () => void;
   lastCompletionNotice?: string;
   turnPolicy?: TurnToolPolicy;
+  authorizedShellToolCalls: Set<string>;
 }
 
 const SESSION_STATES = new WeakMap<object, ExtensionSessionState>();
@@ -102,7 +103,12 @@ function sessionState(ctx: ExtensionContext): ExtensionSessionState {
   const key = sessionKey(ctx);
   const existing = SESSION_STATES.get(key);
   if (existing !== undefined) return existing;
-  const created: ExtensionSessionState = { reviewInProgress: false, advisorySent: false };
+  const created: ExtensionSessionState = {
+    sessionId: `pi-${randomUUID()}`,
+    reviewInProgress: false,
+    advisorySent: false,
+    authorizedShellToolCalls: new Set<string>(),
+  };
   SESSION_STATES.set(key, created);
   return created;
 }
@@ -279,7 +285,7 @@ function planInstruction(core: AtelierCore, objective: string): string {
     "Read exact repository paths named by the objective directly; do not force semantic discovery for known files or trivial local edits. When an implementation location is unknown, reuse current scoped inventory with atlr_code_status or call atlr_code_search once, then inspect the compact inventory before another request. " +
     "Use atlr_code_symbols only for unresolved identifiers during autonomous discovery, and use built-in read for known or returned paths. " +
     "Prefer provider evidence before broad rg, grep, find, fd, tree, or ls discovery, but use exact raw inspection when provider evidence is insufficient or the request requires it. " +
-    "Use the smallest independently deliverable task graph: keep tests and implementation together unless they can be completed and accepted separately. Use stable task IDs, explicit dependencies, scope, validation steps, observable completion criteria, and an exact execution object in each atlr:task metadata comment naming every writable repository-relative path, declared validation, dependency permission, full-suite permission, and local-change permission. " +
+    "Use the smallest independently deliverable task graph: keep tests and implementation together unless they can be completed and accepted separately. Use stable task IDs, explicit dependencies, scope, validation steps, observable completion criteria, and an exact execution object in each atlr:task metadata comment naming every reviewed writable repository-relative path, declared validation, dependency-change constraint, full-suite constraint, and local-change constraint. " +
     "Do not ask the user to describe textual plan edits after the draft; Atelier will open the plan in their configured editor. " +
     `When the draft is complete, stop.\n\nObjective: ${objective || "Create an implementation plan for the current request."}`;
 }
@@ -350,7 +356,7 @@ async function approveAndReconcile(
   try {
     confirmed = await ctx.ui.confirm(
       "Approve exact execution transaction",
-      "Review the complete transaction and capability summary shown above. Approve and apply exactly this transaction?",
+      "Review the complete transaction and task-constraint summary shown above. Approve and apply exactly this transaction?",
     );
   } finally {
     ctx.ui.setWidget?.("atelier-approval", undefined);
@@ -366,7 +372,7 @@ async function approveAndReconcile(
     await updateStatus(ctx, core);
     ctx.ui.notify(
       `Approved plan revision ${transition.approval.planHash}. Task ${transition.task?.id ?? "unknown"} is active with execution grant ${transition.executionGrant?.id ?? "unknown"}. ` +
-        "Atelier is idle; send an explicit implementation instruction when you are ready. Only the reviewed typed capabilities are active.",
+        "Atelier is idle; send an explicit implementation instruction when you are ready. Only the reviewed task constraints are active.",
       "info",
     );
   } catch (error) {
@@ -381,21 +387,46 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   registerValidationTool(pi, getCore);
   registerWorkflowTools(pi, getCore);
   pi.registerTool({
-    name: "atlr_shell",
-    label: "Atelier Sandboxed Shell",
-    description: "Run a shell command inside the current Atelier workspace using the configured OS sandbox. Workspace writes are allowed; external filesystem writes, credential paths, and network access are blocked by default.",
-    promptSnippet: "Use the Atelier sandboxed shell for bounded build, test, format, and inspection commands",
-    parameters: objectSchema({ command: stringSchema("Shell command to execute inside the workspace."), allowNetwork: { type: "boolean", description: "Allow network access for this one sandboxed invocation." } }, ["command"]),
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    name: "bash",
+    label: "bash (Atelier workspace sandbox)",
+    description: "Run a shell command inside the immutable Atelier workspace. Persistent writes outside the workspace, likely credential paths, and network access are blocked by the configured OS sandbox.",
+    promptSnippet: "Run workspace-confined shell commands through Atelier's OS sandbox",
+    parameters: objectSchema({
+      command: stringSchema("Shell command to execute."),
+      timeout: { type: "number", description: "Optional timeout in seconds." },
+    }, ["command"]),
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
       const core = getCore(ctx);
-      const input = params as { command: string; allowNetwork?: boolean };
+      const state = sessionState(ctx);
+      const authorized = state.authorizedShellToolCalls.delete(toolCallId);
+      if (!authorized) {
+        return {
+          content: [{ type: "text", text: "Atelier shell execution failed closed because no matching workspace-policy authorization was recorded." }],
+          details: { error: "missing_workspace_authorization" },
+          isError: true,
+        };
+      }
+      const input = params as { command: string; timeout?: number };
+      const chunks: string[] = [];
+      const operations = createAtelierBashOperations({
+        workspace: core.config.workspaceRoot,
+        backend: core.config.sandboxBackend,
+        allowUnsandboxed: true,
+      });
       try {
-        const result = await runSandboxedShell({ workspace: core.config.workspaceRoot, command: input.command, backend: core.config.sandboxBackend, ...(input.allowNetwork === undefined ? {} : { allowNetwork: input.allowNetwork }), signal });
-        const text = [result.stdout, result.stderr].filter(Boolean).join("\n").trim() || `Command exited ${result.exitCode}.`;
-        return { content: [{ type: "text", text }], details: result };
+        const result = await operations.exec(input.command, ctx.cwd, {
+          onData(chunk) {
+            const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+            chunks.push(text);
+            onUpdate?.({ content: [{ type: "text", text: chunks.join("") }] });
+          },
+          ...(signal === undefined ? {} : { signal }),
+          ...(input.timeout === undefined ? {} : { timeout: input.timeout }),
+        });
+        const text = chunks.join("").trim() || `Command exited ${result.exitCode ?? 1}.`;
+        return { content: [{ type: "text", text }], details: result, ...(result.exitCode === 0 ? {} : { isError: true }) };
       } catch (error) {
-        const sandbox = resolveSandboxBackend(core.config.sandboxBackend);
-        return { content: [{ type: "text", text: `Sandboxed shell unavailable: ${errorMessage(error)}` }], details: { sandbox, error: errorMessage(error) } };
+        return { content: [{ type: "text", text: `Sandboxed shell failed closed: ${errorMessage(error)}` }], details: { error: errorMessage(error) }, isError: true };
       }
     },
   });
@@ -405,7 +436,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "Inspect provider health plus the current retrieval session inventory, freshness, decisions, remaining budgets, deduplication, and truncation before requesting more evidence or considering raw scanning.",
     promptSnippet: "Inspect Atelier provider health and the compact evidence inventory before any additional retrieval",
     promptGuidelines: [
-      "Inspect the returned inventory before another search. Prefer provider evidence first, but raw inspection remains available through typed reads or an explicitly approved shell operation; budget denial does not grant shell permission.",
+      "Inspect the returned inventory before another search. Prefer provider evidence first, but raw inspection remains available through typed reads or a concrete shell operation evaluated by the workspace recoverability policy; budget denial does not bypass that policy.",
     ],
     parameters: objectSchema({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
@@ -441,7 +472,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       "Use exactly one focused semantic discovery before broad raw scans. Call atlr_code_search only when Working State does not already contain current scoped semantic evidence; never duplicate an existing discovery.",
       "Before another search, inspect the returned inventory; Atelier will reuse covered evidence or recommend no provider call.",
       "Use built-in read for every known or returned path. Do not search again merely to inspect a known file.",
-      "Prefer provider evidence before broad raw scanning. Raw inspection remains available through typed reads or an explicitly approved shell operation; budget denial does not grant shell permission.",
+      "Prefer provider evidence before broad raw scanning. Raw inspection remains available through typed reads or a concrete shell operation evaluated by the workspace recoverability policy; budget denial does not bypass that policy.",
     ],
     parameters: objectSchema({
       query: stringSchema("Natural-language or identifier-oriented code search query."),
@@ -639,10 +670,15 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       });
       ctx.ui.notify("Atelier advisory: prefer current provider evidence or one focused code query before broad raw discovery. This is guidance, not an authorization block.", "warning");
     }
-    const workspaceAuthorization = await authorizeWorkspaceEffects(effectsForTool(event, ctx), ctx, core);
+    const effects = effectsForTool(event, ctx, core);
+    const workspaceAuthorization = await authorizeWorkspaceEffects(effects, ctx, core, {
+      toolCallId: event.toolCallId,
+      sessionId: extensionState.sessionId,
+    });
     if (workspaceAuthorization.response !== undefined) return workspaceAuthorization.response;
-    const request = requestForTool(event, ctx, core);
-    const authorization = await authorizeTool(request, ctx, core, { workspaceApproved: workspaceAuthorization.approvedOnce === true });
+    if (event.toolName === "bash") extensionState.authorizedShellToolCalls.add(event.toolCallId);
+    const request = requestForTool(event, ctx, core, effects);
+    const authorization = await authorizeTool(request, ctx, core);
     if (
       authorization.response === undefined
       && request.action !== "read.repository"
@@ -654,8 +690,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           request,
-          policyDecisionId: authorization.decision.id,
-          ...(authorization.permissionGrantId === undefined ? {} : { permissionGrantId: authorization.permissionGrantId }),
+          workflowDecisionId: authorization.decision.id,
+          ...(workspaceAuthorization.checkpointId === undefined ? {} : { checkpointId: workspaceAuthorization.checkpointId }),
         });
       } catch (error) {
         return { block: true, reason: `Unable to start durable execution evidence: ${errorMessage(error)}` };
@@ -667,8 +703,22 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
 
   pi.on("user_bash", async (event, ctx) => {
     const command = typeof event.command === "string" ? event.command : "";
-    const authorization = await authorizeWorkspaceEffects(effectsForUserBash(command, ctx.cwd), ctx, getCore(ctx));
-    return authorization.response;
+    const core = getCore(ctx);
+    const extensionState = sessionState(ctx);
+    const authorization = await authorizeWorkspaceEffects(
+      effectsForUserBash(command, ctx.cwd, core),
+      ctx,
+      core,
+      { toolCallId: `user-bash-${randomUUID()}`, sessionId: extensionState.sessionId },
+    );
+    if (authorization.response !== undefined) return authorization.response;
+    return {
+      operations: createAtelierBashOperations({
+        workspace: core.config.workspaceRoot,
+        backend: core.config.sandboxBackend,
+        allowUnsandboxed: true,
+      }),
+    };
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -705,10 +755,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     const modeInstruction = core.execution.isPaused()
       ? `Execution is paused. Repository reads remain available, but agent mutation is denied until the user runs /atelier-resume. Do not continue implementation automatically. ${retrievalInstruction}`
       : state.mode === "plan"
-      ? `Only ${core.config.planPath} may be modified. Task-provider and source mutations are prohibited until approval. Typed repository reads inside approved roots do not require approval; generic shell remains unconfined and requires one-operation approval. ${retrievalInstruction}`
+      ? `Only ${core.config.planPath} may be modified by the agent. Task-provider and source mutations are prohibited until exact plan approval. Ordinary non-secret reads inside the immutable session workspace are allowed; every structured or shell effect is evaluated for workspace containment and recoverability. ${retrievalInstruction}`
       : state.mode === "investigate"
         ? `Investigate only. Any mutation requires a distinct Atelier approval. ${retrievalInstruction}`
-        : `Implement only the selected task and reviewed capability bundle. Typed in-repository writes, declared validations through atlr_validate, task closure and one local change are authorized for the active task. Authorization is not an instruction: obey the user's latest constraints, including requests not to run validation, Bash, commit, or continue. Generic shell is unconfined and always requires one-operation approval; destructive operations, external effects, publication, and out-of-root access also require separate approval. An incomplete task may remain paused; completion is enforced only when task closure is requested. ${retrievalInstruction}`;
+        : `Implement only the selected task and reviewed task constraints. Ordinary contained and recoverable structured or shell effects are allowed by the workspace policy; likely-secret access, privilege escalation, workspace escape, and indeterminate or unrecoverable effects require one concrete approval. Authorization is not an instruction: obey the user's latest constraints, including requests not to run validation, Bash, commit, or continue. An incomplete task may remain paused; completion is enforced only when task closure is requested. ${retrievalInstruction}`;
     const policyInstruction = turnPolicyInstruction(sessionState(ctx).turnPolicy);
     const capsule = createAuthoritativeContextCapsule({
       modeInstruction,
@@ -971,7 +1021,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   });
 
   pi.registerCommand("atelier-pause", {
-    description: "Pause active execution and abort the current turn without revoking task capabilities",
+    description: "Pause active execution and abort the current turn without revoking task constraints",
     handler: async (args, ctx) => {
       const core = getCore(ctx);
       const reason = args.trim() || "User paused execution through Pi /atelier-pause.";

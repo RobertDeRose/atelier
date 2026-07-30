@@ -30,7 +30,7 @@ Free-form scope prose is useful context but is not a reliable authorization lang
    manifest without dependency permission, enables a full suite without a named full validation, or
    names a path outside application source.
 3. Exact approval derives capabilities only from that contract:
-   - `file.write` for reviewed non-dependency paths;
+   - reviewed non-dependency write paths as task constraints;
    - `dependency.modify` only for reviewed dependency manifests;
    - named focused/full validation permissions only;
    - one `repository.change.create` permission scoped to reviewed paths when enabled;

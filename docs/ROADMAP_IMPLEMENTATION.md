@@ -1,4 +1,4 @@
-# Roadmap Implementation — Atelier 0.14.0-alpha.10
+# Roadmap Implementation — alpha.10 historical delivery record
 
 The sixteen items in `docs/ROADMAP.md` were implemented as separate commits, in dependency order.
 

@@ -177,7 +177,7 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
   const editor = process.env.ATLR_EDITOR ?? merged.editor;
   return {
     repositoryRoot: root,
-    workspaceRoot: root,
+    workspaceRoot: workspace.root,
     workspaceSource: workspace.source,
     projectDirectory, projectConfigPath, validationPath, workspacePath, runtimeDirectory, stateDirectory: runtimeDirectory, databasePath, planPath,
     ...(editor === undefined ? {} : { editor }),
