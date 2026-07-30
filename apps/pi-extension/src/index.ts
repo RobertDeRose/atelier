@@ -34,6 +34,7 @@ import { toolExecutionOutcome } from "./execution-outcome.ts";
 import { preparationSummary } from "./approval-presentation.ts";
 import { confirmApprovalDialog } from "./approval-dialog.ts";
 import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "./navigation.ts";
+import { contextCapsulePrompt, createAuthoritativeContextCapsule } from "./authoritative-context.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
 import { authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
 import { effectsForTool, effectsForUserBash } from "./tool-effects.ts";
@@ -709,9 +710,17 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         ? `Investigate only. Any mutation requires a distinct Atelier approval. ${retrievalInstruction}`
         : `Implement only the selected task and reviewed capability bundle. Typed in-repository writes, declared validations through atlr_validate, task closure and one local change are authorized for the active task. Authorization is not an instruction: obey the user's latest constraints, including requests not to run validation, Bash, commit, or continue. Generic shell is unconfined and always requires one-operation approval; destructive operations, external effects, publication, and out-of-root access also require separate approval. An incomplete task may remain paused; completion is enforced only when task closure is requested. ${retrievalInstruction}`;
     const policyInstruction = turnPolicyInstruction(sessionState(ctx).turnPolicy);
-    return {
-      systemPrompt: `${event.systemPrompt}\n\n## Atelier enforced working state\n\n${modeInstruction}${policyInstruction}\n\n${activeContext}`,
-    };
+    const capsule = createAuthoritativeContextCapsule({
+      modeInstruction,
+      turnPolicyInstruction: policyInstruction,
+      workingStateMarkdown: activeContext,
+    });
+    core.ledger.setState("authoritativeContextCapsule", {
+      digest: capsule.digest,
+      workingStateId: state.stateId,
+      createdAt: new Date().toISOString(),
+    });
+    return { systemPrompt: contextCapsulePrompt(event.systemPrompt, capsule) };
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
@@ -722,11 +731,13 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       ctx.ui.notify(`Execution validation failed closed before compaction: ${errorMessage(error)}`, "error");
     }
     const state = await core.buildWorkingState();
-    const summary = `${core.workingStateBuilder.toMarkdown(state)}\n` +
-      "Conversation history is non-authoritative. Resume from the current task, approved plan, active permissions, repository snapshot, corrections, and validation evidence above.";
+    const capsule = createAuthoritativeContextCapsule({
+      modeInstruction: "Resume only from this durable Atelier state. Do not infer workflow authority from the discarded transcript.",
+      workingStateMarkdown: core.workingStateBuilder.toMarkdown(state),
+    });
     return {
       compaction: {
-        summary,
+        summary: `${capsule.markdown}\n\nAtelier context digest: ${capsule.digest}`,
         firstKeptEntryId: event.preparation.firstKeptEntryId,
         tokensBefore: event.preparation.tokensBefore,
       },
