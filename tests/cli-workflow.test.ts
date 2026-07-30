@@ -130,7 +130,7 @@ test("CLI review, exact approval, cancellation, and JSON workflow remain coordin
 
     const status = run(root, ["status", "--json"]);
     assert.equal(status.status, 0, status.stderr);
-    assert.equal(typeof JSON.parse(status.stdout).nextAction, "string");
+    assert.equal(typeof JSON.parse(status.stdout).workflow.nextAction, "string");
 
     const cancelled = run(root, ["cancel", "--reason", "CLI operator stopped", "--json"]);
     assert.equal(cancelled.status, 0, cancelled.stderr);

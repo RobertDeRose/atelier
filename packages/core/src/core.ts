@@ -74,6 +74,8 @@ export interface AtelierStatus {
   taskProvider: TaskProviderStatus;
   snapshot: ReturnType<RepositoryProvider["snapshot"]>;
   activePermissions: PermissionGrant[];
+  workflowCheckpoint: string;
+  closureStatus: string;
   nextAction: string;
 }
 
@@ -1210,6 +1212,10 @@ export class AtelierCore {
       taskProvider,
       snapshot: this.repository.snapshot(),
       activePermissions: this.ledger.listGrants(),
+      workflowCheckpoint: this.currentWorkflowRun()?.checkpoint ?? "none",
+      closureStatus: activeExecutionGrant === undefined
+        ? this.currentWorkflowRun()?.checkpoint === "completed" ? "completed" : "not applicable — no active task"
+        : this.taskClosureReadiness().ready ? "ready" : `blocked — ${this.taskClosureReadiness().reason}`,
       nextAction: await this.nextAction(),
     };
   }

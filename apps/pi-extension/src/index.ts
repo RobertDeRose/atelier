@@ -12,6 +12,8 @@ import {
   hashFile,
   resolveEditorCommand,
   runInteractiveProcess,
+  createStatusView,
+  statusViewText,
   type ManualEditEditor,
   type Permission,
 } from "../../../packages/core/src/index.ts";
@@ -42,6 +44,7 @@ import {
   installAtelierFooter,
   planStatusText,
   vcsStatusText,
+  atelierStatusSummary,
 } from "./status-presentation.ts";
 import {
   ATELIER_COMMIT_TOOL,
@@ -133,15 +136,9 @@ async function replaceCore(
 async function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<void> {
   try {
     const status = await core.status();
-    const task = status.currentTaskId === undefined ? "no task" : status.currentTaskId;
     const indexing = core.code.indexingStatus();
-    const index = indexing.active
-      ? "indexing…"
-      : indexing.state === "unknown"
-        ? "index unknown"
-        : `index ${indexing.state}`;
-    const next = status.nextAction.length > 56 ? `${status.nextAction.slice(0, 53)}…` : status.nextAction;
-    const value = `Atelier ${status.mode} · ${planStatusText(status)} · ${task} · ${vcsStatusText(status)} · ${index} · ${next}`;
+    const index = indexing.active ? "indexing…" : indexing.state === "unknown" ? "index unknown" : `index ${indexing.state}`;
+    const value = `${atelierStatusSummary(status)} · ${index}`;
     if (core.config.footer === "disabled") {
       ctx.ui.setStatus(STATUS_KEY, undefined);
       ctx.ui.setFooter?.(undefined);

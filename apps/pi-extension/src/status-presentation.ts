@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { AtelierStatus } from "../../../packages/core/src/index.ts";
+import { createStatusView, statusViewSummary, type AtelierStatus } from "../../../packages/core/src/index.ts";
 
 export function planStatusText(status: AtelierStatus): string {
   if (status.planStatus === "missing") return "missing";
@@ -47,3 +47,5 @@ export function installAtelierFooter(
     invalidate(): void {},
   }));
 }
+
+export function atelierStatusSummary(status: AtelierStatus): string { return statusViewSummary(createStatusView(status)); }
