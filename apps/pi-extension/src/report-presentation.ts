@@ -1,10 +1,12 @@
 import { createRequire } from "node:module";
-import { existsSync, realpathSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const REPORT_ENTRY_TYPE = "atelier-report";
+const CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
+const TUI_PACKAGE = "@earendil-works/pi-tui";
 
 interface ReportComponent {
   render(width: number): string[];
@@ -29,45 +31,83 @@ export interface MarkdownRuntime {
   getMarkdownTheme: () => unknown;
 }
 
-function moduleRequireCandidates(): ReturnType<typeof createRequire>[] {
-  const candidates: ReturnType<typeof createRequire>[] = [createRequire(import.meta.url)];
-  const argvEntry = process.argv[1];
-  if (argvEntry !== undefined && existsSync(argvEntry)) {
-    const hostEntry = realpathSync.native(argvEntry);
-    candidates.push(createRequire(pathToFileURL(hostEntry).href));
+function addUniquePath(paths: string[], candidate: string): void {
+  if (!paths.includes(candidate)) paths.push(candidate);
+}
+
+function packageJsonCandidatesForPrefix(paths: string[], prefix: string): void {
+  addUniquePath(paths, join(prefix, "lib", "node_modules", "@earendil-works", "pi-coding-agent", "package.json"));
+  addUniquePath(paths, join(prefix, "node_modules", "@earendil-works", "pi-coding-agent", "package.json"));
+}
+
+function executableCandidates(): string[] {
+  const candidates: string[] = [];
+  if (process.argv[1] !== undefined) addUniquePath(candidates, resolve(process.argv[1]));
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    if (!directory) continue;
+    const candidate = join(directory, process.platform === "win32" ? "pi.cmd" : "pi");
+    if (existsSync(candidate)) addUniquePath(candidates, candidate);
   }
-  // Pi's npm bin is commonly a symlink into the package. Resolve a require base
-  // from every parent directory as a defensive fallback for alternative launchers.
-  if (argvEntry !== undefined) {
-    let current = dirname(resolve(argvEntry));
-    for (let index = 0; index < 6; index += 1) {
-      candidates.push(createRequire(pathToFileURL(resolve(current, "package.json")).href));
-      const parent = dirname(current);
-      if (parent === current) break;
-      current = parent;
+  return candidates;
+}
+
+function packageJsonCandidates(): string[] {
+  const candidates: string[] = [];
+  for (const executable of executableCandidates()) {
+    const effectiveExecutable = existsSync(executable)
+      ? realpathSync.native(executable)
+      : executable;
+    for (const item of [executable, effectiveExecutable]) {
+      let current = dirname(item);
+      for (let index = 0; index < 8; index += 1) {
+        packageJsonCandidatesForPrefix(candidates, current);
+        addUniquePath(candidates, join(current, "package.json"));
+        const parent = dirname(current);
+        if (parent === current) break;
+        current = parent;
+      }
+    }
+
+    // mise and other global npm wrappers are often regular scripts rather than
+    // symlinks. Capture any absolute coding-agent package path embedded in the
+    // wrapper as another authoritative package root.
+    try {
+      const wrapper = readFileSync(executable, "utf8");
+      const matches = wrapper.matchAll(/(?:\/[^\s"']+)*\/lib\/node_modules\/@earendil-works\/pi-coding-agent(?:\/dist\/cli\.js)?/g);
+      for (const match of matches) {
+        const packageRoot = match[0]!.replace(/\/dist\/cli\.js$/, "");
+        addUniquePath(candidates, join(packageRoot, "package.json"));
+      }
+    } catch {
+      // Native binaries and unreadable wrappers simply contribute no embedded path.
     }
   }
   return candidates;
 }
 
-async function importFromPiHost(specifier: string): Promise<Record<string, unknown>> {
-  const errors: string[] = [];
-  for (const candidate of moduleRequireCandidates()) {
-    try {
-      const resolved = candidate.resolve(specifier);
-      return await import(pathToFileURL(resolved).href) as Record<string, unknown>;
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
+function packageEntry(packageRoot: string, packageJson: Record<string, unknown>): string {
+  const exportsValue = packageJson.exports;
+  if (typeof exportsValue === "string") return resolve(packageRoot, exportsValue);
+  if (exportsValue !== null && typeof exportsValue === "object") {
+    const dot = (exportsValue as Record<string, unknown>)["."];
+    if (typeof dot === "string") return resolve(packageRoot, dot);
+    if (dot !== null && typeof dot === "object") {
+      const imported = (dot as Record<string, unknown>).import;
+      if (typeof imported === "string") return resolve(packageRoot, imported);
     }
   }
-  throw new Error(`Unable to resolve ${specifier} from the Atelier extension or Pi host: ${errors.at(-1) ?? "unknown error"}`);
+  if (typeof packageJson.main === "string") return resolve(packageRoot, packageJson.main);
+  return resolve(packageRoot, "dist", "index.js");
 }
 
-export async function loadPiMarkdownRuntime(): Promise<MarkdownRuntime> {
-  const [tui, codingAgent] = await Promise.all([
-    importFromPiHost("@earendil-works/pi-tui"),
-    importFromPiHost("@earendil-works/pi-coding-agent"),
-  ]);
+async function runtimeFromCodingAgentPackage(packageJsonPath: string): Promise<MarkdownRuntime> {
+  const packageRoot = dirname(packageJsonPath);
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as Record<string, unknown>;
+  const codingAgent = await import(pathToFileURL(packageEntry(packageRoot, packageJson)).href) as Record<string, unknown>;
+  const requireFromHost = createRequire(pathToFileURL(packageJsonPath).href);
+  const tuiEntry = requireFromHost.resolve(TUI_PACKAGE);
+  const tui = await import(pathToFileURL(tuiEntry).href) as Record<string, unknown>;
+
   if (typeof tui.Markdown !== "function") {
     throw new Error("Pi TUI did not export the Markdown component.");
   }
@@ -78,6 +118,46 @@ export async function loadPiMarkdownRuntime(): Promise<MarkdownRuntime> {
     Markdown: tui.Markdown as MarkdownConstructor,
     getMarkdownTheme: codingAgent.getMarkdownTheme as () => unknown,
   };
+}
+
+export async function loadPiMarkdownRuntime(): Promise<MarkdownRuntime> {
+  const errors: string[] = [];
+
+  // First allow normal Pi package resolution. Pi's extension loader provides
+  // its core packages for standard imports when the extension is installed as
+  // a Pi package.
+  try {
+    const extensionRequire = createRequire(import.meta.url);
+    const codingAgentEntry = extensionRequire.resolve(CODING_AGENT_PACKAGE);
+    const tuiEntry = extensionRequire.resolve(TUI_PACKAGE);
+    const [codingAgent, tui] = await Promise.all([
+      import(pathToFileURL(codingAgentEntry).href) as Promise<Record<string, unknown>>,
+      import(pathToFileURL(tuiEntry).href) as Promise<Record<string, unknown>>,
+    ]);
+    if (typeof tui.Markdown === "function" && typeof codingAgent.getMarkdownTheme === "function") {
+      return {
+        Markdown: tui.Markdown as MarkdownConstructor,
+        getMarkdownTheme: codingAgent.getMarkdownTheme as () => unknown,
+      };
+    }
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  for (const packageJsonPath of packageJsonCandidates()) {
+    if (!existsSync(packageJsonPath)) continue;
+    try {
+      return await runtimeFromCodingAgentPackage(packageJsonPath);
+    } catch (error) {
+      errors.push(`${packageJsonPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  throw new Error(
+    `Unable to load Pi Markdown runtime from the extension or Pi installation. ` +
+    `Checked ${packageJsonCandidates().filter(existsSync).length} installed package root(s). ` +
+    `${errors.at(-1) ?? "No Pi installation package was found."}`,
+  );
 }
 
 let markdownRuntime: MarkdownRuntime | undefined;

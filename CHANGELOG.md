@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0-alpha.16 — 2026-07-30
+
+- Resolve Pi Markdown runtime from mise/global npm wrapper layouts under `lib/node_modules`.
+- Match regular wrapper scripts as well as symlinked Pi executables.
+- Add a live-layout regression reproducing the installed mise package structure.
+
 ## 0.14.0-alpha.15 — 2026-07-30
 
 ### Fixed

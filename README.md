@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.15**. Persistent inspection reports are rendered by the Markdown component and theme supplied by the active Pi host.
+Current release: **0.14.0-alpha.16**. Persistent inspection reports are rendered by the Markdown component and theme supplied by the active Pi host.
 
 ## Current status
 
