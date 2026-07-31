@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0-alpha.25 — 2026-07-31
+
+### Fixed
+
+- Rendered guided Markdown through quoted heredocs so backticks remain literal instead of executing slash commands and footer labels as shell command substitutions.
+- Injected the dynamic outside-workspace path separately without exposing the rest of the guide to expansion.
+- Refreshes all five guide files whenever `guided` starts, repairing existing alpha.24 runs without recreating workspaces or deleting recorded manual results.
+- Added regression assertions for `/status`, `git:`, `intel: disabled`, direct-shell examples, protected-file examples, and the fully rendered outside-workspace command.
+
 ## 0.14.0-alpha.24 — 2026-07-31
 
 ### Fixed

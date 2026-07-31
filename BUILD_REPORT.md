@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.24
+# Build Report — Atelier 0.14.0-alpha.25
 
 ## Result
 
@@ -16,6 +16,15 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.25 guided-guide rendering correction
+
+Alpha.25 corrects the generated Step 2 Markdown guide:
+
+- all Markdown backticks are emitted from quoted heredocs and are never interpreted as shell command substitution;
+- the dynamic outside-workspace path is injected through one isolated `printf` call;
+- starting `guided` rewrites guide files in place, preserving prepared repositories and recorded results; and
+- guided regressions verify the rendered slash command, footer labels, direct-shell commands, protected operations, and absolute outside-workspace path.
 
 ## Alpha.23 guided-verification initialization correction
 
@@ -106,7 +115,7 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.24
+Package:          atelier-prototype@0.14.0-alpha.25
 Files:            430
 Compressed size:  484,424 bytes
 Unpacked size:    2,270,791 bytes
@@ -130,8 +139,8 @@ live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.24` remains an interactive alpha. Guided verification now self-prepares missing workspaces and
-preserves pre-launch failures without terminal-reset flashes. Workspace containment and exact recoverability now form
+`0.14.0-alpha.25` remains an interactive alpha. Guided verification now self-prepares missing workspaces,
+refreshes literal Markdown instructions without resetting progress, and preserves pre-launch failures without terminal-reset flashes. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

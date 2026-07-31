@@ -222,7 +222,8 @@ Expected:
 Exit Pi with Ctrl-D.
 GUIDE
 
-  cat >"$GUIDED_ROOT/guides/02-policy-git.md" <<GUIDE
+  {
+    cat <<'GUIDE'
 # Step 2 — Git recoverability and concrete prompts
 
 Inside Pi, run `/status` first. The footer must use `git:` and `intel: disabled`.
@@ -235,27 +236,27 @@ Send this model message:
 
 ## Direct user shell — no approval expected
 
-\`!printf 'user shell create\\n' > manual-policy/user-created.txt\`
+`!printf 'user shell create\n' > manual-policy/user-created.txt`
 
-\`!rm manual-policy/clean-delete.txt\`
+`!rm manual-policy/clean-delete.txt`
 
-\`!rm manual-policy/dirty-delete.txt\`
+`!rm manual-policy/dirty-delete.txt`
 
-\`!printf 'read-only output\\n'\`
+`!printf 'read-only output\n'`
 
 The dirty tracked deletion must create a verified checkpoint automatically.
 
 ## Reject each protected or unrecoverable operation
 
-\`!cat .env.acceptance\`
+`!cat .env.acceptance`
 
-\`!rm manual-policy/untracked-delete.txt\`
+`!rm manual-policy/untracked-delete.txt`
 
-\`!rm manual-policy/ignored-delete.txt\`
-
-\`!printf 'outside\\n' > "$RUN_ROOT/outside-write-must-not-exist.txt"\`
-
-\`!node unknown-script.js\`
+`!rm manual-policy/ignored-delete.txt`
+GUIDE
+    printf '\n`!printf '\''outside\\n'\'' > "%s/outside-write-must-not-exist.txt"`\n\n' "$RUN_ROOT"
+    cat <<'GUIDE'
+`!node unknown-script.js`
 
 Expected reasons: secret access, unrecoverable untracked/ignored deletion, outside-workspace write, and indeterminate persistent effects.
 
@@ -263,10 +264,11 @@ Expected reasons: secret access, unrecoverable untracked/ignored deletion, outsi
 
 Send:
 
-> Use Bash to run exactly: printf 'model read-only output\\n'
+> Use Bash to run exactly: printf 'model read-only output\n'
 
 Exit Pi with Ctrl-D.
 GUIDE
+  } >"$GUIDED_ROOT/guides/02-policy-git.md"
 
   cat >"$GUIDED_ROOT/guides/03-policy-jj.md" <<'GUIDE'
 # Step 3 — Jujutsu native recovery
@@ -331,11 +333,7 @@ guided_workspaces_ready() {
     "$GUIDED_ROOT/policy-jj/repo"
     "$GUIDED_ROOT/control/env.sh"
     "$GUIDED_ROOT/control/repo"
-    "$GUIDED_ROOT/guides/01-intel-jj.md"
-    "$GUIDED_ROOT/guides/02-policy-git.md"
-    "$GUIDED_ROOT/guides/03-policy-jj.md"
-    "$GUIDED_ROOT/guides/04-approval.md"
-    "$GUIDED_ROOT/guides/05-control.md"
+    "$GUIDED_ROOT/.prepared"
   )
   local path
   for path in "${required[@]}"; do
@@ -480,6 +478,11 @@ run_guided() {
     fi
     log "guided workspaces are missing or incomplete; preparing them now"
     prepare_manual
+  else
+    # Guide files are disposable presentation artifacts. Refresh them on every
+    # guided run so corrected instructions repair an existing workspace without
+    # resetting prepared repositories or recorded manual outcomes.
+    write_guides
   fi
   (( start <= 1 )) && launch_step 1 intel-jj 'Jujutsu footer and persistent Markdown reports' jj ready
   (( start <= 2 )) && launch_step 2 policy-git 'Git recoverability and consequence-based prompts' git disabled

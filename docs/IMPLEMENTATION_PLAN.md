@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.24 (2026-07-31).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.25 (2026-07-31).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -17,7 +17,7 @@
 > signing-enabled workstation configuration cannot depend on credentials intentionally removed from child processes;
 > sandbox-dependent tests select their backend explicitly. Codesearch indexing now uses the bounded asynchronous
 > process runner so provider output survives timeout termination and unresponsive process groups are force-killed.
-> The guided verifier now initializes dependent paths safely, detects incomplete workspace sets, prepares them automatically before launch, and emits terminal-reset sequences only after Pi has entered the TUI. Executable regressions cover preparation, launch, evidence collection, recovery inspection, and result recording under `set -u`.
+> The guided verifier now initializes dependent paths safely, detects incomplete workspace sets, prepares them automatically before launch, emits terminal-reset sequences only after Pi has entered the TUI, and renders Markdown guides without shell-expanding backticks. Existing guided runs refresh corrected instructions in place without losing workspaces or results. Executable regressions cover preparation, literal guide rendering, launch, evidence collection, recovery inspection, and result recording under `set -u`.
 >
 > **Historical permission sections below are non-normative.** ADR-0032 and the delivered-status section
 > supersede every older design involving trusted projects, permission grants, capability bundles,
@@ -43,7 +43,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.24
+## Implementation Status — v0.14.0-alpha.25
 
 The current prototype delivers the guarded local workflow:
 

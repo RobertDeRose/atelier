@@ -46,7 +46,7 @@ test("guided verification resolves step workspace paths before launching and col
     ]) {
       writeFileSync(join(guidedRoot, "guides", guide), `# ${guide}\n`, "utf8");
     }
-
+    writeFileSync(join(guidedRoot, ".prepared"), "", "utf8");
 
     executable(join(fakeBin, "mise"), '[[ "${1:-}" == run && "${2:-}" == launch ]]');
     executable(
@@ -82,6 +82,8 @@ test("guided verification resolves step workspace paths before launching and col
     assert.equal(existsSync(join(runRoot, "atelier-guided-verification-evidence.tar.xz")), true);
     assert.equal(existsSync(join(evidence, "guided-policy-jj", "status.json")), true);
     assert.equal(existsSync(join(evidence, "guided-control", "status.json")), true);
+    const refreshedGuide = readFileSync(join(guidedRoot, "guides", "02-policy-git.md"), "utf8");
+    assert.match(refreshedGuide, /Inside Pi, run `\/status` first\. The footer must use `git:` and `intel: disabled`\./);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -152,6 +154,13 @@ test("guided verification auto-prepares missing workspaces and does not emit ter
     assert.equal(existsSync(join(runRoot, "guided", "policy-jj", "repo")), true);
     assert.equal(existsSync(join(runRoot, "guided", "control", "repo")), true);
     assert.equal(existsSync(join(runRoot, "guided", ".prepared")), true);
+
+    const policyGuide = readFileSync(join(runRoot, "guided", "guides", "02-policy-git.md"), "utf8");
+    assert.match(policyGuide, /Inside Pi, run `\/status` first\. The footer must use `git:` and `intel: disabled`\./);
+    assert.match(policyGuide, /`!rm manual-policy\/clean-delete\.txt`/);
+    assert.match(policyGuide, /`!cat \.env\.acceptance`/);
+    const outsideCommand = "`!printf 'outside\\n' > \"" + join(runRoot, "outside-write-must-not-exist.txt") + "\"`";
+    assert.equal(policyGuide.includes(outsideCommand), true, `missing rendered outside-workspace command: ${outsideCommand}`);
 
     const missingPointer = spawnSync("bash", [script, "status"], {
       cwd: process.cwd(),
