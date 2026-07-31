@@ -503,9 +503,39 @@ verify_shell_policy() {
   pass "all adversarial shell forms ask once for their concrete unrecoverable consequence"
 }
 
+capture_codesearch_diagnostics() {
+  local suffix="$1"
+  codesearch doctor >"$EVIDENCE_DIR/codesearch-doctor-$suffix.txt" 2>&1 || true
+  codesearch stats >"$EVIDENCE_DIR/codesearch-stats-$suffix.txt" 2>&1 || true
+  {
+    printf 'database_exists=%s\n' "$([[ -e .codesearch.db ]] && printf true || printf false)"
+    [[ ! -e .codesearch.db ]] || du -sh .codesearch.db
+    printf 'selection_state_exists=%s\n' "$([[ -e .atelier/codesearch-index-state.json ]] && printf true || printf false)"
+  } >"$EVIDENCE_DIR/codesearch-files-$suffix.txt" 2>&1
+}
+
+run_live_code_index() {
+  capture_codesearch_diagnostics before-index
+  set +e
+  "${ATLR_BIN[@]}" code index --json \
+    >"$EVIDENCE_DIR/code-index.json" \
+    2>"$EVIDENCE_DIR/code-index.stderr"
+  local status=$?
+  set -e
+  capture_codesearch_diagnostics after-index
+  if [[ "$status" -ne 0 ]]; then
+    cat "$EVIDENCE_DIR/code-index.stderr" >&2 || true
+    printf '\n--- codesearch doctor ---\n' >&2
+    cat "$EVIDENCE_DIR/codesearch-doctor-after-index.txt" >&2 || true
+    printf '\n--- codesearch stats ---\n' >&2
+    cat "$EVIDENCE_DIR/codesearch-stats-after-index.txt" >&2 || true
+    fail "Atelier codesearch indexing failed with status $status; diagnostics: $EVIDENCE_DIR"
+  fi
+}
+
 verify_code_intelligence() {
   log "live codesearch through the Atelier CLI"
-  "${ATLR_BIN[@]}" code index --json >"$EVIDENCE_DIR/code-index.json"
+  run_live_code_index
   "${ATLR_BIN[@]}" code status --json >"$EVIDENCE_DIR/code-status.json"
   "${ATLR_BIN[@]}" code search "Where is the authoritative task closure predicate implemented?" --json \
     >"$EVIDENCE_DIR/code-search-closure.json"

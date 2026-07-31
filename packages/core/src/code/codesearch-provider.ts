@@ -130,6 +130,11 @@ export class CodesearchProvider implements CodeProvider {
     this.workspace = workspace;
     const version = this.detectVersion();
     if (version === undefined) throw new Error(`codesearch executable not found: ${this.command}`);
+    const databasesPresentBeforeStartup = new Set(
+      workspace.repositories
+        .map((repository) => resolve(repository.root))
+        .filter((repositoryRoot) => existsSync(resolve(repositoryRoot, ".codesearch.db"))),
+    );
     await this.connect();
     this.indexState = "building";
     this.localIndexWarnings = [];
@@ -155,8 +160,17 @@ export class CodesearchProvider implements CodeProvider {
         // and requests one full rebuild whenever that fingerprint changes.
         const repositoryRoot = resolve(repository.root);
         const fingerprint = indexSelectionFingerprint(repositoryRoot, version);
-        const force = selectionState.repositories[repositoryRoot]?.fingerprint !== fingerprint;
-        this.runIndexCommand(["index", repository.root, ...(force ? ["--force"] : [])], repository.root, force ? "index --force" : "index");
+        const priorFingerprint = selectionState.repositories[repositoryRoot]?.fingerprint;
+        const selectionChanged = priorFingerprint !== fingerprint;
+        const existingHealth = databasesPresentBeforeStartup.has(repositoryRoot) && selectionChanged
+          ? this.readLocalVectorHealth(repository.root)
+          : undefined;
+        const force = existingHealth !== undefined && existingHealth.state !== "missing";
+        this.runIndexCommand(
+          ["index", repository.root, ...(force ? ["--force"] : [])],
+          repository.root,
+          force ? "index --force" : "index",
+        );
         const health = this.readLocalVectorHealth(repository.root);
         if (health.state !== "ready") {
           this.indexState = health.state;
@@ -189,7 +203,7 @@ export class CodesearchProvider implements CodeProvider {
     });
     if (result.error || result.status !== 0) {
       this.indexState = "failed";
-      throw new Error(`codesearch ${operation} failed for ${repositoryRoot}: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`);
+      throw new Error(formatIndexFailure(operation, repositoryRoot, result, this.indexTimeoutMs));
     }
   }
 
@@ -1138,6 +1152,27 @@ interface IndexSelectionState {
 }
 
 const INDEX_SELECTION_FILES = [".gitignore", ".codesearchignore", ".osgrepignore"] as const;
+
+function formatIndexFailure(
+  operation: string,
+  repositoryRoot: string,
+  result: ReturnType<typeof spawnSync>,
+  timeoutMs: number,
+): string {
+  const details: string[] = [];
+  const error = result.error as NodeJS.ErrnoException | undefined;
+  if (error?.code === "ETIMEDOUT") details.push(`timed out after ${timeoutMs} ms`);
+  else if (error !== undefined) details.push(error.message);
+  if (result.status !== null) details.push(`exit status ${result.status}`);
+  if (result.signal !== null) details.push(`signal ${result.signal}`);
+
+  const output = [result.stderr, result.stdout]
+    .map((value) => typeof value === "string" ? value.trim() : "")
+    .filter(Boolean)
+    .join("\n");
+  const summary = details.length === 0 ? "unknown failure" : details.join(", ");
+  return `codesearch ${operation} failed for ${repositoryRoot}: ${summary}${output ? `\n${output}` : ""}`;
+}
 
 function indexSelectionFingerprint(repositoryRoot: string, providerVersion: string): string {
   const hash = createHash("sha256");

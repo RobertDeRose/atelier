@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.20
+# Build Report — Atelier 0.14.0-alpha.21
 
 ## Result
 
@@ -16,6 +16,15 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.21 codesearch fresh-index and diagnostic correction
+
+Alpha.21 corrects the live codesearch failure exposed by the alpha.20 acceptance harness:
+
+- a fresh clone no longer receives `codesearch index --force` merely because MCP startup created the database before the CLI indexer ran;
+- an empty database left by an interrupted first index is retried through the normal index path;
+- populated indexes still receive one forced rebuild when corpus-selection inputs or provider version change; and
+- index failures retain the timeout/error metadata as well as partial provider output.
 
 ## Alpha.20 deterministic Git and sandbox-test correction
 
@@ -69,7 +78,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:  262 passed, 0 failed across 81 test files
+Deterministic tests:  266 passed, 0 failed across 81 test files
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -79,17 +88,17 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.20
+Package:          atelier-prototype@0.14.0-alpha.21
 Files:            430
-Compressed size:  483,146 bytes
-Unpacked size:    2,265,854 bytes
+Compressed size:  483,865 bytes
+Unpacked size:    2,269,032 bytes
 ```
 
 ## Verification boundary
 
 The correction review environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
 Node 24.18.0 and TypeScript 7 toolchain. The complete aggregate `npm run check` command completed in that
-environment: all 262 deterministic tests passed, the production build and CLI smoke workflow passed, and
+environment: all 266 deterministic tests passed, the production build and CLI smoke workflow passed, and
 the package dry-run contained all 372 built `dist/` files. The pinned Node 24 CI workflow remains
 authoritative for the exact supported runtime.
 
@@ -101,7 +110,7 @@ live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.20` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.21` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

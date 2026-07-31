@@ -29,8 +29,10 @@ knowledge archives, and committed real-provider response fixtures.
 For local codesearch operation, Atelier fingerprints the repository's `.gitignore`,
 `.codesearchignore`, and `.osgrepignore` contents together with the provider version.
 When that fingerprint differs from the last successful index, Atelier performs one
-`codesearch index <path> --force` rebuild. The fingerprint is recorded in ignored
-Atelier runtime state after vector readiness is verified.
+`codesearch index <path> --force` rebuild only when a populated database existed before
+provider startup. A fresh database, or an empty database left by an interrupted first
+index, uses the normal `codesearch index <path>` path. The fingerprint is recorded in
+ignored Atelier runtime state after vector readiness is verified.
 
 The baseline evaluator uses the same `.codesearchignore` file through ripgrep's
 `--ignore-file` option so baseline and provider comparisons operate on the same corpus.
@@ -40,7 +42,8 @@ ranked paths, scores, aggregate metrics, and conformance evidence.
 ## Consequences
 
 - Regression fixtures remain committed and testable without contaminating retrieval.
-- The first index after this decision performs a full rebuild.
+- Existing populated indexes perform one full rebuild after this decision.
+- Fresh and partially initialized empty indexes use the normal incremental path.
 - Later index operations remain incremental until selection inputs or provider version
   change.
 - Provider conformance fails if ignored fixture paths appear in captured results.

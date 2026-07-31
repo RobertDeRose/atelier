@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodesearchProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
@@ -21,17 +21,24 @@ if (args[0] === 'index') {
     console.error('Failed to acquire Lockfile: LockBusy');
     process.exit(1);
   }
+  fs.mkdirSync(${JSON.stringify(join(root, '.codesearch.db'))}, { recursive: true });
+  if (process.env.FAKE_INDEX_HANG === '1') {
+    console.error('index started but stalled');
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60_000);
+  }
   console.log('indexed'); process.exit(0);
 }
 if (args[0] === 'stats') {
   const indexed = process.env.FAKE_STATS_INDEXED !== '0';
+  const chunks = Number(process.env.FAKE_STATS_CHUNKS ?? '42');
   console.log('Vector Store:');
-  console.log('   Total chunks: 42');
-  console.log('   Total files: 4');
-  console.log('   Indexed: ' + (indexed ? '✅ Yes' : '❌ No'));
+  console.log('   Total chunks: ' + chunks);
+  console.log('   Total files: ' + (chunks > 0 ? '4' : '0'));
+  console.log('   Indexed: ' + (indexed && chunks > 0 ? '✅ Yes' : '❌ No'));
   process.exit(0);
 }
 if (args[0] !== 'mcp') process.exit(2);
+if (process.env.FAKE_MCP_CREATES_DB === '1') fs.mkdirSync(${JSON.stringify(join(root, '.codesearch.db'))}, { recursive: true });
 if (process.env.FAKE_MCP_LOCK === '1') fs.writeFileSync(mcpLock, String(process.pid));
 const cleanup = () => { try { fs.rmSync(mcpLock, { force: true }); } catch {} };
 process.on('SIGTERM', () => { cleanup(); process.exit(0); });
@@ -381,6 +388,101 @@ test("codesearch local indexing rejects an unbuilt vector index even when MCP re
   }
 });
 
+test("codesearch does not force a fresh index when MCP startup creates the database", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-fresh-database-"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_MCP_CREATES_DB: "1" },
+  });
+  try {
+    assert.equal(await provider.ensureIndex(workspace(root)), "ready");
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+    const indexCall = calls.find((args) => args[0] === "index" && args[1] === root);
+    assert.ok(indexCall);
+    assert.equal(indexCall.includes("--force"), false);
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codesearch repairs an existing empty database without forcing a rebuild", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-empty-database-"));
+  mkdirSync(join(root, ".codesearch.db"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_STATS_CHUNKS: "0" },
+  });
+  try {
+    await assert.rejects(provider.ensureIndex(workspace(root)), /vector store contains no indexed chunks/);
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+    const indexCall = calls.find((args) => args[0] === "index" && args[1] === root);
+    assert.ok(indexCall);
+    assert.equal(indexCall.includes("--force"), false);
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codesearch forces an existing index when selection state is missing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-existing-database-"));
+  mkdirSync(join(root, ".codesearch.db"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+  });
+  try {
+    assert.equal(await provider.ensureIndex(workspace(root)), "ready");
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+    const indexCall = calls.find((args) => args[0] === "index" && args[1] === root);
+    assert.ok(indexCall?.includes("--force"));
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codesearch index timeout reports the timeout and preserves partial output", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-index-timeout-"));
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 50,
+    pollIntervalMs: 5,
+    environment: { FAKE_INDEX_HANG: "1" },
+  });
+  try {
+    await assert.rejects(
+      provider.ensureIndex(workspace(root)),
+      /codesearch index failed.*timed out after 50 ms[\s\S]*index started but stalled/,
+    );
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("codesearch forces one local rebuild when repository selection inputs change", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-selection-"));
   const fake = fakeCodesearch(root);
@@ -411,7 +513,7 @@ test("codesearch forces one local rebuild when repository selection inputs chang
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
     const indexCalls = calls.filter((args) => args[0] === "index" && args[1] === root);
     assert.equal(indexCalls.length, 3);
-    assert.ok(indexCalls[0]?.includes("--force"));
+    assert.equal(indexCalls[0]?.includes("--force"), false);
     assert.equal(indexCalls[1]?.includes("--force"), false);
     assert.ok(indexCalls[2]?.includes("--force"));
 

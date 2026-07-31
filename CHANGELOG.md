@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0-alpha.21 — 2026-07-30
+
+### Fixed
+
+- Avoided `codesearch index --force` for a fresh repository, including when the initial MCP startup creates an empty `.codesearch.db` before local indexing begins.
+- Recovered an existing empty or partially initialized codesearch database through the normal incremental index path instead of repeating a forced rebuild.
+- Reserved forced codesearch rebuilds for populated indexes whose corpus-selection fingerprint is missing or changed.
+- Reported subprocess timeout, exit status, signal, stderr, and stdout together so partial provider output can no longer hide the actual indexing failure.
+- Added live-acceptance diagnostics that preserve the Atelier error plus direct codesearch doctor and statistics output on index failure.
+
 ## 0.14.0-alpha.20 — 2026-07-30
 
 ### Fixed

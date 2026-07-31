@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.20
+# Local Acceptance Workflow — 0.14.0-alpha.21
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -367,7 +367,7 @@ Pi /trust independence
 External runtime database
 Beads 0700 directory and idempotent initialization
 Generic shell boundary
-Code index and semantic search
+Code index and semantic search, including preserved doctor/statistics diagnostics on failure
 Explicit human symbol lookup
 Canonical scoped symbol inventory
 Plan-mode source protection
