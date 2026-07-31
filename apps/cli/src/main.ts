@@ -473,9 +473,8 @@ async function main(): Promise<void> {
       case "evidence": {
         const evidenceName = flagString(parsed, "name");
         const evidence = core.validation.list({
-          currentSnapshot: core.repository.snapshot(),
-          currentChangedPaths: core.repository.changedPaths()
-            .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/")),
+          currentSnapshot: core.currentValidationSnapshot(),
+          currentChangedPaths: core.currentSourceChangedPaths(),
           ...(evidenceName === undefined ? {} : { name: evidenceName }),
         });
         if (flagBoolean(parsed, "json")) asJson(evidence);

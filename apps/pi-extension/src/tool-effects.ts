@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+  classifyShellCommand,
   resolveSandboxBackend,
   type AtelierCore,
   type FilesystemEffect,
@@ -28,7 +29,12 @@ function words(segment: string): string[] {
 
 function pathFrom(cwd: string, value: string): string | undefined {
   const clean = value.replace(/[;,]$/, "");
-  if (!clean || clean === "-" || /[$`]|\$\(|[<>|;&]/.test(clean)) return undefined;
+  if (
+    !clean
+    || clean === "-"
+    || clean.startsWith("~")
+    || /[$`]|\$\(|[<>|;&*?\[\]{}]/.test(clean)
+  ) return undefined;
   return isAbsolute(clean) ? resolve(clean) : resolve(cwd, clean);
 }
 
@@ -284,6 +290,10 @@ function splitShellSegments(command: string): string[] {
 
 function shellEffects(command: string, cwd: string, runtimeConfined: boolean): FilesystemEffect[] {
   if (!command.trim()) return [{ kind: "execute", path: cwd, runtimeConfined, description: "empty shell command" }];
+  const classification = classifyShellCommand(command);
+  const classificationReadOnly = classification.action === "read.repository"
+    && classification.mutating === false
+    && classification.risk === "routine";
   const effects = explicitRedirections(command, cwd);
   // Command substitution can hide destructive path sets. The sandbox still
   // constrains writes, but exact recovery cannot be promised for destructive
@@ -293,6 +303,20 @@ function shellEffects(command: string, cwd: string, runtimeConfined: boolean): F
   }
   const segments = splitShellSegments(command);
   for (const segment of segments) effects.push(...segmentEffects(segment, cwd, runtimeConfined));
+  if (!classificationReadOnly && effects.every((effect) => effect.kind === "read")) {
+    if (classification.action === "network.access" || classification.risk === "external") {
+      effects.push({ kind: "network", description: classification.rationale.join("; ") || command });
+    } else {
+      effects.push({
+        kind: classification.risk === "destructive" ? "unknown" : "execute",
+        path: cwd,
+        runtimeConfined,
+        destructive: classification.risk === "destructive",
+        indeterminateDestructive: classification.risk === "destructive",
+        description: classification.rationale.join("; ") || command,
+      });
+    }
+  }
   return effects.length > 0 ? effects : [{ kind: "execute", path: cwd, runtimeConfined, description: command }];
 }
 
@@ -315,7 +339,7 @@ export function effectsForTool(event: any, ctx: ExtensionContext, core: AtelierC
       ? [{ kind: "unknown", description: "edit without a path" }]
       : [{ kind: existsSync(path) ? "mutate" : "create", path, preservesPrevious: true, description: "typed edit" }];
   }
-  if (event.toolName === "bash") return shellEffects(commandText(event), ctx.cwd, sandboxIsAvailable(core));
+  if (event.toolName === "bash") return effectsForShellCommand(commandText(event), ctx.cwd, sandboxIsAvailable(core));
   if (event.toolName.startsWith("atlr_code_") || event.toolName === "atlr_state") {
     return [{ kind: "read", path: ctx.cwd, description: `Atelier ${event.toolName} read` }];
   }
@@ -325,5 +349,18 @@ export function effectsForTool(event: any, ctx: ExtensionContext, core: AtelierC
 }
 
 export function effectsForUserBash(command: string, cwd: string, core: AtelierCore): FilesystemEffect[] {
-  return shellEffects(command, cwd, sandboxIsAvailable(core));
+  return effectsForShellCommand(command, cwd, sandboxIsAvailable(core));
+}
+
+/**
+ * Authoritative Pi shell-effect analysis. The hardened command classifier is
+ * a fail-closed gate over path-specific parsing so a command can inherit
+ * repository-read authorization only when both layers agree it is read-only.
+ */
+export function effectsForShellCommand(
+  command: string,
+  cwd: string,
+  runtimeConfined: boolean,
+): FilesystemEffect[] {
+  return shellEffects(command, cwd, runtimeConfined);
 }

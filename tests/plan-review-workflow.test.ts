@@ -29,7 +29,7 @@ function editor() {
   return { executable: "fake-editor", args: ["--wait"], source: "atlr" as const };
 }
 
-test("an unchanged plan review is durable completed ManualEdit evidence", () => {
+test("an unchanged plan review is durable completed ManualEdit evidence", async () => {
   const root = createTemporaryRepository("atlr-plan-review-unchanged-");
   const planPath = join(root, ".atelier", "PLAN.md");
   writeFileSync(planPath, VALID_PLAN, "utf8");
@@ -57,12 +57,12 @@ test("an unchanged plan review is durable completed ManualEdit evidence", () => 
     const eventPayload = JSON.stringify(core.ledger.listEvents({ kind: "manual_edit.completed" })[0]?.payload);
     assert.equal(eventPayload.includes(VALID_PLAN), false);
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("a completed review records additions, removals, and field edits", () => {
+test("a completed review records additions, removals, and field edits", async () => {
   const root = createTemporaryRepository("atlr-plan-review-diff-");
   const planPath = join(root, ".atelier", "PLAN.md");
   writeFileSync(planPath, VALID_PLAN, "utf8");
@@ -88,7 +88,7 @@ test("a completed review records additions, removals, and field edits", () => {
       change.id === "ATLR-001" && change.fields.includes("goal"),
     ));
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -126,7 +126,7 @@ test(
   },
 );
 
-test("blocking diagnostics complete the evidence but do not advance review", () => {
+test("blocking diagnostics complete the evidence but do not advance review", async () => {
   const root = createTemporaryRepository("atlr-plan-review-invalid-");
   const planPath = join(root, ".atelier", "PLAN.md");
   writeFileSync(planPath, VALID_PLAN, "utf8");
@@ -143,12 +143,12 @@ test("blocking diagnostics complete the evidence but do not advance review", () 
     assert.equal(core.ledger.getState("reviewedPlanHash"), undefined);
     assert.equal(core.currentWorkflowRun()?.checkpoint, "review_pending");
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("editor failure and interruption leave durable non-completed evidence", () => {
+test("editor failure and interruption leave durable non-completed evidence", async () => {
   const root = createTemporaryRepository("atlr-plan-review-failure-");
   const planPath = join(root, ".atelier", "PLAN.md");
   writeFileSync(planPath, VALID_PLAN, "utf8");
@@ -177,12 +177,12 @@ test("editor failure and interruption leave durable non-completed evidence", () 
     assert.equal(interrupted.signal, "SIGINT");
     assert.equal(core.ledger.getState("reviewedPlanHash"), undefined);
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("plan deletion records failure and cannot advance the reviewed checkpoint", () => {
+test("plan deletion records failure and cannot advance the reviewed checkpoint", async () => {
   const root = createTemporaryRepository("atlr-plan-review-deleted-");
   const planPath = join(root, ".atelier", "PLAN.md");
   writeFileSync(planPath, VALID_PLAN, "utf8");
@@ -197,7 +197,7 @@ test("plan deletion records failure and cannot advance the reviewed checkpoint",
     assert.equal(core.ledger.getManualEdit(started.id)?.status, "failed");
     assert.equal(core.currentWorkflowRun()?.checkpoint, "review_pending");
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -246,7 +246,7 @@ test("version-one ledgers migrate in place and workflow transitions are atomic",
   }
 });
 
-test("concurrent repository drift marks the review ambiguous and blocks advancement", () => {
+test("concurrent repository drift marks the review ambiguous and blocks advancement", async () => {
   const root = createTemporaryRepository("atlr-plan-review-drift-");
   const planPath = join(root, ".atelier", "PLAN.md");
   writeFileSync(planPath, VALID_PLAN, "utf8");
@@ -265,7 +265,7 @@ test("concurrent repository drift marks the review ambiguous and blocks advancem
     assert.equal(core.ledger.getState("reviewedPlanHash"), undefined);
     assert.equal(core.currentWorkflowRun()?.checkpoint, "review_pending");
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

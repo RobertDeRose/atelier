@@ -469,10 +469,18 @@ export interface ExecutionEvidence {
 export interface FinalDiffPreview {
   taskId: string;
   executionGrantId: string;
+  /** Primary-repository baseline retained for single-repository compatibility. */
   baselineHeadCommit: string;
   changedPaths: string[];
   diff: string;
   diffHash: string;
+  repositories?: Array<{
+    repositoryId: string;
+    repositoryRoot: string;
+    baselineHeadCommit: string;
+    changedPaths: string[];
+    diffHash: string;
+  }>;
 }
 
 export interface FinalDiffReview {
@@ -483,6 +491,14 @@ export interface FinalDiffReview {
   snapshot: RepositorySnapshot;
   changedPaths: string[];
   diffHash: string;
+  repositoryBindings?: RepositoryRevisionBinding[];
+  repositories?: Array<{
+    repositoryId: string;
+    repositoryRoot: string;
+    baselineHeadCommit: string;
+    changedPaths: string[];
+    diffHash: string;
+  }>;
   reviewedAt: string;
 }
 

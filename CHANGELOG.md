@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.14.0-alpha.19 — 2026-07-30
+
+### Security
+
+- Rejected repository-owned editor and provider executable overrides before provider construction; executable commands now come only from user configuration, controlled defaults, or `ATLR_EDITOR`.
+- Made the hardened shell classifier authoritative alongside Pi effect extraction so VCS mutations, command preprocessors, home-directory reads, and other parser disagreements cannot inherit repository-read authorization.
+- Required one concrete approval for every Bash or direct-user shell command when Seatbelt or Bubblewrap is unavailable, and passed unsandboxed permission only to that approved invocation.
+- Renamed the Bash surface from workspace-sandboxed to policy-controlled and exposed the lack of OS confinement in the approval text.
+
+### Correctness
+
+- Added workspace-wide source-content fingerprints for validation evidence and Working State so secondary-repository edits stale evidence while metadata-only commits do not.
+- Added coordinated multi-repository commits, repository-labelled final diffs, closure checks, workflow-metadata finalization, and partial-failure evidence.
+- Added end-to-end regressions for the authoritative shell path, malicious repository executable configuration, unsandboxed fallback approval, and complete two-repository task finalization.
+- Moved smoke and CLI fixtures to user-owned executable configuration.
+
 ## 0.14.0-alpha.18 — 2026-07-30
 
 - Added expandable, visually separated report cards with horizontal dividers and `➤`/`▼` headers driven by Pi's persistent-entry expansion state.

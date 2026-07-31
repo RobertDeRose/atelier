@@ -49,6 +49,7 @@ function fakeContext(
     abort?: () => void;
     waitForIdle?: () => Promise<void>;
     confirmResult?: boolean;
+    confirmResults?: boolean[];
     renderCustom?: boolean;
   } = {},
 ): ExtensionCommandContext {
@@ -67,7 +68,7 @@ function fakeContext(
       confirm: async (_title: string, body: string) => {
         confirms.count += 1;
         observations.confirmationBodies?.push(body);
-        return observations.confirmResult ?? true;
+        return observations.confirmResults?.shift() ?? observations.confirmResult ?? true;
       },
       select: async () => undefined,
       notify: (message: string) => { observations.notifications?.push(message); },
@@ -204,6 +205,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     taskProvider: "none",
     repositoryProvider: "git",
     codeProvider: "mock",
+    sandboxBackend: "none",
   }));
   const confirms = { count: 0 };
   const statuses: string[] = [];
@@ -235,14 +237,14 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     input: { command: "git log -3 --oneline && printf 'status\\n' && git status --short" },
   }, context);
   assert.equal(readOnlyCompound, undefined);
-  assert.equal(confirms.count, 0, "read-only shell effects inside the workspace should not prompt");
+  assert.equal(confirms.count, 1, "unsandboxed shell requires exact one-operation approval even for parsed reads");
   const shellLedger = new SqliteLedger(testDatabasePath(root));
   const shellDecision = shellLedger.listEvents({ kind: "workspace_policy.decision", limit: 30 })
     .map((event) => event.payload as { result?: string; effects?: Array<{ kind?: string; decision?: string }> })
     .find((decision) => decision.result === "allow"
       && decision.effects?.every((effect) => effect.kind === "read" && effect.decision === "allow"));
   shellLedger.close();
-  assert.ok(shellDecision, "sandboxed read-only shell effects must be allowed by the workspace policy");
+  assert.ok(shellDecision, "read-only shell effects must still pass through workspace policy before explicit fallback approval");
 
 
   for (const command of [
@@ -256,7 +258,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     }, context);
     assert.equal(allowed, undefined, `provider-first discovery must remain advisory for: ${command}`);
   }
-  assert.equal(confirms.count, 0, "read-only sandboxed discovery must not prompt");
+  assert.equal(confirms.count, 4, "each unsandboxed discovery command must receive exact one-operation approval");
   assert.ok(notifications.some((message) => /Atelier advisory: prefer current provider evidence/i.test(message)));
 
   const allowedRawScan = await events.get("tool_call")!({
@@ -264,7 +266,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     input: { command: "find examples -type f 2>/dev/null; rg -n 'policy' packages | head -20" },
   }, context);
   assert.equal(allowedRawScan, undefined);
-  assert.equal(confirms.count, 0);
+  assert.equal(confirms.count, 5);
 
   const agentStart = await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
   assert.match(agentStart?.systemPrompt ?? "", /Provider-first retrieval is advisory/i);
@@ -290,7 +292,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     input: { path: root, pattern: "*.ts" },
   }, context);
   assert.equal(allowedFallback, undefined);
-  assert.equal(confirms.count, 0, "typed reads inside the workspace do not require shell approvals");
+  assert.equal(confirms.count, 5, "typed reads do not add approval prompts beyond the unsandboxed shell operations");
 
   await events.get("session_shutdown")!({}, context);
 });
@@ -939,7 +941,7 @@ test("an explicit per-turn no-Bash/no-validation/no-commit/no-close instruction 
   await setup.close();
 
   const confirms = { count: 0 };
-  const context = fakeContext(root, confirms, [], { confirmResult: false });
+  const context = fakeContext(root, confirms, [], { confirmResult: true });
   try {
     await events.get("input")!({
       text: "Use only read, edit, and write. Do not use Bash, do not run validation, do not commit, and do not close the task. Then stop.",
@@ -982,7 +984,7 @@ test("an explicit per-turn no-Bash/no-validation/no-commit/no-close instruction 
       input: { command: "printf ok" },
     }, context);
     assert.equal(afterSettle, undefined, "the next turn returns to ordinary workspace-recoverability semantics");
-    assert.equal(confirms.count, 0, "a read-only sandboxed shell command should not prompt after the turn policy clears");
+    assert.equal(confirms.count, 1, "without an OS sandbox, the cleared turn still requires exact shell approval");
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });
@@ -1138,7 +1140,11 @@ test("model Bash and direct user shell share one workspace-policy authorization 
     sandboxBackend: "none",
   }), "utf8");
   const confirms = { count: 0 };
-  const context = fakeContext(root, confirms, [], { confirmResult: false });
+  const confirmationBodies: string[] = [];
+  const context = fakeContext(root, confirms, [], {
+    confirmationBodies,
+    confirmResults: [true, true, false],
+  });
   try {
     await events.get("session_start")!({}, context);
     const bash = tools.get("bash");
@@ -1150,7 +1156,8 @@ test("model Bash and direct user shell share one workspace-policy authorization 
       input: { command: "printf model-ok" },
     }, context);
     assert.equal(authorized, undefined);
-    assert.equal(confirms.count, 0, "a parsed read-only command must not prompt");
+    assert.equal(confirms.count, 1, "an unsandboxed parsed read requires exact one-operation approval");
+    assert.match(confirmationBodies[0] ?? "", /without OS(?:-level)? confinement/i);
     const modelResult = await bash!.execute(
       "model-read-shell",
       { command: "printf model-ok" },
@@ -1178,7 +1185,8 @@ test("model Bash and direct user shell share one workspace-policy authorization 
     });
     assert.equal(userResult.exitCode, 0);
     assert.match(userOutput, /user-ok/);
-    assert.equal(confirms.count, 0);
+    assert.equal(confirms.count, 2);
+    assert.match(confirmationBodies[1] ?? "", /without OS(?:-level)? confinement/i);
 
     const deniedModel = await events.get("tool_call")!({
       toolCallId: "model-unknown-shell",
@@ -1186,12 +1194,13 @@ test("model Bash and direct user shell share one workspace-policy authorization 
       input: { command: "node unknown-script.js" },
     }, context);
     assert.equal(deniedModel?.block, true);
-    assert.match(deniedModel?.reason ?? "", /user denied/i);
+    assert.match(deniedModel?.reason ?? "", /investigate mode is read-only/i);
+    assert.equal(confirms.count, 2, "workflow-denied commands must not prompt or create recovery state");
 
     const deniedUser = await events.get("user_bash")!({ command: "node unknown-script.js" }, context);
     assert.equal(deniedUser?.block, true);
     assert.match(deniedUser?.reason ?? "", /user denied/i);
-    assert.equal(confirms.count, 2, "model and direct-user unknown execution each require one concrete approval");
+    assert.equal(confirms.count, 3, "every executable unsandboxed command requires one concrete approval");
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });

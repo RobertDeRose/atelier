@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.18
+# Build Report — Atelier 0.14.0-alpha.19
 
 ## Result
 
@@ -16,6 +16,17 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.19 execution-boundary and workspace-finalization correction
+
+Alpha.19 closes the remaining review defects at the active authorization and repository boundaries:
+
+- repository project configuration may no longer select provider or editor executables;
+- Pi shell-effect extraction and the hardened core classifier must agree before a command receives read-only workflow authority;
+- every shell command receives a concrete one-operation warning and approval when Seatbelt or Bubblewrap is unavailable;
+- unsandboxed execution authority is limited to the exact approved invocation;
+- the adversarial corpus exercises effect extraction, workflow authorization, workspace policy, and executor selection together; and
+- reviewed multi-repository tasks now use workspace-wide validation freshness, scoped per-repository commits, combined final-diff review, clean-state checks, metadata finalization, and explicit partial-failure reporting.
 
 ## Alpha.18 expandable report-card correction
 
@@ -49,7 +60,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:  258 passed, 0 failed
+Deterministic tests:  261 passed, 0 failed across 81 test files
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -59,23 +70,29 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.18
-Files:            425
-Compressed size:  473,005 bytes
-Unpacked size:    2,212,956 bytes
+Package:          atelier-prototype@0.14.0-alpha.19
+Files:            430
+Compressed size:  482,555 bytes
+Unpacked size:    2,264,265 bytes
 ```
 
 ## Verification boundary
 
-The available build environment did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap`
-binary. Exact Git recovery is exercised against real Git repositories. Jujutsu operation recovery and
-sandbox command construction are covered by deterministic fixtures and fail-closed tests; live Jujutsu,
-Seatbelt, Bubblewrap, codesearch, Beads, and Pi/Bun checks remain the responsibility of the pinned mise
-and live-conformance environments.
+The correction review environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
+Node 24.18.0 and TypeScript 7 toolchain. All 81 deterministic test files were therefore executed
+independently with the repository test environment and bounded concurrency: 261 tests passed with zero
+failures. The aggregate Node 22 test-runner process did not terminate reliably after its child tests
+completed, so the pinned Node 24 CI workflow remains authoritative for the aggregate `npm test` command.
+
+The environment also did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap` binary. Exact
+Git recovery is exercised against real Git repositories. Jujutsu operation recovery and sandbox command
+construction are covered by deterministic fixtures and fail-closed tests; live Jujutsu, Seatbelt,
+Bubblewrap, codesearch, Beads, and Pi/Bun checks remain the responsibility of the pinned mise and
+live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.18` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.19` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

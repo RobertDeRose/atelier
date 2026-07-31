@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.18 (2026-07-30).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.19 (2026-07-30).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -10,6 +10,10 @@
 > Exact approval binds source, all workspace roots, retrieval revisions, reconciliation, and reviewed task
 > constraints, but remains idle until the user explicitly requests implementation. Closure requires
 > current required validation, exact final-diff review, a local change, and configured clean state.
+> Repository files cannot select provider/editor executables. Shell authorization requires agreement between
+> the hardened classifier and concrete-effect parser; when no OS sandbox is available, every exact command
+> receives one explicit unsandboxed approval. Reviewed commits, diff review, validation freshness, and closure
+> now span every changed workspace repository.
 >
 > **Historical permission sections below are non-normative.** ADR-0032 and the delivered-status section
 > supersede every older design involving trusted projects, permission grants, capability bundles,
@@ -35,7 +39,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.18
+## Implementation Status — v0.14.0-alpha.19
 
 The current prototype delivers the guarded local workflow:
 
@@ -52,7 +56,9 @@ The current prototype delivers the guarded local workflow:
 - deterministic Working State reconstruction across Pi restart and compaction;
 - Jujutsu-first repository identity with Git compatibility;
 - bounded provider-first codesearch retrieval with provenance, reuse, invalidation, and multi-repository isolation; and
-- matching CLI/Pi commands for review, approval, execution, cancellation, validation, evidence, status, and state; and
+- matching CLI/Pi commands for review, approval, execution, cancellation, validation, evidence, status, and state;
+- user-owned executable selection plus fail-closed per-command approval when shell confinement is unavailable;
+- workspace-wide scoped commits, combined diff review, source-content validation freshness, metadata finalization, and closure; and
 - persistent TUI-only Markdown reports for operational inspection, plus a guided evidence-gathering harness that keeps instructions outside the Pi viewport.
 
 The portable acceptance fixtures in `tests/acceptance-workflow.test.ts`, `tests/workspace-policy.test.ts`, and `tests/recovery-manager.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `LOCAL_ACCEPTANCE.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their “planned” wording does not override this delivered-status section.

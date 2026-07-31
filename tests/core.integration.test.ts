@@ -6,7 +6,7 @@ import { AtelierCore } from "../packages/core/src/core.ts";
 import { DisabledCodeProvider } from "../packages/core/src/code/disabled-provider.ts";
 import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
 
-test("plan review resumes across a Core restart", () => {
+test("plan review resumes across a Core restart", async () => {
   const root = createTemporaryRepository("atlr-core-review-restart-");
   const planPath = join(root, ".atelier", "PLAN.md");
   writeFileSync(planPath, VALID_PLAN, "utf8");
@@ -17,7 +17,7 @@ test("plan review resumes across a Core restart", () => {
     const started = core.beginPlanReview({
       editor: { executable: "fake-editor", args: [], source: "atlr" },
     });
-    core.close();
+    await core.close();
 
     core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
     assert.equal(core.currentWorkflowRun()?.checkpoint, "reviewing");
@@ -30,7 +30,7 @@ test("plan review resumes across a Core restart", () => {
     assert.equal(core.currentWorkflowRun()?.checkpoint, "reviewed");
     assert.equal(core.ledger.getState("reviewedPlanHash"), completed.afterHash);
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -68,7 +68,7 @@ test("review, approval, reconciliation, and Working State form a runnable vertic
     assert.equal(status.planObjective, "Build the guarded core from durable state");
     assert.equal(status.taskProvider.provider, "memory");
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

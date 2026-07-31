@@ -4,10 +4,20 @@
 > 29 recommendations. Alpha.11 removes the policy engine, permission grants, trust gates, and universally
 > unconfined-shell model described in older entries. ADR-0032 is the current filesystem authority.
 
-This document maps each recommendation from the critical review of commit `286e2bc14edb` to the
-0.14.0-alpha.10 implementation. The release remains a trusted-repository alpha. “Corrected” means the
-specific unsound claim or behavior was removed, constrained, or made fail-closed; it does not mean that
-Atelier now supplies an operating-system sandbox.
+
+## Alpha.19 correction to the historical disposition
+
+The alpha.18 follow-up review found that recommendations 1–6 and 24 were not fully closed by the historical alpha.10 implementation. Alpha.19 corrects the active implementation rather than relying on the superseded descriptions below:
+
+- repository `.atelier/config.json` can no longer select `editor`, `beadsCommand`, `jjCommand`, `codeCommand`, or `octocodeCommand`;
+- the hardened classifier and Pi effect parser must both agree before Bash can inherit repository-read workflow authorization;
+- the adversarial corpus now exercises the complete effect → workflow → workspace-policy path;
+- lack of Seatbelt/Bubblewrap forces one explicit approval for every shell command and grants unsandboxed execution only to that invocation; and
+- multi-repository tasks now perform scoped commits, combined diff review, validation freshness, metadata finalization, and closure across every changed repository.
+
+See ADR-0035 and `tests/security-boundary.test.ts`, `tests/pi-extension.test.ts`, and `tests/multi-repository-correctness.test.ts`.
+
+The entries below map the original review to the historical 0.14.0-alpha.10 implementation. They are retained for traceability and are not the current authorization specification. ADR-0032 and ADR-0035 define the active model. Alpha.19 remains an interactive alpha: Seatbelt or Bubblewrap provides confinement where available; otherwise exact, one-operation approval is required and the lack of confinement is explicit.
 
 ## Recommendation 1 — Default generic shell to approval-required
 

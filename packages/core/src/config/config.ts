@@ -120,6 +120,28 @@ function mergeConfig(base: PartialAtelierConfig, override: PartialAtelierConfig)
   return { ...base, ...Object.fromEntries(Object.entries(override).filter(([, value]) => value !== undefined)) };
 }
 
+const USER_CONTROLLED_EXECUTABLE_FIELDS = [
+  "editor",
+  "beadsCommand",
+  "jjCommand",
+  "codeCommand",
+  "octocodeCommand",
+] as const satisfies readonly (keyof PartialAtelierConfig)[];
+
+function rejectRepositoryExecutableConfiguration(
+  repositoryConfig: PartialAtelierConfig,
+  projectConfigPath: string,
+): void {
+  const configured = USER_CONTROLLED_EXECUTABLE_FIELDS.filter(
+    (field) => Object.prototype.hasOwnProperty.call(repositoryConfig, field),
+  );
+  if (configured.length === 0) return;
+  throw new ConfigurationError(
+    `Repository configuration cannot select executable commands (${configured.join(", ")}): ${projectConfigPath}. `
+    + "Move executable command overrides to the user Atelier configuration or ATLR_EDITOR.",
+  );
+}
+
 function resolveFromRoot(root: string, value: string): string {
   return isAbsolute(value) ? resolve(value) : resolve(root, value);
 }
@@ -154,6 +176,7 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
   const projectConfigPath = resolve(projectDirectory, "config.json");
   const userConfig = readJsonConfig(userConfigPath());
   const repositoryConfig = readJsonConfig(projectConfigPath);
+  rejectRepositoryExecutableConfiguration(repositoryConfig, projectConfigPath);
   const merged = mergeConfig(userConfig, repositoryConfig);
 
   const runtimeValue = userConfig.runtimeDirectory ?? userConfig.stateDirectory;
@@ -174,16 +197,16 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
   const octocodeConfigPath = userConfig.octocodeConfigPath !== undefined
     ? resolveFromRoot(root, userConfig.octocodeConfigPath)
     : requireProjectPath(root, repositoryConfig.octocodeConfigPath ?? ".atelier/octocode-config.toml", "octocodeConfigPath");
-  const editor = process.env.ATLR_EDITOR ?? merged.editor;
+  const editor = process.env.ATLR_EDITOR ?? userConfig.editor;
   return {
     repositoryRoot: root,
     workspaceRoot: workspace.root,
     workspaceSource: workspace.source,
     projectDirectory, projectConfigPath, validationPath, workspacePath, runtimeDirectory, stateDirectory: runtimeDirectory, databasePath, planPath,
     ...(editor === undefined ? {} : { editor }),
-    taskProvider, beadsCommand: merged.beadsCommand ?? "bd", repositoryProvider, jjCommand: merged.jjCommand ?? "jj",
+    taskProvider, beadsCommand: userConfig.beadsCommand ?? "bd", repositoryProvider, jjCommand: userConfig.jjCommand ?? "jj",
     indexSchemaVersion: merged.indexSchemaVersion ?? 1, longRunningThresholdMs: merged.longRunningThresholdMs ?? 300_000,
-    codeProvider, codeCommand: merged.codeCommand ?? "codesearch", octocodeCommand: merged.octocodeCommand ?? "octocode", octocodeConfigPath, codeMode,
+    codeProvider, codeCommand: userConfig.codeCommand ?? "codesearch", octocodeCommand: userConfig.octocodeCommand ?? "octocode", octocodeConfigPath, codeMode,
     codeTimeoutMs: merged.codeTimeoutMs ?? 60_000, codeIndexTimeoutMs: merged.codeIndexTimeoutMs ?? 300_000,
     codeMaxResults: merged.codeMaxResults ?? 10, codeMaxPreviewBytes: merged.codeMaxPreviewBytes ?? 2_000, codeMaxChunkBytes: merged.codeMaxChunkBytes ?? 16_000,
     codeMaxFetches: merged.codeMaxFetches ?? 8, codeMaxTotalBytes: merged.codeMaxTotalBytes ?? 64_000, codeMaxProviderRequests: merged.codeMaxProviderRequests ?? 8,

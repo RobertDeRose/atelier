@@ -38,7 +38,7 @@ import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "
 import { contextCapsulePrompt, createAuthoritativeContextCapsule } from "./authoritative-context.ts";
 import { createAtelierBashOperations } from "./bash-operations.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
-import { authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
+import { authorizeShellEffects, authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
 import { effectsForTool, effectsForUserBash } from "./tool-effects.ts";
 import {
   eventInputText,
@@ -107,7 +107,7 @@ interface ExtensionSessionState {
   stopIndexStatusUpdates?: () => void;
   lastCompletionNotice?: string;
   turnPolicy?: TurnToolPolicy;
-  authorizedShellToolCalls: Set<string>;
+  authorizedShellToolCalls: Map<string, { allowUnsandboxed: boolean }>;
   thinkingLevel?: string;
 }
 
@@ -126,7 +126,7 @@ function sessionState(ctx: ExtensionContext): ExtensionSessionState {
     sessionId: `pi-${randomUUID()}`,
     reviewInProgress: false,
     advisorySent: false,
-    authorizedShellToolCalls: new Set<string>(),
+    authorizedShellToolCalls: new Map<string, { allowUnsandboxed: boolean }>(),
   };
   SESSION_STATES.set(key, created);
   return created;
@@ -421,9 +421,9 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   registerWorkflowTools(pi, getCore);
   pi.registerTool({
     name: "bash",
-    label: "bash (Atelier workspace sandbox)",
-    description: "Run a shell command inside the immutable Atelier workspace. Persistent writes outside the workspace, likely credential paths, and network access are blocked by the configured OS sandbox.",
-    promptSnippet: "Run workspace-confined shell commands through Atelier's OS sandbox",
+    label: "bash (Atelier policy-controlled)",
+    description: "Run a shell command through Atelier effect analysis and workspace policy. An OS sandbox is used when available; otherwise the exact command requires an explicit one-operation approval before unsandboxed execution.",
+    promptSnippet: "Use Atelier's policy-controlled shell; prefer typed tools and expect explicit approval when no OS sandbox is available",
     parameters: objectSchema({
       command: stringSchema("Shell command to execute."),
       timeout: { type: "number", description: "Optional timeout in seconds." },
@@ -431,8 +431,9 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const core = getCore(ctx);
       const state = sessionState(ctx);
-      const authorized = state.authorizedShellToolCalls.delete(toolCallId);
-      if (!authorized) {
+      const authorization = state.authorizedShellToolCalls.get(toolCallId);
+      state.authorizedShellToolCalls.delete(toolCallId);
+      if (authorization === undefined) {
         return {
           content: [{ type: "text", text: "Atelier shell execution failed closed because no matching workspace-policy authorization was recorded." }],
           details: { error: "missing_workspace_authorization" },
@@ -444,7 +445,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const operations = createAtelierBashOperations({
         workspace: core.config.workspaceRoot,
         backend: core.config.sandboxBackend,
-        allowUnsandboxed: true,
+        allowUnsandboxed: authorization.allowUnsandboxed,
       });
       try {
         const result = await operations.exec(input.command, ctx.cwd, {
@@ -704,14 +705,20 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       ctx.ui.notify("Atelier advisory: prefer current provider evidence or one focused code query before broad raw discovery. This is guidance, not an authorization block.", "warning");
     }
     const effects = effectsForTool(event, ctx, core);
-    const workspaceAuthorization = await authorizeWorkspaceEffects(effects, ctx, core, {
-      toolCallId: event.toolCallId,
-      sessionId: extensionState.sessionId,
-    });
-    if (workspaceAuthorization.response !== undefined) return workspaceAuthorization.response;
-    if (event.toolName === "bash") extensionState.authorizedShellToolCalls.add(event.toolCallId);
     const request = requestForTool(event, ctx, core, effects);
     const authorization = await authorizeTool(request, ctx, core);
+    if (authorization.response !== undefined) return authorization.response;
+
+    // Reject operations that violate the active workflow before creating a
+    // recovery checkpoint or asking the user to approve an execution mode.
+    const authorizationOptions = { toolCallId: event.toolCallId, sessionId: extensionState.sessionId };
+    const workspaceAuthorization = event.toolName === "bash"
+      ? await authorizeShellEffects(effects, ctx, core, authorizationOptions)
+      : await authorizeWorkspaceEffects(effects, ctx, core, authorizationOptions);
+    if (workspaceAuthorization.response !== undefined) return workspaceAuthorization.response;
+    if (event.toolName === "bash") extensionState.authorizedShellToolCalls.set(event.toolCallId, {
+      allowUnsandboxed: "allowUnsandboxed" in workspaceAuthorization && workspaceAuthorization.allowUnsandboxed === true,
+    });
     if (
       authorization.response === undefined
       && request.action !== "read.repository"
@@ -737,21 +744,14 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   pi.on("user_bash", async (event, ctx) => {
     const command = typeof event.command === "string" ? event.command : "";
     const core = getCore(ctx);
-    const extensionState = sessionState(ctx);
-    const authorization = await authorizeWorkspaceEffects(
-      effectsForUserBash(command, ctx.cwd, core),
-      ctx,
-      core,
-      { toolCallId: `user-bash-${randomUUID()}`, sessionId: extensionState.sessionId },
-    );
+    const authorization = await authorizeShellEffects(effectsForUserBash(command, ctx.cwd, core), ctx, core, {
+      toolCallId: `user-bash-${randomUUID()}`, sessionId: sessionState(ctx).sessionId,
+    });
     if (authorization.response !== undefined) return authorization.response;
-    return {
-      operations: createAtelierBashOperations({
-        workspace: core.config.workspaceRoot,
-        backend: core.config.sandboxBackend,
-        allowUnsandboxed: true,
-      }),
-    };
+    return { operations: createAtelierBashOperations({
+      workspace: core.config.workspaceRoot, backend: core.config.sandboxBackend,
+      allowUnsandboxed: authorization.allowUnsandboxed,
+    }) };
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -1264,9 +1264,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const items = core.validation.list({
-        currentSnapshot: core.repository.snapshot(),
-        currentChangedPaths: core.repository.changedPaths()
-          .filter((path) => path !== ".atelier" && !path.startsWith(".atelier/")),
+        currentSnapshot: core.currentValidationSnapshot(),
+        currentChangedPaths: core.currentSourceChangedPaths(),
       });
       appendAtelierReport(pi, ctx, "Validation evidence", evidenceMarkdown(items), `${items.filter((item) => !item.stale).length} current · ${items.filter((item) => item.stale).length} stale`);
     },

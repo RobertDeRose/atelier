@@ -65,16 +65,18 @@ console.error("unsupported", args); process.exit(2);
 test("CLI review, exact approval, cancellation, and JSON workflow remain coordinated", () => {
   const root = createTemporaryRepository("atlr-cli-workflow-");
   const beads = installFakeBeads(root);
-  const editor = join(root, "editor.mjs");
+  const editor = `${root}-editor.mjs`;
   writeFileSync(editor, "#!/usr/bin/env node\nprocess.exit(0);\n", "utf8");
   chmodSync(editor, 0o755);
   writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
     taskProvider: "beads",
-    beadsCommand: beads,
     repositoryProvider: "git",
     codeProvider: "disabled",
-    editor,
   }), "utf8");
+  const userConfig = `${root}-user-config.json`;
+  const previousUserConfig = process.env.ATLR_USER_CONFIG;
+  writeFileSync(userConfig, JSON.stringify({ beadsCommand: beads, editor }), "utf8");
+  process.env.ATLR_USER_CONFIG = userConfig;
   writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
 
   try {
@@ -136,6 +138,10 @@ test("CLI review, exact approval, cancellation, and JSON workflow remain coordin
     assert.equal(cancelled.status, 0, cancelled.stderr);
     assert.equal(JSON.parse(cancelled.stdout).executionGrant.status, "revoked");
   } finally {
+    if (previousUserConfig === undefined) delete process.env.ATLR_USER_CONFIG;
+    else process.env.ATLR_USER_CONFIG = previousUserConfig;
+    rmSync(userConfig, { force: true });
+    rmSync(editor, { force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

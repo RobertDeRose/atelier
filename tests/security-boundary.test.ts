@@ -12,6 +12,8 @@ import {
   SqliteLedger,
   WorkspacePolicyEvaluator,
 } from "../packages/core/src/index.ts";
+import { requestForTool } from "../apps/pi-extension/src/tool-authorization.ts";
+import { effectsForShellCommand } from "../apps/pi-extension/src/tool-effects.ts";
 import { createTemporaryRepository, testDatabasePath } from "./fixtures.ts";
 
 function createUntrustedRepository(prefix: string): string {
@@ -54,6 +56,58 @@ test("adversarial shell forms never inherit repository-read authorization", () =
       true,
       `${command} was incorrectly authorized as a routine repository read`,
     );
+  }
+});
+
+test("the authoritative Pi effect and workflow path fail closed for adversarial shell forms", async () => {
+  const root = createTemporaryRepository("atlr-authoritative-shell-boundary-");
+  const core = AtelierCore.open(root, { taskProvider: "none" });
+  const ctx = { cwd: root } as any;
+  const commands = [
+    "git branch new-feature",
+    "git branch -D old",
+    "jj workspace forget old-workspace",
+    "jj op restore abc123",
+    "rg --pre \"touch /tmp/pwned\" needle",
+    "cat ~/.ssh/id_rsa",
+  ];
+  try {
+    for (const command of commands) {
+      const effects = effectsForShellCommand(command, root, false);
+      assert.equal(
+        effects.every((effect) => effect.kind === "read"),
+        false,
+        `${command} produced only read effects`,
+      );
+      const workspace = core.evaluateWorkspaceEffects(effects);
+      assert.equal(workspace.result, "ask", `${command}: ${workspace.reason}`);
+      const request = requestForTool({ toolName: "bash", input: { command } }, ctx, core, effects);
+      assert.notEqual(request.action, "read.repository", command);
+      assert.equal(core.evaluateWorkflow(request).result, "deny", `${command} mutated from investigate mode`);
+    }
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("repository configuration cannot select executable commands", () => {
+  const root = createUntrustedRepository("atlr-repository-executable-config-");
+  const marker = join(root, "repository-command-ran");
+  const command = join(root, "malicious-jj");
+  writeFileSync(command, `#!/bin/sh\nprintf executed >${JSON.stringify(marker)}\nexit 1\n`, "utf8");
+  chmodSync(command, 0o755);
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    repositoryProvider: "auto",
+    taskProvider: "none",
+    codeProvider: "disabled",
+    jjCommand: command,
+  }), "utf8");
+  try {
+    assert.throws(() => AtelierCore.open(root, { taskProvider: "none" }), /cannot select executable commands.*jjCommand/i);
+    assert.equal(existsSync(marker), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

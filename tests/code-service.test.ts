@@ -53,7 +53,7 @@ test("code indexing coordinator coalesces requests and makes search wait for the
     assert.deepEqual(statuses, ["unknown:false", "building:true", "ready:false"]);
     unsubscribe();
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -83,7 +83,7 @@ test("code provider contract supports multi-repository normalized search with pr
     assert.ok(results.some((result) => result.repositoryId === "api"));
     assert.ok(results.some((result) => result.repositoryId === "ui"));
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -102,7 +102,7 @@ test("Working State consumes normalized provider evidence without owning an inde
     assert.equal("symbolEvidence" in state, false);
     assert.equal("changedSymbols" in state, false);
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -136,7 +136,7 @@ test("repeated Working State builds reuse one provider request at the same revis
       "resolved exact identifiers must not trigger another provider request",
     );
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -169,7 +169,7 @@ test("planning mode retrieves code from the durable objective before a task exis
     assert.equal(state.codeEvidence[0]?.queryPurpose, "plan_objective");
     assert.equal(state.codeEvidence[0]?.path, "packages/core/src/state/working-state-builder.ts");
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -5,13 +5,13 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.18**. Persistent inspection reports are rendered by the Markdown component and theme supplied by the active Pi host.
+Current release: **0.14.0-alpha.19**. Repository-owned executable overrides are rejected, unsandboxed shell fallback is explicitly approved per command, and reviewed multi-repository tasks now finalize across every changed repository.
 
 ## Current status
 
 Atelier establishes an immutable session workspace from the canonical startup directory. Ordinary non-secret reads, file creation, and recoverable in-workspace mutations proceed without setup or repetitive approval. Atelier asks only when an operation may escape the workspace, expose a likely secret, require privilege escalation, or cannot be recovered exactly.
 
-Pi `/trust` remains independent and controls only project-local Pi resources. Generic shell execution uses a workspace sandbox through macOS Seatbelt or Linux Bubblewrap when available; otherwise indeterminate persistent effects require explicit one-operation approval.
+Pi `/trust` remains independent and controls only project-local Pi resources. Generic shell execution uses macOS Seatbelt or Linux Bubblewrap when available. When neither backend is available, every shell command requires an explicit one-operation approval that states execution will not be OS-confined.
 
 This remains an interactive alpha. Do not use it for unattended privileged execution.
 
@@ -27,7 +27,7 @@ Atelier currently provides:
 - restart-safe execution, invalidation, recovery-checkpoint, mutation, validation, and retrieval evidence;
 - an authoritative task-closure predicate requiring current required validations, an exact final-diff
   review, a local commit/change, and the configured clean-repository state;
-- Jujutsu-first and Git-compatible repository providers;
+- Jujutsu-first and Git-compatible repository providers, including workspace-wide scoped commits, combined diff review, validation freshness, metadata finalization, and closure across changed repositories;
 - Beads, memory, and disabled task providers;
 - codesearch, Octocode, mock, and disabled code providers;
 - CLI and Pi integration, including a responsive two-line footer with model/context, workflow mode,
@@ -106,8 +106,10 @@ ${XDG_STATE_HOME:-~/.local/state}/atelier/repositories/<root-hash>/atelier.db
 ```
 
 `ATLR_STATE_HOME` or user configuration can relocate runtime state. Repository configuration cannot
-redirect the ledger or caches. Legacy `.atelier/*.db` files are ignored, but `.atelier/config.json`,
-`PLAN.md`, `validation.json`, and `workspace.json` are intentionally trackable.
+redirect the ledger or caches, and it cannot select editor, Beads, Jujutsu, codesearch, or Octocode
+executables. Those commands come only from user configuration, controlled defaults, or `ATLR_EDITOR`.
+Legacy `.atelier/*.db` files are ignored, but `.atelier/config.json`, `PLAN.md`, `validation.json`, and
+`workspace.json` are intentionally trackable.
 
 ## Exact plan-to-task workflow
 
@@ -187,10 +189,12 @@ symlinks, ignored files, and affected untracked files without changing branch hi
 Jujutsu checkpoints capture and verify the native operation-log boundary. Checkpoints are associated with
 the triggering Pi session and tool call and expose an explicit restore command.
 
-Pi's model Bash tool and direct `user_bash` execution share the same pre-execution evaluator. Seatbelt on
-macOS or Bubblewrap on Linux is used when available. An unavailable sandbox does not bypass policy:
-execution may fall back only after the concrete effects were allowed, checkpointed, or explicitly approved.
-Sandbox confinement alone never turns an indeterminate destructive operation into a recoverable one.
+Pi's model Bash tool and direct `user_bash` execution share the same pre-execution evaluator. A command
+inherits repository-read authorization only when both the hardened classifier and concrete-effect parser
+agree that every effect is a routine read. Seatbelt on macOS or Bubblewrap on Linux is used when available.
+When neither backend is available, every exact command requires a one-operation approval that explicitly
+states it will run without OS-level confinement. That approval is consumed by one invocation only. Sandbox
+confinement alone never turns an indeterminate destructive operation into a recoverable one.
 Existing targets and nearest existing ancestors are resolved securely, so lexical traversal, nested
 symlinks, broken symlinks, and nonexistent descendants cannot escape the workspace boundary.
 
@@ -268,6 +272,8 @@ atlr --workspace ../workspace launch
 ```
 
 Declare repository identities in `.atelier/workspace.json`. Each repository receives an independent VCS snapshot. Task execution paths use `repository-id::relative/path` when they target a non-primary repository. Exact approval and resume bind every repository independently; secondary drift invalidates execution rather than reusing stale evidence.
+
+A reviewed task can commit approved source changes in every changed repository, produce one repository-labelled final diff, track validation freshness across all source roots, and finalize workflow metadata per repository during closure. Commits are sequential: if a later repository fails, Atelier records the completed repository set and stops for explicit recovery rather than claiming an automatic cross-repository rollback.
 
 No persistent trust or workspace approval is created. The explicit workspace applies only to the current process.
 
@@ -377,10 +383,12 @@ live provider result.
 ## Current limitations
 
 - Static shell effect analysis is deliberately conservative. Interpreter, build-system, and compound
-  commands ask when their persistent effects cannot be enumerated exactly, even when an OS sandbox is active.
+  commands ask when their persistent effects cannot be enumerated exactly. When no OS sandbox is available,
+  every shell command asks once regardless of its parsed effect.
 - Seatbelt and Bubblewrap are platform facilities, not a complete VM boundary; network policy remains a
   separate concern and privileged execution always asks.
 - Live provider conformance depends on locally available external tools and is separate from deterministic CI.
-- Multi-repository source/retrieval revision correctness is delivered, but richer coordinated editing UX remains limited.
+- Multi-repository commit, diff-review, validation-freshness, and closure transactions are delivered, but
+  cross-repository commit rollback is manual after a recorded partial failure and coordinated editing UX remains limited.
 - Every turn reconstructs authoritative Working State, but Pi's transcript and compaction mechanism still exist.
 - The current palette, tree, navigator, and diff surfaces are functional command surfaces rather than a complete IDE chrome.

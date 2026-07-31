@@ -41,7 +41,7 @@ test("retrieval budgets have bounded defaults and repository overrides", () => {
   }
 });
 
-test("configuration validation rejects non-positive and impossible retrieval budgets", () => {
+test("configuration validation rejects non-positive and impossible retrieval budgets", async () => {
   const root = createTemporaryRepository("atlr-retrieval-config-invalid-");
   const path = join(root, ".atelier", "config.json");
   const existing = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -63,7 +63,7 @@ test("configuration validation rejects non-positive and impossible retrieval bud
     assert.ok(issues.some((issue) => issue.includes("codeMaxPersistedEntries must cover")));
     assert.ok(issues.some((issue) => issue.includes("codeMaxPersistedBytes must be >= codeMaxTotalBytes")));
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -117,7 +117,7 @@ test("CLI configuration output reports effective retrieval budgets", () => {
   }
 });
 
-test("initialization writes retrieval budgets to the repository configuration", () => {
+test("initialization writes retrieval budgets to the repository configuration", async () => {
   const root = createTemporaryRepository("atlr-retrieval-config-init-");
   rmSync(join(root, ".atelier", "config.json"), { force: true });
   const core = AtelierCore.open(root, { taskProvider: "memory" });
@@ -126,7 +126,7 @@ test("initialization writes retrieval budgets to the repository configuration", 
     const initialized = JSON.parse(readFileSync(join(root, ".atelier", "config.json"), "utf8")) as Record<string, unknown>;
     for (const [key, value] of Object.entries(expectedDefaults)) assert.equal(initialized[key], value);
   } finally {
-    core.close();
+    await core.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

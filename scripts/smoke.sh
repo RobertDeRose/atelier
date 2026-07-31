@@ -5,24 +5,31 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
 if [[ -n "${ATLR_SMOKE_TMP_LOG:-}" ]]; then printf '%s\n' "$tmp" > "$ATLR_SMOKE_TMP_LOG"; fi
 state_home="${tmp}.state"
-cleanup() { rm -rf "$tmp" "$state_home"; }
+editor="${tmp}.editor.mjs"
+user_config="${tmp}.user-config.json"
+cleanup() { rm -rf "$tmp" "$state_home" "$editor" "$user_config"; }
 export ATLR_STATE_HOME="$state_home"
+export ATLR_USER_CONFIG="$user_config"
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
 
 mkdir -p "$tmp/.atelier"
-cat > "$tmp/editor.mjs" <<'JS'
+cat > "$editor" <<'JS'
 #!/usr/bin/env node
 process.exit(0);
 JS
-chmod +x "$tmp/editor.mjs"
+chmod +x "$editor"
+cat > "$user_config" <<JSON
+{
+  "editor": "$editor"
+}
+JSON
 cat > "$tmp/.atelier/config.json" <<JSON
 {
   "planPath": ".atelier/PLAN.md",
   "taskProvider": "memory",
   "repositoryProvider": "git",
-  "codeProvider": "disabled",
-  "editor": "$tmp/editor.mjs"
+  "codeProvider": "disabled"
 }
 JSON
 

@@ -204,11 +204,13 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
   chmodSync(editor, 0o755);
   writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
     taskProvider: "beads",
-    beadsCommand: fake.executable,
     repositoryProvider: "git",
     codeProvider: "disabled",
-    editor,
   }), "utf8");
+  const userConfig = `${root}-user-config.json`;
+  const previousUserConfig = process.env.ATLR_USER_CONFIG;
+  writeFileSync(userConfig, JSON.stringify({ beadsCommand: fake.executable, editor }), "utf8");
+  process.env.ATLR_USER_CONFIG = userConfig;
   writeFileSync(join(root, ".atelier", "PLAN.md"), OLD_PLAN, "utf8");
   writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({ validations: {
     focused: {
@@ -407,11 +409,14 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     assert.equal(finalState.executionEvidence.filter((item) => item.action === "write.file").length, 2);
     assert.ok(finalState.focusedValidationSelections.length > 0, "cancelled work retains its focused selection evidence");
     assert.equal((await reopened.taskProvider.get(grant.taskId))?.status, "in_progress");
-    assert.equal(reopened.validation.list({ currentSnapshot: reopened.repository.snapshot() })[0]?.status, "passed");
-    assert.equal(reopened.validation.list({ currentSnapshot: reopened.repository.snapshot() })[0]?.stale, false);
+    assert.equal(reopened.validation.list({ currentSnapshot: reopened.currentValidationSnapshot() })[0]?.status, "passed");
+    assert.equal(reopened.validation.list({ currentSnapshot: reopened.currentValidationSnapshot() })[0]?.stale, false);
     await reopened.close();
   } finally {
     try { await events.get("session_shutdown")?.({}, context); } catch { /* already closed */ }
+    if (previousUserConfig === undefined) delete process.env.ATLR_USER_CONFIG;
+    else process.env.ATLR_USER_CONFIG = previousUserConfig;
+    rmSync(userConfig, { force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

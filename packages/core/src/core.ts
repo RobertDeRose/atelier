@@ -32,7 +32,11 @@ import { WorkflowGuard } from "./workflow/workflow-guard.ts";
 import { ExecutionWorkflowCoordinator } from "./workflow/execution-workflow-coordinator.ts";
 import { constraintsForPlanTask, sourceBaselineMismatch } from "./workflow/execution-baseline.ts";
 import { createRepositoryProvider } from "./repository/repository-factory.ts";
-import type { RepositoryCommitResult, RepositoryProvider } from "./repository/repository-provider.ts";
+import type { RepositoryProvider } from "./repository/repository-provider.ts";
+import {
+  WorkspaceRepositoryService,
+  type WorkspaceCommitResult,
+} from "./repository/workspace-repository-service.ts";
 import { sourceSnapshotFingerprint } from "./repository/snapshot.ts";
 import { ValidationService } from "./validation/validation-service.ts";
 import type { CodeProvider } from "./code/provider.ts";
@@ -53,7 +57,10 @@ import { hashFile, sha256 } from "./util/hash.ts";
 import { newId, nowIso } from "./util/ids.ts";
 import { isPathWithin } from "./security/path-boundary.ts";
 import { isSourcePath, sourcePaths } from "./repository/source-path.ts";
-import { repositoryRevisionBinding, type RepositoryRevisionBinding } from "./repository/revision-binding.ts";
+import {
+  repositoryRevisionBinding,
+  type RepositoryRevisionBinding,
+} from "./repository/revision-binding.ts";
 import { WorkspacePolicyEvaluator, type FilesystemEffect, type WorkspacePolicyDecision } from "./policy/workspace-policy.ts";
 import { RecoveryManager, type RecoveryCheckpoint } from "./recovery/recovery-manager.ts";
 
@@ -499,23 +506,16 @@ export class AtelierCore {
   selectFocusedValidation(changedSymbols: string[] = []) {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("Focused validation selection requires an active execution grant.");
-    let changedPaths: string[];
-    try {
-      changedPaths = executionGrant.repositorySnapshot.vcs === "none"
-        ? sourcePaths(this.repository.changedPaths())
-        : sourcePaths(this.repository.changedPathsFrom(
-            executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit,
-          ));
-    } catch {
-      changedPaths = sourcePaths(this.repository.changedPaths());
-    }
+    const repositories = this.workspaceRepositories(executionGrant);
+    const changedPaths = repositories.approvedChanges(true)
+      .flatMap((entry) => entry.changedPaths.map((path) => repositories.qualify(entry.repositoryId, path)));
     this.ledger.setWorkflowCheckpoint("validating");
     const selection = this.validation.saveFocusedSelection({
       taskId: executionGrant.taskId,
       executionGrantId: executionGrant.id,
       planHash: executionGrant.planHash,
       reconciliationDigest: executionGrant.reconciliationDigest,
-      snapshot: this.repository.snapshot(),
+      snapshot: repositories.evidenceSnapshot(),
       changedPaths,
       changedSymbols,
     });
@@ -531,7 +531,7 @@ export class AtelierCore {
 
   async runValidation(name: string, options: { signal?: AbortSignal; selectionId?: string; maxOutputBytes?: number } = {}) {
     const executionGrant = this.ledger.getActiveExecutionGrant();
-    const snapshot = this.repository.snapshot();
+    const snapshot = this.currentValidationSnapshot();
     if (executionGrant !== undefined) {
       const action = this.validation.action(name);
       const decision = this.evaluateWorkflow({
@@ -585,23 +585,27 @@ export class AtelierCore {
       category === "focused" ? constraint.focusedValidations : constraint.fullValidations))].sort();
   }
 
-  private approvedChangedPaths(fromBaseline = false): string[] {
-    const grant = this.ledger.getActiveExecutionGrant();
-    if (grant === undefined) throw new Error("Approved task paths require an active execution grant.");
-    const base = grant.repositorySnapshot.sourceBaseCommit ?? grant.repositorySnapshot.headCommit;
-    const changed = sourcePaths(fromBaseline
-      ? this.repository.changedPathsFrom(base)
-      : this.repository.changedPaths());
-    const allowed = this.approvedTaskPaths();
-    const outside = changed.filter((path) => {
-      const absolute = resolve(this.config.repositoryRoot, path);
-      return !allowed.some((root) => isPathWithin(absolute, root, "write"));
+  private workspaceRepositories(executionGrant = this.ledger.getActiveExecutionGrant()): WorkspaceRepositoryService {
+    return new WorkspaceRepositoryService({
+      workspace: this.codeWorkspace(),
+      primaryRoot: this.config.repositoryRoot,
+      primaryProvider: this.repository,
+      providerForRoot: (root) => createRepositoryProvider(this.config, this.ledger, root),
+      approvedPaths: executionGrant === undefined ? [] : this.approvedTaskPaths(),
+      ...(executionGrant?.repositoryBindings === undefined
+        ? {}
+        : { baselines: executionGrant.repositoryBindings }),
     });
-    if (outside.length > 0) {
-      throw new Error(`Source changes exceed the reviewed task scope: ${outside.join(", ")}.`);
-    }
-    return changed;
   }
+
+  currentValidationSnapshot(): ReturnType<RepositoryProvider["snapshot"]> {
+    return this.workspaceRepositories().evidenceSnapshot();
+  }
+
+  currentSourceChangedPaths(): string[] {
+    return this.workspaceRepositories().sourceChangedPaths();
+  }
+
 
   currentFinalDiffReview(): FinalDiffReview | undefined {
     const executionGrant = this.ledger.getActiveExecutionGrant();
@@ -612,12 +616,10 @@ export class AtelierCore {
   previewFinalDiff(): FinalDiffPreview {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("Final diff review requires an active execution grant.");
-    if (executionGrant.repositorySnapshot.vcs === "none") {
-      throw new Error("Final diff review requires a revision-aware repository baseline.");
-    }
+    const repositories = this.workspaceRepositories(executionGrant);
+    const preview = repositories.diff(true);
     const baseline = executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit;
-    const changedPaths = this.approvedChangedPaths(true);
-    const diff = changedPaths.map((path) => this.repository.diffFrom(baseline, path)).filter((item) => item.trim()).join("\n");
+    const { changedPaths, diff } = preview;
     if (!diff.trim()) throw new Error("No approved task diff exists relative to the reviewed source baseline.");
     return {
       taskId: executionGrant.taskId,
@@ -625,7 +627,14 @@ export class AtelierCore {
       baselineHeadCommit: baseline,
       changedPaths,
       diff,
-      diffHash: sha256(diff),
+      diffHash: preview.diffHash,
+      repositories: preview.repositories.map((repository) => ({
+        repositoryId: repository.repositoryId,
+        repositoryRoot: repository.repositoryRoot,
+        baselineHeadCommit: repository.baselineHeadCommit,
+        changedPaths: repository.changedPaths,
+        diffHash: repository.diffHash,
+      })),
     };
   }
 
@@ -643,6 +652,8 @@ export class AtelierCore {
       snapshot,
       changedPaths: preview.changedPaths,
       diffHash: preview.diffHash,
+      repositoryBindings: this.repositoryRevisionBindings(),
+      ...(preview.repositories === undefined ? {} : { repositories: preview.repositories }),
       reviewedAt: nowIso(),
     };
     this.ledger.setState(`finalDiffReview:${preview.executionGrantId}`, review);
@@ -656,13 +667,14 @@ export class AtelierCore {
     return review;
   }
 
-  commitActiveTask(message: string, actor: "user" | "agent" = "user"): RepositoryCommitResult {
+  commitActiveTask(message: string, actor: "user" | "agent" = "user"): WorkspaceCommitResult {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("A local task change requires an active execution grant.");
     const snapshot = this.repository.snapshot();
-    const changedPaths = this.approvedChangedPaths(false);
-    if (changedPaths.length === 0) throw new Error("No approved source changes are available to commit.");
-    const absolutePaths = changedPaths.map((path) => resolve(this.config.repositoryRoot, path));
+    const repositories = this.workspaceRepositories(executionGrant);
+    const changes = repositories.approvedChanges(false).filter((entry) => entry.changedPaths.length > 0);
+    if (changes.length === 0) throw new Error("No approved source changes are available to commit.");
+    const absolutePaths = changes.flatMap((entry) => entry.absolutePaths);
     const decision = this.evaluateWorkflow({
       action: "repository.change.create",
       risk: "routine",
@@ -673,7 +685,19 @@ export class AtelierCore {
       rationale: "Create the local repository change required by the approved task.",
     });
     if (decision.result !== "allow") throw new Error(decision.reason);
-    const result = this.repository.commit(message, changedPaths);
+    let result: WorkspaceCommitResult;
+    try {
+      result = repositories.commit(message);
+    } catch (error) {
+      this.ledger.append({
+        kind: "repository.change_partial_failure",
+        actor,
+        taskId: executionGrant.taskId,
+        repositorySnapshot: this.repository.snapshot(),
+        payload: { message, error: error instanceof Error ? error.message : String(error) },
+      });
+      throw error;
+    }
     this.ledger.append({
       kind: "repository.change_created",
       actor,
@@ -683,6 +707,12 @@ export class AtelierCore {
         message: result.message,
         changedPaths: result.changedPaths,
         baselineHeadCommit: executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit,
+        repositories: result.repositories.map((repository) => ({
+          repositoryId: repository.repositoryId,
+          repositoryRoot: repository.repositoryRoot,
+          changedPaths: repository.result.changedPaths,
+          snapshot: repository.result.snapshot,
+        })),
       },
     });
     return result;
@@ -700,17 +730,14 @@ export class AtelierCore {
           : "No active task exists.",
       };
     }
-    const snapshot = this.repository.snapshot();
+    const repositories = this.workspaceRepositories(executionGrant);
+    const snapshot = repositories.evidenceSnapshot();
     const validation = this.validation.closureReadiness(snapshot, executionGrant.taskId, executionGrant.id);
     const policy = this.validation.closurePolicy();
     const review = this.currentFinalDiffReview();
     let diffHash: string | undefined;
     try {
-      if (executionGrant.repositorySnapshot.vcs !== "none") {
-        const baseline = executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit;
-        const paths = this.approvedChangedPaths(true);
-        diffHash = sha256(paths.map((path) => this.repository.diffFrom(baseline, path)).filter((item) => item.trim()).join("\n"));
-      }
+      diffHash = repositories.diff(true).diffHash;
     } catch {
       diffHash = undefined;
     }
@@ -721,16 +748,12 @@ export class AtelierCore {
         && review.baselineHeadCommit === (executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit)
         && diffHash !== undefined
         && review.diffHash === diffHash);
-    const localChangeCreated = !policy.requireLocalChange
-      || (snapshot.vcs !== "none"
-        && snapshot.headCommit !== "unborn"
-        && (snapshot.sourceBaseCommit ?? snapshot.headCommit)
-          !== (executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit));
+    const localChangeCreated = !policy.requireLocalChange || repositories.localChangeCreated();
     let sourceStateAcceptable = true;
     let repositoryMetadataPaths: string[] = [];
     try {
-      sourceStateAcceptable = !policy.requireCleanSource || this.repository.changedPaths().length === 0;
-      repositoryMetadataPaths = this.repository.rawChangedPaths().filter((path) => !isSourcePath(path));
+      sourceStateAcceptable = !policy.requireCleanSource || repositories.sourceClean();
+      repositoryMetadataPaths = repositories.metadataState().qualifiedPaths;
     } catch {
       sourceStateAcceptable = false;
       repositoryMetadataPaths = [];
@@ -782,7 +805,9 @@ export class AtelierCore {
   async closeActiveTask(reason: string, actor: "user" | "agent" = "user"): Promise<{ task: TaskRecord; nextReady: TaskRecord[] }> {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("No active execution task is available to close.");
+    const repositories = this.workspaceRepositories(executionGrant);
     const snapshot = this.repository.snapshot();
+    const workspaceSnapshot = repositories.evidenceSnapshot();
     const decision = this.evaluateWorkflow({
       action: "task.close",
       risk: "routine",
@@ -799,30 +824,44 @@ export class AtelierCore {
     const closureDecision = this.taskClosureReadiness();
     if (!closureDecision.ready) throw new Error(closureDecision.reason);
 
-    const beforeProviderPaths = this.repository.rawChangedPaths();
-    const beforeProviderFingerprints = pathFingerprintMap(this.config.repositoryRoot, beforeProviderPaths);
+    const beforeProviderPaths = repositories.rawChangedPaths();
+    const beforeProviderFingerprints = repositories.rawChangedFingerprints();
     const task = await this.taskProvider.close(executionGrant.taskId, reason);
-    const afterProviderPaths = this.repository.rawChangedPaths();
+    const afterProviderPaths = repositories.rawChangedPaths();
     const providerCandidates = [...new Set([...beforeProviderPaths, ...afterProviderPaths])].sort();
-    const afterProviderFingerprints = pathFingerprintMap(this.config.repositoryRoot, providerCandidates);
+    const afterProviderFingerprints = repositories.rawChangedFingerprints();
     const providerMutationPaths = providerCandidates.filter((path) =>
       beforeProviderFingerprints[path] !== afterProviderFingerprints[path]
       || beforeProviderPaths.includes(path) !== afterProviderPaths.includes(path));
 
     const policy = this.validation.closurePolicy();
-    let metadataChange: RepositoryCommitResult | undefined;
+    let metadataChanges: ReturnType<WorkspaceRepositoryService["commitMetadata"]> = [];
     if (policy.requireCleanRepository) {
-      const metadataPaths = this.repository.rawChangedPaths().filter((path) => !isSourcePath(path));
-      if (metadataPaths.length > 0) {
-        metadataChange = this.repository.commitMetadata(`chore(atelier): finalize workflow for ${task.id}`, metadataPaths);
-      }
-      const remaining = this.repository.rawChangedPaths();
-      if (remaining.length > 0) {
-        throw new Error(`Task provider closed ${task.id}, but repository finalization left tracked changes: ${remaining.join(", ")}`);
+      try {
+        metadataChanges = repositories.commitMetadata(`chore(atelier): finalize workflow for ${task.id}`);
+        const remaining = repositories.rawChangedPaths();
+        if (remaining.length > 0) {
+          throw new Error(`Task provider closed ${task.id}, but repository finalization left tracked changes: ${remaining.join(", ")}`);
+        }
+      } catch (error) {
+        this.ledger.append({
+          kind: "task.finalization_failed",
+          actor,
+          taskId: task.id,
+          repositorySnapshot: this.repository.snapshot(),
+          payload: {
+            reason,
+            providerMutationPaths,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+        throw error;
       }
     }
     const closedSnapshot = this.repository.snapshot();
-    const workflowFinalizationPaths = metadataChange?.changedPaths ?? [];
+    const closedWorkspaceSnapshot = repositories.evidenceSnapshot();
+    const workflowFinalizationPaths = metadataChanges.flatMap((change) =>
+      change.result.changedPaths.map((path) => repositories.qualify(change.repositoryId, path)));
     this.ledger.append({
       kind: "task.closed",
       actor,
@@ -834,15 +873,17 @@ export class AtelierCore {
         finalization: {
           providerMutationPaths,
           workflowFinalizationPaths,
-          repositoryClean: this.repository.rawChangedPaths().length === 0,
-          sourceFingerprintBefore: sourceSnapshotFingerprint(snapshot),
-          sourceFingerprintAfter: sourceSnapshotFingerprint(closedSnapshot),
+          repositoryClean: repositories.rawChangedPaths().length === 0,
+          sourceFingerprintBefore: sourceSnapshotFingerprint(workspaceSnapshot),
+          sourceFingerprintAfter: sourceSnapshotFingerprint(closedWorkspaceSnapshot),
         },
-        ...(metadataChange === undefined ? {} : {
-          metadataChange: {
-            message: metadataChange.message,
-            changedPaths: metadataChange.changedPaths,
-          },
+        ...(metadataChanges.length === 0 ? {} : {
+          metadataChanges: metadataChanges.map((change) => ({
+            repositoryId: change.repositoryId,
+            repositoryRoot: change.repositoryRoot,
+            message: change.result.message,
+            changedPaths: change.result.changedPaths,
+          })),
         }),
       },
     });
@@ -873,6 +914,41 @@ export class AtelierCore {
         reason: `Task ${task.id} was closed outside Atelier before completion evidence was satisfied: ${readiness.reason}`,
       });
       return [];
+    }
+    if (this.validation.closurePolicy().requireCleanRepository) {
+      const repositories = this.workspaceRepositories(executionGrant);
+      try {
+        const metadataChanges = repositories.commitMetadata(`chore(atelier): finalize workflow for ${task.id}`);
+        const remaining = repositories.rawChangedPaths();
+        if (remaining.length > 0) {
+          throw new Error(`Externally closed task ${task.id} still has tracked workflow metadata: ${remaining.join(", ")}`);
+        }
+        if (metadataChanges.length > 0) {
+          this.ledger.append({
+            kind: "task.external_closure_finalized",
+            actor: "system",
+            taskId: task.id,
+            repositorySnapshot: this.repository.snapshot(),
+            payload: {
+              metadataChanges: metadataChanges.map((change) => ({
+                repositoryId: change.repositoryId,
+                repositoryRoot: change.repositoryRoot,
+                message: change.result.message,
+                changedPaths: change.result.changedPaths,
+              })),
+            },
+          });
+        }
+      } catch (error) {
+        this.ledger.append({
+          kind: "task.external_closure_finalization_failed",
+          actor: "system",
+          taskId: task.id,
+          repositorySnapshot: this.repository.snapshot(),
+          payload: { error: error instanceof Error ? error.message : String(error) },
+        });
+        return [];
+      }
     }
     this.execution.cancel(`Task ${task.id} was explicitly closed through an authorized typed tool.`, "completed");
     const mappings = new Set(this.ledger.listTaskMappings()
@@ -988,11 +1064,12 @@ export class AtelierCore {
 
   async buildWorkingState(explicitTaskId?: string): Promise<WorkingState> {
     const plan = existsSync(this.config.planPath) ? this.parsePlan() : undefined;
-    const snapshot = this.repository.snapshot();
+    const repositories = this.workspaceRepositories();
+    const snapshot = repositories.evidenceSnapshot();
     const built = await this.workingStateBuilder.build({
       mode: this.mode(),
       snapshot,
-      changedPaths: sourcePaths(this.repository.changedPaths()),
+      changedPaths: repositories.sourceChangedPaths(),
       workspace: this.codeWorkspace(),
       ...(plan === undefined ? {} : { plan }),
       ...(explicitTaskId === undefined ? {} : { explicitTaskId }),

@@ -8,6 +8,7 @@ import {
   type WorkflowDecision,
   type FilesystemEffect,
   resolveAccessPath,
+  resolveSandboxBackend,
   sameAccessPath,
 } from "../../../packages/core/src/index.ts";
 
@@ -114,7 +115,12 @@ export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierC
   if (event.toolName === "bash") {
     const command = typeof event.input?.command === "string" ? event.input.command : "";
     const classification = classifyShellCommand(command);
-    const readOnly = effects.length > 0 && effects.every((effect) => effect.kind === "read");
+    const readOnly = classification.action === "read.repository"
+      && classification.mutating === false
+      && classification.risk === "routine"
+      && effects.length > 0
+      && effects.every((effect) => effect.kind === "read");
+    const sandbox = resolveSandboxBackend(core.config.sandboxBackend);
     return {
       ...base,
       action: readOnly ? "read.repository" : "command.execute",
@@ -122,8 +128,8 @@ export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierC
       command: [command],
       ...(readOnly ? { paths: effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]) } : {}),
       rationale: readOnly
-        ? `${classification.rationale.join("; ")} The parsed shell effects are read-only and remain OS-sandboxed.`
-        : `${classification.rationale.join("; ")} Persistent effects remain governed by workspace recoverability and the OS sandbox.`,
+        ? `${classification.rationale.join("; ")} Both shell-analysis layers classify the command as read-only. ${sandbox.available ? `Execution uses ${sandbox.detail}.` : "No OS sandbox is available, so execution requires an additional one-operation approval."}`
+        : `${classification.rationale.join("; ")} Persistent effects remain governed by workspace recoverability. ${sandbox.available ? `Execution uses ${sandbox.detail}.` : "Unsandboxed execution requires an explicit one-operation approval."}`,
     };
   }
 
@@ -153,29 +159,73 @@ export async function authorizeWorkspaceEffects(
   effects: readonly FilesystemEffect[],
   ctx: ExtensionContext,
   core: AtelierCore,
-  options: { toolCallId?: string; sessionId?: string } = {},
+  options: {
+    toolCallId?: string;
+    sessionId?: string;
+    requireExplicitApproval?: boolean;
+    approvalWarning?: string;
+  } = {},
 ): Promise<{ response?: { block?: boolean; reason?: string }; checkpointId?: string; approvedOnce?: boolean }> {
   const decision = core.evaluateWorkspaceEffects(effects);
   core.ledger.append({ kind: "workspace_policy.decision", actor: "agent", repositorySnapshot: core.repository.snapshot(), payload: decision });
-  if (decision.result === "allow") return {};
+  const confirmOnce = async (reason: string): Promise<{ response?: { block?: boolean; reason?: string }; approvedOnce?: boolean }> => {
+    const detail = [reason, options.approvalWarning].filter(Boolean).join("\n\n");
+    if (!ctx.hasUI) {
+      return { response: { block: true, reason: `${detail} Interactive approval is unavailable in ${ctx.mode} mode.` } };
+    }
+    const approved = await ctx.ui.confirm("Atelier approval required", `${detail}\n\nAllow this concrete operation once?`);
+    core.ledger.append({
+      kind: approved ? "workspace_policy.approval_granted" : "workspace_policy.approval_denied",
+      actor: "user",
+      repositorySnapshot: core.repository.snapshot(),
+      payload: { decision, ...(options.approvalWarning === undefined ? {} : { warning: options.approvalWarning }) },
+    });
+    return approved ? { approvedOnce: true } : { response: { block: true, reason: "The user denied this Atelier operation." } };
+  };
+
+  if (decision.result === "allow") {
+    return options.requireExplicitApproval === true
+      ? confirmOnce(decision.reason || "This operation requires one-time approval.")
+      : {};
+  }
   if (decision.result === "checkpoint_then_allow") {
     try {
       const checkpoint = core.checkpointWorkspaceEffects(decision, options);
-      return { checkpointId: checkpoint.id };
+      if (options.requireExplicitApproval !== true) return { checkpointId: checkpoint.id };
+      const approval = await confirmOnce(decision.reason || "Atelier created a recovery checkpoint for this operation.");
+      return { ...approval, checkpointId: checkpoint.id };
     } catch (error) {
       const reason = `Atelier could not create an exact recovery checkpoint: ${error instanceof Error ? error.message : String(error)}`;
       if (!ctx.hasUI) return { response: { block: true, reason: `${reason} Interactive approval is unavailable in ${ctx.mode} mode.` } };
-      const approved = await ctx.ui.confirm("Atelier recovery unavailable", `${reason}\n\nContinue once without a checkpoint?`);
+      const detail = [reason, options.approvalWarning].filter(Boolean).join("\n\n");
+      const approved = await ctx.ui.confirm("Atelier recovery unavailable", `${detail}\n\nContinue once without a checkpoint?`);
       return approved ? { approvedOnce: true } : { response: { block: true, reason: "The user declined an unrecoverable operation." } };
     }
   }
   const reason = consequenceMessage(decision) || decision.reason;
   if (decision.result === "deny") return { response: { block: true, reason } };
-  if (!ctx.hasUI) return { response: { block: true, reason: `${reason} Interactive approval is unavailable in ${ctx.mode} mode.` } };
-  const approved = await ctx.ui.confirm("Atelier approval required", `${reason}\n\nAllow this concrete operation once?`);
-  core.ledger.append({ kind: approved ? "workspace_policy.approval_granted" : "workspace_policy.approval_denied", actor: "user", repositorySnapshot: core.repository.snapshot(), payload: { decision } });
-  return approved ? { approvedOnce: true } : { response: { block: true, reason: "The user denied this Atelier operation." } };
+  return confirmOnce(reason);
 }
+export async function authorizeShellEffects(
+  effects: readonly FilesystemEffect[],
+  ctx: ExtensionContext,
+  core: AtelierCore,
+  options: { toolCallId?: string; sessionId?: string } = {},
+): Promise<{ response?: { block?: boolean; reason?: string }; checkpointId?: string; approvedOnce?: boolean; allowUnsandboxed: boolean }> {
+  const sandbox = resolveSandboxBackend(core.config.sandboxBackend);
+  const authorization = await authorizeWorkspaceEffects(effects, ctx, core, {
+    ...options,
+    ...(sandbox.available ? {} : {
+      requireExplicitApproval: true,
+      approvalWarning: `${sandbox.detail} This command will run without OS-level confinement if approved.`,
+    }),
+  });
+  return {
+    ...authorization,
+    allowUnsandboxed: !sandbox.available && authorization.approvedOnce === true,
+  };
+}
+
 interface ToolAuthorization {
   decision: WorkflowDecision;
   response?: { block?: boolean; reason?: string };

@@ -312,7 +312,7 @@ test("workflow metadata does not stale source-qualified validation evidence", as
     const afterMetadata = core.validation.list({
       name: "manual-acceptance",
       taskId,
-      currentSnapshot: core.repository.snapshot(),
+      currentSnapshot: core.currentValidationSnapshot(),
       limit: 1,
     })[0];
     assert.equal(afterMetadata?.stale, false);
@@ -321,7 +321,7 @@ test("workflow metadata does not stale source-qualified validation evidence", as
     const afterSource = core.validation.list({
       name: "manual-acceptance",
       taskId,
-      currentSnapshot: core.repository.snapshot(),
+      currentSnapshot: core.currentValidationSnapshot(),
       limit: 1,
     })[0];
     assert.equal(afterSource?.stale, true);
@@ -411,7 +411,7 @@ test("typed model validation reports a failed declared check as a failed tool op
       ),
       /Atelier validation failed: Declared validation did not pass:[\s\S]*manual-acceptance: failed/,
     );
-    assert.equal(core.validation.list({ currentSnapshot: core.repository.snapshot() }).at(-1)?.status, "failed");
+    assert.equal(core.validation.list({ currentSnapshot: core.currentValidationSnapshot() }).at(-1)?.status, "failed");
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });
@@ -509,7 +509,7 @@ test("task closure finalizes workflow metadata and leaves the complete Git repos
     const validationAfterClosure = core.validation.list({
       name: "manual-acceptance",
       taskId: closed.task.id,
-      currentSnapshot: core.repository.snapshot(),
+      currentSnapshot: core.currentValidationSnapshot(),
       limit: 1,
     })[0];
     assert.equal(validationAfterClosure?.stale, false, validationAfterClosure?.staleReason);

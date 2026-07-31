@@ -21,21 +21,21 @@ test("validation evidence is asynchronous, snapshot-qualified, and explains stal
   });
   const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
   try {
-    const snapshot = core.repository.snapshot();
+    const snapshot = core.currentValidationSnapshot();
     const evidence = await core.validation.run("pass", snapshot);
     assert.equal(evidence.status, "passed");
     assert.equal(core.validation.list({ currentSnapshot: snapshot })[0]?.stale, false);
     writeFileSync(join(root, "source.txt"), "two\n");
     const stale = core.validation.list({
-      currentSnapshot: core.repository.snapshot(),
+      currentSnapshot: core.currentValidationSnapshot(),
       currentChangedPaths: core.repository.changedPaths(),
     })[0];
     assert.equal(stale?.stale, true);
     assert.match(stale?.staleReason ?? "", /fingerprint.*source\.txt/i);
 
-    const rerun = await core.validation.run("pass", core.repository.snapshot());
+    const rerun = await core.validation.run("pass", core.currentValidationSnapshot());
     assert.equal(rerun.status, "passed");
-    assert.equal(core.validation.list({ currentSnapshot: core.repository.snapshot() })[0]?.stale, false);
+    assert.equal(core.validation.list({ currentSnapshot: core.currentValidationSnapshot() })[0]?.stale, false);
   } finally { await core.close(); }
 });
 
