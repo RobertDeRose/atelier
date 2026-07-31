@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0-alpha.20 — 2026-07-30
+
+### Fixed
+
+- Made Atelier-created Git source and workflow-metadata commits explicitly unsigned so workstation `commit.gpgSign=true` and unavailable SSH/GPG agents cannot break reviewed task finalization.
+- Preserved non-secret Git isolation controls in minimal subprocess environments, allowing deterministic test and controlled-launch configuration to reach repository-provider commands without exposing signing agents or credentials.
+- Made the per-turn unsandboxed-approval regression platform-independent by explicitly selecting the `none` backend instead of assuming Seatbelt or Bubblewrap is unavailable.
+- Added a provider-level regression that reproduces SSH-signing configuration with no agent and verifies the reviewed commit succeeds.
+
 ## 0.14.0-alpha.19 — 2026-07-30
 
 ### Security

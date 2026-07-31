@@ -2,6 +2,11 @@ const BASE_ENVIRONMENT_NAMES = new Set([
   "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP",
   "LANG", "TERM", "COLORTERM", "NO_COLOR", "CI", "TZ",
   "SystemRoot", "COMSPEC", "PATHEXT", "WINDIR",
+  // These variables constrain Git configuration and interactivity without
+  // granting access to credentials or agents. Preserving them keeps tests and
+  // controlled launches isolated from workstation-global Git behavior.
+  "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_ATTR_NOSYSTEM",
+  "GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "GIT_PAGER",
 ]);
 
 const SECRET_NAME = /(TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIAL|AUTH|COOKIE|SESSION|SSH_AUTH_SOCK|AWS_|AZURE_|GCP_|GOOGLE_APPLICATION_CREDENTIALS|GITHUB_|GITLAB_|NPM_TOKEN|PYPI_TOKEN)/i;

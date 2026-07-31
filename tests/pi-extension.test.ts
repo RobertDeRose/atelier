@@ -926,6 +926,9 @@ test("an explicit per-turn no-Bash/no-validation/no-commit/no-close instruction 
     taskProvider: "memory",
     repositoryProvider: "git",
     codeProvider: "disabled",
+    // Keep this assertion platform-independent. macOS normally has Seatbelt,
+    // while CI hosts may have Bubblewrap or no sandbox at all.
+    sandboxBackend: "none",
   }));
   writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
   const sharedProvider = new InMemoryTaskProvider();

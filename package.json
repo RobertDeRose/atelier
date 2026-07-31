@@ -1,6 +1,6 @@
 {
   "name": "atelier-prototype",
-  "version": "0.14.0-alpha.19",
+  "version": "0.14.0-alpha.20",
   "description": "Atelier, a durable and policy-aware Agentic Development Environment runtime",
   "type": "module",
   "private": true,

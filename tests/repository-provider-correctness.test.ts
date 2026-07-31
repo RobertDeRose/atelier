@@ -44,6 +44,41 @@ test("Git observations include staged and untracked source changes", () => {
   }
 });
 
+test("Atelier Git commits do not depend on workstation signing agents", () => {
+  const root = createTemporaryRepository("atlr-git-signing-isolation-");
+  const ledger = new SqliteLedger(testDatabasePath(root));
+  try {
+    // Reproduce the common macOS setup where global or local Git configuration
+    // requires SSH-backed signing but Atelier deliberately does not inherit the
+    // SSH agent socket.
+    git(root, "config", "commit.gpgSign", "true");
+    git(root, "config", "gpg.format", "ssh");
+    git(root, "config", "user.signingKey", "key::not-a-real-signing-key");
+
+    const provider = new GitRepositoryProvider({ cwd: root, ledger });
+    writeFileSync(join(root, "signed-source.ts"), "export const unsignedByAtelier = true;\n", "utf8");
+    const committed = provider.commit("test: commit without signing agent", ["signed-source.ts"]);
+
+    assert.deepEqual(committed.changedPaths, ["signed-source.ts"]);
+    const metadata = provider.commitMetadata("test: commit metadata without signing agent", [".atelier/config.json"]);
+    assert.deepEqual(metadata.changedPaths, [".atelier/config.json"]);
+
+    const subjects = spawnSync("git", ["log", "-2", "--format=%s"], {
+      cwd: root,
+      encoding: "utf8",
+      shell: false,
+    });
+    assert.equal(subjects.status, 0, subjects.stderr);
+    assert.deepEqual(subjects.stdout.trim().split("\n"), [
+      "test: commit metadata without signing agent",
+      "test: commit without signing agent",
+    ]);
+  } finally {
+    ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Git observation failures never masquerade as a clean repository", () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-git-not-repository-"));
   const ledger = new SqliteLedger(join(root, "runtime.db"));

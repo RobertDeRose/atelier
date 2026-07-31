@@ -10,12 +10,18 @@ test("minimal subprocess environments exclude host credentials and preserve runt
     LC_ALL: "C",
     GITHUB_TOKEN: "secret-token",
     SSH_AUTH_SOCK: "/tmp/agent.sock",
+    GIT_CONFIG_GLOBAL: "/tmp/isolated.gitconfig",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
     SAFE_FLAG: "allowed",
   };
   const environment = minimalEnvironment({ source, allow: ["SAFE_FLAG", "GITHUB_TOKEN"] });
   assert.equal(environment.PATH, "/bin");
   assert.equal(environment.LC_ALL, "C");
   assert.equal(environment.SAFE_FLAG, "allowed");
+  assert.equal(environment.GIT_CONFIG_GLOBAL, "/tmp/isolated.gitconfig");
+  assert.equal(environment.GIT_CONFIG_NOSYSTEM, "1");
+  assert.equal(environment.GIT_TERMINAL_PROMPT, "0");
   assert.equal(environment.GITHUB_TOKEN, undefined);
   assert.equal(environment.SSH_AUTH_SOCK, undefined);
 });

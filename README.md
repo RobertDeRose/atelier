@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.19**. Repository-owned executable overrides are rejected, unsandboxed shell fallback is explicitly approved per command, and reviewed multi-repository tasks now finalize across every changed repository.
+Current release: **0.14.0-alpha.20**. Git commits are deterministic on signing-enabled workstations, sandbox-dependent tests explicitly select their backend, repository-owned executable overrides remain rejected, and reviewed multi-repository tasks finalize across every changed repository.
 
 ## Current status
 

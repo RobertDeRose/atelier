@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.19
+# Build Report — Atelier 0.14.0-alpha.20
 
 ## Result
 
@@ -16,6 +16,15 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.20 deterministic Git and sandbox-test correction
+
+Alpha.20 corrects the two workstation-dependent failures reported by the supported macOS check:
+
+- Atelier Git commits pass `--no-gpg-sign`, so a signing-enabled workstation cannot require an SSH/GPG agent that the minimal subprocess environment intentionally excludes;
+- non-secret Git isolation controls such as `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_NOSYSTEM` survive environment minimization;
+- the per-turn shell-approval regression explicitly disables the sandbox backend instead of depending on the host operating system; and
+- provider-level coverage reproduces SSH commit signing with no agent and verifies successful reviewed task finalization.
 
 ## Alpha.19 execution-boundary and workspace-finalization correction
 
@@ -60,7 +69,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:  261 passed, 0 failed across 81 test files
+Deterministic tests:  262 passed, 0 failed across 81 test files
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -70,19 +79,19 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.19
+Package:          atelier-prototype@0.14.0-alpha.20
 Files:            430
-Compressed size:  482,555 bytes
-Unpacked size:    2,264,265 bytes
+Compressed size:  483,146 bytes
+Unpacked size:    2,265,854 bytes
 ```
 
 ## Verification boundary
 
 The correction review environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
-Node 24.18.0 and TypeScript 7 toolchain. All 81 deterministic test files were therefore executed
-independently with the repository test environment and bounded concurrency: 261 tests passed with zero
-failures. The aggregate Node 22 test-runner process did not terminate reliably after its child tests
-completed, so the pinned Node 24 CI workflow remains authoritative for the aggregate `npm test` command.
+Node 24.18.0 and TypeScript 7 toolchain. The complete aggregate `npm run check` command completed in that
+environment: all 262 deterministic tests passed, the production build and CLI smoke workflow passed, and
+the package dry-run contained all 372 built `dist/` files. The pinned Node 24 CI workflow remains
+authoritative for the exact supported runtime.
 
 The environment also did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap` binary. Exact
 Git recovery is exercised against real Git repositories. Jujutsu operation recovery and sandbox command
@@ -92,7 +101,7 @@ live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.19` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.20` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

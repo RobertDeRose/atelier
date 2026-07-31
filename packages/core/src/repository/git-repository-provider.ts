@@ -295,7 +295,11 @@ export class GitRepositoryProvider implements RepositoryProvider {
     // the approved task commit. Git pathspec commits record only the reviewed
     // source paths while leaving any other index entries staged for separate
     // handling.
-    requiredGit(this.cwd, ["commit", "-m", normalized, "--", ...changed], "scoped local commit");
+    // Atelier intentionally strips signing-agent credentials from child
+    // processes. Disable signing explicitly so a workstation-level
+    // commit.gpgSign=true setting cannot make a reviewed local commit fail or
+    // prompt outside Atelier's authorization boundary.
+    requiredGit(this.cwd, ["commit", "--no-gpg-sign", "-m", normalized, "--", ...changed], "scoped local commit");
     return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };
   }
 
@@ -305,7 +309,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
     const changed = [...new Set(paths)].sort();
     if (changed.length === 0) throw new Error("No workflow metadata changes are available to commit.");
     requiredGit(this.cwd, ["add", "-A", "--", ...changed], "workflow metadata staging");
-    requiredGit(this.cwd, ["commit", "-m", normalized, "--", ...changed], "workflow metadata commit");
+    requiredGit(this.cwd, ["commit", "--no-gpg-sign", "-m", normalized, "--", ...changed], "workflow metadata commit");
     return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };
   }
 
