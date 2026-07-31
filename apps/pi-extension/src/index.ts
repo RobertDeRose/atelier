@@ -13,7 +13,6 @@ import {
   sourceSnapshotFingerprint,
   hashFile,
   resolveEditorCommand,
-  runInteractiveProcess,
   createStatusView,
   statusViewText,
   rankPresentedHits,
@@ -35,6 +34,7 @@ import { toolExecutionOutcome } from "./execution-outcome.ts";
 import { preparationSummary } from "./approval-presentation.ts";
 import { confirmApprovalDialog } from "./approval-dialog.ts";
 import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "./navigation.ts";
+import { runInteractiveProcessWithPi } from "./interactive-process.ts";
 import { contextCapsulePrompt, createAuthoritativeContextCapsule } from "./authoritative-context.ts";
 import { createAtelierBashOperations } from "./bash-operations.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
@@ -89,11 +89,6 @@ const CODE_RETRIEVAL_TOOLS = [
   "atlr_code_symbols",
   "atlr_code_status",
 ] as const;
-const EMPTY_COMPONENT = {
-  render: (_width: number): string[] => [],
-  invalidate: (): void => {},
-};
-
 export interface AtelierExtensionOptions {
   openCore?: (repositoryRoot: string) => AtelierCore;
 }
@@ -201,28 +196,11 @@ async function runEditorWithPi(
   if (ctx.mode !== "tui") {
     throw new Error(`ManualEdit requires Pi TUI mode to open ${core.config.planPath}. Run \`atlr review\` in a terminal, then resume this session.`);
   }
-  const result = await ctx.ui.custom<{ exitCode: number; error?: string; signal?: string }>((tui, _theme, _keybindings, done) => {
-    tui.stop();
-    void (async () => {
-      try {
-        const child = await runInteractiveProcess({
-          command: editor.executable,
-          args: [...editor.args, core.config.planPath],
-          cwd: core.config.repositoryRoot,
-        });
-        done({
-          exitCode: child.exitCode,
-          ...(child.error === undefined ? {} : { error: child.error }),
-          ...(child.signal === undefined ? {} : { signal: child.signal }),
-        });
-      } catch (caught) {
-        done({ exitCode: 1, error: errorMessage(caught) });
-      } finally {
-        tui.start();
-        tui.requestRender(true);
-      }
-    })();
-    return EMPTY_COMPONENT;
+  const result = await runInteractiveProcessWithPi(ctx, {
+    command: editor.executable,
+    args: [...editor.args, core.config.planPath],
+    cwd: core.config.repositoryRoot,
+    purpose: "ManualEdit",
   });
   return { ...result, editor };
 }
@@ -863,7 +841,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const core = getCore(ctx);
       const editor = resolveEditorCommand(core.config, ctx.isProjectTrusted());
       const location = parseFileLocation(args, core.config.repositoryRoot);
-      const result = await runInteractiveProcess({ command: editor.executable, args: editorArguments(editor, location), cwd: core.config.repositoryRoot });
+      const result = await runInteractiveProcessWithPi(ctx, {
+        command: editor.executable,
+        args: editorArguments(editor, location),
+        cwd: core.config.repositoryRoot,
+        purpose: "Repository editor navigation",
+      });
       if (result.exitCode !== 0) ctx.ui.notify(`Editor exited ${result.exitCode}${result.error ? `: ${result.error}` : ""}`, "error");
     },
   });
@@ -876,7 +859,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const selected = await ctx.ui.select("Open repository file", files);
       if (selected === undefined) return;
       const editor = resolveEditorCommand(core.config, ctx.isProjectTrusted());
-      await runInteractiveProcess({ command: editor.executable, args: editorArguments(editor, { path: resolve(core.config.repositoryRoot, selected) }), cwd: core.config.repositoryRoot });
+      await runInteractiveProcessWithPi(ctx, {
+        command: editor.executable,
+        args: editorArguments(editor, { path: resolve(core.config.repositoryRoot, selected) }),
+        cwd: core.config.repositoryRoot,
+        purpose: "Repository file navigation",
+      });
     },
   });
 
@@ -885,7 +873,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       if (commandOnPath("yazi") && ctx.mode === "tui") {
-        await runInteractiveProcess({ command: "yazi", args: [core.config.repositoryRoot], cwd: core.config.repositoryRoot });
+        await runInteractiveProcessWithPi(ctx, {
+          command: "yazi",
+          args: [core.config.repositoryRoot],
+          cwd: core.config.repositoryRoot,
+          purpose: "Repository tree navigation",
+        });
         return;
       }
       ctx.ui.setWidget?.("atelier-tree", ["Atelier project tree", "", ...projectTree(core)], { placement: "aboveEditor" });

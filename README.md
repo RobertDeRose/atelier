@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.25**. Guided verification now renders Markdown instructions literally instead of allowing shell command substitution to erase slash commands, footer labels, and direct-shell examples. Existing guided runs refresh their guide files without recreating workspaces or deleting recorded results. Automatic workspace preparation, visible startup failures, and the prior codesearch corrections remain included.
+Current release: **0.14.0-alpha.26**. Pi direct-user shell output now follows the host Buffer contract instead of crashing on the first output-producing `!` command. Full-screen editor and navigator commands suspend and restore Pi before transferring terminal ownership. Guided verification captures Pi stderr and exit status, preserves failures on screen, and can recreate and rerun one failed disposable step without discarding earlier results.
 
 ## Current status
 

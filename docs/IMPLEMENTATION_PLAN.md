@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.25 (2026-07-31).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.26 (2026-07-31).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -43,7 +43,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.25
+## Implementation Status — v0.14.0-alpha.26
 
 The current prototype delivers the guarded local workflow:
 
@@ -64,7 +64,8 @@ The current prototype delivers the guarded local workflow:
 - user-owned executable selection plus fail-closed per-command approval when shell confinement is unavailable;
 - workspace-wide scoped commits, combined diff review, source-content validation freshness, metadata finalization, and closure;
 - deterministic unsigned Git commits that do not depend on workstation signing agents; and
-- persistent TUI-only Markdown reports for operational inspection, plus a guided evidence-gathering harness that keeps instructions outside the Pi viewport.
+- persistent TUI-only Markdown reports for operational inspection, plus a guided evidence-gathering harness that keeps instructions outside the Pi viewport, captures host failures, and retries disposable steps independently; and
+- Pi-compatible Buffer delivery for direct user-shell output plus explicit terminal suspension around editors and full-screen navigators.
 
 The portable acceptance fixtures in `tests/acceptance-workflow.test.ts`, `tests/workspace-policy.test.ts`, and `tests/recovery-manager.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `LOCAL_ACCEPTANCE.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their “planned” wording does not override this delivered-status section.
 

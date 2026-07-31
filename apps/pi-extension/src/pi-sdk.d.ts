@@ -5,7 +5,7 @@ declare module "@earendil-works/pi-coding-agent" {
       command: string,
       cwd: string,
       options: {
-        onData: (chunk: string | Uint8Array) => void;
+        onData: (chunk: Buffer) => void;
         signal?: AbortSignal;
         timeout?: number;
       },

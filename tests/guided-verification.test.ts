@@ -12,6 +12,18 @@ function executable(path: string, body: string): void {
   chmodSync(path, 0o755);
 }
 
+test("guided verification help renders without executing Markdown-style commands", () => {
+  const result = spawnSync("bash", [script, "--help"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...process.env, TERM: "dumb" },
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /retry STEP/);
+  assert.match(result.stdout, /retried with: retry 4/);
+});
+
 test("guided verification resolves step workspace paths before launching and collecting evidence", () => {
   const root = mkdtempSync(join(tmpdir(), "atelier-guided-paths-"));
   const runRoot = join(root, "run");
@@ -174,6 +186,119 @@ test("guided verification auto-prepares missing workspaces and does not emit ter
     assert.notEqual(missingPointer.status, 0);
     assert.match(missingPointer.stderr, /no current acceptance run/);
     assert.doesNotMatch(missingPointer.stdout + missingPointer.stderr, /\u001b\[\?1049l/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("guided retry recreates only the failed workspace and preserves prior results", () => {
+  const root = mkdtempSync(join(tmpdir(), "atelier-guided-retry-"));
+  const runRoot = join(root, "run");
+  const automatedRepo = join(runRoot, "repo");
+  const sourceRepo = join(root, "source");
+  const evidence = join(runRoot, "evidence");
+  const fakeBin = join(root, "bin");
+  const pointer = join(root, "pointer");
+
+  try {
+    mkdirSync(join(automatedRepo, ".git"), { recursive: true });
+    mkdirSync(sourceRepo, { recursive: true });
+    mkdirSync(fakeBin, { recursive: true });
+    mkdirSync(evidence, { recursive: true });
+    writeFileSync(pointer, `${runRoot}\n`, "utf8");
+    writeFileSync(join(runRoot, "env.sh"), "export ATELIER_TEST_RUN=1\n", "utf8");
+    writeFileSync(
+      join(evidence, "manual-results.tsv"),
+      "1\tPASS\tJujutsu footer\tkept\n2\tFAIL\tGit policy\told failure\n",
+      "utf8",
+    );
+
+    executable(
+      join(fakeBin, "git"),
+      [
+        'if [[ "${1:-}" == "-C" && "${3:-}" == "remote" && "${4:-}" == "get-url" ]]; then',
+        '  printf "%s\\n" "$FAKE_SOURCE_REPO"',
+        "  exit 0",
+        "fi",
+        'if [[ "${1:-}" == "clone" ]]; then',
+        '  destination="${@: -1}"',
+        '  mkdir -p "$destination/.git" "$destination/.beads" "$destination/.atelier" "$destination/bin" "$destination/tests" "$destination/packages/core/src"',
+        "  exit 0",
+        "fi",
+        "exit 0",
+      ].join("\n"),
+    );
+    executable(
+      join(fakeBin, "mise"),
+      [
+        'if [[ "${1:-}" == "run" && "${2:-}" == "launch" ]]; then',
+        '  printf "captured launch diagnostic\\n" >&2',
+        "fi",
+        "exit 0",
+      ].join("\n"),
+    );
+    executable(join(fakeBin, "jj"), "exit 0");
+    executable(join(fakeBin, "bd"), 'printf "[]\\n"');
+    executable(
+      join(fakeBin, "node"),
+      'if [[ "${1:-}" == "--input-type=module" ]]; then exec "$REAL_NODE" "$@"; fi\nprintf "[]\\n"',
+    );
+
+    const result = spawnSync("bash", [script, "retry", "2"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      input: "\np\nretried\n",
+      env: {
+        ...process.env,
+        ATELIER_ACCEPTANCE_POINTER: pointer,
+        FAKE_SOURCE_REPO: sourceRepo,
+        PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
+        REAL_NODE: process.execPath,
+        TERM: "dumb",
+      },
+    });
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /guided step 2 retry complete/);
+    const results = readFileSync(join(evidence, "manual-results.tsv"), "utf8");
+    assert.match(results, /^1\tPASS\tJujutsu footer\tkept$/m);
+    assert.match(results, /^2\tPASS\tGit recoverability and consequence-based prompts\tretried$/m);
+    assert.doesNotMatch(results, /^2\tFAIL\t/m);
+    assert.equal(readFileSync(join(evidence, "guided-policy-git", "pi-exit-status.txt"), "utf8"), "0\n");
+    assert.match(readFileSync(join(evidence, "guided-policy-git", "pi.stderr"), "utf8"), /captured launch diagnostic/);
+    assert.equal(existsSync(join(runRoot, "guided", "policy-git", "repo")), true);
+
+    executable(
+      join(fakeBin, "mise"),
+      [
+        'if [[ "${1:-}" == "run" && "${2:-}" == "launch" ]]; then',
+        '  printf "fatal launch diagnostic\\n" >&2',
+        "  exit 7",
+        "fi",
+        "exit 0",
+      ].join("\n"),
+    );
+    const failedRetry = spawnSync("bash", [script, "retry", "2"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      input: "\nf\nexpected failure\n",
+      env: {
+        ...process.env,
+        ATELIER_ACCEPTANCE_POINTER: pointer,
+        ATELIER_GUIDED_KEEP_GOING: "1",
+        FAKE_SOURCE_REPO: sourceRepo,
+        PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
+        REAL_NODE: process.execPath,
+        TERM: "dumb",
+      },
+    });
+    assert.equal(failedRetry.status, 0, `${failedRetry.stdout}\n${failedRetry.stderr}`);
+    assert.match(failedRetry.stderr, /Pi exited unexpectedly with status 7/);
+    assert.equal(readFileSync(join(evidence, "guided-policy-git", "pi-exit-status.txt"), "utf8"), "7\n");
+    assert.match(readFileSync(join(evidence, "guided-policy-git", "pi.stderr"), "utf8"), /fatal launch diagnostic/);
+    const failedResults = readFileSync(join(evidence, "manual-results.tsv"), "utf8");
+    assert.match(failedResults, /^1\tPASS\tJujutsu footer\tkept$/m);
+    assert.match(failedResults, /^2\tFAIL\tGit recoverability and consequence-based prompts\texpected failure$/m);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

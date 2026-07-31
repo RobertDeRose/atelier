@@ -22,6 +22,7 @@ Usage:
   $PROGRAM automated [SOURCE_REPO]
   $PROGRAM prepare
   $PROGRAM guided [STEP]
+  $PROGRAM retry STEP
   $PROGRAM status
   $PROGRAM archive
 
@@ -34,6 +35,8 @@ Commands:
   automated  Run deterministic and automated gates, then prepare manual workspaces.
   prepare    Recreate only the disposable guided workspaces for the current run.
   guided     Walk through manual steps 1-5; optionally start at STEP.
+  retry      Recreate and rerun exactly one failed disposable step.
+             Step 5 depends on step 4 and must be retried with: retry 4
   status     Show current run, workspaces, and recorded manual outcomes.
   archive    Rebuild the combined evidence archive.
 
@@ -207,6 +210,7 @@ Run these commands inside Pi:
 4. `/code-index`
 5. `/code-search Where is the authoritative task closure predicate implemented?`
 6. `/code-symbols AtelierCore`
+7. `/atelier-open apps/pi-extension/src/command-reports.ts:63`
 
 Expected:
 
@@ -218,6 +222,7 @@ Expected:
 - `/workflow` renders a concise durable workflow card distinct from `/status`.
 - Card headers use `➤` when collapsed and `▼` when expanded, with dividers between consecutive reports.
 - Symbol results separate the exact `AtelierCore` definition from references.
+- `/atelier-open` suspends Pi, opens the configured editor at line 63, and returns to the same usable Pi session after the editor exits.
 
 Exit Pi with Ctrl-D.
 GUIDE
@@ -244,7 +249,7 @@ Send this model message:
 
 `!printf 'read-only output\n'`
 
-The dirty tracked deletion must create a verified checkpoint automatically.
+The output must render in Pi and Pi must remain usable. The dirty tracked deletion must create a verified checkpoint automatically.
 
 ## Reject each protected or unrecoverable operation
 
@@ -433,6 +438,51 @@ NODE
   )
 }
 
+step_metadata() {
+  local step="$1"
+  case "$step" in
+    1) printf '%s\t%s\t%s\t%s\n' intel-jj 'Jujutsu footer and persistent Markdown reports' jj ready ;;
+    2) printf '%s\t%s\t%s\t%s\n' policy-git 'Git recoverability and consequence-based prompts' git disabled ;;
+    3) printf '%s\t%s\t%s\t%s\n' policy-jj 'Jujutsu native checkpoint and restoration' jj disabled ;;
+    4) printf '%s\t%s\t%s\t%s\n' control 'Plan review, rejection, and idle approval' jj disabled ;;
+    5) printf '%s\t%s\t%s\t%s\n' control 'Stop, pause, resume, and cancellation' jj disabled ;;
+    *) fail "unknown guided step: $step" ;;
+  esac
+}
+
+remove_recorded_steps() {
+  [[ -f "$RESULTS_FILE" ]] || return 0
+  local steps_csv="$1"
+  local temporary="$RESULTS_FILE.tmp"
+  awk -F '\t' -v steps="$steps_csv" '
+    BEGIN {
+      count = split(steps, values, ",")
+      for (i = 1; i <= count; i += 1) removed[values[i]] = 1
+    }
+    !($1 in removed)
+  ' "$RESULTS_FILE" >"$temporary"
+  mv "$temporary" "$RESULTS_FILE"
+}
+
+prepare_single_step() {
+  local step="$1"
+  local automated_repo="$RUN_ROOT/repo"
+  [[ -d "$automated_repo/.git" ]] || fail "automated repository is missing: $automated_repo"
+  SOURCE_REPO="$(git -C "$automated_repo" remote get-url origin)"
+  SOURCE_REPO="$(canonical_dir "$SOURCE_REPO")"
+  mkdir -p "$GUIDED_ROOT" "$EVIDENCE_DIR"
+  case "$step" in
+    1) prepare_intel_jj; remove_recorded_steps 1 ;;
+    2) prepare_policy_git; remove_recorded_steps 2 ;;
+    3) prepare_policy_jj; remove_recorded_steps 3 ;;
+    4) prepare_control; remove_recorded_steps 4,5 ;;
+    5) fail "step 5 depends on the approved task created in step 4; run '$PROGRAM retry 4'" ;;
+    *) fail "unknown guided step: $step" ;;
+  esac
+  write_guides
+  : >"$GUIDED_ROOT/.prepared"
+}
+
 launch_step() {
   local step="$1" name="$2" title="$3" vcs="$4" intel="$5"
   local root="$GUIDED_ROOT/$name"
@@ -449,17 +499,29 @@ launch_step() {
   local guide="$GUIDED_ROOT/guides/0${step}-${guide_name}.md"
   [[ -d "$repo" ]] || fail "guided workspace is missing: $repo"
   banner "$step" "$title" "$repo" "$vcs" "$intel" "$guide"
+  local out="$EVIDENCE_DIR/guided-$name"
+  local pi_stderr="$out/pi.stderr"
+  mkdir -p "$out"
+  : >"$pi_stderr"
   TUI_TERMINAL_DIRTY=1
   set +e
   (
     source "$root/env.sh"
     cd "$repo"
-    mise run launch
+    mise run launch 2> >(tee "$pi_stderr" >&2)
   )
   local rc=$?
   set -e
+  printf '%s\n' "$rc" >"$out/pi-exit-status.txt"
   restore_terminal
-  clear_screen
+  if [[ "$rc" -eq 0 ]]; then
+    clear_screen
+  else
+    printf '\nPi exited unexpectedly with status %s. The terminal was left visible for diagnostics.\n' "$rc" >&2
+    if [[ -s "$pi_stderr" ]]; then
+      printf 'Captured stderr: %s\n' "$pi_stderr" >&2
+    fi
+  fi
   printf 'Pi exited with status %s. Collecting authoritative evidence...\n' "$rc"
   collect_workspace "$name"
   if [[ "$step" == 2 || "$step" == 3 ]]; then
@@ -494,6 +556,24 @@ run_guided() {
   pass "guided verification complete"
   printf 'Results:  %s\n' "$RESULTS_FILE"
   printf 'Evidence: %s\n' "$RUN_ROOT/atelier-guided-verification-evidence.tar.xz"
+}
+
+retry_step() {
+  load_run
+  local step="${1:-}"
+  [[ "$step" =~ ^[1-5]$ ]] || fail "usage: $PROGRAM retry STEP (STEP must be 1-5)"
+  log "recreate guided step $step from the current Atelier source"
+  prepare_single_step "$step"
+
+  local metadata name title vcs intel
+  metadata="$(step_metadata "$step")"
+  IFS=$'\t' read -r name title vcs intel <<<"$metadata"
+  launch_step "$step" "$name" "$title" "$vcs" "$intel"
+  archive_evidence >/dev/null
+  log "guided step $step retry complete"
+  if [[ "$step" -lt 5 ]]; then
+    printf 'Continue with: %s guided %s\n' "$PROGRAM" "$((step + 1))"
+  fi
 }
 
 archive_evidence() {
@@ -536,6 +616,7 @@ main() {
     automated) shift; run_automated "${1:-$PWD}" ;;
     prepare) prepare_manual ;;
     guided) shift; run_guided "${1:-1}" ;;
+    retry) shift; retry_step "${1:-}" ;;
     status) show_status ;;
     archive) archive_evidence ;;
     -h|--help|help|'') usage ;;

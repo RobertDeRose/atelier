@@ -1184,7 +1184,10 @@ test("model Bash and direct user shell share one workspace-policy authorization 
     assert.ok(userRead?.operations);
     let userOutput = "";
     const userResult = await userRead.operations.exec("printf user-ok", root, {
-      onData(chunk: string | Uint8Array) { userOutput += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"); },
+      onData(chunk: Buffer) {
+        assert.equal(Buffer.isBuffer(chunk), true, "Pi BashOperations must receive Buffer chunks");
+        userOutput += chunk.toString("utf8");
+      },
     });
     assert.equal(userResult.exitCode, 0);
     assert.match(userOutput, /user-ok/);

@@ -18,7 +18,10 @@ export function createAtelierBashOperations(options: {
         allowUnsandboxed: options.allowUnsandboxed,
         ...(execution.signal === undefined ? {} : { signal: execution.signal }),
         ...(execution.timeout === undefined ? {} : { timeoutMs: execution.timeout * 1000 }),
-        onData: (chunk) => execution.onData(chunk),
+        // Pi's BashOperations contract requires Buffer chunks. Passing the
+        // core runner's UTF-8 strings works for silent commands, but crashes
+        // Pi's interactive `!` command renderer as soon as output arrives.
+        onData: (chunk) => execution.onData(Buffer.from(chunk, "utf8")),
       });
       if (result.aborted) throw new Error("aborted");
       if (result.timedOut) throw new Error(`timeout:${execution.timeout ?? 0}`);

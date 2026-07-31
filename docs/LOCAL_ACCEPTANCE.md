@@ -1,9 +1,9 @@
-# Local Acceptance Workflow — 0.14.0-alpha.25
+# Local Acceptance Workflow — 0.14.0-alpha.26
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
 and a terminal.
-The in-tree guided verifier is regression-tested under Bash `set -u` so each manual step resolves its workspace and evidence paths before launching Pi. Generated guides use literal Markdown backticks, and starting `guided` refreshes corrected instructions without resetting existing workspaces or results.
+The in-tree guided verifier is regression-tested under Bash `set -u` so each manual step resolves its workspace and evidence paths before launching Pi. Generated guides use literal Markdown backticks, starting `guided` refreshes corrected instructions without resetting existing workspaces or results, and `retry STEP` recreates only the selected failed disposable workspace. Every launch records Pi stderr and exit status, and unexpected failures remain visible instead of being cleared.
 
 ## Deterministic gate
 
@@ -375,6 +375,8 @@ Pi /trust independence
 External runtime database
 Beads 0700 directory and idempotent initialization
 Generic shell boundary
+Direct user-shell output renders without terminating Pi
+Configured-editor and `/atelier-open` terminal round trip
 Code index and semantic search, including preserved doctor/statistics diagnostics on failure
 Explicit human symbol lookup
 Canonical scoped symbol inventory

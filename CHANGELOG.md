@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0-alpha.26 — 2026-07-31
+
+- Emit `Buffer` chunks through Pi's `BashOperations` contract so output-producing direct `!` commands do not terminate the interactive host.
+- Suspend and restore Pi's TUI around configured editors, `/atelier-open`, `/atelier-files`, and Yazi navigation.
+- Preserve Pi stderr and exit status for each guided step and leave unexpected failures visible instead of immediately clearing the terminal.
+- Add `guided-verification.sh retry STEP` to rebuild and rerun one disposable failed workspace while retaining earlier results.
+- Extend the guided checks to verify editor round trips and continued Pi usability after direct shell output.
+
 ## 0.14.0-alpha.25 — 2026-07-31
 
 ### Fixed
