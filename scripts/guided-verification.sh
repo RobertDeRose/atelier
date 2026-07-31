@@ -362,7 +362,10 @@ record_result() {
 }
 
 collect_workspace() {
-  local name="$1" root="$GUIDED_ROOT/$name" repo="$GUIDED_ROOT/$name/repo" out="$EVIDENCE_DIR/guided-$name"
+  local name="$1"
+  local root="$GUIDED_ROOT/$name"
+  local repo="$root/repo"
+  local out="$EVIDENCE_DIR/guided-$name"
   mkdir -p "$out"
   [[ -f "$root/env.sh" ]] || return 0
   (
@@ -381,7 +384,10 @@ collect_workspace() {
 }
 
 restore_latest_checkpoint() {
-  local name="$1" root="$GUIDED_ROOT/$name" repo="$GUIDED_ROOT/$name/repo" list="$EVIDENCE_DIR/guided-$name/recovery-before-restore.json"
+  local name="$1"
+  local root="$GUIDED_ROOT/$name"
+  local repo="$root/repo"
+  local list="$EVIDENCE_DIR/guided-$name/recovery-before-restore.json"
   mkdir -p "$(dirname "$list")"
   (
     source "$root/env.sh"
@@ -402,7 +408,18 @@ NODE
 
 launch_step() {
   local step="$1" name="$2" title="$3" vcs="$4" intel="$5"
-  local root="$GUIDED_ROOT/$name" repo="$root/repo" guide="$GUIDED_ROOT/guides/0${step}-$(case "$step" in 1) echo intel-jj;; 2) echo policy-git;; 3) echo policy-jj;; 4) echo approval;; 5) echo control;; esac).md"
+  local root="$GUIDED_ROOT/$name"
+  local repo="$root/repo"
+  local guide_name
+  case "$step" in
+    1) guide_name="intel-jj" ;;
+    2) guide_name="policy-git" ;;
+    3) guide_name="policy-jj" ;;
+    4) guide_name="approval" ;;
+    5) guide_name="control" ;;
+    *) fail "unknown guided step: $step" ;;
+  esac
+  local guide="$GUIDED_ROOT/guides/0${step}-${guide_name}.md"
   [[ -d "$repo" ]] || fail "guided workspace is missing: $repo"
   banner "$step" "$title" "$repo" "$vcs" "$intel" "$guide"
   set +e

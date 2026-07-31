@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0-alpha.23 — 2026-07-31
+
+### Fixed
+
+- Corrected the guided-verification launcher so workspace-dependent local variables are initialized before use under `set -u`.
+- Applied the same safe initialization pattern to guided evidence collection and recovery-checkpoint restoration.
+- Added an executable regression that runs guided steps 3–5 with fake TUI/provider commands, records PASS results, collects evidence, restores checkpoint state, and creates the guided archive.
+
 ## 0.14.0-alpha.22 — 2026-07-31
 
 ### Fixed

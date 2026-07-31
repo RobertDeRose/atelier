@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.22**. Codesearch indexing now uses the bounded asynchronous process runner, preserving provider output emitted before timeout while retaining the fresh-index repair, deterministic Git, and multi-repository finalization corrections from alpha.21.
+Current release: **0.14.0-alpha.23**. The guided verification harness now resolves workspace, repository, guide, evidence, and recovery paths in separate assignments, preventing `set -u` failures before manual TUI steps launch. Codesearch timeout-output preservation and the alpha.21 indexing corrections remain included.
 
 ## Current status
 

@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.22
+# Build Report — Atelier 0.14.0-alpha.23
 
 ## Result
 
@@ -16,6 +16,15 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.23 guided-verification initialization correction
+
+Alpha.23 corrects the manual TUI walkthrough failure exposed on macOS with Bash `set -u`:
+
+- `launch_step()` resolves the guided root before deriving repository and guide paths;
+- evidence collection and recovery restoration use the same dependency-safe local-variable initialization;
+- unknown guided step identifiers fail explicitly instead of producing an empty guide path; and
+- an executable regression runs guided steps 3–5 through launch, evidence collection, checkpoint inspection, result recording, and archive creation.
 
 ## Alpha.22 codesearch timeout-output correction
 
@@ -87,7 +96,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:  266 passed, 0 failed across 81 test files
+Deterministic tests:  268 passed, 0 failed across 82 test files
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -97,20 +106,20 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.22
+Package:          atelier-prototype@0.14.0-alpha.23
 Files:            430
-Compressed size:  484,177 bytes
-Unpacked size:    2,269,976 bytes
+Compressed size:  484,285 bytes
+Unpacked size:    2,270,385 bytes
 ```
 
 ## Verification boundary
 
 The correction review environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
-Node 24.18.0 and TypeScript 7 toolchain. The direct aggregate test command completed with all 267
-deterministic tests passing. Type-checking, the production build, CLI smoke workflow, metadata checks,
-and the package dry-run also passed. A second aggregate run through the `npm run check` wrapper did not
-terminate reliably under unsupported Node 22 after progressing through the suite; the pinned Node 24 CI
-workflow remains authoritative for the exact supported runtime.
+Node 24.18.0 and TypeScript 7 toolchain. All 268 deterministic tests across 82 files passed in bounded
+batches, including the new executable guided-verification regression. Type-checking, the production build,
+CLI smoke workflow, metadata checks, acceptance-script syntax, `git diff --check`, and package dry-run also
+passed. The aggregate Node 22 test-runner process again did not terminate reliably, so the pinned Node 24
+CI and maintainer `mise check` remain authoritative for the exact supported aggregate runtime.
 
 The environment also did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap` binary. Exact
 Git recovery is exercised against real Git repositories. Jujutsu operation recovery and sandbox command
@@ -120,7 +129,7 @@ live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.22` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.23` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.
