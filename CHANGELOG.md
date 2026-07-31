@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0-alpha.24 — 2026-07-31
+
+### Fixed
+
+- Corrected guided-workspace readiness detection so an empty `guided/` directory no longer suppresses automatic preparation.
+- Automatically prepares all four guided repositories and five step guides when `guided` is run after live acceptance.
+- Preserves recorded results when a previously started guided workspace becomes incomplete, requiring an explicit `prepare` reset instead of silently deleting evidence.
+- Emits alternate-screen and terminal-mode reset sequences only after Pi actually launches, so startup errors remain visible in the terminal.
+- Added regressions covering automatic preparation, complete step execution, evidence archiving, and visible pre-launch failures.
+
 ## 0.14.0-alpha.23 — 2026-07-31
 
 ### Fixed

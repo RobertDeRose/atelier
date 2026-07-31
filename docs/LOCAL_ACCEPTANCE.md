@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.23
+# Local Acceptance Workflow — 0.14.0-alpha.24
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -177,14 +177,21 @@ in transcript scrollback after the next command. `/status` and `/code-status` sh
 `intel: disabled`, not `offline`.
 
 For a guided, evidence-gathering walkthrough that clears each terminal transition and identifies the
-intentional VCS/provider state, run:
+intentional VCS/provider state, run the full flow:
 
 ```sh
 scripts/guided-verification.sh all /path/to/atelier
 ```
 
-Detailed manual instructions are written under the persistent run's `guided/guides/` directory rather than
-left above the Pi viewport.
+After `scripts/live-acceptance.sh` has already completed, continue the existing run with:
+
+```sh
+scripts/guided-verification.sh guided
+```
+
+The `guided` command checks every required workspace and guide and prepares them automatically when they are
+missing. Running the script with no command only prints usage. Detailed manual instructions are written under
+the persistent run's `guided/guides/` directory rather than left above the Pi viewport.
 
 ## 4. Verify code intelligence
 

@@ -9,6 +9,7 @@ RUN_ROOT=""
 GUIDED_ROOT=""
 EVIDENCE_DIR=""
 RESULTS_FILE=""
+TUI_TERMINAL_DIRTY=0
 
 log() { printf '\n==> %s\n' "$*"; }
 pass() { printf 'PASS: %s\n' "$*"; }
@@ -23,6 +24,9 @@ Usage:
   $PROGRAM guided [STEP]
   $PROGRAM status
   $PROGRAM archive
+
+Typical continuation after live acceptance:
+  $PROGRAM guided
 
 Commands:
   all        Run deterministic and automated gates, prepare guided workspaces,
@@ -47,9 +51,11 @@ clear_screen() {
 }
 
 restore_terminal() {
+  [[ "$TUI_TERMINAL_DIRTY" == 1 ]] || return 0
   if [[ -t 0 ]]; then stty sane 2>/dev/null || true; fi
   # Restore modes commonly left active by full-screen TUIs after forced exits.
   printf '\033[?1049l\033[?25h\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?2004l\033[<u' 2>/dev/null || true
+  TUI_TERMINAL_DIRTY=0
 }
 trap restore_terminal EXIT INT TERM
 
@@ -60,7 +66,7 @@ load_run() {
   GUIDED_ROOT="$RUN_ROOT/guided"
   EVIDENCE_DIR="$RUN_ROOT/evidence"
   RESULTS_FILE="$EVIDENCE_DIR/manual-results.tsv"
-  mkdir -p "$GUIDED_ROOT" "$EVIDENCE_DIR"
+  mkdir -p "$EVIDENCE_DIR"
 }
 
 write_env() {
@@ -315,6 +321,28 @@ Exit Pi with Ctrl-D.
 GUIDE
 }
 
+guided_workspaces_ready() {
+  local required=(
+    "$GUIDED_ROOT/intel-jj/env.sh"
+    "$GUIDED_ROOT/intel-jj/repo"
+    "$GUIDED_ROOT/policy-git/env.sh"
+    "$GUIDED_ROOT/policy-git/repo"
+    "$GUIDED_ROOT/policy-jj/env.sh"
+    "$GUIDED_ROOT/policy-jj/repo"
+    "$GUIDED_ROOT/control/env.sh"
+    "$GUIDED_ROOT/control/repo"
+    "$GUIDED_ROOT/guides/01-intel-jj.md"
+    "$GUIDED_ROOT/guides/02-policy-git.md"
+    "$GUIDED_ROOT/guides/03-policy-jj.md"
+    "$GUIDED_ROOT/guides/04-approval.md"
+    "$GUIDED_ROOT/guides/05-control.md"
+  )
+  local path
+  for path in "${required[@]}"; do
+    [[ -e "$path" ]] || return 1
+  done
+}
+
 prepare_manual() {
   load_run
   local automated_repo="$RUN_ROOT/repo"
@@ -329,6 +357,7 @@ prepare_manual() {
   prepare_policy_jj
   prepare_control
   write_guides
+  : >"$GUIDED_ROOT/.prepared"
   : >"$RESULTS_FILE"
   pass "guided workspaces prepared under $GUIDED_ROOT"
 }
@@ -422,6 +451,7 @@ launch_step() {
   local guide="$GUIDED_ROOT/guides/0${step}-${guide_name}.md"
   [[ -d "$repo" ]] || fail "guided workspace is missing: $repo"
   banner "$step" "$title" "$repo" "$vcs" "$intel" "$guide"
+  TUI_TERMINAL_DIRTY=1
   set +e
   (
     source "$root/env.sh"
@@ -444,7 +474,13 @@ launch_step() {
 run_guided() {
   load_run
   local start="${1:-1}"
-  [[ -d "$GUIDED_ROOT" ]] || prepare_manual
+  if ! guided_workspaces_ready; then
+    if [[ -s "$RESULTS_FILE" ]]; then
+      fail "guided workspaces are incomplete after results were recorded; run '$PROGRAM prepare' to reset them explicitly"
+    fi
+    log "guided workspaces are missing or incomplete; preparing them now"
+    prepare_manual
+  fi
   (( start <= 1 )) && launch_step 1 intel-jj 'Jujutsu footer and persistent Markdown reports' jj ready
   (( start <= 2 )) && launch_step 2 policy-git 'Git recoverability and consequence-based prompts' git disabled
   (( start <= 3 )) && launch_step 3 policy-jj 'Jujutsu native checkpoint and restoration' jj disabled

@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.23
+# Build Report — Atelier 0.14.0-alpha.24
 
 ## Result
 
@@ -96,7 +96,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:  268 passed, 0 failed across 82 test files
+Guided regressions:    2 passed, 0 failed
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -106,20 +106,21 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.23
+Package:          atelier-prototype@0.14.0-alpha.24
 Files:            430
-Compressed size:  484,285 bytes
-Unpacked size:    2,270,385 bytes
+Compressed size:  484,424 bytes
+Unpacked size:    2,270,791 bytes
 ```
 
 ## Verification boundary
 
 The correction review environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
-Node 24.18.0 and TypeScript 7 toolchain. All 268 deterministic tests across 82 files passed in bounded
-batches, including the new executable guided-verification regression. Type-checking, the production build,
-CLI smoke workflow, metadata checks, acceptance-script syntax, `git diff --check`, and package dry-run also
-passed. The aggregate Node 22 test-runner process again did not terminate reliably, so the pinned Node 24
-CI and maintainer `mise check` remain authoritative for the exact supported aggregate runtime.
+Node 24.18.0 and TypeScript 7 toolchain. Both guided-verification regressions passed, including automatic
+workspace preparation and visible pre-launch failure handling. The alpha.23 product code and its previously
+verified 268-test baseline are otherwise unchanged. Type-checking, the production build, CLI smoke workflow,
+metadata checks, acceptance-script syntax, `git diff --check`, and package dry-run passed. The aggregate Node
+22 test-runner process did not terminate reliably, so the pinned Node 24 CI and maintainer `mise check` remain
+authoritative for the complete 269-test suite.
 
 The environment also did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap` binary. Exact
 Git recovery is exercised against real Git repositories. Jujutsu operation recovery and sandbox command
@@ -129,7 +130,8 @@ live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.23` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.24` remains an interactive alpha. Guided verification now self-prepares missing workspaces and
+preserves pre-launch failures without terminal-reset flashes. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.
