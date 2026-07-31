@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.21 (2026-07-30).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.22 (2026-07-31).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -15,7 +15,8 @@
 > receives one explicit unsandboxed approval. Reviewed commits, diff review, validation freshness, and closure
 > now span every changed workspace repository. Atelier-created Git commits are explicitly unsigned so
 > signing-enabled workstation configuration cannot depend on credentials intentionally removed from child processes;
-> sandbox-dependent tests select their backend explicitly.
+> sandbox-dependent tests select their backend explicitly. Codesearch indexing now uses the bounded asynchronous
+> process runner so provider output survives timeout termination and unresponsive process groups are force-killed.
 >
 > **Historical permission sections below are non-normative.** ADR-0032 and the delivered-status section
 > supersede every older design involving trusted projects, permission grants, capability bundles,
@@ -41,7 +42,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.21
+## Implementation Status — v0.14.0-alpha.22
 
 The current prototype delivers the guarded local workflow:
 

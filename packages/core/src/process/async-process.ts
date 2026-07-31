@@ -54,10 +54,21 @@ export async function runProcess(command: string, args: readonly string[], optio
         else process.kill(-child.pid, signal);
       } catch { try { child.kill(signal); } catch { /* exited */ } }
     };
+    const scheduleForce = (): void => {
+      if (forceTimer !== undefined || settled) return;
+      forceTimer = setTimeout(() => terminate("SIGKILL"), 1_000);
+      forceTimer.unref?.();
+    };
+    const requestTermination = (reason: "timeout" | "abort"): void => {
+      if (reason === "timeout") timedOut = true;
+      else aborted = true;
+      terminate("SIGTERM");
+      scheduleForce();
+    };
     const resetIdle = (): void => {
       if (idleTimer !== undefined) clearTimeout(idleTimer);
       if ((options.idleTimeoutMs ?? 0) > 0) {
-        idleTimer = setTimeout(() => { timedOut = true; terminate("SIGTERM"); }, options.idleTimeoutMs);
+        idleTimer = setTimeout(() => requestTermination("timeout"), options.idleTimeoutMs);
         idleTimer.unref?.();
       }
     };
@@ -66,11 +77,11 @@ export async function runProcess(command: string, args: readonly string[], optio
       if (Buffer.byteLength(next) <= maximum) return [next, false];
       return [next.slice(-maximum), true];
     };
-    const abort = (): void => { aborted = true; terminate("SIGTERM"); };
+    const abort = (): void => requestTermination("abort");
     options.signal?.addEventListener("abort", abort, { once: true });
     if (options.signal?.aborted) abort();
     if ((options.timeoutMs ?? 0) > 0) {
-      totalTimer = setTimeout(() => { timedOut = true; terminate("SIGTERM"); }, options.timeoutMs);
+      totalTimer = setTimeout(() => requestTermination("timeout"), options.timeoutMs);
       totalTimer.unref?.();
     }
     resetIdle();
@@ -96,10 +107,6 @@ export async function runProcess(command: string, args: readonly string[], optio
       if (idleTimer !== undefined) clearTimeout(idleTimer);
       if (forceTimer !== undefined) clearTimeout(forceTimer);
       options.signal?.removeEventListener("abort", abort);
-    };
-    const scheduleForce = (): void => {
-      forceTimer = setTimeout(() => terminate("SIGKILL"), 1_000);
-      forceTimer.unref?.();
     };
     child.once("spawn", () => {
       if (aborted || timedOut) { terminate("SIGTERM"); scheduleForce(); }

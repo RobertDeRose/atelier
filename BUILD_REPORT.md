@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.21
+# Build Report — Atelier 0.14.0-alpha.22
 
 ## Result
 
@@ -16,6 +16,15 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.22 codesearch timeout-output correction
+
+Alpha.22 corrects the remaining macOS timeout regression exposed by the supported deterministic check:
+
+- codesearch indexing uses the asynchronous bounded process runner rather than `spawnSync()`;
+- timeout rejection waits for the child process streams to close, retaining stderr and stdout emitted before termination;
+- timed-out, idle, or aborted process groups escalate from `SIGTERM` to `SIGKILL` after one second; and
+- regression coverage verifies both the generic process runner and the codesearch provider preserve partial timeout output.
 
 ## Alpha.21 codesearch fresh-index and diagnostic correction
 
@@ -88,19 +97,20 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.21
+Package:          atelier-prototype@0.14.0-alpha.22
 Files:            430
-Compressed size:  483,865 bytes
-Unpacked size:    2,269,032 bytes
+Compressed size:  484,177 bytes
+Unpacked size:    2,269,976 bytes
 ```
 
 ## Verification boundary
 
 The correction review environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
-Node 24.18.0 and TypeScript 7 toolchain. The complete aggregate `npm run check` command completed in that
-environment: all 266 deterministic tests passed, the production build and CLI smoke workflow passed, and
-the package dry-run contained all 372 built `dist/` files. The pinned Node 24 CI workflow remains
-authoritative for the exact supported runtime.
+Node 24.18.0 and TypeScript 7 toolchain. The direct aggregate test command completed with all 267
+deterministic tests passing. Type-checking, the production build, CLI smoke workflow, metadata checks,
+and the package dry-run also passed. A second aggregate run through the `npm run check` wrapper did not
+terminate reliably under unsupported Node 22 after progressing through the suite; the pinned Node 24 CI
+workflow remains authoritative for the exact supported runtime.
 
 The environment also did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap` binary. Exact
 Git recovery is exercised against real Git repositories. Jujutsu operation recovery and sandbox command
@@ -110,7 +120,7 @@ live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.21` remains an interactive alpha. Workspace containment and exact recoverability now form
+`0.14.0-alpha.22` remains an interactive alpha. Workspace containment and exact recoverability now form
 the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
 interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
 approval unless their effects can be bounded and recovered.

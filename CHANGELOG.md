@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0-alpha.22 — 2026-07-31
+
+### Fixed
+
+- Replaced synchronous codesearch indexing with the bounded asynchronous process runner so timeout handling drains captured stdout and stderr before reporting failure.
+- Preserved provider output written immediately before a timeout, including the final diagnostic line observed on macOS.
+- Added `SIGTERM`-to-`SIGKILL` escalation for timed-out, idle, or aborted child process groups that refuse graceful termination.
+- Added process-runner and codesearch regressions covering output preservation during timeout handling.
+
 ## 0.14.0-alpha.21 — 2026-07-30
 
 ### Fixed

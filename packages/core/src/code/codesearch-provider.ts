@@ -10,6 +10,7 @@ import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts
 import { applyCodeSearchFocus, focusedProviderLimit, rankCodePathsByFocus, resolveCodeSearchFocus } from "./focus.ts";
 import { ATELIER_VERSION } from "../version.ts";
 import { minimalEnvironment } from "../process/environment.ts";
+import { runProcess, type ProcessResult } from "../process/async-process.ts";
 import type {
   CodeCapability,
   CodeChunk,
@@ -148,7 +149,7 @@ export class CodesearchProvider implements CodeProvider {
     const selectionState = readIndexSelectionState(this.indexSelectionStatePath);
     for (const repository of workspace.repositories) {
       if (routedThroughServe) {
-        this.runIndexCommand(["index", "add", repository.root], repository.root, "index add");
+        await this.runIndexCommand(["index", "add", repository.root], repository.root, "index add");
       } else {
         // `index add` returns early when a local database already exists. The bare
         // `index <path>` command is the repair/update path and rebuilds a missing
@@ -166,7 +167,7 @@ export class CodesearchProvider implements CodeProvider {
           ? this.readLocalVectorHealth(repository.root)
           : undefined;
         const force = existingHealth !== undefined && existingHealth.state !== "missing";
-        this.runIndexCommand(
+        await this.runIndexCommand(
           ["index", repository.root, ...(force ? ["--force"] : [])],
           repository.root,
           force ? "index --force" : "index",
@@ -193,15 +194,20 @@ export class CodesearchProvider implements CodeProvider {
   }
 
 
-  private runIndexCommand(args: string[], repositoryRoot: string, operation: string): void {
-    const result = spawnSync(this.command, args, {
-      cwd: repositoryRoot,
-      env: minimalEnvironment({ overrides: this.environment }),
-      encoding: "utf8",
-      shell: false,
-      timeout: this.indexTimeoutMs,
-    });
-    if (result.error || result.status !== 0) {
+  private async runIndexCommand(args: string[], repositoryRoot: string, operation: string): Promise<void> {
+    let result: ProcessResult;
+    try {
+      result = await runProcess(this.command, args, {
+        cwd: repositoryRoot,
+        environment: minimalEnvironment({ overrides: this.environment }),
+        timeoutMs: this.indexTimeoutMs,
+        maxOutputBytes: 256 * 1024,
+      });
+    } catch (error) {
+      this.indexState = "failed";
+      throw new Error(`codesearch ${operation} failed for ${repositoryRoot}: ${errorMessage(error)}`, { cause: error });
+    }
+    if (result.exitCode !== 0 || result.timedOut || result.aborted) {
       this.indexState = "failed";
       throw new Error(formatIndexFailure(operation, repositoryRoot, result, this.indexTimeoutMs));
     }
@@ -1156,22 +1162,21 @@ const INDEX_SELECTION_FILES = [".gitignore", ".codesearchignore", ".osgrepignore
 function formatIndexFailure(
   operation: string,
   repositoryRoot: string,
-  result: ReturnType<typeof spawnSync>,
+  result: ProcessResult,
   timeoutMs: number,
 ): string {
   const details: string[] = [];
-  const error = result.error as NodeJS.ErrnoException | undefined;
-  if (error?.code === "ETIMEDOUT") details.push(`timed out after ${timeoutMs} ms`);
-  else if (error !== undefined) details.push(error.message);
-  if (result.status !== null) details.push(`exit status ${result.status}`);
-  if (result.signal !== null) details.push(`signal ${result.signal}`);
+  if (result.timedOut) details.push(`timed out after ${timeoutMs} ms`);
+  if (result.aborted) details.push("aborted");
+  details.push(`exit status ${result.exitCode}`);
+  if (result.signal !== undefined) details.push(`signal ${result.signal}`);
+  if (result.stderrTruncated || result.stdoutTruncated) details.push("output truncated");
 
   const output = [result.stderr, result.stdout]
-    .map((value) => typeof value === "string" ? value.trim() : "")
+    .map((value) => value.trim())
     .filter(Boolean)
     .join("\n");
-  const summary = details.length === 0 ? "unknown failure" : details.join(", ");
-  return `codesearch ${operation} failed for ${repositoryRoot}: ${summary}${output ? `\n${output}` : ""}`;
+  return `codesearch ${operation} failed for ${repositoryRoot}: ${details.join(", ")}${output ? `\n${output}` : ""}`;
 }
 
 function indexSelectionFingerprint(repositoryRoot: string, providerVersion: string): string {

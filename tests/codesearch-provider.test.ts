@@ -468,14 +468,14 @@ test("codesearch index timeout reports the timeout and preserves partial output"
     cwd: root,
     mode: "local",
     timeoutMs: 2_000,
-    indexTimeoutMs: 50,
+    indexTimeoutMs: 500,
     pollIntervalMs: 5,
     environment: { FAKE_INDEX_HANG: "1" },
   });
   try {
     await assert.rejects(
       provider.ensureIndex(workspace(root)),
-      /codesearch index failed.*timed out after 50 ms[\s\S]*index started but stalled/,
+      /codesearch index failed.*timed out after 500 ms[\s\S]*index started but stalled/,
     );
   } finally {
     await provider.close();
