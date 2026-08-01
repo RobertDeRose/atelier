@@ -44,6 +44,22 @@ export function statusMarkdown(status: AtelierStatus): string {
   ].join("\n");
 }
 
+export function workflowStatusMarkdown(status: AtelierStatus): string {
+  const lines = [statusMarkdown(status)];
+  if (status.activeTaskConstraints.length > 0) {
+    lines.push("", "### Reviewed constraints", "");
+    for (const constraint of status.activeTaskConstraints) {
+      lines.push(
+        `- **task:** ${code(constraint.planTaskId)}`,
+        `  **writes:** ${constraint.writePaths.length === 0 ? "none" : constraint.writePaths.map(code).join(", ")}`,
+        `  **validations:** ${constraint.focusedValidations.length === 0 ? "none" : constraint.focusedValidations.map(code).join(", ")}`,
+        `  **local change:** ${constraint.allowLocalChange ? "allowed" : "not allowed"}`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
 function activeTaskLabel(state: WorkingState): string {
   if (state.activeTask === undefined) return "none";
   return `${state.activeTask.title} (${code(state.activeTask.id)})`;

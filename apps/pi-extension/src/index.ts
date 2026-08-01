@@ -17,6 +17,7 @@ import {
   statusViewText,
   rankPresentedHits,
   type ManualEditEditor,
+  type AtelierStatus,
 } from "../../../packages/core/src/index.ts";
 import {
   codeHitText,
@@ -58,6 +59,7 @@ import {
   validationResultsMarkdown,
   workflowMarkdown,
   workflowSummary,
+  workflowStatusMarkdown,
 } from "./command-reports.ts";
 import {
   executionGrantText,
@@ -158,8 +160,12 @@ async function replaceCore(
   return coreFor(ctx, openCore);
 }
 
-function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<void> {
-  return sessionState(ctx).footerStatus.refresh(ctx, core);
+function updateStatus(ctx: ExtensionContext, core: AtelierCore, status?: AtelierStatus): Promise<void> {
+  return sessionState(ctx).footerStatus.refresh(ctx, core, status);
+}
+
+function updateRuntimeFooter(ctx: ExtensionContext): void {
+  sessionState(ctx).footerStatus.renderRuntime(ctx);
 }
 
 
@@ -339,7 +345,6 @@ async function approveAndReconcile(
   try {
     const transition = await core.execution.approveAndApply(prepared.approval.id, true);
     core.ledger.setState("planAutoReviewPending", false);
-    await updateStatus(ctx, core);
     ctx.ui.notify(
       `Approved plan revision ${transition.approval.planHash}. Task ${transition.task?.id ?? "unknown"} is active with execution grant ${transition.executionGrant?.id ?? "unknown"}. ` +
         "Atelier is idle; send an explicit implementation instruction when you are ready. Only the reviewed task constraints are active.",
@@ -616,17 +621,17 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     }
   });
 
-  pi.on("thinking_level_select", async (event, ctx) => {
+  pi.on("thinking_level_select", (event, ctx) => {
     const state = sessionState(ctx);
     state.footerStatus.setRuntime({ thinkingLevel: String(event.level) });
-    await updateStatus(ctx, coreFor(ctx, openCore));
+    updateRuntimeFooter(ctx);
   });
 
-  pi.on("model_select", async (event, ctx) => {
+  pi.on("model_select", (event, ctx) => {
     const state = sessionState(ctx);
     const modelName = event.model?.id ?? event.model?.name;
     if (modelName !== undefined) state.footerStatus.setRuntime({ modelName });
-    await updateStatus(ctx, coreFor(ctx, openCore));
+    updateRuntimeFooter(ctx);
   });
 
   pi.on("session_compact", async (_event, ctx) => {
@@ -653,13 +658,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   });
 
   pi.on("input", (event, ctx) => {
-    const core = getCore(ctx);
-    // Refresh on every user interaction so filesystem, task-provider, or index
-    // changes made outside Pi while it was idle become visible before the next
-    // turn. Mutation commands also refresh again after they complete.
-    void updateStatus(ctx, core);
     const text = eventInputText(event);
     if (text === undefined || text.startsWith("/")) return;
+    const core = getCore(ctx);
+    // Slash handlers own their status observation. Ordinary input refreshes
+    // external drift before the next turn without duplicating command work.
+    void updateStatus(ctx, core);
     const state = sessionState(ctx);
     const policy = turnToolPolicy(text);
     if (policy === undefined) delete state.turnPolicy;
@@ -728,7 +732,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         return { block: true, reason: `Unable to start durable execution evidence: ${errorMessage(error)}` };
       }
     }
-    await updateStatus(ctx, core);
+    // Tool completion owns the next footer observation. Do not delay tool
+    // start by waiting for a second full status refresh here.
     return authorization.response;
   });
 
@@ -965,7 +970,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const core = getCore(ctx);
       const status = await core.status();
       appendAtelierReport(pi, ctx, "Atelier status", statusMarkdown(status), statusSummary(status));
-      await updateStatus(ctx, core);
+      await updateStatus(ctx, core, status);
     },
   });
 
@@ -1177,20 +1182,22 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
 
   const showWorkflowReport = async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
     const core = getCore(ctx);
-    const state = await core.buildWorkingState();
-    const full = args.trim() === "--full" || args.trim() === "full";
-    appendAtelierReport(
-      pi,
-      ctx,
-      full ? "Atelier workflow · full" : "Atelier workflow",
-      full ? core.workingStateBuilder.toMarkdown(state) : workflowMarkdown(state),
-      workflowSummary(state),
-    );
-    await updateStatus(ctx, core);
+    const requested = args.trim();
+    const full = requested === "--full" || requested === "full" || requested === "refresh";
+    if (full) {
+      ctx.ui.setWorkingMessage?.("Atelier: refreshing authoritative workflow state…");
+      const state = await core.buildWorkingState();
+      appendAtelierReport(pi, ctx, "Atelier workflow · full", core.workingStateBuilder.toMarkdown(state), workflowSummary(state));
+      await updateStatus(ctx, core);
+      return;
+    }
+    const status = await core.status();
+    appendAtelierReport(pi, ctx, "Atelier workflow", workflowStatusMarkdown(status), statusSummary(status));
+    await updateStatus(ctx, core, status);
   };
 
   pi.registerCommand("workflow", {
-    description: "Show durable workflow context; use /workflow full for the complete diagnostic state",
+    description: "Show durable workflow state; use /workflow full or /workflow refresh for retrieval-backed diagnostics",
     handler: showWorkflowReport,
   });
 

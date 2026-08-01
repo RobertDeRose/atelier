@@ -1114,11 +1114,11 @@ export class AtelierCore {
     return state;
   }
 
-  async nextAction(): Promise<string> {
+  async nextAction(options: { taskClosure?: TaskClosureReadiness } = {}): Promise<string> {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant !== undefined) {
       if (this.execution.isPaused()) return `Execution is paused for task ${executionGrant.taskId}; resume explicitly before agent mutation.`;
-      const readiness = this.taskClosureReadiness();
+      const readiness = options.taskClosure ?? this.taskClosureReadiness();
       if (readiness.ready) return `Close active task ${executionGrant.taskId} with explicit completion evidence.`;
       const codes = new Set(readiness.blockers.map((blocker) => blocker.code));
       if (codes.has("validation_selection_missing")) return `Select focused validation for task ${executionGrant.taskId}.`;
@@ -1202,6 +1202,7 @@ export class AtelierCore {
       : currentPlanHash !== undefined && approvedPlanHash !== undefined && currentPlanHash === approvedPlanHash
         ? "approved" as const
         : "not_approved" as const;
+    const taskClosure = activeExecutionGrant === undefined ? undefined : this.taskClosureReadiness();
     return {
       repositoryRoot: this.config.repositoryRoot,
       workspaceRoot: this.config.workspaceRoot,
@@ -1224,8 +1225,8 @@ export class AtelierCore {
       workflowCheckpoint: this.currentWorkflowRun()?.checkpoint ?? "none",
       closureStatus: activeExecutionGrant === undefined
         ? this.currentWorkflowRun()?.checkpoint === "completed" ? "completed" : "not applicable — no active task"
-        : this.taskClosureReadiness().ready ? "ready" : `blocked — ${this.taskClosureReadiness().reason}`,
-      nextAction: await this.nextAction(),
+        : taskClosure!.ready ? "ready" : `blocked — ${taskClosure!.reason}`,
+      nextAction: await this.nextAction(taskClosure === undefined ? {} : { taskClosure }),
     };
   }
 

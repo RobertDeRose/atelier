@@ -6,6 +6,7 @@ import {
   type AtelierCore,
   type CodeIndexCoordinatorStatus,
   type CodeProviderStatus,
+  type AtelierStatus,
 } from "../../../packages/core/src/index.ts";
 import { installAtelierFooter, type FooterIntelState } from "./status-presentation.ts";
 
@@ -55,6 +56,11 @@ export class FooterStatusController {
   private refreshPromise?: Promise<void>;
   private pendingContext?: ExtensionContext;
   private pendingCore?: AtelierCore;
+  private pendingStatus?: AtelierStatus;
+  private lastContext?: ExtensionContext;
+  private lastCore?: AtelierCore;
+  private lastStatus?: AtelierStatus;
+  private lastIntel?: FooterIntelState;
 
   setRuntime(options: { thinkingLevel?: string; modelName?: string }): void {
     if (options.thinkingLevel !== undefined) this.thinkingLevel = options.thinkingLevel;
@@ -71,6 +77,11 @@ export class FooterStatusController {
     await this.refreshPromise?.catch(() => {});
     delete this.pendingContext;
     delete this.pendingCore;
+    delete this.pendingStatus;
+    delete this.lastContext;
+    delete this.lastCore;
+    delete this.lastStatus;
+    delete this.lastIntel;
   }
 
   resetRepository(): void {
@@ -115,10 +126,11 @@ export class FooterStatusController {
     this.providerIntel = "ready";
   }
 
-  refresh(ctx: ExtensionContext, core: AtelierCore): Promise<void> {
+  refresh(ctx: ExtensionContext, core: AtelierCore, status?: AtelierStatus): Promise<void> {
     if (!this.enabled) return Promise.resolve();
     this.pendingContext = ctx;
     this.pendingCore = core;
+    this.pendingStatus = status;
     this.refreshRequested = true;
     if (this.refreshPromise !== undefined) return this.refreshPromise;
 
@@ -127,8 +139,10 @@ export class FooterStatusController {
         this.refreshRequested = false;
         const currentContext = this.pendingContext;
         const currentCore = this.pendingCore;
+        const currentStatus = this.pendingStatus;
+        delete this.pendingStatus;
         if (currentContext !== undefined && currentCore !== undefined) {
-          await this.refreshNow(currentContext, currentCore);
+          await this.refreshNow(currentContext, currentCore, currentStatus);
         }
       }
     })().finally(() => {
@@ -155,28 +169,35 @@ export class FooterStatusController {
     return "offline";
   }
 
-  private async refreshNow(ctx: ExtensionContext, core: AtelierCore): Promise<void> {
+  /** Re-render only model/thinking/context fields without repository or provider I/O. */
+  renderRuntime(ctx = this.lastContext): void {
+    if (!this.enabled || ctx === undefined || this.lastCore === undefined || this.lastStatus === undefined) return;
+    this.render(ctx, this.lastCore, this.lastStatus, this.lastIntel ?? this.effectiveIntelState(this.lastCore));
+  }
+
+  private render(ctx: ExtensionContext, core: AtelierCore, status: AtelierStatus, intel: FooterIntelState): void {
+    const indexing = core.code.indexingStatus();
+    const index = intel === "indexing" ? "indexing…" : `index ${indexing.state}`;
+    const value = `${statusViewSummary(createStatusView(status))} · ${index}`;
+    if (core.config.footer === "disabled") {
+      ctx.ui.setStatus(STATUS_KEY, undefined);
+      ctx.ui.setFooter?.(undefined);
+      return;
+    }
+    ctx.ui.setStatus(STATUS_KEY, value);
+    installAtelierFooter(ctx, status, intel, this.thinkingLevel, core.config.footer, this.modelName);
+  }
+
+  private async refreshNow(ctx: ExtensionContext, core: AtelierCore, suppliedStatus?: AtelierStatus): Promise<void> {
     if (!this.enabled) return;
     try {
-      const status = await core.status();
-      const indexing = core.code.indexingStatus();
+      const status = suppliedStatus ?? await core.status();
       const intel = this.effectiveIntelState(core);
-      const index = intel === "indexing" ? "indexing…" : `index ${indexing.state}`;
-      const value = `${statusViewSummary(createStatusView(status))} · ${index}`;
-      if (core.config.footer === "disabled") {
-        ctx.ui.setStatus(STATUS_KEY, undefined);
-        ctx.ui.setFooter?.(undefined);
-        return;
-      }
-      ctx.ui.setStatus(STATUS_KEY, value);
-      installAtelierFooter(
-        ctx,
-        status,
-        intel,
-        this.thinkingLevel,
-        core.config.footer,
-        this.modelName,
-      );
+      this.lastContext = ctx;
+      this.lastCore = core;
+      this.lastStatus = status;
+      this.lastIntel = intel;
+      this.render(ctx, core, status, intel);
     } catch (error) {
       ctx.ui.setStatus(STATUS_KEY, "Atelier unavailable");
       // A failed observation must not leave a previously valid custom footer
