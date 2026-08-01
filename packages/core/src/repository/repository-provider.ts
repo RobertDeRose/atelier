@@ -37,8 +37,42 @@ export interface RepositoryCommitResult {
 
 export type RepositoryPathState = "missing" | "tracked_clean" | "tracked_dirty" | "untracked" | "ignored" | "unknown";
 
+export interface RepositoryObservationMetrics {
+  durationMs: number;
+  subprocesses: number;
+  filesHashed: number;
+  bytesHashed: number;
+  cacheHit: boolean;
+}
+
+export interface RepositoryObservation {
+  status: RepositoryProviderStatus;
+  snapshot: RepositorySnapshot;
+  displayState: RepositoryDisplayState;
+  root: string;
+  rawChangedPaths: string[];
+  changedPaths: string[];
+  files?: string[];
+  pathStates: Record<string, RepositoryPathState>;
+  observedAt: string;
+  metrics: RepositoryObservationMetrics;
+}
+
+export interface RepositoryObserveOptions {
+  paths?: readonly string[];
+  includeFiles?: boolean;
+  force?: boolean;
+  signal?: AbortSignal;
+}
+
 export interface RepositoryProvider {
   readonly name: "jj" | "git" | "none";
+  /** Async request-scoped observation for interactive paths. */
+  observe?(options?: RepositoryObserveOptions): Promise<RepositoryObservation>;
+  peekObservation?(): RepositoryObservation | undefined;
+  invalidateObservation?(): void;
+  /** Batch classification avoids one VCS process per affected path. */
+  classifyPaths?(paths: readonly string[], options?: { signal?: AbortSignal }): Promise<Record<string, RepositoryPathState>>;
   status(): RepositoryProviderStatus;
   snapshot(): RepositorySnapshot;
   displayState?(): RepositoryDisplayState;
