@@ -417,8 +417,8 @@ test("dependency manifests require an explicit dependency contract and never inh
     const constraints = createTaskConstraints(included.tasks, root);
     assert.equal(constraints.length, 1);
     assert.equal(constraints[0]?.allowDependencyChanges, true);
-    assert.deepEqual(constraints[0]?.dependencyPaths, [join(root, "package.json")]);
-    assert.deepEqual(constraints[0]?.writePaths, [join(root, "package.json")]);
+    assert.deepEqual(constraints[0]?.dependencyPaths, [join(realpathSync.native(root), "package.json")]);
+    assert.deepEqual(constraints[0]?.writePaths, [join(realpathSync.native(root), "package.json")]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

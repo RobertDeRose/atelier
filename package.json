@@ -1,6 +1,6 @@
 {
   "name": "atelier-prototype",
-  "version": "0.14.0-alpha.32",
+  "version": "0.14.0-alpha.33",
   "description": "Atelier, a durable and policy-aware Agentic Development Environment runtime",
   "type": "module",
   "private": true,
@@ -20,7 +20,7 @@
     "test": "node --no-warnings --experimental-strip-types --import ./tests/test-environment.ts --test --test-concurrency=8 tests/*.test.ts",
     "test:coverage": "node --no-warnings --experimental-strip-types --import ./tests/test-environment.ts --experimental-test-coverage --test --test-concurrency=8 tests/*.test.ts",
     "smoke": "bash ./scripts/smoke.sh",
-    "check": "npm run check:metadata && npm run typecheck && npm test && npm run smoke",
+    "check": "npm run check:metadata && npm run typecheck && npm test && npm run test:path-alias && npm run smoke",
     "prepack": "npm run build",
     "test:codesearch": "aubr test:codesearch:live",
     "test:codesearch:live": "bash ./scripts/probe-codesearch.sh",
@@ -34,7 +34,8 @@
     "evaluate:code:all": "node --no-warnings --experimental-strip-types scripts/evaluate-code.ts --providers codesearch,octocode",
     "launch:dev": "node --no-warnings --experimental-strip-types apps/cli/src/main.ts launch",
     "launch": "node ./bin/atlr.mjs launch",
-    "pretest": "npm run build"
+    "pretest": "npm run build",
+    "test:path-alias": "bash ./scripts/test-path-alias.sh"
   },
   "pi": {
     "extensions": [

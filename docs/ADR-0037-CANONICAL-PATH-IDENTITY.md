@@ -29,3 +29,5 @@ Relative repository inputs are always resolved against the selected repository r
 - Descendants of an escaping symlink remain outside the workspace.
 - Repository-aware code must use the shared helpers rather than direct `resolve()`, `relative()`, or prefix comparisons.
 - Tests cover alias roots, relative inputs, missing paths, valid and broken symlinks, VCS state, code providers, workflow authorization, and recovery.
+- The release check reruns path-sensitive tests with `TMPDIR` routed through a symlink, so Unix hosts reproduce macOS `/var` versus `/private/var` identity semantics even when their default temporary directory has only one spelling.
+- Provider subprocess assertions and durable authority assertions compare canonical roots or entry paths; only caller-facing lookup keys preserve lexical spellings.

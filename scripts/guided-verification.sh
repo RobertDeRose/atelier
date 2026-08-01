@@ -3,8 +3,8 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="32.0"
-EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.32}"
+HARNESS_VERSION="33.0"
+EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.33}"
 MANUAL_PARENT="${ATELIER_MANUAL_PARENT:-$HOME/workspace/scratch}"
 RUN_PREFIX="atelier-manual-"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
@@ -59,7 +59,7 @@ Environment:
   ATELIER_GUIDED_PURGE_CONFIRM=1
                                   Skip the PURGE confirmation for fresh/purge.
   ATELIER_MANUAL_PARENT           Manual-test parent (default: ~/workspace/scratch).
-  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.32).
+  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.33).
 USAGE
 }
 

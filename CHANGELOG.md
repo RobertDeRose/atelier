@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.0-alpha.33 — 2026-08-01
+
+### Fixed
+
+- Make codesearch indexing and client-mode tests assert the canonical repository root passed to provider subprocesses instead of the lexical temporary-directory alias.
+- Make Jujutsu workspace-identity tests derive the expected identifier from the canonical workspace root.
+- Make reviewed dependency-path tests assert the canonical filesystem entry used by task execution authority.
+- Add a deterministic symlinked-`TMPDIR` test lane so Linux CI reproduces macOS `/var/...` versus `/private/var/...` path semantics.
+
+### Tests
+
+- Run canonical-path, codesearch, Jujutsu, task-constraint, and workspace-policy regressions through both the ordinary temporary directory and a filesystem alias.
+
 ## 0.14.0-alpha.32 — 2026-08-01
 
 ### Fixed

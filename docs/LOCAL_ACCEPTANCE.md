@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.32
+# Local Acceptance Workflow — 0.14.0-alpha.33
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -11,6 +11,7 @@ The in-tree guided verifier is regression-tested under Bash `set -u` so each man
 mise install
 mise run install
 npm run check
+# `npm run check` includes the symlinked-TMPDIR canonical-path lane.
 npm pack --dry-run
 ```
 
@@ -21,7 +22,7 @@ failure/interruption and per-operation path evidence, source-only freshness, sco
 Beads initialization, symbol-state convergence, validation staleness, exact diff review, restart,
 multi-repository drift, live footer model/thinking selection, Git/Jujutsu refresh scheduling, source-qualified
 intelligence degradation, external idle drift refresh, macOS/symlink repository-path canonicalization,
-in-flight observation invalidation, and package metadata.
+in-flight observation invalidation, canonical-root test expectations under a symlinked temporary directory, and package metadata.
 
 Fixture conformance is deterministic evidence only. Do not describe it as a live external-provider run.
 

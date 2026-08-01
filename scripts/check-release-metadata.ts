@@ -20,6 +20,7 @@ const packageJson = JSON.parse(text("package.json")) as {
   types?: string;
   bin?: Record<string, string>;
   pi?: { extensions?: string[] };
+  scripts?: Record<string, string>;
 };
 const packageLock = JSON.parse(text("package-lock.json")) as {
   version?: string;
@@ -34,6 +35,8 @@ check(packageJson.main === "./dist/packages/core/src/index.js", "package main mu
 check(packageJson.types === "./dist/packages/core/src/index.d.ts", "package types must reference built declarations");
 check(packageJson.bin?.atlr === "./bin/atlr.mjs", "package CLI launcher is not declared");
 check(packageJson.pi?.extensions?.[0] === "./dist/apps/pi-extension/src/index.js", "Pi package entry must reference built JavaScript");
+check(packageJson.scripts?.["test:path-alias"] === "bash ./scripts/test-path-alias.sh", "path-alias test script is not declared");
+check(packageJson.scripts?.check?.includes("npm run test:path-alias") === true, "npm check must include the path-alias lane");
 check(statSync(join(rootPath, "bin/atlr.mjs")).mode % 0o1000 >= 0o100, "bin/atlr.mjs must be executable");
 check(
   statSync(join(rootPath, "scripts/live-conformance.sh")).mode % 0o1000 >= 0o100,
@@ -42,6 +45,10 @@ check(
 check(
   statSync(join(rootPath, "scripts/guided-verification.sh")).mode % 0o1000 >= 0o100,
   "scripts/guided-verification.sh must be executable",
+);
+check(
+  statSync(join(rootPath, "scripts/test-path-alias.sh")).mode % 0o1000 >= 0o100,
+  "scripts/test-path-alias.sh must be executable",
 );
 
 const adrFiles = readdirSync(join(rootPath, "docs"))
@@ -99,6 +106,7 @@ for (const path of [
   "packages/core/src/state/working-state-markdown.ts",
   "scripts/live-acceptance.sh",
   "scripts/guided-verification.sh",
+  "scripts/test-path-alias.sh",
   "docs/ADR-0030-REPOSITORY-FINALIZATION-AND-CLOSURE-SEMANTICS.md",
   "docs/ADR-0033-PERSISTENT-MARKDOWN-REPORTS.md",
   "docs/ADR-0036-INTERACTIVE-OBSERVATION-PIPELINE.md",

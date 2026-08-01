@@ -89,6 +89,10 @@ process.stdin.on('data', chunk => {
   return { command, log, mcpLog };
 }
 
+function canonicalRoot(root: string): string {
+  return realpathSync.native(root);
+}
+
 function workspace(root: string): CodeWorkspace {
   return {
     id: "work",
@@ -180,8 +184,8 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     assert.equal(symbols[0]?.path, "src/auth.ts");
 
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-    assert.ok(calls.some((args) => args[0] === "index" && args[1] === root));
-    assert.ok(calls.some((args) => args[0] === "stats" && args[1] === root));
+    assert.ok(calls.some((args) => args[0] === "index" && args[1] === canonicalRoot(root)));
+    assert.ok(calls.some((args) => args[0] === "stats" && args[1] === canonicalRoot(root)));
     assert.equal(calls.some((args) => args[0] === "index" && args[1] === "add"), false);
     assert.ok(calls.some((args) => args[0] === "mcp" && args.includes("local")));
 
@@ -281,8 +285,8 @@ test("codesearch local indexing closes the MCP writer before running the CLI rep
     const indexed = await provider.ensureIndex(workspace(root));
     assert.equal(indexed, "ready");
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-    assert.ok(calls.some((args) => args[0] === "index" && args[1] === root));
-    assert.ok(calls.some((args) => args[0] === "stats" && args[1] === root));
+    assert.ok(calls.some((args) => args[0] === "index" && args[1] === canonicalRoot(root)));
+    assert.ok(calls.some((args) => args[0] === "stats" && args[1] === canonicalRoot(root)));
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });
@@ -315,7 +319,7 @@ test("codesearch client mode uses configured project aliases", async () => {
       includeGenerated: false,
     });
     const processCalls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-    assert.ok(processCalls.some((args) => args[0] === "index" && args[1] === "add" && args[2] === root));
+    assert.ok(processCalls.some((args) => args[0] === "index" && args[1] === "add" && args[2] === canonicalRoot(root)));
 
     const mcpCalls = readFileSync(fake.mcpLog, "utf8")
       .trim()
@@ -422,8 +426,8 @@ test("codesearch local indexing rejects an unbuilt vector index even when MCP re
       /vector store contains 42 chunks but the HNSW index is not built/,
     );
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-    assert.ok(calls.some((args) => args[0] === "index" && args[1] === root));
-    assert.ok(calls.some((args) => args[0] === "stats" && args[1] === root));
+    assert.ok(calls.some((args) => args[0] === "index" && args[1] === canonicalRoot(root)));
+    assert.ok(calls.some((args) => args[0] === "stats" && args[1] === canonicalRoot(root)));
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });
@@ -445,7 +449,7 @@ test("codesearch does not force a fresh index when MCP startup creates the datab
   try {
     assert.equal(await provider.ensureIndex(workspace(root)), "ready");
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-    const indexCall = calls.find((args) => args[0] === "index" && args[1] === root);
+    const indexCall = calls.find((args) => args[0] === "index" && args[1] === canonicalRoot(root));
     assert.ok(indexCall);
     assert.equal(indexCall.includes("--force"), false);
   } finally {
@@ -470,7 +474,7 @@ test("codesearch repairs an existing empty database without forcing a rebuild", 
   try {
     await assert.rejects(provider.ensureIndex(workspace(root)), /vector store contains no indexed chunks/);
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-    const indexCall = calls.find((args) => args[0] === "index" && args[1] === root);
+    const indexCall = calls.find((args) => args[0] === "index" && args[1] === canonicalRoot(root));
     assert.ok(indexCall);
     assert.equal(indexCall.includes("--force"), false);
   } finally {
@@ -494,7 +498,7 @@ test("codesearch forces an existing index when selection state is missing", asyn
   try {
     assert.equal(await provider.ensureIndex(workspace(root)), "ready");
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-    const indexCall = calls.find((args) => args[0] === "index" && args[1] === root);
+    const indexCall = calls.find((args) => args[0] === "index" && args[1] === canonicalRoot(root));
     assert.ok(indexCall?.includes("--force"));
   } finally {
     await provider.close();
@@ -553,7 +557,7 @@ test("codesearch forces one local rebuild when repository selection inputs chang
     await run();
 
     const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-    const indexCalls = calls.filter((args) => args[0] === "index" && args[1] === root);
+    const indexCalls = calls.filter((args) => args[0] === "index" && args[1] === canonicalRoot(root));
     assert.equal(indexCalls.length, 3);
     assert.equal(indexCalls[0]?.includes("--force"), false);
     assert.equal(indexCalls[1]?.includes("--force"), false);
@@ -564,7 +568,7 @@ test("codesearch forces one local rebuild when repository selection inputs chang
       repositories?: Record<string, { fingerprint?: string }>;
     };
     assert.equal(state.version, 1);
-    assert.match(state.repositories?.[root]?.fingerprint ?? "", /^[a-f0-9]{64}$/);
+    assert.match(state.repositories?.[canonicalRoot(root)]?.fingerprint ?? "", /^[a-f0-9]{64}$/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

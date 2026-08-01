@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.32
+# Atelier Architecture — 0.14.0-alpha.33
 
 The Pi integration owns a session-local `FooterStatusController` and request-scoped observation pipeline. It
 serializes and coalesces status observations, consumes model/thinking and code-index events, invalidates cached
@@ -6,7 +6,10 @@ Git/Jujutsu state at mutation boundaries, and compares current source revisions 
 rendering intelligence readiness. It does not poll while Pi is idle; the next Pi interaction refreshes externally
 changed state.
 
-Alpha.32 centralizes path identity in `security/path-boundary.ts` and `repository/repository-path.ts`. Every
+Alpha.32 centralizes path identity in `security/path-boundary.ts` and `repository/repository-path.ts`. Alpha.33
+applies the same contract to the release tests: provider subprocess arguments, repository/workspace identifiers,
+reviewed task constraints, and persisted code-index selection keys are asserted against canonical roots rather
+than the lexical temporary-directory alias returned by the host. Every
 repository-aware subsystem receives three deliberate spellings: the caller-facing lexical key, the canonical
 filesystem entry with parent aliases resolved, and the fully resolved access target. Repository roots, caches,
 workspace membership, and boundary checks use canonical identities; Git/Jujutsu pathspecs, reviewed task scope,

@@ -42,7 +42,7 @@ test("Jujutsu provider exposes change, commit, operation, workspace, files, and 
     assert.equal(snapshot.changeId, "change123");
     assert.equal(snapshot.headCommit, "commit456");
     assert.equal(snapshot.operationId, "operation789");
-    assert.equal(snapshot.workspaceId, sha256(root).slice(0, 16));
+    assert.equal(snapshot.workspaceId, sha256(realpathSync.native(root)).slice(0, 16));
     assert.deepEqual(provider.displayState(), { vcs: "jj", label: "main", revision: "change123", state: "dirty" });
     assert.deepEqual(provider.changedPaths(), ["src/main.ts"]);
     assert.deepEqual(provider.listFiles(), ["README.md", "src/main.ts"]);

@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.32
+# Build Report — Atelier 0.14.0-alpha.33
 
 ## Result
 
@@ -16,6 +16,17 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.33 canonical-path test portability
+
+Alpha.33 corrects the supported macOS failures that remained after the alpha.32 runtime path layer was applied:
+
+- codesearch tests now assert the canonical root that Atelier deliberately passes to `index`, `stats`, and `index add`;
+- Jujutsu workspace identity is derived from the canonical workspace root rather than the lexical temporary-directory spelling;
+- reviewed task constraints assert canonical dependency and write entries, matching the authority stored by the workflow; and
+- `npm run check` runs a dedicated path-sensitive lane with `TMPDIR` routed through a symlink, reproducing macOS `/var` versus `/private/var` behavior on Linux and macOS.
+
+The correction changes deterministic expectations and release gating. It does not revert alpha.32's lexical/entry/target path model or broaden repository authority.
 
 ## Alpha.32 end-to-end canonical path identity
 
@@ -196,9 +207,11 @@ npm run check:metadata
 npm run typecheck
 npm run build
 npm test
+npm run test:path-alias
 bash scripts/smoke.sh
 bash -n scripts/live-acceptance.sh
 bash -n scripts/guided-verification.sh
+bash -n scripts/test-path-alias.sh
 git diff --check
 npm pack --dry-run
 ```
@@ -210,7 +223,8 @@ Release metadata:     passed
 Type-check:           passed
 Build:                passed
 Deterministic tests:   292 passed, 0 failed
-Guided regressions:    6 passed, 0 failed
+Path-alias lane:       76 passed, 0 failed
+Guided regressions:    passed in the aggregate suite
 Interactive perf tests: 3 passed, 0 failed
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
@@ -221,17 +235,17 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.32
+Package:          atelier-prototype@0.14.0-alpha.33
 Files:            474
-Compressed size:  537,170 bytes
-Unpacked size:    2,516,905 bytes
+Compressed size:  537,736 bytes
+Unpacked size:    2,518,564 bytes
 ```
 
 ## Verification boundary
 
 The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
 and TypeScript 7 toolchain. Type-checking and production compilation pass. All 292 deterministic tests pass through
-the aggregate eight-way command. The pinned
+the aggregate eight-way command, and all 76 selected path-sensitive tests pass with `TMPDIR` routed through a symlink alias. The pinned
 Node 24 `mise check` remains authoritative for the supported runtime and macOS path-alias confirmation.
 
 The standalone smoke workflow, package dry-run, release metadata check, and script syntax pass. Bundle and
@@ -241,7 +255,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.32` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.33` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so

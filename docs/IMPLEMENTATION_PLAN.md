@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.32 (2026-08-01).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.33 (2026-08-01).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -59,7 +59,14 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.32
+## Implementation Status — v0.14.0-alpha.33
+
+### Canonical-path portability gate
+
+- Provider-facing path assertions use canonical repository roots rather than the lexical spelling returned by `os.tmpdir()`.
+- Jujutsu workspace identifiers and reviewed task paths are asserted against the canonical entry identity defined by ADR-0037.
+- `npm run check` includes a second path-sensitive test lane with `TMPDIR` routed through a symlink alias, reproducing macOS `/var` versus `/private/var` semantics on any Unix host.
+- The alias lane covers canonical repository helpers, codesearch, Jujutsu, task constraints, workspace policy, and end-to-end Core authorization.
 
 
 ### Canonical path identity correction
