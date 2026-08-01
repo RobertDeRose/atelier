@@ -202,19 +202,21 @@ write_guides() {
   cat >"$GUIDED_ROOT/guides/01-intel-jj.md" <<'GUIDE'
 # Step 1 — Jujutsu footer and persistent reports
 
-Run these commands inside Pi:
+Run these checks inside Pi:
 
-1. `/status`
-2. `/workflow`
-3. `/code-status`
-4. `/code-index`
-5. `/code-search Where is the authoritative task closure predicate implemented?`
-6. `/code-symbols AtelierCore`
-7. `/atelier-open apps/pi-extension/src/command-reports.ts:63`
+1. Note the current thinking level in the Atelier footer. Use Pi's thinking-level shortcut to select a different level. The footer must change immediately without running an Atelier command.
+2. `/status`
+3. `/workflow`
+4. `/code-status`
+5. `/code-index`
+6. `/code-search Where is the authoritative task closure predicate implemented?`
+7. `/code-symbols AtelierCore`
+8. `/atelier-open apps/pi-extension/src/command-reports.ts:63`
 
 Expected:
 
 - The footer heading is `jj:`, never Git `detached`.
+- The footer's model and thinking-level values update immediately when Pi changes them.
 - `intel:` becomes `ready` after indexing.
 - The thinking level uses normal readable text rather than dim text.
 - Every slash-command result remains in transcript scrollback after the next command.

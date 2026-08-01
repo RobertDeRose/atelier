@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.27 (2026-07-31).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.28 (2026-07-31).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -23,6 +23,11 @@
 > approve/reject instructions, prints and restores every path-scoped checkpoint, validates generated plan
 > metadata without asking the tester to repair it, and supplies exact typed-tool probes for pause enforcement.
 > Existing guided runs refresh corrected instructions in place without losing workspaces or results.
+> The Pi footer is event-driven and session-local: model/thinking changes, workflow commands, typed-tool results,
+> direct user shell completion, interactive child return, index lifecycle events, compaction, and the next user
+> interaction all schedule one serialized refresh. Git/Jujutsu state is re-observed through the active provider;
+> code intelligence becomes degraded when current source revisions differ from the indexed baseline and becomes
+> ready again only after a completed or provider-confirmed current index.
 >
 > **Historical permission sections below are non-normative.** ADR-0032 and the delivered-status section
 > supersede every older design involving trusted projects, permission grants, capability bundles,
@@ -48,7 +53,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.27
+## Implementation Status — v0.14.0-alpha.28
 
 The current prototype delivers the guarded local workflow:
 
@@ -66,6 +71,7 @@ The current prototype delivers the guarded local workflow:
 - Jujutsu-first repository identity with Git compatibility;
 - bounded provider-first codesearch retrieval with provenance, reuse, invalidation, and multi-repository isolation; post-approval retrieval drift is audited but does not independently revoke untouched source-bound execution; and
 - matching CLI/Pi commands for review, approval, execution, cancellation, validation, evidence, status, and state;
+- a serialized live Pi footer whose model, thinking level, workflow/task state, Git/Jujutsu observation, context usage, and code-intelligence readiness refresh from their authoritative event sources;
 - user-owned executable selection plus fail-closed per-command approval when shell confinement is unavailable;
 - workspace-wide scoped commits, combined diff review, source-content validation freshness, metadata finalization, and closure;
 - deterministic unsigned Git commits that do not depend on workstation signing agents; and

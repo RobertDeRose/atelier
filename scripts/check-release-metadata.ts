@@ -80,6 +80,8 @@ for (const path of [
   "apps/pi-extension/src/turn-tool-policy.ts",
   "apps/pi-extension/src/code-tool-presentation.ts",
   "apps/pi-extension/src/execution-outcome.ts",
+  "apps/pi-extension/src/code-commands.ts",
+  "apps/pi-extension/src/footer-status-controller.ts",
   "apps/pi-extension/src/approval-presentation.ts",
   "apps/pi-extension/src/status-presentation.ts",
   "apps/pi-extension/src/report-presentation.ts",

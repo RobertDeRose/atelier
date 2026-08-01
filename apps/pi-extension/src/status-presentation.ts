@@ -119,8 +119,13 @@ function contextText(ctx: ExtensionContext): string {
   return percent === null || percent === undefined ? "ctx ?" : `ctx ${Math.round(percent)}%`;
 }
 
-function runtimeCells(ctx: ExtensionContext, theme: FooterTheme, thinkingLevel?: string): FooterCell[] {
-  const model = ctx.model?.id ?? ctx.model?.name ?? "model";
+function runtimeCells(
+  ctx: ExtensionContext,
+  theme: FooterTheme,
+  thinkingLevel?: string,
+  modelName?: string,
+): FooterCell[] {
+  const model = modelName ?? ctx.model?.id ?? ctx.model?.name ?? "model";
   const context = contextText(ctx);
   const header = { plain: "Atelier:", styled: heading(theme, "Atelier:") };
   const separator = { plain: " · ", styled: fg(theme, "dim", " · ") };
@@ -224,9 +229,10 @@ export function renderAtelierFooter(
   width: number,
   theme: FooterTheme = {},
   thinkingLevel?: string,
+  modelName?: string,
 ): string[] {
   return [
-    chooseAligned(runtimeCells(ctx, theme, thinkingLevel), modeCells(status, theme), width),
+    chooseAligned(runtimeCells(ctx, theme, thinkingLevel, modelName), modeCells(status, theme), width),
     chooseAligned(vcsCells(status, theme), [intelCell(intel, theme)], width),
   ];
 }
@@ -237,12 +243,13 @@ export function installAtelierFooter(
   intel: FooterIntelState,
   thinkingLevel: string | undefined,
   mode: "atelier" | "status-only" | "disabled" = "atelier",
+  modelName?: string,
 ): void {
   if (ctx.mode !== "tui" || ctx.ui.setFooter === undefined) return;
   if (mode !== "atelier") { ctx.ui.setFooter(undefined); return; }
   ctx.ui.setFooter((_tui, theme) => ({
     render(width: number): string[] {
-      return renderAtelierFooter(ctx, status, intel, width, theme as FooterTheme, thinkingLevel);
+      return renderAtelierFooter(ctx, status, intel, width, theme as FooterTheme, thinkingLevel, modelName);
     },
     invalidate(): void {},
   }));

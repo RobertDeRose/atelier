@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.27**. Guided verification now matches the implemented investigate-mode and recoverability matrix, restores every path-scoped checkpoint with visible evidence, and tests generated plans without asking the user to repair them. Planning receives the exact configured validation catalog, and ordinary post-approval code retrieval is audited as provenance rather than revoking an otherwise exact source-bound execution grant.
+Current release: **0.14.0-alpha.28**. The Pi footer now follows live model and thinking-level changes, refreshes workflow and Git/Jujutsu state after every Atelier-controlled mutation, and reports code intelligence as degraded when the source has moved beyond its indexed baseline. Direct user shell, interactive editor/navigation returns, validation, commits, task transitions, index events, and the next user interaction all trigger serialized refreshes so older observations cannot overwrite newer state.
 
 ## Current status
 

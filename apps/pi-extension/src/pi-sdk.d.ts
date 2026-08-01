@@ -78,6 +78,7 @@ declare module "@earendil-works/pi-coding-agent" {
     isIdle(): boolean;
     isProjectTrusted(): boolean;
     readonly model?: { id?: string; name?: string };
+    readonly thinkingLevel?: string;
     getContextUsage?(): { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
   }
 

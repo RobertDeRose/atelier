@@ -25,9 +25,6 @@ import {
   integerSchema,
   objectSchema,
   retrievalText,
-  retrievalMarkdown,
-  codeSearchMarkdown,
-  codeSymbolsMarkdown,
   stringSchema,
 } from "./code-tool-presentation.ts";
 import { toolExecutionOutcome } from "./execution-outcome.ts";
@@ -52,8 +49,6 @@ import { ATELIER_VALIDATION_TOOL, registerValidationTool } from "./validation-to
 import { appendAtelierReport, registerAtelierReportRenderer } from "./report-presentation.ts";
 import {
   changedMarkdown,
-  codeStatusMarkdown,
-  codeStatusSummary,
   evidenceMarkdown,
   focusedSelectionMarkdown,
   readyTasksMarkdown,
@@ -66,11 +61,11 @@ import {
 } from "./command-reports.ts";
 import {
   executionGrantText,
-  installAtelierFooter,
   planStatusText,
   vcsStatusText,
-  atelierStatusSummary,
 } from "./status-presentation.ts";
+import { FooterStatusController } from "./footer-status-controller.ts";
+import { registerCodeCommands } from "./code-commands.ts";
 import {
   ATELIER_COMMIT_TOOL,
   ATELIER_STATE_TOOL,
@@ -104,7 +99,7 @@ interface ExtensionSessionState {
   lastCompletionNotice?: string;
   turnPolicy?: TurnToolPolicy;
   authorizedShellToolCalls: Map<string, { allowUnsandboxed: boolean }>;
-  thinkingLevel?: string;
+  footerStatus: FooterStatusController;
 }
 
 const SESSION_STATES = new WeakMap<object, ExtensionSessionState>();
@@ -123,6 +118,7 @@ function sessionState(ctx: ExtensionContext): ExtensionSessionState {
     reviewInProgress: false,
     advisorySent: false,
     authorizedShellToolCalls: new Map<string, { allowUnsandboxed: boolean }>(),
+    footerStatus: new FooterStatusController(),
   };
   SESSION_STATES.set(key, created);
   return created;
@@ -158,36 +154,14 @@ async function replaceCore(
   }
   delete state.core;
   delete state.root;
+  state.footerStatus.resetRepository();
   return coreFor(ctx, openCore);
 }
 
-async function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<void> {
-  try {
-    const status = await core.status();
-    const indexing = core.code.indexingStatus();
-    const intel = core.config.codeProvider === "disabled"
-      ? "disabled"
-      : indexing.active || indexing.state === "building"
-        ? "indexing"
-        : indexing.state === "ready"
-          ? "ready"
-          : indexing.state === "stale"
-            ? "degraded"
-            : "offline";
-    const index = intel === "indexing" ? "indexing…" : `index ${indexing.state}`;
-    const value = `${atelierStatusSummary(status)} · ${index}`;
-    if (core.config.footer === "disabled") {
-      ctx.ui.setStatus(STATUS_KEY, undefined);
-      ctx.ui.setFooter?.(undefined);
-      return;
-    }
-    ctx.ui.setStatus(STATUS_KEY, value);
-    installAtelierFooter(ctx, status, intel, sessionState(ctx).thinkingLevel, core.config.footer);
-  } catch (error) {
-    ctx.ui.setStatus(STATUS_KEY, "Atelier unavailable");
-    ctx.ui.notify(errorMessage(error), "error");
-  }
+function updateStatus(ctx: ExtensionContext, core: AtelierCore): Promise<void> {
+  return sessionState(ctx).footerStatus.refresh(ctx, core);
 }
+
 
 async function runEditorWithPi(
   ctx: ExtensionContext,
@@ -282,6 +256,7 @@ async function reviewPlan(
     ctx.ui.notify(errorMessage(error), "error");
   } finally {
     extensionState.reviewInProgress = false;
+    await updateStatus(ctx, core);
   }
 }
 
@@ -379,7 +354,14 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   const openCore = options.openCore ?? ((repositoryRoot: string) => AtelierCore.open(repositoryRoot, { ...(process.env.ATELIER_WORKSPACE_ROOT === undefined ? {} : { workspaceRoot: process.env.ATELIER_WORKSPACE_ROOT }) }));
   const getCore = (ctx: ExtensionContext): AtelierCore => {
     const state = sessionState(ctx);
-    if (typeof pi.getThinkingLevel === "function") state.thinkingLevel = pi.getThinkingLevel();
+    const thinkingLevel = ctx.thinkingLevel
+      ?? (typeof pi.getThinkingLevel === "function" ? pi.getThinkingLevel() : undefined);
+    state.footerStatus.setRuntime({
+      ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+      ...(ctx.model?.id === undefined && ctx.model?.name === undefined
+        ? {}
+        : { modelName: ctx.model.id ?? ctx.model.name }),
+    });
     return coreFor(ctx, openCore);
   };
   const reopenCore = (ctx: ExtensionContext): Promise<AtelierCore> => replaceCore(ctx, openCore);
@@ -445,6 +427,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       try {
         const workspace = core.codeWorkspace();
         const status = await core.code.status(undefined, workspace);
+        sessionState(ctx).footerStatus.recordProvider(core, status);
+        await updateStatus(ctx, core);
         const retrieval = core.code.retrievalStatus();
         const text = [
           `Provider: ${status.identity.name}${status.identity.version ? ` ${status.identity.version}` : ""}`,
@@ -459,6 +443,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         ].join("\n");
         return { content: [{ type: "text", text }], details: { status, workspaceId: workspace.id, retrieval } };
       } catch (error) {
+        sessionState(ctx).footerStatus.markProviderOffline();
+        await updateStatus(ctx, core);
         return codeToolError(error, core);
       }
     },
@@ -494,6 +480,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           ...(input.limit === undefined ? {} : { limit: input.limit }),
         }));
         const status = await core.code.status(undefined, workspace);
+        sessionState(ctx).footerStatus.recordProvider(core, status);
+        await updateStatus(ctx, core);
         const retrieval = core.code.retrievalStatus();
         const readGuidance = results.length === 0
           ? ""
@@ -532,6 +520,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           },
         };
       } catch (error) {
+        sessionState(ctx).footerStatus.markProviderOffline();
+        await updateStatus(ctx, core);
         return codeToolError(error, core);
       }
     },
@@ -561,6 +551,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           ...(input.limit === undefined ? {} : { limit: input.limit }),
         });
         const status = await core.code.status(undefined, workspace);
+        sessionState(ctx).footerStatus.recordProvider(core, status);
+        await updateStatus(ctx, core);
         const retrieval = core.code.retrievalStatus();
         const text = (results.length === 0
           ? retrieval.lastDecision?.kind === "no_provider_call"
@@ -590,19 +582,25 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           },
         };
       } catch (error) {
+        sessionState(ctx).footerStatus.markProviderOffline();
+        await updateStatus(ctx, core);
         return codeToolError(error, core);
       }
     },
   });
   pi.on("session_start", async (_event, ctx) => {
     const extensionState = sessionState(ctx);
+    extensionState.footerStatus.enable();
     extensionState.advisorySent = false;
     delete extensionState.turnPolicy;
     const core = getCore(ctx);
     core.beginRetrievalSession();
     ensureAtelierToolsActive(pi, core, WORKFLOW_AGENT_TOOLS, CODE_RETRIEVAL_TOOLS);
     extensionState.stopIndexStatusUpdates?.();
-    extensionState.stopIndexStatusUpdates = core.code.onIndexStatus(() => { void updateStatus(ctx, core); });
+    extensionState.stopIndexStatusUpdates = core.code.onIndexStatus((indexing) => {
+      extensionState.footerStatus.recordIndex(core, indexing);
+      void updateStatus(ctx, core);
+    });
     try {
       await core.execution.resume();
     } catch (error) {
@@ -611,15 +609,35 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     await updateStatus(ctx, core);
     if (core.config.codeProvider !== "disabled") {
       void core.code.ensureIndex(core.codeWorkspace()).catch((error) => {
+        extensionState.footerStatus.markProviderOffline();
         ctx.ui.notify(`Code indexing failed: ${errorMessage(error)}`, "error");
+        void updateStatus(ctx, core);
       });
     }
   });
 
+  pi.on("thinking_level_select", async (event, ctx) => {
+    const state = sessionState(ctx);
+    state.footerStatus.setRuntime({ thinkingLevel: String(event.level) });
+    await updateStatus(ctx, coreFor(ctx, openCore));
+  });
+
+  pi.on("model_select", async (event, ctx) => {
+    const state = sessionState(ctx);
+    const modelName = event.model?.id ?? event.model?.name;
+    if (modelName !== undefined) state.footerStatus.setRuntime({ modelName });
+    await updateStatus(ctx, coreFor(ctx, openCore));
+  });
+
+  pi.on("session_compact", async (_event, ctx) => {
+    await updateStatus(ctx, getCore(ctx));
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
+    const extensionState = sessionState(ctx);
+    await extensionState.footerStatus.disable();
     ctx.ui.setStatus(STATUS_KEY, undefined);
     ctx.ui.setFooter?.(undefined);
-    const extensionState = sessionState(ctx);
     extensionState.stopIndexStatusUpdates?.();
     delete extensionState.stopIndexStatusUpdates;
     extensionState.core?.interruptPendingExecutionEvidence("Pi session shut down before tool completion.");
@@ -631,9 +649,15 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     extensionState.advisorySent = false;
     delete extensionState.lastCompletionNotice;
     delete extensionState.turnPolicy;
+    extensionState.footerStatus.resetRepository();
   });
 
   pi.on("input", (event, ctx) => {
+    const core = getCore(ctx);
+    // Refresh on every user interaction so filesystem, task-provider, or index
+    // changes made outside Pi while it was idle become visible before the next
+    // turn. Mutation commands also refresh again after they complete.
+    void updateStatus(ctx, core);
     const text = eventInputText(event);
     if (text === undefined || text.startsWith("/")) return;
     const state = sessionState(ctx);
@@ -718,6 +742,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     return { operations: createAtelierBashOperations({
       workspace: core.config.workspaceRoot, backend: core.config.sandboxBackend,
       allowUnsandboxed: authorization.allowUnsandboxed,
+      onComplete: () => updateStatus(ctx, core),
     }) };
   });
 
@@ -770,6 +795,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       workingStateId: state.stateId,
       createdAt: new Date().toISOString(),
     });
+    await updateStatus(ctx, core);
     return { systemPrompt: contextCapsulePrompt(event.systemPrompt, capsule) };
   });
 
@@ -813,12 +839,18 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         delete extensionState.lastCompletionNotice;
       }
       delete extensionState.turnPolicy;
+      await updateStatus(ctx, core);
       return;
     }
     delete extensionState.turnPolicy;
-    if (core.mode() !== "plan" || sessionState(ctx).reviewInProgress) return;
-    if (core.ledger.getState<boolean>("planAutoReviewPending") !== true) return;
-    if (!existsSync(core.config.planPath)) return;
+    if (core.mode() !== "plan" || sessionState(ctx).reviewInProgress) {
+      await updateStatus(ctx, core);
+      return;
+    }
+    if (core.ledger.getState<boolean>("planAutoReviewPending") !== true || !existsSync(core.config.planPath)) {
+      await updateStatus(ctx, core);
+      return;
+    }
     await reviewPlan(ctx, core);
   });
 
@@ -837,6 +869,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         purpose: "Repository editor navigation",
       });
       if (result.exitCode !== 0) ctx.ui.notify(`Editor exited ${result.exitCode}${result.error ? `: ${result.error}` : ""}`, "error");
+      await updateStatus(ctx, core);
     },
   });
 
@@ -854,6 +887,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         cwd: core.config.repositoryRoot,
         purpose: "Repository file navigation",
       });
+      await updateStatus(ctx, core);
     },
   });
 
@@ -868,6 +902,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           cwd: core.config.repositoryRoot,
           purpose: "Repository tree navigation",
         });
+        await updateStatus(ctx, core);
         return;
       }
       ctx.ui.setWidget?.("atelier-tree", ["Atelier project tree", "", ...projectTree(core)], { placement: "aboveEditor" });
@@ -891,6 +926,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       }
       const review = core.reviewFinalDiff(preview.diffHash);
       ctx.ui.notify(`Reviewed ${review.changedPaths.length} path(s); diff ${review.diffHash}.`, "info");
+      await updateStatus(ctx, core);
     },
   });
 
@@ -899,8 +935,13 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: async (args, ctx) => {
       const message = args.trim();
       if (!message) { ctx.ui.notify("Usage: /commit MESSAGE", "warning"); return; }
-      const result = getCore(ctx).commitActiveTask(message);
-      ctx.ui.notify(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}`, "info");
+      const core = getCore(ctx);
+      try {
+        const result = core.commitActiveTask(message);
+        ctx.ui.notify(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}`, "info");
+      } finally {
+        await updateStatus(ctx, core);
+      }
     },
   });
 
@@ -908,9 +949,13 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "Close the active task after the authoritative completion predicate passes",
     handler: async (args, ctx) => {
       const reason = args.trim() || "Completed with current Atelier evidence.";
-      const result = await getCore(ctx).closeActiveTask(reason);
-      ctx.ui.notify(`Closed ${result.task.id}; ${result.nextReady.length} approved-plan task(s) are ready.`, "info");
-      await updateStatus(ctx, getCore(ctx));
+      const core = getCore(ctx);
+      try {
+        const result = await core.closeActiveTask(reason);
+        ctx.ui.notify(`Closed ${result.task.id}; ${result.nextReady.length} approved-plan task(s) are ready.`, "info");
+      } finally {
+        await updateStatus(ctx, core);
+      }
     },
   });
 
@@ -986,7 +1031,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   pi.registerCommand("approve", {
     description: "Approve the reviewed plan, reconcile Beads, and enter act mode",
     handler: async (_args, ctx) => {
-      await approveAndReconcile(pi, ctx, getCore(ctx));
+      const core = getCore(ctx);
+      try {
+        await approveAndReconcile(pi, ctx, core);
+      } finally {
+        await updateStatus(ctx, core);
+      }
     },
   });
 
@@ -1010,9 +1060,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         const transition = await core.execution.startNextTask(true, requestedTaskId);
         if (transition === undefined) return;
         ctx.ui.notify(`Activated ${transition.task.id} with execution grant ${transition.executionGrant.id}.`, "info");
-        await updateStatus(ctx, core);
       } catch (error) {
         ctx.ui.notify(errorMessage(error), "error");
+      } finally {
+        await updateStatus(ctx, core);
       }
     },
   });
@@ -1135,6 +1186,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       full ? core.workingStateBuilder.toMarkdown(state) : workflowMarkdown(state),
       workflowSummary(state),
     );
+    await updateStatus(ctx, core);
   };
 
   pi.registerCommand("workflow", {
@@ -1147,63 +1199,22 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     handler: showWorkflowReport,
   });
 
-  pi.registerCommand("code-status", {
-    description: "Show Atelier code-provider health, capabilities, and index state",
-    handler: async (_args, ctx) => {
-      const core = getCore(ctx);
-      const status = await core.code.status(undefined, core.codeWorkspace());
-      const retrieval = core.code.retrievalStatus();
-      appendAtelierReport(pi, ctx, "Code intelligence", codeStatusMarkdown(status, retrieval), codeStatusSummary(status, retrieval));
-    },
-  });
-
-  pi.registerCommand("code-index", {
-    description: "Start or join the Atelier background code-index operation",
-    handler: async (_args, ctx) => {
-      const core = getCore(ctx);
-      const state = await core.code.ensureIndex(core.codeWorkspace());
-      appendAtelierReport(pi, ctx, "Code index", `**state:** ${state}`, state);
-    },
-  });
-
-  pi.registerCommand("code-search", {
-    description: "Search code across the configured Atelier workspace",
-    handler: async (args, ctx) => {
-      const query = args.trim();
-      if (!query) {
-        ctx.ui.notify("Usage: /code-search QUERY", "warning");
-        return;
-      }
-      const core = getCore(ctx);
-      const workspace = core.codeWorkspace();
-      const results = rankPresentedHits(await core.code.search({ workspace, text: query, mode: "semantic", limit: 10 }));
-      const retrieval = core.code.retrievalStatus();
-      appendAtelierReport(pi, ctx, "Code search", codeSearchMarkdown(query, results, retrieval), `${results.length} result(s) · ${retrieval.inventory.freshness}`);
-    },
-  });
-
-  pi.registerCommand("code-symbols", {
-    description: "Search symbols through the configured Atelier code provider",
-    handler: async (args, ctx) => {
-      const query = args.trim();
-      if (!query) {
-        ctx.ui.notify("Usage: /code-symbols QUERY", "warning");
-        return;
-      }
-      const core = getCore(ctx);
-      const workspace = core.codeWorkspace();
-      const results = rankPresentedHits(await core.code.symbols({ workspace, text: query, limit: 20, requireUnresolved: false }));
-      const retrieval = core.code.retrievalStatus();
-      appendAtelierReport(pi, ctx, "Symbol search", codeSymbolsMarkdown(query, results, retrieval), `${results.length} match(es) · ${retrieval.inventory.freshness}`);
-    },
+  registerCodeCommands(pi, {
+    getCore,
+    getFooterStatus: (ctx) => sessionState(ctx).footerStatus,
   });
 
   pi.registerCommand("changed", {
-    description: "Show paths changed in the current Jujutsu workspace",
+    description: "Show paths changed in the current repository",
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
-      const paths = core.repository.changedPaths();
-      appendAtelierReport(pi, ctx, "Changed paths", changedMarkdown(paths, core.repository.snapshot().vcs), `${paths.length} path(s) · ${core.repository.snapshot().vcs}`);
+      try {
+        const paths = core.repository.changedPaths();
+        const vcs = core.repository.snapshot().vcs;
+        appendAtelierReport(pi, ctx, "Changed paths", changedMarkdown(paths, vcs), `${paths.length} path(s) · ${vcs}`);
+      } finally {
+        await updateStatus(ctx, core);
+      }
     },
   });
 
@@ -1211,33 +1222,37 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "List or run configured Atelier validations",
     handler: async (args, ctx) => {
       const core = getCore(ctx);
-      const name = args.trim();
-      if (!name) {
-        const manifest = core.validation.manifest();
-        appendAtelierReport(pi, ctx, "Configured validations", validationListMarkdown(manifest.validations), `${Object.keys(manifest.validations).length} configured`);
-        return;
-      }
-      if (name === "plan" || name === "focused") {
-        if (name === "plan") {
-          const selection = core.selectFocusedValidation();
-          appendAtelierReport(pi, ctx, "Focused validation plan", focusedSelectionMarkdown(selection), `${selection.selected.length} selected`);
+      try {
+        const name = args.trim();
+        if (!name) {
+          const manifest = core.validation.manifest();
+          appendAtelierReport(pi, ctx, "Configured validations", validationListMarkdown(manifest.validations), `${Object.keys(manifest.validations).length} configured`);
           return;
         }
-        const selection = core.selectFocusedValidation();
-        const results = [];
-        for (const item of selection.selected) {
-          const signal = contextSignal(ctx);
-          results.push(await core.runValidation(item.name, {
-            selectionId: selection.id,
-            ...(signal === undefined ? {} : { signal }),
-          }));
+        if (name === "plan" || name === "focused") {
+          if (name === "plan") {
+            const selection = core.selectFocusedValidation();
+            appendAtelierReport(pi, ctx, "Focused validation plan", focusedSelectionMarkdown(selection), `${selection.selected.length} selected`);
+            return;
+          }
+          const selection = core.selectFocusedValidation();
+          const results = [];
+          for (const item of selection.selected) {
+            const signal = contextSignal(ctx);
+            results.push(await core.runValidation(item.name, {
+              selectionId: selection.id,
+              ...(signal === undefined ? {} : { signal }),
+            }));
+          }
+          appendAtelierReport(pi, ctx, "Validation results", validationResultsMarkdown(results), `${results.filter((item) => item.status === "passed").length}/${results.length} passed`);
+          return;
         }
-        appendAtelierReport(pi, ctx, "Validation results", validationResultsMarkdown(results), `${results.filter((item) => item.status === "passed").length}/${results.length} passed`);
-        return;
+        const signal = contextSignal(ctx);
+        const evidence = await core.runValidation(name, signal === undefined ? {} : { signal });
+        appendAtelierReport(pi, ctx, "Validation result", validationResultsMarkdown([evidence]), `${evidence.name} · ${evidence.status}`);
+      } finally {
+        await updateStatus(ctx, core);
       }
-      const signal = contextSignal(ctx);
-      const evidence = await core.runValidation(name, signal === undefined ? {} : { signal });
-      appendAtelierReport(pi, ctx, "Validation result", validationResultsMarkdown([evidence]), `${evidence.name} · ${evidence.status}`);
     },
   });
 
@@ -1250,6 +1265,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         currentChangedPaths: core.currentSourceChangedPaths(),
       });
       appendAtelierReport(pi, ctx, "Validation evidence", evidenceMarkdown(items), `${items.filter((item) => !item.stale).length} current · ${items.filter((item) => item.stale).length} stale`);
+      await updateStatus(ctx, core);
     },
   });
 

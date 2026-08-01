@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.27
+# Local Acceptance Workflow — 0.14.0-alpha.28
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -19,7 +19,8 @@ constraints, exact constraint disclosure, exact approval and rejection, passive 
 stop/pause/resume/cancel control, typed model workflow tools, per-turn hard tool restrictions, accurate
 failure/interruption and per-operation path evidence, source-only freshness, scoped commits, idempotent
 Beads initialization, symbol-state convergence, validation staleness, exact diff review, restart,
-multi-repository drift, and package metadata.
+multi-repository drift, live footer model/thinking selection, Git/Jujutsu refresh scheduling, source-qualified
+intelligence degradation, external idle drift refresh, and package metadata.
 
 Fixture conformance is deterministic evidence only. Do not describe it as a live external-provider run.
 

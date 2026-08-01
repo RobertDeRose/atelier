@@ -1,4 +1,9 @@
-# Atelier Architecture — 0.14.0-alpha.27
+# Atelier Architecture — 0.14.0-alpha.28
+
+The Pi integration owns a session-local `FooterStatusController`. It serializes status observations, consumes
+model/thinking and code-index events, re-snapshots the active Git/Jujutsu provider after mutation boundaries,
+and compares current source revisions with the indexed baseline before rendering intelligence readiness.
+It does not poll while Pi is idle; the next Pi interaction refreshes externally changed state.
 
 ## Product boundary
 

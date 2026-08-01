@@ -9,6 +9,27 @@ the Pi transcript, external SQLite ledger, trust records, exact approval and per
 Jujutsu status/diff evidence, and CLI cancellation output. It distinguishes product defects from procedure
 errors and from observations the evidence did not prove.
 
+## Alpha.28 live-footer correction
+
+The alpha.27 guided run exposed a stale runtime value in Atelier's custom Pi footer: Pi changed its
+thinking level from `high` to `off`, while the footer retained the value captured when the Core was opened.
+The audit found related refresh gaps for model changes, direct user shell, interactive editor/navigation
+returns, failed or completed validations, commits, task transitions, and source changes made outside Pi while
+it was idle. Alpha.28 now:
+
+- consumes Pi `thinking_level_select` and `model_select` events directly;
+- serializes footer refreshes so a slower older observation cannot overwrite a newer one;
+- re-observes Git or Jujutsu state after typed tools, direct `!` shell, commits, closure, interactive children,
+  and every subsequent user interaction;
+- records provider/index lifecycle state and marks intelligence `degraded` when current source revisions no
+  longer match the indexed baseline;
+- restores Pi's built-in footer rather than retaining stale Atelier values when repository observation fails; and
+- extends guided Step 1 and deterministic coverage for immediate thinking/model refresh and source/index drift.
+
+The footer remains intentionally event-driven rather than polling external processes continuously. A change
+made completely outside Pi while Pi is idle becomes visible on the next Pi input, command, tool result, or
+agent lifecycle event.
+
 ## Alpha.27 guided-evidence corrections
 
 The alpha.26 guided evidence exposed four current issues that are distinct from the historical

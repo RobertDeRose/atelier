@@ -95,6 +95,10 @@ test("guided verification resolves step workspace paths before launching and col
     assert.equal(existsSync(join(runRoot, "atelier-guided-verification-evidence.tar.xz")), true);
     assert.equal(existsSync(join(evidence, "guided-policy-jj", "status.json")), true);
     assert.equal(existsSync(join(evidence, "guided-control", "status.json")), true);
+    const footerGuide = readFileSync(join(guidedRoot, "guides", "01-intel-jj.md"), "utf8");
+    assert.match(footerGuide, /thinking-level shortcut to select a different level/i);
+    assert.match(footerGuide, /must change immediately without running an Atelier command/i);
+    assert.match(footerGuide, /model and thinking-level values update immediately/i);
     const refreshedGuide = readFileSync(join(guidedRoot, "guides", "02-policy-git.md"), "utf8");
     assert.match(refreshedGuide, /Inside Pi, run `\/status` first\. The footer must use `git:` and `intel: disabled`\./);
     assert.match(refreshedGuide, /typed create and edit are blocked because investigate mode is read-only/i);
@@ -176,6 +180,8 @@ test("guided verification auto-prepares missing workspaces and does not emit ter
     assert.equal(existsSync(join(runRoot, "guided", "control", "repo")), true);
     assert.equal(existsSync(join(runRoot, "guided", ".prepared")), true);
 
+    const footerGuide = readFileSync(join(runRoot, "guided", "guides", "01-intel-jj.md"), "utf8");
+    assert.match(footerGuide, /must change immediately without running an Atelier command/i);
     const policyGuide = readFileSync(join(runRoot, "guided", "guides", "02-policy-git.md"), "utf8");
     assert.match(policyGuide, /Inside Pi, run `\/status` first\. The footer must use `git:` and `intel: disabled`\./);
     assert.match(policyGuide, /`!rm manual-policy\/clean-delete\.txt`/);

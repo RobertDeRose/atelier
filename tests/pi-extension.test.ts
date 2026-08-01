@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,9 +52,13 @@ function fakeContext(
     confirmResult?: boolean;
     confirmResults?: boolean[];
     renderCustom?: boolean;
+    modelId?: string;
+    thinkingLevel?: string;
+    sessionKey?: object;
   } = {},
 ): ExtensionCommandContext {
   return {
+    sessionManager: observations.sessionKey ?? {},
     cwd,
     mode: "tui",
     hasUI: true,
@@ -62,7 +67,8 @@ function fakeContext(
     waitForIdle: observations.waitForIdle ?? (async () => {}),
     ...(observations.abort === undefined ? {} : { abort: observations.abort }),
     ...(observations.signal === undefined ? {} : { signal: observations.signal }),
-    model: { id: "test-model" },
+    model: { id: observations.modelId ?? "test-model" },
+    thinkingLevel: observations.thinkingLevel,
     getContextUsage: () => ({ tokens: 100, contextWindow: 1000, percent: 10 }),
     ui: {
       confirm: async (_title: string, body: string) => {
@@ -182,6 +188,9 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   for (const event of [
     "session_start",
     "session_shutdown",
+    "session_compact",
+    "model_select",
+    "thinking_level_select",
     "tool_call",
     "tool_result",
     "before_agent_start",
@@ -207,6 +216,13 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
     codeProvider: "mock",
     sandboxBackend: "none",
   }));
+  for (const args of [
+    ["add", ".atelier/config.json"],
+    ["commit", "--quiet", "--no-gpg-sign", "-m", "test: configure footer refresh"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: root, encoding: "utf8", shell: false });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  }
   const confirms = { count: 0 };
   const statuses: string[] = [];
   const notifications: string[] = [];
@@ -295,6 +311,200 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   assert.equal(confirms.count, 5, "typed reads do not add approval prompts beyond the unsandboxed shell operations");
 
   await events.get("session_shutdown")!({}, context);
+});
+
+test("Atelier footer refreshes model and thinking-level selections immediately", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  let thinkingLevel = "high";
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void {
+      events.set(name, handler);
+    },
+    registerCommand(): void {},
+    registerTool(): void {},
+    getThinkingLevel(): string { return thinkingLevel; },
+    getActiveTools(): string[] { return ["read", "bash", "edit", "write"]; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+  atelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-footer-runtime-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "none",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }));
+  const sharedSession = {};
+  const footers: string[] = [];
+  const confirms = { count: 0 };
+  const highContext = fakeContext(root, confirms, [], {
+    footers,
+    modelId: "model-one",
+    thinkingLevel: "high",
+    sessionKey: sharedSession,
+  });
+  try {
+    await events.get("session_start")!({}, highContext);
+    assert.match(footers.at(-1) ?? "", /Atelier: model-one · high/);
+
+    thinkingLevel = "off";
+    const offContext = fakeContext(root, confirms, [], {
+      footers,
+      modelId: "model-one",
+      thinkingLevel: "off",
+      sessionKey: sharedSession,
+    });
+    await events.get("thinking_level_select")!({ level: "off", previousLevel: "high" }, offContext);
+    assert.match(footers.at(-1) ?? "", /Atelier: model-one · off/);
+    assert.doesNotMatch(footers.at(-1) ?? "", /· high ·/);
+
+    const modelContext = fakeContext(root, confirms, [], {
+      footers,
+      modelId: "model-two",
+      thinkingLevel: "off",
+      sessionKey: sharedSession,
+    });
+    await events.get("model_select")!({
+      model: { id: "model-two" },
+      previousModel: { id: "model-one" },
+      source: "cycle",
+    }, modelContext);
+    assert.match(footers.at(-1) ?? "", /Atelier: model-two · off/);
+  } finally {
+    await events.get("session_shutdown")!({}, highContext);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("direct user shell refreshes VCS dirtiness and index freshness", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const commands = new Map<string, RegisteredCommand>();
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void {
+      events.set(name, handler);
+    },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getThinkingLevel(): string { return "medium"; },
+    getActiveTools(): string[] { return ["read", "bash", "edit", "write"]; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+  atelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-footer-vcs-intel-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "none",
+    repositoryProvider: "git",
+    codeProvider: "mock",
+    sandboxBackend: "none",
+  }));
+  const footers: string[] = [];
+  const context = fakeContext(root, { count: 0 }, [], {
+    footers,
+    thinkingLevel: "medium",
+    confirmResult: true,
+  });
+  try {
+    await events.get("session_start")!({}, context);
+    for (let attempt = 0; attempt < 50 && !/intel: ready/.test(footers.at(-1) ?? ""); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const add = spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8", shell: false });
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+    const staged = spawnSync("git", ["diff", "--cached", "--quiet"], { cwd: root, encoding: "utf8", shell: false });
+    if (staged.status === 1) {
+      const commit = spawnSync(
+        "git",
+        ["commit", "--quiet", "--no-gpg-sign", "-m", "test: establish clean footer baseline"],
+        { cwd: root, encoding: "utf8", shell: false },
+      );
+      assert.equal(commit.status, 0, commit.stderr || commit.stdout);
+    }
+    await commands.get("code-index")!.handler("", context);
+    assert.match(footers.at(-1) ?? "", /git: (?:main|master) · ✓ clean/);
+    assert.match(footers.at(-1) ?? "", /intel: ready/);
+
+    const userBash = await events.get("user_bash")!({
+      command: "printf '\\nfooter refresh mutation\\n' >> README.md",
+      excludeFromContext: false,
+      cwd: root,
+    }, context) as {
+      operations?: {
+        exec(
+          command: string,
+          cwd: string,
+          options: { onData(chunk: Buffer): void },
+        ): Promise<unknown>;
+      };
+    };
+    assert.ok(userBash.operations, "Atelier user_bash operations were not returned");
+    await userBash.operations.exec(
+      "printf '\nfooter refresh mutation\n' >> README.md",
+      root,
+      { onData(): void {} },
+    );
+    assert.match(footers.at(-1) ?? "", /git: (?:main|master) · ● dirty/);
+    assert.match(footers.at(-1) ?? "", /intel: degraded/);
+
+    await commands.get("code-index")!.handler("", context);
+    assert.match(footers.at(-1) ?? "", /intel: ready/);
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the next Pi input refreshes repository and intelligence state changed while idle", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const commands = new Map<string, RegisteredCommand>();
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void {
+      events.set(name, handler);
+    },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getThinkingLevel(): string { return "low"; },
+    getActiveTools(): string[] { return ["read", "bash", "edit", "write"]; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+  } as unknown as ExtensionAPI;
+  atelierExtension(fakePi);
+
+  const root = createTemporaryRepository("atlr-footer-idle-drift-");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "none",
+    repositoryProvider: "git",
+    codeProvider: "mock",
+  }));
+  const footers: string[] = [];
+  const context = fakeContext(root, { count: 0 }, [], { footers, thinkingLevel: "low" });
+  try {
+    await events.get("session_start")!({}, context);
+    const add = spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8", shell: false });
+    assert.equal(add.status, 0, add.stderr || add.stdout);
+    const commit = spawnSync(
+      "git",
+      ["commit", "--quiet", "--no-gpg-sign", "-m", "test: establish idle refresh baseline"],
+      { cwd: root, encoding: "utf8", shell: false },
+    );
+    assert.equal(commit.status, 0, commit.stderr || commit.stdout);
+    await commands.get("code-index")!.handler("", context);
+    assert.match(footers.at(-1) ?? "", /git: (?:main|master) · ✓ clean/);
+    assert.match(footers.at(-1) ?? "", /intel: ready/);
+
+    writeFileSync(join(root, "README.md"), "changed outside Pi while idle\n", { flag: "a" });
+    events.get("input")!({ text: "/status", source: "interactive" }, context);
+    for (let attempt = 0; attempt < 100 && !/● dirty/.test(footers.at(-1) ?? ""); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.match(footers.at(-1) ?? "", /git: (?:main|master) · ● dirty/);
+    assert.match(footers.at(-1) ?? "", /intel: degraded/);
+  } finally {
+    await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Pi code tools retain one retrieval session and enforce inventory-first decisions", async () => {

@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.27
+# Build Report — Atelier 0.14.0-alpha.28
 
 ## Result
 
@@ -16,6 +16,23 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.28 live-footer status correction
+
+Alpha.28 audits every field in Atelier's custom Pi footer and moves live status ownership into a dedicated
+session-local controller:
+
+- model and thinking level update from Pi selection events without requiring another Atelier command;
+- workflow/task/closure and Git/Jujutsu observations refresh after all structured mutations, direct user shell,
+  interactive child return, validation, commits, closure, and the next user input;
+- code-provider health and index lifecycle are tracked separately from source freshness; source revision drift
+  changes `ready` to `degraded` until a current index completes;
+- refresh requests are coalesced and serialized so an older slow observation cannot replace newer state; and
+- failed authoritative observation releases the custom footer rather than preserving stale values.
+
+Three new integration regressions cover runtime model/thinking selection, direct-shell VCS/index refresh, and
+source changes made outside Pi while it is idle. Guided Step 1 now explicitly verifies immediate thinking-level
+refresh.
 
 ## Alpha.27 guided-policy and execution-continuity correction
 
@@ -134,21 +151,20 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.27
-Files:            438
-Compressed size:  488,375 bytes
-Unpacked size:    2,285,190 bytes
+Package:          atelier-prototype@0.14.0-alpha.28
+Files:            446
+Compressed size:  494,790 bytes
+Unpacked size:    2,313,522 bytes
 ```
 
 ## Verification boundary
 
 The correction environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
-Node 24.18.0 and TypeScript 7 toolchain. The complete aggregate deterministic command passed with
-275 tests across 83 test files using the required `--test-concurrency=8` setting. This includes exact
-post-approval retrieval continuity, planner validation-catalog injection, complete guided checkpoint
-restoration, pause/resume/cancellation enforcement, and all prior workflow, recovery, validation,
-multi-repository, and provider fixtures. The pinned Node 24 CI and maintainer `mise check` remain
-authoritative for the supported runtime.
+Node 24.18.0 and TypeScript 7 toolchain. All 278 deterministic tests across 83 test files passed in
+bounded independent processes using the required `--test-concurrency=8` setting. After the final
+footer-module extraction, the aggregate Node 22 test-runner process did not terminate reliably, which
+matches the previously observed unsupported-runtime limitation. The pinned Node 24 CI and maintainer
+`mise check` remain authoritative for the supported aggregate command.
 
 The environment did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap` binary. Exact Git
 recovery is exercised against real Git repositories. Jujutsu operation recovery and sandbox command
@@ -158,10 +174,11 @@ live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.27` remains an interactive alpha. Guided verification now describes the actual
-investigate-mode and recoverability behavior, restores and verifies every generated checkpoint, and
-fails generated plans that name the wrong validation instead of requiring manual repair. Exact approval
-continues to bind source, workspace, provider, reconciliation, and task constraints; later retrieval
-activity is audited as provenance and cannot revoke an untouched execution grant by itself. Arbitrary
-interpreters, scripts, build systems, and dynamically computed shell effects remain intentionally
-conservative and require one concrete approval unless their effects can be bounded and recovered.
+`0.14.0-alpha.28` remains an interactive alpha. Footer status is now event-driven and provider-neutral:
+model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
+state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
+current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so
+changes made by an unrelated external process appear on the next Pi input, command, tool result, or agent
+lifecycle event. Arbitrary interpreters, scripts, build systems, and dynamically computed shell effects
+remain intentionally conservative and require one concrete approval unless their effects can be bounded
+and recovered.

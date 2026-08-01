@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0-alpha.28 — 2026-07-31
+
+### Fixed
+
+- Refresh the custom Pi footer immediately from `thinking_level_select` and `model_select` instead of retaining runtime values captured when the repository Core opened.
+- Serialize session-local footer observations so slower Git/Jujutsu, workflow, or code-provider reads cannot overwrite newer state.
+- Refresh workflow and repository state after typed tools, direct user shell, interactive editor/navigation returns, validation, diff review, commits, task transitions, compaction, index lifecycle changes, and the next user interaction.
+- Track the indexed source baseline and render intelligence as `degraded` when current workspace source revisions move beyond it; completed or provider-confirmed indexing restores `ready`.
+- Mark provider failures `offline` and restore Pi's built-in footer when an authoritative repository/status observation fails rather than leaving stale Atelier state visible.
+- Add deterministic regressions for immediate model/thinking refresh, direct-shell Git dirtiness and index freshness, idle external source drift, and corrected guided Step 1 instructions.
+
 ## 0.14.0-alpha.27 — 2026-07-31
 
 ### Fixed
