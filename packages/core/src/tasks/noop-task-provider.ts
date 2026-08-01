@@ -19,6 +19,19 @@ export class NoopTaskProvider implements TaskProvider {
     return { stablePlanTaskIds: false, dependencyRemoval: false, retirement: false };
   }
 
+  peekStatus(): TaskProviderStatus {
+    return {
+      provider: this.name,
+      available: true,
+      initialized: true,
+      reason: "Persistent task tracking is disabled by configuration.",
+    };
+  }
+
+  peekTask(_taskId: string): TaskRecord | undefined {
+    return undefined;
+  }
+
   async status(): Promise<TaskProviderStatus> {
     return {
       provider: this.name,

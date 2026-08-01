@@ -1,3 +1,4 @@
+import type { AtelierCore } from "../../../packages/core/src/index.ts";
 import type {
   AtelierStatus,
   CodeProviderStatus,
@@ -305,5 +306,19 @@ export function readyTasksMarkdown(tasks: Array<{ id: string; title: string; pri
           "|---|---:|---|---|",
           ...tasks.map((task) => `| ${code(task.id)} | ${task.priority} | ${task.title.replaceAll("|", "\\|")} | ${task.status ?? "ready"} |`),
         ]),
+  ].join("\n");
+}
+
+
+export function performanceMarkdown(report: ReturnType<AtelierCore["performanceReport"]>): string {
+  const section = (title: string, summary: typeof report.interactive): string[] => [
+    `**${title}:** ${summary.sampleCount} sample(s), ${summary.totalDurationMs.toFixed(1)} ms total`,
+    ...summary.byPhase.slice(0, 12).map((item) =>
+      `- ${item.operation}/${item.phase}: ${item.count} × ${item.averageDurationMs.toFixed(1)} ms avg; ${item.maximumDurationMs.toFixed(1)} ms max; ${item.subprocesses} subprocess(es); ${item.filesHashed} file(s); ${item.bytesHashed} byte(s)`),
+  ];
+  return [
+    ...section("Interactive observations", report.interactive),
+    "",
+    ...section("SQLite operations", report.sqlite),
   ].join("\n");
 }

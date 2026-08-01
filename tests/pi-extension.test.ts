@@ -495,7 +495,7 @@ test("the next Pi input refreshes repository and intelligence state changed whil
     assert.match(footers.at(-1) ?? "", /intel: ready/);
 
     writeFileSync(join(root, "README.md"), "changed outside Pi while idle\n", { flag: "a" });
-    events.get("input")!({ text: "/status", source: "interactive" }, context);
+    events.get("input")!({ text: "inspect current state", source: "interactive" }, context);
     for (let attempt = 0; attempt < 100 && !/● dirty/.test(footers.at(-1) ?? ""); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
@@ -1480,6 +1480,45 @@ test("Pi status, workflow, and code commands append expandable persistent report
     assert.match(rendered, /^─+$/m);
   } finally {
     await events.get("session_shutdown")!({}, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Pi /status owns one observation and slash input does not start a competing footer refresh", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const commands = new Map<string, RegisteredCommand>();
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+    registerTool(): void {},
+    getActiveTools(): string[] { return ["read", "bash", "edit", "write"]; },
+    setActiveTools(): void {},
+    sendUserMessage(): void {},
+    appendEntry(): void {},
+  } as unknown as ExtensionAPI;
+  const root = createTemporaryRepository("atlr-pi-single-status-");
+  const core = AtelierCore.open(root, { taskProvider: "memory" });
+  let statusCalls = 0;
+  const originalStatus = core.status.bind(core);
+  (core as any).status = async () => {
+    statusCalls += 1;
+    return originalStatus();
+  };
+  registerAtelierExtension(fakePi, { openCore: () => core });
+  const context = fakeContext(root, { count: 0 });
+  try {
+    await events.get("session_start")!({ reason: "startup" }, context);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    statusCalls = 0;
+
+    await events.get("input")!({ text: "/status", source: "interactive" }, context);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(statusCalls, 0, "slash input must not start the generic footer observation");
+
+    await commands.get("status")!.handler("", context);
+    assert.equal(statusCalls, 1, "the /status report and footer must share one typed status observation");
+  } finally {
+    await events.get("session_shutdown")!({ reason: "quit" }, context);
     rmSync(root, { recursive: true, force: true });
   }
 });

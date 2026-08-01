@@ -48,6 +48,8 @@ class MutableRepository implements RepositoryProvider {
 class RecordingProvider extends InMemoryTaskProvider {
   creates = 0;
   claims = 0;
+  lists = 0;
+  statuses = 0;
   initializes = 0;
   version = "1";
   available = true;
@@ -57,6 +59,7 @@ class RecordingProvider extends InMemoryTaskProvider {
   hideReady = false;
 
   override async status(): Promise<TaskProviderStatus> {
+    this.statuses += 1;
     return {
       provider: this.name,
       available: this.available,
@@ -64,6 +67,10 @@ class RecordingProvider extends InMemoryTaskProvider {
       version: this.version,
       ...(this.available ? {} : { reason: "provider unavailable" }),
     };
+  }
+  override async list(): Promise<TaskRecord[]> {
+    this.lists += 1;
+    return super.list();
   }
   override async initialize(): Promise<void> {
     this.initializes += 1;
@@ -171,7 +178,10 @@ test("successful exact approval reconciles, claims, then atomically enters act m
     const prepared = await context.coordinator.prepare();
     assert.equal(prepared.approval.planHash, prepared.reconciliation.planHash);
     assert.equal(prepared.approval.reconciliationDigest, prepared.reconciliation.digest);
-    const result = await context.coordinator.approveAndApply(prepared.approval.id, true);
+    const phases: string[] = [];
+    const result = await context.coordinator.approveAndApply(prepared.approval.id, true, {
+      onPhase: (phase) => { phases.push(phase); },
+    });
 
     assert.equal(result.transaction.status, "applied");
     assert.equal(result.reconciliation.applied, true);
@@ -181,6 +191,9 @@ test("successful exact approval reconciles, claims, then atomically enters act m
     assert.equal(context.ledger.getState("workflowMode"), "act");
     assert.equal(context.ledger.getState("currentTaskId"), result.task?.id);
     assert.equal(prepared.approval.taskConstraints.filter((item) => item.planTaskId === result.task?.planTaskId).length, 1, "approval retains one reviewed task constraint for the active task");
+    assert.deepEqual(phases, ["revalidate", "reconcile", "converge", "activate"]);
+    assert.equal(context.provider.lists, 3, "prepare, exact revalidation, and convergence each use one provider inventory");
+    assert.equal(context.provider.statuses, 4, "provider status is bounded to preparation and three reconciliation previews");
   } finally {
     context.ledger.close();
     rmSync(context.root, { recursive: true, force: true });

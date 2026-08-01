@@ -18,6 +18,7 @@ function run(root: string, args: string[]) {
 function installFakeBeads(root: string): string {
   const executable = join(root, ".atelier", "fake-bd.mjs");
   const statePath = join(root, ".atelier", "fake-bd-state.json");
+  writeFileSync(statePath, JSON.stringify({ next: 1, tasks: {} }), "utf8");
   writeFileSync(executable, `#!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -27,7 +28,7 @@ const save = () => writeFileSync(path, JSON.stringify(state));
 const output = (value) => console.log(JSON.stringify(value));
 const command = args[0];
 if (command === "version") { console.log("bd workflow-test"); process.exit(0); }
-if (command === "where") { output({ root: process.cwd() }); process.exit(0); }
+if (command === "where") { output({ root: process.cwd(), database_path: path }); process.exit(0); }
 if (command === "create") {
   const id = "bd-" + state.next++;
   const value = (flag, fallback = "") => { const index = args.indexOf(flag); return index === -1 ? fallback : args[index + 1]; };

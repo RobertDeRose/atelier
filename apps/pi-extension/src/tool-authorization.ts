@@ -10,6 +10,7 @@ import {
   resolveAccessPath,
   resolveSandboxBackend,
   sameAccessPath,
+  type RepositoryObservation,
 } from "../../../packages/core/src/index.ts";
 
 function toolReadPaths(event: any, ctx: ExtensionContext): string[] {
@@ -19,8 +20,14 @@ function toolReadPaths(event: any, ctx: ExtensionContext): string[] {
   return [...new Set(paths.map((path) => resolveAccessPath(resolve(ctx.cwd, path), "read")))];
 }
 
-export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierCore, effects: readonly FilesystemEffect[] = []): WorkflowActionRequest {
-  const snapshot = core.repository.snapshot();
+export function requestForTool(
+  event: any,
+  ctx: ExtensionContext,
+  core: AtelierCore,
+  effects: readonly FilesystemEffect[] = [],
+  observation?: RepositoryObservation,
+): WorkflowActionRequest {
+  const snapshot = observation?.snapshot ?? core.repository.peekObservation?.()?.snapshot ?? core.repository.snapshot();
   const currentTaskId = core.ledger.getState<string>("currentTaskId");
   const base = {
     actor: "agent" as const,
@@ -42,7 +49,7 @@ export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierC
       ...base,
       action: "read.repository",
       paths: event.toolName.startsWith("atlr_code_")
-        ? core.codeWorkspace().roots
+        ? [core.config.workspaceRoot]
         : toolReadPaths(event, ctx),
       rationale: `Pi ${event.toolName} tool performs a typed repository read.`,
     };
@@ -54,8 +61,8 @@ export function requestForTool(event: any, ctx: ExtensionContext, core: AtelierC
       return {
         ...base,
         action: "read.repository",
-        paths: core.codeWorkspace().roots,
-          rationale: "Atelier validation planning selects checks without executing repository code.",
+        paths: [core.config.workspaceRoot],
+        rationale: "Atelier validation planning selects checks without executing repository code.",
       };
     }
     const configuredName = typeof event.input?.name === "string" ? event.input.name : undefined;
@@ -155,6 +162,18 @@ function consequenceMessage(decision: ReturnType<AtelierCore["evaluateWorkspaceE
   ).join("\n\n");
 }
 
+async function showAuthorizationPhase(ctx: ExtensionContext, message: string): Promise<void> {
+  ctx.ui.setWorkingMessage?.(`Atelier: ${message}…`);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+export interface WorkspaceEffectsAuthorization {
+  response?: { block?: boolean; reason?: string };
+  checkpointId?: string;
+  approvedOnce?: boolean;
+  observation: RepositoryObservation;
+}
+
 export async function authorizeWorkspaceEffects(
   effects: readonly FilesystemEffect[],
   ctx: ExtensionContext,
@@ -164,54 +183,107 @@ export async function authorizeWorkspaceEffects(
     sessionId?: string;
     requireExplicitApproval?: boolean;
     approvalWarning?: string;
+    observation?: RepositoryObservation;
   } = {},
-): Promise<{ response?: { block?: boolean; reason?: string }; checkpointId?: string; approvedOnce?: boolean }> {
-  const decision = core.evaluateWorkspaceEffects(effects);
-  core.ledger.append({ kind: "workspace_policy.decision", actor: "agent", repositorySnapshot: core.repository.snapshot(), payload: decision });
-  const confirmOnce = async (reason: string): Promise<{ response?: { block?: boolean; reason?: string }; approvedOnce?: boolean }> => {
+): Promise<WorkspaceEffectsAuthorization> {
+  await showAuthorizationPhase(ctx, "evaluating operation effects");
+  const evaluated = await core.evaluateWorkspaceEffectsAsync(effects, {
+    ...(options.observation === undefined ? {} : { observation: options.observation }),
+    ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+    operation: "permission",
+  });
+  const { decision, observation } = evaluated;
+  core.ledger.append({
+    kind: "workspace_policy.decision",
+    actor: "agent",
+    repositorySnapshot: observation.snapshot,
+    payload: decision,
+  });
+
+  const confirmOnce = async (reason: string): Promise<WorkspaceEffectsAuthorization> => {
     const detail = [reason, options.approvalWarning].filter(Boolean).join("\n\n");
     if (!ctx.hasUI) {
-      return { response: { block: true, reason: `${detail} Interactive approval is unavailable in ${ctx.mode} mode.` } };
+      return {
+        observation,
+        response: { block: true, reason: `${detail} Interactive approval is unavailable in ${ctx.mode} mode.` },
+      };
     }
+    ctx.ui.setWorkingMessage?.();
     const approved = await ctx.ui.confirm("Atelier approval required", `${detail}\n\nAllow this concrete operation once?`);
     core.ledger.append({
       kind: approved ? "workspace_policy.approval_granted" : "workspace_policy.approval_denied",
       actor: "user",
-      repositorySnapshot: core.repository.snapshot(),
+      repositorySnapshot: observation.snapshot,
       payload: { decision, ...(options.approvalWarning === undefined ? {} : { warning: options.approvalWarning }) },
     });
-    return approved ? { approvedOnce: true } : { response: { block: true, reason: "The user denied this Atelier operation." } };
+    return approved
+      ? { observation, approvedOnce: true }
+      : { observation, response: { block: true, reason: "The user denied this Atelier operation." } };
   };
 
   if (decision.result === "allow") {
     return options.requireExplicitApproval === true
       ? confirmOnce(decision.reason || "This operation requires one-time approval.")
-      : {};
+      : { observation };
   }
+
   if (decision.result === "checkpoint_then_allow") {
+    // Explicit approval must happen before an expensive checkpoint is copied and
+    // verified. The prompt tells the user exactly what will happen next.
+    if (options.requireExplicitApproval === true) {
+      const approval = await confirmOnce(
+        `${decision.reason || "This operation is recoverable through an Atelier checkpoint."}\n\n`
+        + "If approved, Atelier will create and verify an exact recovery checkpoint before execution.",
+      );
+      if (approval.response !== undefined) return approval;
+    }
+
     try {
-      const checkpoint = core.checkpointWorkspaceEffects(decision, options);
-      if (options.requireExplicitApproval !== true) return { checkpointId: checkpoint.id };
-      const approval = await confirmOnce(decision.reason || "Atelier created a recovery checkpoint for this operation.");
-      return { ...approval, checkpointId: checkpoint.id };
+      await showAuthorizationPhase(ctx, "creating recovery checkpoint");
+      const checkpoint = core.checkpointWorkspaceEffects(decision, {
+        ...(options.toolCallId === undefined ? {} : { toolCallId: options.toolCallId }),
+        ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+        repositorySnapshot: observation.snapshot,
+      });
+      return {
+        observation,
+        checkpointId: checkpoint.id,
+        ...(options.requireExplicitApproval === true ? { approvedOnce: true } : {}),
+      };
     } catch (error) {
       const reason = `Atelier could not create an exact recovery checkpoint: ${error instanceof Error ? error.message : String(error)}`;
-      if (!ctx.hasUI) return { response: { block: true, reason: `${reason} Interactive approval is unavailable in ${ctx.mode} mode.` } };
+      if (!ctx.hasUI) {
+        return {
+          observation,
+          response: { block: true, reason: `${reason} Interactive approval is unavailable in ${ctx.mode} mode.` },
+        };
+      }
+      ctx.ui.setWorkingMessage?.();
       const detail = [reason, options.approvalWarning].filter(Boolean).join("\n\n");
       const approved = await ctx.ui.confirm("Atelier recovery unavailable", `${detail}\n\nContinue once without a checkpoint?`);
-      return approved ? { approvedOnce: true } : { response: { block: true, reason: "The user declined an unrecoverable operation." } };
+      core.ledger.append({
+        kind: approved ? "workspace_policy.approval_granted" : "workspace_policy.approval_denied",
+        actor: "user",
+        repositorySnapshot: observation.snapshot,
+        payload: { decision, checkpointUnavailable: true, reason },
+      });
+      return approved
+        ? { observation, approvedOnce: true }
+        : { observation, response: { block: true, reason: "The user declined an unrecoverable operation." } };
     }
   }
+
   const reason = consequenceMessage(decision) || decision.reason;
-  if (decision.result === "deny") return { response: { block: true, reason } };
+  if (decision.result === "deny") return { observation, response: { block: true, reason } };
   return confirmOnce(reason);
 }
+
 export async function authorizeShellEffects(
   effects: readonly FilesystemEffect[],
   ctx: ExtensionContext,
   core: AtelierCore,
-  options: { toolCallId?: string; sessionId?: string } = {},
-): Promise<{ response?: { block?: boolean; reason?: string }; checkpointId?: string; approvedOnce?: boolean; allowUnsandboxed: boolean }> {
+  options: { toolCallId?: string; sessionId?: string; observation?: RepositoryObservation } = {},
+): Promise<WorkspaceEffectsAuthorization & { allowUnsandboxed: boolean }> {
   const sandbox = resolveSandboxBackend(core.config.sandboxBackend);
   const authorization = await authorizeWorkspaceEffects(effects, ctx, core, {
     ...options,

@@ -157,7 +157,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
   async classifyPaths(paths: readonly string[], options: { signal?: AbortSignal } = {}): Promise<Record<string, RepositoryPathState>> {
     const root = await this.repositoryRoot(options.signal);
     const absolutePaths = [...new Set(paths.map((path) => resolve(path)))];
-    const relativePaths = absolutePaths.map((path) => relative(root, path).replaceAll("\\", "/"));
+    const relativePaths = absolutePaths.map((path) => relative(root, path).replaceAll("\\", "/") || ".");
     const [listedResult, changedResult, ignoredResult] = await Promise.all([
       runProcess(this.executable, ["file", "list", ...relativePaths], {
         cwd: root, signal: options.signal, timeoutMs: 10_000, idleTimeoutMs: 3_000, maxOutputBytes: 256 * 1024,
@@ -249,7 +249,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
       files = lines(fileResult.stdout).filter(isSourcePath).sort();
     }
     const pathStates = (options.paths?.length ?? 0) > 0
-      ? await this.classifyPaths(options.paths!, { signal: options.signal })
+      ? await this.classifyPaths(options.paths!, options.signal === undefined ? {} : { signal: options.signal })
       : {};
     if ((options.paths?.length ?? 0) > 0) subprocesses += 3;
     const snapshot: RepositorySnapshot = {

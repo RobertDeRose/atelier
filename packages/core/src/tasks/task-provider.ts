@@ -9,6 +9,10 @@ import type {
 export interface TaskProvider {
   readonly name: string;
   capabilities(): Promise<TaskProviderCapabilities>;
+  /** Return the latest status without performing provider I/O. */
+  peekStatus?(): TaskProviderStatus | undefined;
+  /** Return a cached task without performing provider I/O. */
+  peekTask?(taskId: string): TaskRecord | undefined;
   status(): Promise<TaskProviderStatus>;
   initialize(options?: { stealth?: boolean; quiet?: boolean }): Promise<void>;
   ready(): Promise<TaskRecord[]>;

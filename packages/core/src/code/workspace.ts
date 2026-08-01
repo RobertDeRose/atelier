@@ -84,6 +84,66 @@ export function loadCodeWorkspace(
   };
 }
 
+
+export interface AsyncCodeWorkspaceLoadOptions extends Omit<CodeWorkspaceLoadOptions, "snapshotForRoot"> {
+  snapshotForRoot?: (root: string) => Promise<RepositorySnapshot>;
+}
+
+/** Async counterpart used by interactive paths so secondary repository discovery never blocks Pi. */
+export async function loadCodeWorkspaceAsync(
+  root: string,
+  primary: RepositorySnapshot,
+  options: AsyncCodeWorkspaceLoadOptions = {},
+): Promise<CodeWorkspace> {
+  const projectRoot = canonicalRoot(root);
+  const workspacePath = resolve(options.workspacePath ?? resolve(projectRoot, ".atelier", "workspace.json"));
+  if (!existsSync(workspacePath)) return singleWorkspace(projectRoot, primary);
+  const parsed = JSON.parse(readFileSync(workspacePath, "utf8")) as WorkspaceFile;
+  if (parsed === null || typeof parsed !== "object" || (parsed.repositories !== undefined && !Array.isArray(parsed.repositories))) {
+    throw new ConfigurationError(`Invalid code workspace configuration: ${workspacePath}`);
+  }
+
+  const repositories = await Promise.all((parsed.repositories ?? []).map(async (entry, index) => {
+    if (!entry.path || typeof entry.path !== "string") {
+      throw new ConfigurationError(`workspace repository ${index + 1} is missing path`);
+    }
+    const unresolved = isAbsolute(entry.path) ? resolve(entry.path) : resolve(projectRoot, entry.path);
+    const repositoryRoot = canonicalRoot(unresolved);
+    if (options.rootWithinWorkspace !== undefined && !options.rootWithinWorkspace(repositoryRoot)) {
+      throw new ConfigurationError(
+        `Workspace repository is outside the immutable session workspace: ${repositoryRoot}. `
+        + `Start Atelier from a common parent workspace or use --workspace.`,
+      );
+    }
+    const snapshot = repositoryRoot === projectRoot
+      ? primary
+      : await options.snapshotForRoot?.(repositoryRoot);
+    if (snapshot === undefined) {
+      throw new ConfigurationError(`No repository snapshot provider is available for workspace root: ${repositoryRoot}`);
+    }
+    return {
+      id: entry.id ?? snapshot.repositoryId,
+      name: entry.name ?? basename(repositoryRoot),
+      root: repositoryRoot,
+      snapshot,
+      ...(entry.role ? { role: entry.role } : {}),
+      ...(entry.tags ? { tags: entry.tags } : {}),
+      ...(entry.codesearchProject ? { codesearchProject: entry.codesearchProject } : {}),
+    };
+  }));
+  if (repositories.length === 0) return singleWorkspace(projectRoot, primary);
+  const ids = repositories.map((repository) => repository.id);
+  if (new Set(ids).size !== ids.length) throw new ConfigurationError("workspace repository IDs must be unique");
+  const roots = repositories.map((repository) => repository.root);
+  if (new Set(roots).size !== roots.length) throw new ConfigurationError("workspace repository roots must be unique");
+  return {
+    id: parsed.name ?? primary.workspaceId,
+    name: parsed.name ?? primary.workspaceId,
+    roots,
+    repositories,
+  };
+}
+
 function singleWorkspace(root: string, snapshot: RepositorySnapshot): CodeWorkspace {
   return {
     id: snapshot.workspaceId,

@@ -45,7 +45,7 @@ test("a fresh Core reconstructs a bounded current retrieval session after compac
   const first = AtelierCore.open(root, { taskProvider: "memory", codeProvider, retrievalSessionId: "pi-session-a" });
   try {
     first.initialize();
-    await codeProvider.ensureIndex(first.codeWorkspace());
+    await first.code.ensureIndex(first.codeWorkspace());
     first.beginPlan("Update `WorkingStateBuilder`");
     const initial = await first.buildWorkingState();
     assert.equal(codeProvider.searchCalls, 1);
@@ -75,7 +75,7 @@ test("a fresh Core reconstructs a bounded current retrieval session after compac
     assert.match(reopened.workingStateBuilder.toMarkdown(reconstructed), /Provider calls: 1/);
     assert.ok(reconstructed.retrievalExplanation.some((item) => item.includes("Consulted retrieval session")));
 
-    await codeProvider.ensureIndex(reopened.codeWorkspace());
+    await reopened.code.ensureIndex(reopened.codeWorkspace());
     const reindexed = await reopened.buildWorkingState();
     assert.equal(codeProvider.searchCalls, 2);
     assert.ok(reindexed.retrievalSession?.invalidations.some((item) => item.kind === "index_revision"));
@@ -91,7 +91,7 @@ test("new sessions do not reuse old evidence and repository drift invalidates cu
   const first = AtelierCore.open(root, { taskProvider: "memory", codeProvider, retrievalSessionId: "old-session" });
   try {
     first.initialize();
-    await codeProvider.ensureIndex(first.codeWorkspace());
+    await first.code.ensureIndex(first.codeWorkspace());
     first.beginPlan("Update `WorkingStateBuilder`");
     await first.buildWorkingState();
   } finally { first.close(); }
@@ -143,7 +143,7 @@ test("provider outage and unknown freshness cannot report persisted evidence as 
   const first = AtelierCore.open(root, { taskProvider: "memory", codeProvider, retrievalSessionId: "freshness-session" });
   try {
     first.initialize();
-    await codeProvider.ensureIndex(first.codeWorkspace());
+    await first.code.ensureIndex(first.codeWorkspace());
     first.beginPlan("Inspect persistedFreshness");
     await first.buildWorkingState();
   } finally { first.close(); }
@@ -232,7 +232,7 @@ test("failed provider calls never become successful persisted requests", async (
   const first = AtelierCore.open(root, { taskProvider: "memory", codeProvider, retrievalSessionId: "failed-session" });
   try {
     first.initialize();
-    await codeProvider.ensureIndex(first.codeWorkspace());
+    await first.code.ensureIndex(first.codeWorkspace());
     first.beginPlan("Investigate interrupted provider call");
     const degraded = await first.buildWorkingState();
     assert.ok(degraded.omissions.some((item) => item.includes("interrupted provider call")));

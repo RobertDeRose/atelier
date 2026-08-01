@@ -6,34 +6,16 @@ import {
   type AtelierCore,
   type CodeIndexCoordinatorStatus,
   type CodeProviderStatus,
+  type CodeWorkspace,
   type AtelierStatus,
 } from "../../../packages/core/src/index.ts";
 import { installAtelierFooter, type FooterIntelState } from "./status-presentation.ts";
 
 const STATUS_KEY = "atlr";
+const OBSERVATION_REUSE_MS = 250;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function workspaceSourceDigest(core: AtelierCore): string {
-  return core.codeWorkspace().repositories
-    .map((repository) => `${repository.id}:${sourceRevisionIdentity(repository.snapshot)}`)
-    .sort()
-    .join("\n");
-}
-
-function indexedSourceDigest(
-  core: AtelierCore,
-  indexedRevisions: Record<string, string> | undefined,
-): string | undefined {
-  if (indexedRevisions === undefined) return undefined;
-  const repositories = core.codeWorkspace().repositories;
-  if (repositories.some((repository) => indexedRevisions[repository.id] === undefined)) return undefined;
-  return repositories
-    .map((repository) => `${repository.id}:${indexedRevisions[repository.id]}`)
-    .sort()
-    .join("\n");
 }
 
 function providerIntelState(status: CodeProviderStatus): FooterIntelState {
@@ -61,6 +43,7 @@ export class FooterStatusController {
   private lastCore?: AtelierCore;
   private lastStatus?: AtelierStatus;
   private lastIntel?: FooterIntelState;
+  private lastObservedAt = 0;
 
   setRuntime(options: { thinkingLevel?: string; modelName?: string }): void {
     if (options.thinkingLevel !== undefined) this.thinkingLevel = options.thinkingLevel;
@@ -82,6 +65,7 @@ export class FooterStatusController {
     delete this.lastCore;
     delete this.lastStatus;
     delete this.lastIntel;
+    this.lastObservedAt = 0;
   }
 
   resetRepository(): void {
@@ -94,10 +78,26 @@ export class FooterStatusController {
     this.providerIntel = "offline";
   }
 
+  recordWorkspaceIndexed(workspace: CodeWorkspace): void {
+    this.indexedWorkspaceSourceDigest = workspace.repositories
+      .map((repository) => `${repository.id}:${sourceRevisionIdentity(repository.snapshot)}`)
+      .sort()
+      .join("\n");
+    this.providerIntel = "ready";
+  }
+
   recordProvider(core: AtelierCore, status: CodeProviderStatus): void {
     this.providerIntel = providerIntelState(status);
-    const indexed = indexedSourceDigest(core, status.indexedRevisions);
-    if (indexed !== undefined) this.indexedWorkspaceSourceDigest = indexed;
+    const current = this.lastStatus;
+    if (current !== undefined && status.indexedRevisions !== undefined) {
+      const indexed = status.indexedRevisions[current.snapshot.repositoryId];
+      if (indexed !== undefined) {
+        this.indexedWorkspaceSourceDigest = `${current.snapshot.repositoryId}:${indexed}`;
+      }
+    }
+    // Keep the parameter for call-site compatibility and to make the ownership
+    // explicit; provider readiness itself is cached by the code service.
+    void core;
   }
 
   recordIndex(core: AtelierCore, indexing: CodeIndexCoordinatorStatus): void {
@@ -122,15 +122,19 @@ export class FooterStatusController {
     // was current at completion. Provider status can later replace this with a
     // more precise provider-reported indexed-revision binding.
     this.lastIndexCompletionKey = completionKey;
-    this.indexedWorkspaceSourceDigest = workspaceSourceDigest(core);
+    if (this.lastStatus !== undefined) {
+      this.indexedWorkspaceSourceDigest = this.lastStatus.workspaceSourceDigest;
+    }
     this.providerIntel = "ready";
+    void core;
   }
 
   refresh(ctx: ExtensionContext, core: AtelierCore, status?: AtelierStatus): Promise<void> {
     if (!this.enabled) return Promise.resolve();
     this.pendingContext = ctx;
     this.pendingCore = core;
-    this.pendingStatus = status;
+    if (status === undefined) delete this.pendingStatus;
+    else this.pendingStatus = status;
     this.refreshRequested = true;
     if (this.refreshPromise !== undefined) return this.refreshPromise;
 
@@ -151,10 +155,10 @@ export class FooterStatusController {
     return this.refreshPromise;
   }
 
-  private effectiveIntelState(core: AtelierCore): FooterIntelState {
+  private effectiveIntelState(core: AtelierCore, status: AtelierStatus): FooterIntelState {
     if (core.config.codeProvider === "disabled") return "disabled";
     const indexing = core.code.indexingStatus();
-    const currentSourceDigest = workspaceSourceDigest(core);
+    const currentSourceDigest = status.workspaceSourceDigest;
 
     if (indexing.active || indexing.state === "building" || this.providerIntel === "indexing") {
       return "indexing";
@@ -172,7 +176,7 @@ export class FooterStatusController {
   /** Re-render only model/thinking/context fields without repository or provider I/O. */
   renderRuntime(ctx = this.lastContext): void {
     if (!this.enabled || ctx === undefined || this.lastCore === undefined || this.lastStatus === undefined) return;
-    this.render(ctx, this.lastCore, this.lastStatus, this.lastIntel ?? this.effectiveIntelState(this.lastCore));
+    this.render(ctx, this.lastCore, this.lastStatus, this.lastIntel ?? this.effectiveIntelState(this.lastCore, this.lastStatus));
   }
 
   private render(ctx: ExtensionContext, core: AtelierCore, status: AtelierStatus, intel: FooterIntelState): void {
@@ -191,8 +195,15 @@ export class FooterStatusController {
   private async refreshNow(ctx: ExtensionContext, core: AtelierCore, suppliedStatus?: AtelierStatus): Promise<void> {
     if (!this.enabled) return;
     try {
-      const status = suppliedStatus ?? await core.status();
-      const intel = this.effectiveIntelState(core);
+      const reusable = suppliedStatus === undefined
+        && this.lastCore === core
+        && this.lastStatus !== undefined
+        && core.repository.peekObservation?.() !== undefined
+        && Date.now() - this.lastObservedAt <= OBSERVATION_REUSE_MS;
+      const status = suppliedStatus
+        ?? (reusable ? this.lastStatus! : await core.status());
+      if (!reusable || suppliedStatus !== undefined) this.lastObservedAt = Date.now();
+      const intel = this.effectiveIntelState(core, status);
       this.lastContext = ctx;
       this.lastCore = core;
       this.lastStatus = status;

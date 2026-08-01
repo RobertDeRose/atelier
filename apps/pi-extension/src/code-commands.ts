@@ -33,7 +33,8 @@ export function registerCodeCommands(
       const core = dependencies.getCore(ctx);
       const footer = dependencies.getFooterStatus(ctx);
       try {
-        const status = await core.code.status(undefined, core.codeWorkspace());
+        const workspace = await core.observeCodeWorkspace({ operation: "code-status" });
+        const status = await core.code.status(undefined, workspace, { force: true });
         footer.recordProvider(core, status);
         const retrieval = core.code.retrievalStatus();
         appendAtelierReport(
@@ -58,9 +59,12 @@ export function registerCodeCommands(
       const core = dependencies.getCore(ctx);
       const footer = dependencies.getFooterStatus(ctx);
       try {
-        const state = await core.code.ensureIndex(core.codeWorkspace());
+        core.invalidateRepositoryObservation();
+        const workspace = await core.observeCodeWorkspace({ force: true, operation: "code-index" });
+        const state = await core.code.ensureIndex(workspace);
+        footer.recordWorkspaceIndexed(workspace);
         appendAtelierReport(pi, ctx, "Code index", `**state:** ${state}`, state);
-        const status = await core.code.status(undefined, core.codeWorkspace());
+        const status = await core.code.status(undefined, workspace, { force: true });
         footer.recordProvider(core, status);
       } catch (error) {
         footer.markProviderOffline();
@@ -106,11 +110,11 @@ async function runSearchCommand(
   const core = dependencies.getCore(ctx);
   const footer = dependencies.getFooterStatus(ctx);
   try {
-    const workspace = core.codeWorkspace();
+    const workspace = await core.observeCodeWorkspace({ operation: `code-${operation}` });
     const results = rankPresentedHits(operation === "search"
       ? await core.code.search({ workspace, text: query, mode: "semantic", limit: 10 })
       : await core.code.symbols({ workspace, text: query, limit: 20, requireUnresolved: false }));
-    const status = await core.code.status(undefined, workspace);
+    const status = await core.code.status(undefined, workspace, { force: true });
     footer.recordProvider(core, status);
     const retrieval = core.code.retrievalStatus();
     appendAtelierReport(

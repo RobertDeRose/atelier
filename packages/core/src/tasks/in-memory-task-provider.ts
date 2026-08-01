@@ -24,6 +24,15 @@ export class InMemoryTaskProvider implements TaskProvider {
     return { stablePlanTaskIds: true, dependencyRemoval: true, retirement: true };
   }
 
+  peekStatus(): TaskProviderStatus {
+    return { provider: this.name, available: true, initialized: true, version: "1" };
+  }
+
+  peekTask(taskId: string): TaskRecord | undefined {
+    const task = this.tasks.get(taskId);
+    return task === undefined ? undefined : cloneTask(task);
+  }
+
   async status(): Promise<TaskProviderStatus> {
     return { provider: this.name, available: true, initialized: true, version: "1" };
   }

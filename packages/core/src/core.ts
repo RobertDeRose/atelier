@@ -41,7 +41,7 @@ import {
   WorkspaceRepositoryService,
   type WorkspaceCommitResult,
 } from "./repository/workspace-repository-service.ts";
-import { sourceSnapshotFingerprint } from "./repository/snapshot.ts";
+import { sourceRevisionIdentity, sourceSnapshotFingerprint } from "./repository/snapshot.ts";
 import { ValidationService } from "./validation/validation-service.ts";
 import type { CodeProvider } from "./code/provider.ts";
 import { DisabledCodeProvider } from "./code/disabled-provider.ts";
@@ -51,7 +51,7 @@ import { OctocodeProvider } from "./code/octocode-provider.ts";
 import { CodeProviderRegistry } from "./code/registry.ts";
 import { CodeService } from "./code/service.ts";
 import type { CodeWorkspace } from "./code/types.ts";
-import { loadCodeWorkspace, validateCodeWorkspace } from "./code/workspace.ts";
+import { loadCodeWorkspace, loadCodeWorkspaceAsync, validateCodeWorkspace } from "./code/workspace.ts";
 import { BeadsCliTaskProvider } from "./tasks/beads-cli-provider.ts";
 import { InMemoryTaskProvider } from "./tasks/in-memory-task-provider.ts";
 import { NoopTaskProvider } from "./tasks/noop-task-provider.ts";
@@ -87,6 +87,8 @@ export interface AtelierStatus {
   taskProvider: TaskProviderStatus;
   snapshot: ReturnType<RepositoryProvider["snapshot"]>;
   repositoryDisplay: RepositoryDisplayState;
+  /** Revision identity used by the footer without rebuilding a code workspace. */
+  workspaceSourceDigest: string;
   activeTaskConstraints: ApprovedTaskConstraint[];
   workflowCheckpoint: string;
   closureStatus: string;
@@ -130,6 +132,10 @@ export class AtelierCore {
   readonly workspacePolicy: WorkspacePolicyEvaluator;
   readonly recovery: RecoveryManager;
   readonly performance = new PerformanceRecorder();
+  private readonly workspaceRepositoryProviders = new Map<string, RepositoryProvider>();
+  private lastCodeWorkspace?: CodeWorkspace;
+  private codeWorkspacePromise?: Promise<CodeWorkspace>;
+  private cachedTaskClosure?: { executionGrantId: string; readiness: TaskClosureReadiness };
 
   private constructor(
     config: AtelierConfig,
@@ -186,8 +192,20 @@ export class AtelierCore {
       provider: taskProvider,
       repository: this.repository,
       repositoryRoot: config.repositoryRoot,
-      repositoryBindings: () => this.repositoryRevisionBindings(),
-      retrievalBindings: () => this.code.retrievalStatus().bindings,
+      sourceContext: async () => {
+        const workspace = await this.observeCodeWorkspace({ force: true, operation: "execution-source" });
+        const primary = workspace.repositories.find((repository) => repository.root === this.config.repositoryRoot)
+          ?? workspace.repositories[0];
+        if (primary === undefined) throw new Error("Execution source context has no workspace repository.");
+        return {
+          repositorySnapshot: primary.snapshot,
+          repositoryBindings: workspace.repositories.map((repository) =>
+            repositoryRevisionBinding(repository.id, repository.snapshot)),
+          retrievalBindings: this.code.retrievalStatus().bindings,
+          repositoryRoots: Object.fromEntries(workspace.repositories.map((repository) => [repository.id, repository.root])),
+          primaryRepositoryId: primary.id,
+        };
+      },
       validationConstraints: () => Object.entries(this.validation.manifest().validations)
         .map(([name, definition]) => ({
           name,
@@ -195,8 +213,6 @@ export class AtelierCore {
           required: definition.required === true,
         })),
       validationRequired: () => this.validation.closurePolicy().requireValidation,
-      repositoryRoots: () => Object.fromEntries(this.codeWorkspace().repositories.map((repository) => [repository.id, repository.root])),
-      primaryRepositoryId: () => this.codeWorkspace().repositories.find((repository) => repository.root === this.config.repositoryRoot)?.id ?? this.repository.snapshot().repositoryId,
     });
     this.workingStateBuilder = new WorkingStateBuilder(taskProvider, ledger, this.code, this.validation);
   }
@@ -258,6 +274,21 @@ export class AtelierCore {
 
   invalidateRepositoryObservation(): void {
     this.repository.invalidateObservation?.();
+    for (const provider of this.workspaceRepositoryProviders.values()) provider.invalidateObservation?.();
+    delete this.lastCodeWorkspace;
+    delete this.cachedTaskClosure;
+  }
+
+  performanceReport(limit = 100) {
+    return {
+      interactive: this.performance.summary(limit),
+      sqlite: this.ledger.performanceSummary(limit),
+    };
+  }
+
+  clearPerformanceReport(): void {
+    this.performance.clear();
+    this.ledger.clearPerformanceSamples();
   }
 
   initialize(options: { createPlan?: boolean } = {}): { createdPlan: boolean } {
@@ -397,6 +428,7 @@ export class AtelierCore {
     request: WorkflowActionRequest;
     workflowDecisionId: string;
     checkpointId?: string;
+    repositoryObservation?: RepositoryObservation;
   }): ExecutionEvidence {
     if (input.request.action === "read.repository") throw new Error("Read-only tools do not create mutation execution evidence.");
     const executionGrant = this.ledger.getActiveExecutionGrant();
@@ -407,7 +439,7 @@ export class AtelierCore {
       .find((event) => (event.payload as WorkflowDecision).id === input.workflowDecisionId);
     const decision = decisionEvent?.payload as WorkflowDecision | undefined;
     const authorizedSnapshot = decisionEvent?.repositorySnapshot;
-    const currentSnapshot = this.repository.snapshot();
+    const currentSnapshot = input.repositoryObservation?.snapshot ?? this.repository.snapshot();
     if (decision === undefined || decision.result !== "allow" || decision.action !== input.request.action
       || decisionEvent?.taskId !== executionGrant.taskId
       || authorizedSnapshot === undefined
@@ -428,8 +460,8 @@ export class AtelierCore {
       requestedPaths: sourcePaths((input.request.paths ?? [])
         .flatMap((path) => repositoryRelativeSourcePath(this.config.repositoryRoot, path) ?? [])),
       beforeChangedPaths: input.request.action === "task.close"
-        ? this.repository.rawChangedPaths()
-        : sourcePaths(this.repository.changedPaths()),
+        ? (input.repositoryObservation?.rawChangedPaths ?? this.repository.rawChangedPaths())
+        : sourcePaths(input.repositoryObservation?.changedPaths ?? this.repository.changedPaths()),
       changedPaths: [],
       newlyChangedPaths: [],
       furtherModifiedPaths: [],
@@ -629,9 +661,13 @@ export class AtelierCore {
       category === "focused" ? constraint.focusedValidations : constraint.fullValidations))].sort();
   }
 
-  private workspaceRepositories(executionGrant = this.ledger.getActiveExecutionGrant()): WorkspaceRepositoryService {
+  private workspaceRepositories(
+    executionGrant = this.ledger.getActiveExecutionGrant(),
+    workspace = this.codeWorkspace(),
+    useWorkspaceSnapshots = false,
+  ): WorkspaceRepositoryService {
     return new WorkspaceRepositoryService({
-      workspace: this.codeWorkspace(),
+      workspace,
       primaryRoot: this.config.repositoryRoot,
       primaryProvider: this.repository,
       providerForRoot: (root) => createRepositoryProvider(this.config, this.ledger, root),
@@ -639,6 +675,7 @@ export class AtelierCore {
       ...(executionGrant?.repositoryBindings === undefined
         ? {}
         : { baselines: executionGrant.repositoryBindings }),
+      useWorkspaceSnapshots,
     });
   }
 
@@ -766,13 +803,15 @@ export class AtelierCore {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) {
       const completed = this.currentWorkflowRun()?.checkpoint === "completed";
-      return {
+      const readiness: TaskClosureReadiness = {
         ready: completed,
         blockers: [], required: [], missing: [], stale: [], failed: [],
         reason: completed
           ? "The approved task is complete and its execution grant was revoked."
           : "No active task exists.",
       };
+      delete this.cachedTaskClosure;
+      return readiness;
     }
     const repositories = this.workspaceRepositories(executionGrant);
     const snapshot = repositories.evidenceSnapshot();
@@ -820,7 +859,7 @@ export class AtelierCore {
       blockers.push({ code: "source_dirty", detail: "Approved application-source paths remain dirty." });
     }
     const ready = validation.ready && finalDiffReviewed && localChangeCreated && sourceStateAcceptable;
-    return {
+    const readiness: TaskClosureReadiness = {
       ready,
       blockers,
       validationReady: validation.ready,
@@ -844,6 +883,8 @@ export class AtelierCore {
             sourceStateAcceptable ? "" : "approved application-source paths are not clean",
           ].filter(Boolean).join("; ")}.`,
     };
+    this.cachedTaskClosure = { executionGrantId: executionGrant.id, readiness };
+    return readiness;
   }
 
   async closeActiveTask(reason: string, actor: "user" | "agent" = "user"): Promise<{ task: TaskRecord; nextReady: TaskRecord[] }> {
@@ -1057,13 +1098,73 @@ export class AtelierCore {
     return this.code.endRetrievalSession();
   }
 
+  private repositoryProviderForRoot(root: string): RepositoryProvider {
+    const canonical = resolve(root);
+    if (canonical === resolve(this.config.repositoryRoot)) return this.repository;
+    const existing = this.workspaceRepositoryProviders.get(canonical);
+    if (existing !== undefined) return existing;
+    const created = createRepositoryProvider(this.config, this.ledger, canonical);
+    this.workspaceRepositoryProviders.set(canonical, created);
+    return created;
+  }
+
+  async observeCodeWorkspace(options: {
+    force?: boolean;
+    signal?: AbortSignal;
+    operation?: string;
+    primaryObservation?: RepositoryObservation;
+  } = {}): Promise<CodeWorkspace> {
+    if (this.codeWorkspacePromise !== undefined && options.force !== true) return this.codeWorkspacePromise;
+    const pending = (async () => {
+      const primary = options.primaryObservation ?? await this.observeRepository({
+        ...(options.force === undefined ? {} : { force: options.force }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        operation: options.operation ?? "code-workspace",
+      });
+      const workspace = await loadCodeWorkspaceAsync(this.config.repositoryRoot, primary.snapshot, {
+        workspacePath: this.config.workspacePath,
+        rootWithinWorkspace: (root) => isPathWithin(root, this.config.workspaceRoot, "read"),
+        snapshotForRoot: async (root) => {
+          const provider = this.repositoryProviderForRoot(root);
+          if (provider.observe !== undefined) {
+            return (await provider.observe({
+              ...(options.force === undefined ? {} : { force: options.force }),
+              ...(options.signal === undefined ? {} : { signal: options.signal }),
+            })).snapshot;
+          }
+          return provider.snapshot();
+        },
+      });
+      this.lastCodeWorkspace = workspace;
+      return workspace;
+    })();
+    if (options.force !== true) this.codeWorkspacePromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.codeWorkspacePromise === pending) delete this.codeWorkspacePromise;
+    }
+  }
+
   codeWorkspace(): CodeWorkspace {
-    const snapshot = this.repository.snapshot();
-    return loadCodeWorkspace(this.config.repositoryRoot, snapshot, {
+    const primary = this.repository.peekObservation?.()?.snapshot;
+    if (this.lastCodeWorkspace !== undefined && primary !== undefined) {
+      const current = this.lastCodeWorkspace.repositories.find((repository) => repository.root === this.config.repositoryRoot)?.snapshot;
+      if (current !== undefined && sourceRevisionIdentity(current) === sourceRevisionIdentity(primary)) {
+        return this.lastCodeWorkspace;
+      }
+    }
+    const snapshot = primary ?? this.repository.snapshot();
+    const workspace = loadCodeWorkspace(this.config.repositoryRoot, snapshot, {
       workspacePath: this.config.workspacePath,
       rootWithinWorkspace: (root) => isPathWithin(root, this.config.workspaceRoot, "read"),
-      snapshotForRoot: (root) => createRepositoryProvider(this.config, this.ledger, root).snapshot(),
+      snapshotForRoot: (root) => {
+        const provider = this.repositoryProviderForRoot(root);
+        return provider.peekObservation?.()?.snapshot ?? provider.snapshot();
+      },
     });
+    this.lastCodeWorkspace = workspace;
+    return workspace;
   }
 
   repositoryRevisionBindings(): RepositoryRevisionBinding[] {
@@ -1108,13 +1209,14 @@ export class AtelierCore {
 
   async buildWorkingState(explicitTaskId?: string): Promise<WorkingState> {
     const plan = existsSync(this.config.planPath) ? this.parsePlan() : undefined;
-    const repositories = this.workspaceRepositories();
+    const workspace = await this.observeCodeWorkspace({ force: true, operation: "workflow-full" });
+    const repositories = this.workspaceRepositories(this.ledger.getActiveExecutionGrant(), workspace);
     const snapshot = repositories.evidenceSnapshot();
     const built = await this.workingStateBuilder.build({
       mode: this.mode(),
       snapshot,
       changedPaths: repositories.sourceChangedPaths(),
-      workspace: this.codeWorkspace(),
+      workspace,
       ...(plan === undefined ? {} : { plan }),
       ...(explicitTaskId === undefined ? {} : { explicitTaskId }),
     });
@@ -1158,11 +1260,16 @@ export class AtelierCore {
     return state;
   }
 
-  async nextAction(options: { taskClosure?: TaskClosureReadiness } = {}): Promise<string> {
+  async nextAction(options: { taskClosure?: TaskClosureReadiness; allowProviderIo?: boolean } = {}): Promise<string> {
+    const allowProviderIo = options.allowProviderIo !== false;
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant !== undefined) {
       if (this.execution.isPaused()) return `Execution is paused for task ${executionGrant.taskId}; resume explicitly before agent mutation.`;
-      const readiness = options.taskClosure ?? this.taskClosureReadiness();
+      const readiness = options.taskClosure
+        ?? (allowProviderIo ? this.taskClosureReadiness() : undefined);
+      if (readiness === undefined) {
+        return `Continue executing active task ${executionGrant.taskId}; use /workflow refresh before closure to evaluate current evidence.`;
+      }
       if (readiness.ready) return `Close active task ${executionGrant.taskId} with explicit completion evidence.`;
       const codes = new Set(readiness.blockers.map((blocker) => blocker.code));
       if (codes.has("validation_selection_missing")) return `Select focused validation for task ${executionGrant.taskId}.`;
@@ -1176,6 +1283,9 @@ export class AtelierCore {
     }
     const previousGrant = this.ledger.listExecutionGrants()[0];
     if (previousGrant?.status === "revoked") {
+      if (!allowProviderIo) {
+        return `Resume or reconcile previously active task ${previousGrant.taskId}.`;
+      }
       try {
         const task = await this.taskProvider.get(previousGrant.taskId);
         if (task?.status === "in_progress") {
@@ -1195,6 +1305,7 @@ export class AtelierCore {
       return `Complete ManualEdit review of ${this.config.planPath}.`;
     }
     if (approval?.status === "approved") {
+      if (!allowProviderIo) return "Explicitly execute the next approved-plan task.";
       try {
         const mappedTaskIds = new Set(this.ledger.listTaskMappings()
           .filter((mapping) => mapping.provider === this.taskProvider.name && mapping.planHash === approval.planHash)
@@ -1209,13 +1320,21 @@ export class AtelierCore {
   }
 
   async status(): Promise<AtelierStatus> {
+    return this.performance.measure("/status", "total", async () => this.buildStatus());
+  }
+
+  private async buildStatus(): Promise<AtelierStatus> {
     const planExists = existsSync(this.config.planPath);
     const approvedPlanHash = this.ledger.getState<string>("approvedPlanHash");
     const planObjective = this.ledger.getState<string>("planObjective");
     const currentTaskId = this.ledger.getState<string>("currentTaskId");
     let taskProvider: TaskProviderStatus;
     try {
-      taskProvider = await this.taskProvider.status();
+      taskProvider = this.taskProvider.peekStatus?.() ?? await this.performance.measure(
+        "/status",
+        "task-provider.status",
+        () => this.taskProvider.status(),
+      );
     } catch (error) {
       taskProvider = {
         provider: this.taskProvider.name,
@@ -1228,21 +1347,29 @@ export class AtelierCore {
     const activeExecutionGrant = this.ledger.getActiveExecutionGrant();
     let currentTaskTitle: string | undefined;
     if (currentTaskId !== undefined && taskProvider.available && taskProvider.initialized) {
-      try {
-        currentTaskTitle = (await this.taskProvider.get(currentTaskId))?.title;
-      } catch {
-        // Status remains usable when the task provider is temporarily degraded.
-      }
+      currentTaskTitle = this.taskProvider.peekTask?.(currentTaskId)?.title;
     }
     const repositoryObservation = await this.observeRepository({ operation: "status" });
     const snapshot = repositoryObservation.snapshot;
     const repositoryDisplay = repositoryObservation.displayState;
+    const codeWorkspace = await this.observeCodeWorkspace({
+      primaryObservation: repositoryObservation,
+      operation: "status",
+    });
+    const workspaceSourceDigest = codeWorkspace.repositories
+      .map((repository) => `${repository.id}:${sourceRevisionIdentity(repository.snapshot)}`)
+      .sort()
+      .join("\n");
     const planStatus = !planExists
       ? "missing" as const
       : currentPlanHash !== undefined && approvedPlanHash !== undefined && currentPlanHash === approvedPlanHash
         ? "approved" as const
         : "not_approved" as const;
-    const taskClosure = activeExecutionGrant === undefined ? undefined : this.taskClosureReadiness();
+    const taskClosure = activeExecutionGrant === undefined
+      ? undefined
+      : this.cachedTaskClosure?.executionGrantId === activeExecutionGrant.id
+        ? this.cachedTaskClosure.readiness
+        : undefined;
     return {
       repositoryRoot: this.config.repositoryRoot,
       workspaceRoot: this.config.workspaceRoot,
@@ -1261,12 +1388,18 @@ export class AtelierCore {
       taskProvider,
       snapshot,
       repositoryDisplay,
+      workspaceSourceDigest,
       activeTaskConstraints: this.activeTaskConstraints(),
       workflowCheckpoint: this.currentWorkflowRun()?.checkpoint ?? "none",
       closureStatus: activeExecutionGrant === undefined
         ? this.currentWorkflowRun()?.checkpoint === "completed" ? "completed" : "not applicable — no active task"
-        : taskClosure!.ready ? "ready" : `blocked — ${taskClosure!.reason}`,
-      nextAction: await this.nextAction(taskClosure === undefined ? {} : { taskClosure }),
+        : taskClosure === undefined
+          ? "pending — closure evidence has not been refreshed"
+          : taskClosure.ready ? "ready" : `blocked — ${taskClosure.reason}`,
+      nextAction: await this.nextAction({
+        ...(taskClosure === undefined ? {} : { taskClosure }),
+        allowProviderIo: false,
+      }),
     };
   }
 
@@ -1282,7 +1415,7 @@ export class AtelierCore {
     const paths = effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]);
     const observation = options.observation ?? await this.observeRepository({
       paths,
-      signal: options.signal,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
       operation: options.operation ?? "workspace-policy",
     });
     const decision = this.workspacePolicy.evaluate(effects, {
@@ -1299,13 +1432,23 @@ export class AtelierCore {
 
   checkpointWorkspaceEffects(
     decision: WorkspacePolicyDecision,
-    options: { toolCallId?: string; sessionId?: string } = {},
+    options: {
+      toolCallId?: string;
+      sessionId?: string;
+      repositorySnapshot?: RepositoryObservation["snapshot"];
+    } = {},
   ): RecoveryCheckpoint {
     const checkpoint = this.recovery.checkpoint(
       decision.effects.filter((effect) => effect.decision === "checkpoint_then_allow"),
       options,
     );
-    this.ledger.append({ kind: "recovery.checkpoint_created", actor: "system", repositorySnapshot: this.repository.snapshot(), payload: checkpoint });
+    this.invalidateRepositoryObservation();
+    this.ledger.append({
+      kind: "recovery.checkpoint_created",
+      actor: "system",
+      repositorySnapshot: options.repositorySnapshot ?? this.repository.snapshot(),
+      payload: checkpoint,
+    });
     return checkpoint;
   }
 

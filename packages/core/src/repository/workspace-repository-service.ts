@@ -19,6 +19,7 @@ export interface WorkspaceRepositoryContext {
   root: string;
   primary: boolean;
   provider: RepositoryProvider;
+  snapshot: RepositorySnapshot;
   baseline?: RepositoryRevisionBinding;
 }
 
@@ -75,6 +76,7 @@ export class WorkspaceRepositoryService {
   readonly workspace: CodeWorkspace;
   readonly contexts: WorkspaceRepositoryContext[];
   private readonly approvedPaths: string[];
+  private readonly useWorkspaceSnapshots: boolean;
 
   constructor(options: {
     workspace: CodeWorkspace;
@@ -83,6 +85,7 @@ export class WorkspaceRepositoryService {
     providerForRoot: (root: string) => RepositoryProvider;
     approvedPaths?: readonly string[];
     baselines?: readonly RepositoryRevisionBinding[];
+    useWorkspaceSnapshots?: boolean;
   }) {
     this.workspace = options.workspace;
     const baselineById = new Map((options.baselines ?? []).map((binding) => [binding.repositoryId, binding]));
@@ -94,18 +97,27 @@ export class WorkspaceRepositoryService {
       provider: repository.root === options.primaryRoot
         ? options.primaryProvider
         : options.providerForRoot(repository.root),
+      snapshot: repository.snapshot,
       ...(baselineById.get(repository.id) === undefined ? {} : { baseline: baselineById.get(repository.id)! }),
     }));
     this.approvedPaths = [...new Set(options.approvedPaths ?? [])].map((path) => resolve(path)).sort();
+    this.useWorkspaceSnapshots = options.useWorkspaceSnapshots === true;
+  }
+
+  private currentSnapshot(context: WorkspaceRepositoryContext): RepositorySnapshot {
+    if (!this.useWorkspaceSnapshots) return context.provider.snapshot();
+    return context.provider.peekObservation?.()?.snapshot ?? context.snapshot;
   }
 
   currentBindings(): RepositoryRevisionBinding[] {
-    return this.contexts.map((context) => repositoryRevisionBinding(context.id, context.provider.snapshot()));
+    return this.contexts.map((context) => repositoryRevisionBinding(context.id, this.currentSnapshot(context)));
   }
 
   evidenceSnapshot(): RepositorySnapshot {
-    const primary = this.primary().provider.snapshot();
-    const fingerprint = sha256(JSON.stringify(this.currentBindings().map((binding) => ({
+    const primaryContext = this.primary();
+    const primary = this.currentSnapshot(primaryContext);
+    const bindings = this.currentBindings();
+    const fingerprint = sha256(JSON.stringify(bindings.map((binding) => ({
       repositoryId: binding.repositoryId,
       snapshotRepositoryId: binding.snapshotRepositoryId,
       sourceFingerprint: binding.sourceFingerprint,

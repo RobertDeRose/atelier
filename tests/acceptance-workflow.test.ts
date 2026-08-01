@@ -159,7 +159,7 @@ const value = (flag, fallback = "") => { const index = args.indexOf(flag); retur
 const mutate = () => appendFileSync(logPath, JSON.stringify(args) + "\\n");
 const command = args[0];
 if (command === "version") { console.log("bd acceptance-1"); process.exit(0); }
-if (command === "where") { output({ root: process.cwd() }); process.exit(0); }
+if (command === "where") { output({ root: process.cwd(), database_path: statePath }); process.exit(0); }
 if (command === "list") { output(Object.values(state.tasks)); process.exit(0); }
 if (command === "show") { const task = state.tasks[args[1]]; if (!task) process.exit(1); output(task); process.exit(0); }
 if (command === "ready") { output(Object.values(state.tasks).filter((task) => task.status === "open" && task.dependencies.every((id) => state.tasks[id]?.status === "closed"))); process.exit(0); }
@@ -390,12 +390,12 @@ test("Given a reviewed plan, the supported local workflow remains exact, durable
     await events.get("session_shutdown")!({}, context);
     const createCountBeforeResume = mutationLog(fake.logPath).filter((args) => args[0] === "create").length;
     await events.get("session_start")!({ reason: "resume" }, context);
-    await commands.get("state")!.handler("", context);
+    await commands.get("state")!.handler("full", context);
     const resumedState = reportEntries.at(-1) ?? "";
-    assert.match(resumedState, /\*\*mode:\*\* `act`/);
-    assert.match(resumedState, /\*\*execution:\*\* .*active/);
-    assert.equal((resumedState.match(/\*\*write:\*\* succeeded/g) ?? []).length, 2);
-    assert.match(resumedState, /\*\*validation evidence:\*\* focused: passed/);
+    assert.match(resumedState, /- Mode: act/);
+    assert.match(resumedState, /- Execution grant: .*\(active\)/);
+    assert.equal((resumedState.match(/- write\/write\.file: succeeded/g) ?? []).length, 2);
+    assert.match(resumedState, /## Validation evidence[\s\S]*- focused: passed/);
     assert.equal(mutationLog(fake.logPath).filter((args) => args[0] === "create").length, createCountBeforeResume);
 
     await commands.get("cancel")!.handler("acceptance cancellation", context);

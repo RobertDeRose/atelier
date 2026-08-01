@@ -39,6 +39,7 @@ declare module "@earendil-works/pi-coding-agent" {
     select(title: string, options: string[]): Promise<string | undefined>;
     notify(message: string, type?: "info" | "warning" | "error"): void;
     setStatus(key: string, text: string | undefined): void;
+    setWorkingMessage?(message?: string): void;
     setWidget?(
       key: string,
       content: string[] | undefined,
@@ -79,6 +80,7 @@ declare module "@earendil-works/pi-coding-agent" {
     isProjectTrusted(): boolean;
     readonly model?: { id?: string; name?: string };
     readonly thinkingLevel?: string;
+    readonly signal?: AbortSignal;
     getContextUsage?(): { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
   }
 

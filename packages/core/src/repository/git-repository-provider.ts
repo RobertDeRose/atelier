@@ -172,7 +172,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
   async classifyPaths(paths: readonly string[], options: { signal?: AbortSignal } = {}): Promise<Record<string, RepositoryPathState>> {
     const root = await this.repositoryRoot(options.signal);
     const absolutePaths = [...new Set(paths.map((path) => resolve(path)))];
-    const relativePaths = absolutePaths.map((path) => relative(root, path).replaceAll("\\", "/"));
+    const relativePaths = absolutePaths.map((path) => relative(root, path).replaceAll("\\", "/") || ".");
     const trackedResult = await runProcess("git", ["ls-files", "-z", "--", ...relativePaths], {
       cwd: root,
       signal: options.signal,
@@ -285,7 +285,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
       files = fileResult.stdout.split("\0").filter(Boolean).filter(isSourcePath).sort();
     }
     const pathStates = (options.paths?.length ?? 0) > 0
-      ? await this.classifyPaths(options.paths!, { signal: options.signal })
+      ? await this.classifyPaths(options.paths!, options.signal === undefined ? {} : { signal: options.signal })
       : {};
     if ((options.paths?.length ?? 0) > 0) subprocesses += 3;
     const snapshot: RepositorySnapshot = {

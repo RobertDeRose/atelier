@@ -32,8 +32,11 @@ export interface PerformanceSummary {
 /** Bounded, session-local timing recorder for interactive latency diagnostics. */
 export class PerformanceRecorder {
   private readonly samples: PerformanceSample[] = [];
+  private readonly limit: number;
 
-  constructor(private readonly limit = 500) {}
+  constructor(limit = 500) {
+    this.limit = limit;
+  }
 
   record(sample: PerformanceSample): void {
     this.samples.push({ ...sample, durationMs: Math.max(0, sample.durationMs) });

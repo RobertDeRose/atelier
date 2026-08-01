@@ -25,6 +25,7 @@ import type {
 } from "../code/retrieval.ts";
 import { newId, nowIso } from "../util/ids.ts";
 import { redactValue } from "../security/redaction.ts";
+import { PerformanceRecorder, type PerformanceSample, type PerformanceSummary } from "../performance/performance-recorder.ts";
 import {
   normalizeExecutionGrant,
   normalizePlanApproval,
@@ -37,6 +38,7 @@ import {
 export class SqliteLedger {
   readonly path: string;
   readonly database: SqliteDatabase;
+  private readonly timings = new PerformanceRecorder(300);
 
   constructor(path: string) {
     this.path = path;
@@ -44,7 +46,45 @@ export class SqliteLedger {
     const DatabaseSync = loadDatabaseSync();
     this.database = new DatabaseSync(path);
     this.database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+    const startedAt = nowIso();
+    const started = performance.now();
     migrateLedgerSchema(this.database);
+    this.timings.record({
+      operation: "sqlite",
+      phase: "open-and-migrate",
+      durationMs: performance.now() - started,
+      startedAt,
+      detail: { busyTimeoutMs: 5_000 },
+    });
+  }
+
+  private timed<T>(phase: string, task: () => T): T {
+    const startedAt = nowIso();
+    const started = performance.now();
+    try {
+      return task();
+    } finally {
+      const durationMs = performance.now() - started;
+      this.timings.record({
+        operation: "sqlite",
+        phase,
+        durationMs,
+        startedAt,
+        detail: { busyTimeoutMs: 5_000, possibleLockWait: durationMs >= 50 },
+      });
+    }
+  }
+
+  performanceSamples(limit = 100): PerformanceSample[] {
+    return this.timings.list(limit);
+  }
+
+  performanceSummary(limit = 100): PerformanceSummary {
+    return this.timings.summary(limit);
+  }
+
+  clearPerformanceSamples(): void {
+    this.timings.clear();
   }
 
   append<TPayload>(input: {
@@ -54,9 +94,11 @@ export class SqliteLedger {
     repositorySnapshot?: RepositorySnapshot;
     payload: TPayload;
   }): LedgerEvent<TPayload> {
-    const event = this.createEvent(input);
-    this.insertEvent(event);
-    return event;
+    return this.timed("append", () => {
+      const event = this.createEvent(input);
+      this.insertEvent(event);
+      return event;
+    });
   }
 
   saveWorkflowTransition<TPayload>(input: {
@@ -210,19 +252,23 @@ export class SqliteLedger {
   }
 
   setState<T>(key: string, value: T): void {
-    this.upsertState(key, JSON.stringify(value), nowIso());
+    this.timed("state.set", () => this.upsertState(key, JSON.stringify(value), nowIso()));
   }
 
   deleteState(key: string): boolean {
-    const result = this.database.prepare("DELETE FROM state WHERE key = ?").run(key);
-    return Number(result.changes) > 0;
+    return this.timed("state.delete", () => {
+      const result = this.database.prepare("DELETE FROM state WHERE key = ?").run(key);
+      return Number(result.changes) > 0;
+    });
   }
 
   getState<T>(key: string): T | undefined {
-    const row = this.database.prepare("SELECT value_json FROM state WHERE key = ?").get(key) as
-      | { value_json: string }
-      | undefined;
-    return row == null ? undefined : (JSON.parse(row.value_json) as T);
+    return this.timed("state.get", () => {
+      const row = this.database.prepare("SELECT value_json FROM state WHERE key = ?").get(key) as
+        | { value_json: string }
+        | undefined;
+      return row == null ? undefined : (JSON.parse(row.value_json) as T);
+    });
   }
 
   saveRetrievalCheckpoint(
@@ -555,26 +601,28 @@ export class SqliteLedger {
   }
 
   saveExecutionEvidence(evidence: ExecutionEvidence): void {
-    const record = JSON.stringify(redactValue(evidence));
-    this.database.prepare(`
-      INSERT INTO execution_evidence(
-        id, tool_call_id, status, task_id, execution_grant_id, record_json, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(tool_call_id) DO UPDATE SET
-        status = excluded.status,
-        task_id = excluded.task_id,
-        execution_grant_id = excluded.execution_grant_id,
-        record_json = excluded.record_json,
-        updated_at = excluded.updated_at
-    `).run(
-      evidence.id,
-      evidence.toolCallId,
-      evidence.status,
-      evidence.taskId,
-      evidence.executionGrantId,
-      record,
-      evidence.finishedAt ?? evidence.startedAt,
-    );
+    this.timed("execution-evidence.save", () => {
+      const record = JSON.stringify(redactValue(evidence));
+      this.database.prepare(`
+        INSERT INTO execution_evidence(
+          id, tool_call_id, status, task_id, execution_grant_id, record_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tool_call_id) DO UPDATE SET
+          status = excluded.status,
+          task_id = excluded.task_id,
+          execution_grant_id = excluded.execution_grant_id,
+          record_json = excluded.record_json,
+          updated_at = excluded.updated_at
+      `).run(
+        evidence.id,
+        evidence.toolCallId,
+        evidence.status,
+        evidence.taskId,
+        evidence.executionGrantId,
+        record,
+        evidence.finishedAt ?? evidence.startedAt,
+      );
+    });
   }
 
   getExecutionEvidence(toolCallId: string): ExecutionEvidence | undefined {

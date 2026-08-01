@@ -170,6 +170,10 @@ export class BeadsCliTaskProvider implements TaskProvider {
   private readonly cwd: string;
   private readonly executable: string;
   private readonly timeoutMs: number;
+  private versionPromise?: Promise<CommandResult>;
+  private statusPromise?: Promise<TaskProviderStatus>;
+  private cachedStatus?: { value: TaskProviderStatus; observedAt: number };
+  private readonly taskCache = new Map<string, { value: TaskRecord | undefined; observedAt: number }>();
 
   constructor(options: { cwd: string; executable?: string; timeoutMs?: number }) {
     this.cwd = options.cwd;
@@ -203,8 +207,54 @@ export class BeadsCliTaskProvider implements TaskProvider {
     return commandResult;
   }
 
+  peekStatus(): TaskProviderStatus | undefined {
+    if (this.cachedStatus === undefined || Date.now() - this.cachedStatus.observedAt > 2_000) return undefined;
+    return this.cachedStatus.value;
+  }
+
+  peekTask(taskId: string): TaskRecord | undefined {
+    const cached = this.taskCache.get(taskId);
+    return cached !== undefined && Date.now() - cached.observedAt <= 2_000
+      ? cached.value
+      : undefined;
+  }
+
+  private version(): Promise<CommandResult> {
+    if (this.versionPromise !== undefined) return this.versionPromise;
+    const pending = this.run(["version"], { allowFailure: true });
+    this.versionPromise = pending;
+    pending.catch(() => {
+      if (this.versionPromise === pending) delete this.versionPromise;
+    });
+    return pending;
+  }
+
+  private invalidateCaches(options: { status?: boolean; taskId?: string } = {}): void {
+    if (options.status === true) {
+      delete this.cachedStatus;
+      delete this.statusPromise;
+    }
+    if (options.taskId !== undefined) this.taskCache.delete(options.taskId);
+  }
+
   async status(): Promise<TaskProviderStatus> {
-    const version = await this.run(["version"], { allowFailure: true });
+    if (this.cachedStatus !== undefined && Date.now() - this.cachedStatus.observedAt <= 2_000) {
+      return this.cachedStatus.value;
+    }
+    if (this.statusPromise !== undefined) return this.statusPromise;
+    const pending = this.statusFresh();
+    this.statusPromise = pending;
+    try {
+      const value = await pending;
+      this.cachedStatus = { value, observedAt: Date.now() };
+      return value;
+    } finally {
+      if (this.statusPromise === pending) delete this.statusPromise;
+    }
+  }
+
+  private async statusFresh(): Promise<TaskProviderStatus> {
+    const version = await this.version();
     if (version.status !== 0) {
       return {
         provider: this.name,
@@ -215,10 +265,23 @@ export class BeadsCliTaskProvider implements TaskProvider {
     }
 
     const where = await this.run(["where", "--json"], { allowFailure: true });
-    const list = where.status === 0
-      ? await this.run(["list", "--json"], { allowFailure: true })
-      : undefined;
-    const initialized = where.status === 0 && list?.status === 0;
+    let databasePath: string | undefined;
+    if (where.status === 0) {
+      try {
+        const values = unwrapBeadsJson(parseJsonOutput(where.stdout, ["where", "--json"]));
+        const record = asRecord(values[0]);
+        const candidate = record === undefined
+          ? undefined
+          : firstDefined(record, ["database_path", "databasePath", "database"]);
+        if (typeof candidate === "string" && candidate.trim()) databasePath = candidate.trim();
+      } catch {
+        // A malformed location response is treated as uninitialized rather than
+        // causing an observational status command to throw.
+      }
+    }
+    const initialized = where.status === 0
+      && databasePath !== undefined
+      && existsSync(databasePath);
     const parsedVersion = parseBeadsVersion(version.stdout.trim() || version.stderr.trim());
     return {
       provider: this.name,
@@ -229,9 +292,10 @@ export class BeadsCliTaskProvider implements TaskProvider {
       ...(parsedVersion.supported && initialized
         ? {}
         : {
-            reason: list?.stderr.trim()
-              || where.stderr.trim()
-              || "Beads is not initialized in this repository",
+            reason: where.stderr.trim()
+              || (databasePath === undefined
+                ? "Beads is not initialized: no database path was reported"
+                : `Beads database does not exist: ${databasePath}`),
           }),
     };
   }
@@ -246,6 +310,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
     if (options.stealth === true) args.push("--stealth");
     await this.run(args);
     this.secureWorkspaceDirectory();
+    this.invalidateCaches({ status: true });
   }
 
   private secureWorkspaceDirectory(): void {
@@ -259,10 +324,17 @@ export class BeadsCliTaskProvider implements TaskProvider {
   }
 
   async get(taskId: string): Promise<TaskRecord | undefined> {
+    const cached = this.taskCache.get(taskId);
+    if (cached !== undefined && Date.now() - cached.observedAt <= 1_000) return cached.value;
     const result = await this.run(["show", taskId, "--json"], { allowFailure: true });
-    if (result.status !== 0) return undefined;
-    const items = unwrapBeadsJson(parseJsonOutput(result.stdout, ["show", taskId, "--json"]));
-    return items.length === 0 ? undefined : normalizeBeadsTask(items[0]);
+    const value = result.status !== 0
+      ? undefined
+      : (() => {
+          const items = unwrapBeadsJson(parseJsonOutput(result.stdout, ["show", taskId, "--json"]));
+          return items.length === 0 ? undefined : normalizeBeadsTask(items[0]);
+        })();
+    this.taskCache.set(taskId, { value, observedAt: Date.now() });
+    return value;
   }
 
   async list(): Promise<TaskRecord[]> {
@@ -271,6 +343,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
   }
 
   async create(request: CreateTaskRequest): Promise<TaskRecord> {
+    this.taskCache.clear();
     const notes = [
       `Atelier plan task: ${request.planTaskId}`,
       request.notes,
@@ -303,6 +376,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
   }
 
   async update(taskId: string, patch: TaskPatch): Promise<TaskRecord> {
+    this.invalidateCaches({ taskId });
     const args = ["update", taskId];
     if (patch.title !== undefined) args.push("--title", patch.title);
     if (patch.description !== undefined) args.push("--description", patch.description);
@@ -322,6 +396,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
   }
 
   async claim(taskId: string): Promise<TaskRecord> {
+    this.invalidateCaches({ taskId });
     const args = ["update", taskId, "--claim", "--json"];
     const result = await this.run(args);
     const items = unwrapBeadsJson(parseJsonOutput(result.stdout, args));
@@ -336,6 +411,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
     dependencyTaskId: string,
     type: "blocks" | "related" | "parent-child" = "blocks",
   ): Promise<void> {
+    this.invalidateCaches({ taskId });
     await this.run(["dep", "add", taskId, dependencyTaskId, "--type", type, "--json"]);
   }
 
@@ -344,10 +420,12 @@ export class BeadsCliTaskProvider implements TaskProvider {
     dependencyTaskId: string,
     _type: "blocks" | "related" | "parent-child" = "blocks",
   ): Promise<void> {
+    this.invalidateCaches({ taskId });
     await this.run(["dep", "remove", taskId, dependencyTaskId, "--json"]);
   }
 
   async close(taskId: string, reason: string): Promise<TaskRecord> {
+    this.invalidateCaches({ taskId });
     const args = ["close", taskId, "--reason", reason, "--json"];
     const result = await this.run(args);
     const items = unwrapBeadsJson(parseJsonOutput(result.stdout, args));

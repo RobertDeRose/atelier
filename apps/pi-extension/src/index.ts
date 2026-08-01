@@ -52,6 +52,7 @@ import {
   changedMarkdown,
   evidenceMarkdown,
   focusedSelectionMarkdown,
+  performanceMarkdown,
   readyTasksMarkdown,
   statusMarkdown,
   statusSummary,
@@ -166,6 +167,15 @@ function updateStatus(ctx: ExtensionContext, core: AtelierCore, status?: Atelier
 
 function updateRuntimeFooter(ctx: ExtensionContext): void {
   sessionState(ctx).footerStatus.renderRuntime(ctx);
+}
+
+async function showPhase(ctx: ExtensionContext, message: string): Promise<void> {
+  ctx.ui.setWorkingMessage?.(`Atelier: ${message}…`);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+function clearPhase(ctx: ExtensionContext): void {
+  ctx.ui.setWorkingMessage?.();
 }
 
 
@@ -295,6 +305,7 @@ async function approveAndReconcile(
   core: AtelierCore,
 ): Promise<void> {
   await ctx.waitForIdle();
+  await showPhase(ctx, "checking task provider");
   let providerStatus = await core.taskProvider.status();
   if (providerStatus.available && !providerStatus.initialized) {
     const initialize = await ctx.ui.confirm(
@@ -312,8 +323,10 @@ async function approveAndReconcile(
 
   let prepared;
   try {
+    await showPhase(ctx, "preparing exact transaction");
     prepared = await core.execution.prepare();
   } catch (error) {
+    clearPhase(ctx);
     ctx.ui.notify(errorMessage(error), "error");
     return;
   }
@@ -322,6 +335,7 @@ async function approveAndReconcile(
     return;
   }
   const summary = preparationSummary(core, prepared);
+  clearPhase(ctx);
   ctx.ui.notify(summary, "info");
   ctx.ui.setWidget?.(
     "atelier-approval",
@@ -343,7 +357,17 @@ async function approveAndReconcile(
   }
 
   try {
-    const transition = await core.execution.approveAndApply(prepared.approval.id, true);
+    const transition = await core.execution.approveAndApply(prepared.approval.id, true, {
+      onPhase: async (phase) => {
+        const labels = {
+          revalidate: "revalidating exact transaction",
+          reconcile: "applying task reconciliation",
+          converge: "verifying reconciliation convergence",
+          activate: "activating approved task",
+        } as const;
+        await showPhase(ctx, labels[phase]);
+      },
+    });
     core.ledger.setState("planAutoReviewPending", false);
     ctx.ui.notify(
       `Approved plan revision ${transition.approval.planHash}. Task ${transition.task?.id ?? "unknown"} is active with execution grant ${transition.executionGrant?.id ?? "unknown"}. ` +
@@ -352,6 +376,8 @@ async function approveAndReconcile(
     );
   } catch (error) {
     ctx.ui.notify(errorMessage(error), "error");
+  } finally {
+    clearPhase(ctx);
   }
 }
 
@@ -427,11 +453,11 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       "Inspect the returned inventory before another search. Prefer provider evidence first, but raw inspection remains available through typed reads or a concrete shell operation evaluated by the workspace recoverability policy; budget denial does not bypass that policy.",
     ],
     parameters: objectSchema({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, _params, signal, _onUpdate, ctx) {
       const core = getCore(ctx);
       try {
-        const workspace = core.codeWorkspace();
-        const status = await core.code.status(undefined, workspace);
+        const workspace = await core.observeCodeWorkspace({ ...(signal === undefined ? {} : { signal }), operation: "code-status" });
+        const status = await core.code.status(undefined, workspace, { force: true });
         sessionState(ctx).footerStatus.recordProvider(core, status);
         await updateStatus(ctx, core);
         const retrieval = core.code.retrievalStatus();
@@ -472,11 +498,11 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       mode: stringSchema("Retrieval mode.", ["auto", "lexical", "semantic", "hybrid"]),
       limit: integerSchema("Maximum results to return.", 1, 20),
     }, ["query"]),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const core = getCore(ctx);
       try {
         const input = params as { query: string; focus?: "auto" | "source" | "tests" | "docs" | "all"; mode?: "auto" | "lexical" | "semantic" | "hybrid"; limit?: number };
-        const workspace = core.codeWorkspace();
+        const workspace = await core.observeCodeWorkspace({ ...(signal === undefined ? {} : { signal }), operation: "code-search" });
         const results = rankPresentedHits(await core.code.search({
           workspace,
           text: input.query,
@@ -484,7 +510,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           mode: input.mode ?? "semantic",
           ...(input.limit === undefined ? {} : { limit: input.limit }),
         }));
-        const status = await core.code.status(undefined, workspace);
+        const status = await core.code.status(undefined, workspace, { force: true });
         sessionState(ctx).footerStatus.recordProvider(core, status);
         await updateStatus(ctx, core);
         const retrieval = core.code.retrievalStatus();
@@ -545,17 +571,17 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       query: stringSchema("Symbol name or identifier fragment."),
       limit: integerSchema("Maximum symbol results to return.", 1, 20),
     }, ["query"]),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const core = getCore(ctx);
       try {
         const input = params as { query: string; limit?: number };
-        const workspace = core.codeWorkspace();
+        const workspace = await core.observeCodeWorkspace({ ...(signal === undefined ? {} : { signal }), operation: "code-symbols" });
         const results = await core.code.symbols({
           workspace,
           text: input.query,
           ...(input.limit === undefined ? {} : { limit: input.limit }),
         });
-        const status = await core.code.status(undefined, workspace);
+        const status = await core.code.status(undefined, workspace, { force: true });
         sessionState(ctx).footerStatus.recordProvider(core, status);
         await updateStatus(ctx, core);
         const retrieval = core.code.retrievalStatus();
@@ -604,6 +630,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     extensionState.stopIndexStatusUpdates?.();
     extensionState.stopIndexStatusUpdates = core.code.onIndexStatus((indexing) => {
       extensionState.footerStatus.recordIndex(core, indexing);
+      const indexLabel = indexing.active || indexing.state === "building"
+        ? "index building"
+        : `index ${indexing.state}`;
+      ctx.ui.setStatus(STATUS_KEY, `Atelier starting · ${indexLabel}`);
       void updateStatus(ctx, core);
     });
     try {
@@ -613,7 +643,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     }
     await updateStatus(ctx, core);
     if (core.config.codeProvider !== "disabled") {
-      void core.code.ensureIndex(core.codeWorkspace()).catch((error) => {
+      void (async () => {
+        const workspace = await core.observeCodeWorkspace({ operation: "code-index-startup" });
+        const state = await core.code.ensureIndex(workspace);
+        extensionState.footerStatus.recordWorkspaceIndexed(workspace);
+        return state;
+      })().catch((error) => {
         extensionState.footerStatus.markProviderOffline();
         ctx.ui.notify(`Code indexing failed: ${errorMessage(error)}`, "error");
         void updateStatus(ctx, core);
@@ -661,6 +696,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     const text = eventInputText(event);
     if (text === undefined || text.startsWith("/")) return;
     const core = getCore(ctx);
+    core.invalidateRepositoryObservation();
     // Slash handlers own their status observation. Ordinary input refreshes
     // external drift before the next turn without duplicating command work.
     void updateStatus(ctx, core);
@@ -700,17 +736,34 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       ctx.ui.notify("Atelier advisory: prefer current provider evidence or one focused code query before broad raw discovery. This is guidance, not an authorization block.", "warning");
     }
     const effects = effectsForTool(event, ctx, core);
-    const request = requestForTool(event, ctx, core, effects);
+    const signal = contextSignal(ctx);
+    await showPhase(ctx, "reading repository state");
+    const observation = await core.observeRepository({
+      paths: effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]),
+      ...(signal === undefined ? {} : { signal }),
+      operation: "permission",
+    });
+    const request = requestForTool(event, ctx, core, effects, observation);
     const authorization = await authorizeTool(request, ctx, core);
-    if (authorization.response !== undefined) return authorization.response;
+    if (authorization.response !== undefined) {
+      clearPhase(ctx);
+      return authorization.response;
+    }
 
     // Reject operations that violate the active workflow before creating a
     // recovery checkpoint or asking the user to approve an execution mode.
-    const authorizationOptions = { toolCallId: event.toolCallId, sessionId: extensionState.sessionId };
+    const authorizationOptions = {
+      toolCallId: event.toolCallId,
+      sessionId: extensionState.sessionId,
+      observation,
+    };
     const workspaceAuthorization = event.toolName === "bash"
       ? await authorizeShellEffects(effects, ctx, core, authorizationOptions)
       : await authorizeWorkspaceEffects(effects, ctx, core, authorizationOptions);
-    if (workspaceAuthorization.response !== undefined) return workspaceAuthorization.response;
+    if (workspaceAuthorization.response !== undefined) {
+      clearPhase(ctx);
+      return workspaceAuthorization.response;
+    }
     if (event.toolName === "bash") extensionState.authorizedShellToolCalls.set(event.toolCallId, {
       allowUnsandboxed: "allowUnsandboxed" in workspaceAuthorization && workspaceAuthorization.allowUnsandboxed === true,
     });
@@ -726,12 +779,15 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
           toolName: event.toolName,
           request,
           workflowDecisionId: authorization.decision.id,
+          repositoryObservation: workspaceAuthorization.observation,
           ...(workspaceAuthorization.checkpointId === undefined ? {} : { checkpointId: workspaceAuthorization.checkpointId }),
         });
       } catch (error) {
+        clearPhase(ctx);
         return { block: true, reason: `Unable to start durable execution evidence: ${errorMessage(error)}` };
       }
     }
+    clearPhase(ctx);
     // Tool completion owns the next footer observation. Do not delay tool
     // start by waiting for a second full status refresh here.
     return authorization.response;
@@ -740,19 +796,34 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   pi.on("user_bash", async (event, ctx) => {
     const command = typeof event.command === "string" ? event.command : "";
     const core = getCore(ctx);
-    const authorization = await authorizeShellEffects(effectsForUserBash(command, ctx.cwd, core), ctx, core, {
-      toolCallId: `user-bash-${randomUUID()}`, sessionId: sessionState(ctx).sessionId,
+    const effects = effectsForUserBash(command, ctx.cwd, core);
+    const signal = contextSignal(ctx);
+    await showPhase(ctx, "reading repository state");
+    const observation = await core.observeRepository({
+      paths: effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]),
+      ...(signal === undefined ? {} : { signal }),
+      operation: "permission",
     });
+    const authorization = await authorizeShellEffects(effects, ctx, core, {
+      toolCallId: `user-bash-${randomUUID()}`,
+      sessionId: sessionState(ctx).sessionId,
+      observation,
+    });
+    clearPhase(ctx);
     if (authorization.response !== undefined) return authorization.response;
     return { operations: createAtelierBashOperations({
       workspace: core.config.workspaceRoot, backend: core.config.sandboxBackend,
       allowUnsandboxed: authorization.allowUnsandboxed,
-      onComplete: () => updateStatus(ctx, core),
+      onComplete: () => {
+        core.invalidateRepositoryObservation();
+        return updateStatus(ctx, core);
+      },
     }) };
   });
 
   pi.on("tool_result", async (event, ctx) => {
     const core = getCore(ctx);
+    core.invalidateRepositoryObservation();
     const pending = core.ledger.getExecutionEvidence(event.toolCallId);
     if (pending !== undefined && pending.status === "started") {
       const text = event.content
@@ -968,9 +1039,14 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "Show Atelier workflow, plan, task, and policy state",
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
-      const status = await core.status();
-      appendAtelierReport(pi, ctx, "Atelier status", statusMarkdown(status), statusSummary(status));
-      await updateStatus(ctx, core, status);
+      await showPhase(ctx, "reading status");
+      try {
+        const status = await core.status();
+        appendAtelierReport(pi, ctx, "Atelier status", statusMarkdown(status), statusSummary(status));
+        await updateStatus(ctx, core, status);
+      } finally {
+        clearPhase(ctx);
+      }
     },
   });
 
@@ -1184,16 +1260,26 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     const core = getCore(ctx);
     const requested = args.trim();
     const full = requested === "--full" || requested === "full" || requested === "refresh";
-    if (full) {
-      ctx.ui.setWorkingMessage?.("Atelier: refreshing authoritative workflow state…");
-      const state = await core.buildWorkingState();
-      appendAtelierReport(pi, ctx, "Atelier workflow · full", core.workingStateBuilder.toMarkdown(state), workflowSummary(state));
-      await updateStatus(ctx, core);
-      return;
+    await showPhase(ctx, full ? "refreshing authoritative workflow state" : "reading durable workflow state");
+    try {
+      if (full) {
+        const state = await core.buildWorkingState();
+        appendAtelierReport(pi, ctx, "Atelier workflow · full", core.workingStateBuilder.toMarkdown(state), workflowSummary(state));
+        await updateStatus(ctx, core);
+        return;
+      }
+      const status = await core.status();
+      appendAtelierReport(
+        pi,
+        ctx,
+        "Atelier workflow",
+        workflowStatusMarkdown(status),
+        status.currentTaskId === undefined ? `${status.mode} · no active task` : `${status.mode} · task ${status.currentTaskId}`,
+      );
+      await updateStatus(ctx, core, status);
+    } finally {
+      clearPhase(ctx);
     }
-    const status = await core.status();
-    appendAtelierReport(pi, ctx, "Atelier workflow", workflowStatusMarkdown(status), statusSummary(status));
-    await updateStatus(ctx, core, status);
   };
 
   pi.registerCommand("workflow", {
@@ -1209,6 +1295,20 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   registerCodeCommands(pi, {
     getCore,
     getFooterStatus: (ctx) => sessionState(ctx).footerStatus,
+  });
+
+  pi.registerCommand("performance", {
+    description: "Show bounded interactive, subprocess, hashing, cache, and SQLite timing diagnostics",
+    handler: async (args, ctx) => {
+      const core = getCore(ctx);
+      if (args.trim() === "clear") {
+        core.clearPerformanceReport();
+        ctx.ui.notify("Atelier performance samples cleared.", "info");
+        return;
+      }
+      const report = core.performanceReport(100);
+      appendAtelierReport(pi, ctx, "Atelier performance", performanceMarkdown(report), `${report.interactive.sampleCount + report.sqlite.sampleCount} sample(s)`);
+    },
   });
 
   pi.registerCommand("changed", {

@@ -114,13 +114,16 @@ test("uses structured JSON commands without shell interpolation", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-beads-adapter-"));
   const executable = join(root, "fake-bd.mjs");
   const log = join(root, "commands.jsonl");
+  const databasePath = join(root, ".beads", "beads.db");
+  mkdirSync(join(root, ".beads"), { recursive: true });
+  writeFileSync(databasePath, "ready\n", "utf8");
   const script = `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + "\\n");
 const command = args[0];
 if (command === "version") { console.log("bd test-1"); process.exit(0); }
-if (command === "where") { console.log(JSON.stringify({ root: process.cwd() })); process.exit(0); }
+if (command === "where") { console.log(JSON.stringify({ database_path: ${JSON.stringify(databasePath)} })); process.exit(0); }
 if (command === "ready") { console.log(JSON.stringify([{ id: "bd-1", title: "Ready", status: "open", priority: 1, issue_type: "task" }])); process.exit(0); }
 if (command === "create") { console.log(JSON.stringify({ id: "bd-created", title: args[1], description: args[args.indexOf("--description") + 1], status: "open", priority: 1, issue_type: "task", labels: ["atelier-plan"] })); process.exit(0); }
 if (command === "update") { console.log(JSON.stringify({ id: args[1], title: "Updated", status: args.includes("--claim") ? "in_progress" : "open", priority: 1, issue_type: "task" })); process.exit(0); }

@@ -1,4 +1,5 @@
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
+import { sourceRevisionIdentity } from "../repository/snapshot.ts";
 import { newId, nowIso } from "../util/ids.ts";
 import {
   canonicalizeRetrievalQuery,
@@ -162,6 +163,8 @@ export class CodeService {
   private lastDecision: RetrievalReuseDecision | undefined;
   private pendingBindingInvalidationDigest: string | undefined;
   private telemetry: RetrievalTelemetry = emptyTelemetry();
+  private readonly providerStatusCache = new Map<string, { status: CodeProviderStatus; workspaceDigest: string; observedAt: number }>();
+  private readonly providerStatusPromises = new Map<string, Promise<CodeProviderStatus>>();
 
   constructor(
     registry: CodeProviderRegistry,
@@ -183,7 +186,15 @@ export class CodeService {
 
   providers(workspace?: CodeWorkspace) { return this.registry.statuses(workspace); }
 
-  async status(provider?: string, workspace?: CodeWorkspace) {
+  private workspaceDigest(workspace?: CodeWorkspace): string {
+    if (workspace === undefined) return "none";
+    return workspace.repositories
+      .map((repository) => `${repository.id}:${sourceRevisionIdentity(repository.snapshot)}`)
+      .sort()
+      .join("\n");
+  }
+
+  peekStatus(provider?: string, workspace?: CodeWorkspace): CodeProviderStatus | undefined {
     const selected = this.registry.get(provider);
     if (this.activeIndex !== undefined && this.indexStatus.provider === selected.name) {
       return {
@@ -191,11 +202,41 @@ export class CodeService {
         available: true,
         healthy: true,
         capabilities: [],
-        indexState: "building" as const,
+        indexState: "building",
         detail: "Atelier background indexing is active. Searches and index requests will join this operation.",
       };
     }
-    return selected.status(workspace);
+    const cached = this.providerStatusCache.get(selected.name);
+    if (cached === undefined || cached.workspaceDigest !== this.workspaceDigest(workspace)) return undefined;
+    return cached.status;
+  }
+
+  invalidateStatus(provider?: string): void {
+    if (provider === undefined) this.providerStatusCache.clear();
+    else this.providerStatusCache.delete(this.registry.get(provider).name);
+  }
+
+  async status(provider?: string, workspace?: CodeWorkspace, options: { force?: boolean } = {}): Promise<CodeProviderStatus> {
+    const selected = this.registry.get(provider);
+    const active = this.peekStatus(selected.name, workspace);
+    if (this.activeIndex !== undefined && this.indexStatus.provider === selected.name) return active!;
+    const workspaceDigest = this.workspaceDigest(workspace);
+    const cached = this.providerStatusCache.get(selected.name);
+    if (options.force !== true && cached !== undefined
+      && cached.workspaceDigest === workspaceDigest
+      && Date.now() - cached.observedAt <= 2_000) return cached.status;
+    const key = `${selected.name}\0${workspaceDigest}`;
+    const existing = this.providerStatusPromises.get(key);
+    if (existing !== undefined) return existing;
+    const pending = selected.status(workspace);
+    this.providerStatusPromises.set(key, pending);
+    try {
+      const status = await pending;
+      this.providerStatusCache.set(selected.name, { status, workspaceDigest, observedAt: Date.now() });
+      return status;
+    } finally {
+      if (this.providerStatusPromises.get(key) === pending) this.providerStatusPromises.delete(key);
+    }
   }
 
   beginRetrievalSession(sessionId = newId("retrieval-session")): string {
@@ -323,6 +364,7 @@ export class CodeService {
   async ensureIndex(workspace: CodeWorkspace, provider?: string) {
     if (this.activeIndex !== undefined) return this.activeIndex;
     const selected = this.registry.get(provider);
+    this.invalidateStatus(selected.name);
     this.setIndexStatus({
       state: "building",
       active: true,
@@ -344,6 +386,7 @@ export class CodeService {
         throw error;
       } finally {
         this.activeIndex = undefined;
+        this.invalidateStatus(selected.name);
       }
     })();
     this.activeIndex = operation;

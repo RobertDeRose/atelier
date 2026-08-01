@@ -126,6 +126,7 @@ function errorMessage(error: unknown): string {
 export class PlanReconciler {
   private readonly provider: TaskProvider;
   private readonly ledger: SqliteLedger;
+  private readonly previewInventories = new Map<string, TaskRecord[]>();
 
   constructor(provider: TaskProvider, ledger: SqliteLedger) {
     this.provider = provider;
@@ -300,30 +301,42 @@ export class PlanReconciler {
     for (const task of plan.tasks) {
       if (!raw.some((operation) => operation.planTaskId === task.id)) unchanged.push(task.id);
     }
-    return this.result(plan.hash, provider, raw, unchanged, conflicts, planOrder);
+    const result = this.result(plan.hash, provider, raw, unchanged, conflicts, planOrder);
+    this.previewInventories.set(result.digest, providerTasks.map((task) => structuredClone(task)));
+    return result;
   }
 
-  async apply(plan: ParsedPlan, approved?: TaskReconciliation): Promise<TaskReconciliation> {
-    const latest = await this.preview(plan);
-    const reconciliation = approved ?? latest;
-    if (approved !== undefined && approved.digest !== latest.digest) {
-      const reason = "Provider or plan state changed after the reconciliation preview; preview again before applying.";
-      return this.withConflict(reconciliation, reason);
+  async apply(
+    plan: ParsedPlan,
+    approved?: TaskReconciliation,
+    options: { revalidate?: boolean } = {},
+  ): Promise<TaskReconciliation> {
+    let reconciliation: TaskReconciliation;
+    if (options.revalidate === false) {
+      if (approved === undefined) throw new Error("Applying without revalidation requires an approved current preview.");
+      reconciliation = approved;
+    } else {
+      const latest = await this.preview(plan);
+      reconciliation = approved ?? latest;
+      if (approved !== undefined && approved.digest !== latest.digest) {
+        const reason = "Provider or plan state changed after the reconciliation preview; preview again before applying.";
+        return this.withConflict(reconciliation, reason);
+      }
+      const status = await this.provider.status();
+      const currentIdentity = identity(this.provider.name, status.version);
+      if (!sameIdentity(currentIdentity, reconciliation.provider)) {
+        return this.withConflict(reconciliation, "Task provider identity changed after preview; preview again before applying.");
+      }
     }
     if (reconciliation.conflicts.length > 0) return reconciliation;
 
-    const status = await this.provider.status();
-    const currentIdentity = identity(this.provider.name, status.version);
-    if (!sameIdentity(currentIdentity, reconciliation.provider)) {
-      return this.withConflict(reconciliation, "Task provider identity changed after preview; preview again before applying.");
-    }
-
+    const previewInventory = this.previewInventories.get(reconciliation.digest);
     const created: Array<{ planTaskId: string; providerTaskId: string }> = [];
     for (const operation of reconciliation.operations) {
       if (operation.kind === "conflict") continue;
       this.checkpoint(reconciliation, operation.operationId, "started");
       try {
-        await this.applyOperation(plan, reconciliation, operation, created);
+        await this.applyOperation(plan, reconciliation, operation, created, previewInventory);
         this.checkpoint(reconciliation, operation.operationId, "completed");
       } catch (error) {
         this.checkpoint(reconciliation, operation.operationId, "failed", errorMessage(error));
@@ -409,11 +422,13 @@ export class PlanReconciler {
     reconciliation: TaskReconciliation,
     operation: Exclude<ReconciliationOperation, { kind: "conflict" }>,
     created: Array<{ planTaskId: string; providerTaskId: string }>,
+    previewInventory?: readonly TaskRecord[],
   ): Promise<void> {
     if (operation.kind === "create") {
       const mapped = this.ledger.getTaskMapping(operation.planTaskId);
       if (mapped !== undefined) return;
-      const matches = (await this.provider.list()).filter((task) => task.planTaskId === operation.planTaskId);
+      const inventory = previewInventory ?? await this.provider.list();
+      const matches = inventory.filter((task) => task.planTaskId === operation.planTaskId);
       if (matches.length > 1) throw new Error(`Task ${operation.planTaskId} matches multiple provider tasks during create recovery.`);
       let task = matches[0];
       if (task === undefined) {
