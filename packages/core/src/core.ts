@@ -32,7 +32,11 @@ import { WorkflowGuard } from "./workflow/workflow-guard.ts";
 import { ExecutionWorkflowCoordinator } from "./workflow/execution-workflow-coordinator.ts";
 import { constraintsForPlanTask, sourceBaselineMismatch } from "./workflow/execution-baseline.ts";
 import { createRepositoryProvider } from "./repository/repository-factory.ts";
-import type { RepositoryProvider } from "./repository/repository-provider.ts";
+import type {
+  RepositoryObservation,
+  RepositoryObserveOptions,
+  RepositoryProvider,
+} from "./repository/repository-provider.ts";
 import {
   WorkspaceRepositoryService,
   type WorkspaceCommitResult,
@@ -63,6 +67,7 @@ import {
 } from "./repository/revision-binding.ts";
 import { WorkspacePolicyEvaluator, type FilesystemEffect, type WorkspacePolicyDecision } from "./policy/workspace-policy.ts";
 import { RecoveryManager, type RecoveryCheckpoint } from "./recovery/recovery-manager.ts";
+import { PerformanceRecorder } from "./performance/performance-recorder.ts";
 
 export interface AtelierStatus {
   repositoryRoot: string;
@@ -124,6 +129,7 @@ export class AtelierCore {
   readonly execution: ExecutionWorkflowCoordinator;
   readonly workspacePolicy: WorkspacePolicyEvaluator;
   readonly recovery: RecoveryManager;
+  readonly performance = new PerformanceRecorder();
 
   private constructor(
     config: AtelierConfig,
@@ -214,6 +220,44 @@ export class AtelierCore {
           : new NoopTaskProvider()
     );
     return new AtelierCore(config, ledger, taskProvider, options.codeProvider, options.retrievalSessionId);
+  }
+
+  async observeRepository(
+    options: RepositoryObserveOptions & { operation?: string } = {},
+  ): Promise<RepositoryObservation> {
+    const operation = options.operation ?? "repository";
+    const startedAt = new Date().toISOString();
+    const started = performance.now();
+    const observation = this.repository.observe !== undefined
+      ? await this.repository.observe(options)
+      : {
+          status: this.repository.status(),
+          snapshot: this.repository.snapshot(),
+          displayState: this.repository.displayState?.() ?? { vcs: this.repository.name, state: "unknown" as const },
+          root: this.config.repositoryRoot,
+          rawChangedPaths: this.repository.rawChangedPaths(),
+          changedPaths: this.repository.changedPaths(),
+          ...(options.includeFiles ? { files: this.repository.listFiles() } : {}),
+          pathStates: Object.fromEntries((options.paths ?? []).map((path) => [resolve(path), this.repository.classifyPath?.(path) ?? "unknown"])),
+          observedAt: new Date().toISOString(),
+          metrics: { durationMs: 0, subprocesses: 0, filesHashed: 0, bytesHashed: 0, cacheHit: false },
+        } satisfies RepositoryObservation;
+    this.performance.record({
+      operation,
+      phase: "repository.observe",
+      durationMs: performance.now() - started,
+      startedAt,
+      subprocesses: observation.metrics.subprocesses,
+      filesHashed: observation.metrics.filesHashed,
+      bytesHashed: observation.metrics.bytesHashed,
+      cache: observation.metrics.cacheHit ? "hit" : "miss",
+      detail: { provider: observation.snapshot.vcs, changedPaths: observation.rawChangedPaths.length },
+    });
+    return observation;
+  }
+
+  invalidateRepositoryObservation(): void {
+    this.repository.invalidateObservation?.();
   }
 
   initialize(options: { createPlan?: boolean } = {}): { createdPlan: boolean } {
@@ -1190,13 +1234,9 @@ export class AtelierCore {
         // Status remains usable when the task provider is temporarily degraded.
       }
     }
-    const snapshot = this.repository.snapshot();
-    const repositoryDisplay = this.repository.displayState?.() ?? {
-      vcs: snapshot.vcs,
-      ...(snapshot.vcs === "jj" && snapshot.changeId ? { revision: snapshot.changeId.slice(0, 8) } : {}),
-      ...(snapshot.vcs === "git" ? { revision: snapshot.headCommit.slice(0, 8) } : {}),
-      state: "unknown" as const,
-    };
+    const repositoryObservation = await this.observeRepository({ operation: "status" });
+    const snapshot = repositoryObservation.snapshot;
+    const repositoryDisplay = repositoryObservation.displayState;
     const planStatus = !planExists
       ? "missing" as const
       : currentPlanHash !== undefined && approvedPlanHash !== undefined && currentPlanHash === approvedPlanHash
@@ -1233,6 +1273,24 @@ export class AtelierCore {
   async close(): Promise<void> {
     await this.code.close();
     this.ledger.close();
+  }
+
+  async evaluateWorkspaceEffectsAsync(
+    effects: readonly FilesystemEffect[],
+    options: { observation?: RepositoryObservation; signal?: AbortSignal; operation?: string } = {},
+  ): Promise<{ decision: WorkspacePolicyDecision; observation: RepositoryObservation }> {
+    const paths = effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]);
+    const observation = options.observation ?? await this.observeRepository({
+      paths,
+      signal: options.signal,
+      operation: options.operation ?? "workspace-policy",
+    });
+    const decision = this.workspacePolicy.evaluate(effects, {
+      classify: (path) => observation.pathStates[resolve(path)]
+        ?? this.repository.classifyPath?.(path)
+        ?? (existsSync(path) ? "untracked" : "missing"),
+    });
+    return { decision, observation };
   }
 
   evaluateWorkspaceEffects(effects: readonly FilesystemEffect[]): WorkspacePolicyDecision {
