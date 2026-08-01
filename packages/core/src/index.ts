@@ -72,3 +72,5 @@ export * from "./code/result-presentation.ts";
 export * from "./service/protocol.ts";
 export * from "./service/server.ts";
 export * from "./service/client.ts";
+
+export * from "./performance/performance-recorder.ts";
