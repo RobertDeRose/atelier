@@ -35,6 +35,7 @@ import { preparationSummary } from "./approval-presentation.ts";
 import { confirmApprovalDialog } from "./approval-dialog.ts";
 import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "./navigation.ts";
 import { runInteractiveProcessWithPi } from "./interactive-process.ts";
+import { planInstruction } from "./plan-instruction.ts";
 import { contextCapsulePrompt, createAuthoritativeContextCapsule } from "./authoritative-context.ts";
 import { createAtelierBashOperations } from "./bash-operations.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
@@ -282,18 +283,6 @@ async function reviewPlan(
   } finally {
     extensionState.reviewInProgress = false;
   }
-}
-
-function planInstruction(core: AtelierCore, objective: string): string {
-  return `[Atelier PLAN MODE]\n\n` +
-    `Investigate the repository without modifying source code, dependencies, repository state, or task-provider state. ` +
-    `Write or update the implementation plan only at ${core.config.planPath}. ` +
-    "Read exact repository paths named by the objective directly; do not force semantic discovery for known files or trivial local edits. When an implementation location is unknown, reuse current scoped inventory with atlr_code_status or call atlr_code_search once, then inspect the compact inventory before another request. " +
-    "Use atlr_code_symbols only for unresolved identifiers during autonomous discovery, and use built-in read for known or returned paths. " +
-    "Prefer provider evidence before broad rg, grep, find, fd, tree, or ls discovery, but use exact raw inspection when provider evidence is insufficient or the request requires it. " +
-    "Use the smallest independently deliverable task graph: keep tests and implementation together unless they can be completed and accepted separately. Use stable task IDs, explicit dependencies, scope, validation steps, observable completion criteria, and an exact execution object in each atlr:task metadata comment naming every reviewed writable repository-relative path, declared validation, dependency-change constraint, full-suite constraint, and local-change constraint. " +
-    "Do not ask the user to describe textual plan edits after the draft; Atelier will open the plan in their configured editor. " +
-    `When the draft is complete, stop.\n\nObjective: ${objective || "Create an implementation plan for the current request."}`;
 }
 
 function manualEditSummary(

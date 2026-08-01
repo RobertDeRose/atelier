@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.26
+# Build Report — Atelier 0.14.0-alpha.27
 
 ## Result
 
@@ -17,15 +17,24 @@ dist/apps/pi-extension/src/index.js
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
 
-## Alpha.26 interactive-terminal correction
+## Alpha.27 guided-policy and execution-continuity correction
 
-Alpha.26 corrects the two failures captured by the guided evidence archive:
+Alpha.27 aligns guided verification with the implemented workspace-recoverability policy and prevents
+ordinary post-approval retrieval activity from revoking untouched execution authority:
 
-- Atelier converts core shell-output strings to the `Buffer` chunks required by Pi's `BashOperations` host contract, so output-producing direct `!` commands no longer terminate Pi;
-- configured editors, `/atelier-open`, `/atelier-files`, and Yazi execute only after Pi releases the terminal and restore the TUI after the child exits;
-- guided steps persist Pi stderr and exit status and do not clear unexpected failures from the terminal;
-- `retry STEP` recreates exactly one disposable failed workspace while preserving prior recorded outcomes; and
-- executable regressions verify Buffer delivery, terminal suspension/restoration, guide content, evidence capture, and isolated retry behavior.
+- post-approval retrieval and index drift is recorded as provenance rather than treated as execution
+  authority when the reviewed source, task mapping, provider, and task constraints remain exact;
+- the model-facing planning instruction includes the exact configured validation catalog, required flags,
+  and path/symbol selectors, preventing invented validation names such as `typecheck`;
+- guided Step 2 now distinguishes investigate-mode typed-write denial from recoverable shell mutations and
+  gives explicit approve/reject expectations for each operation;
+- guided recovery prints every checkpoint ID, provider, and path, restores every path-scoped checkpoint,
+  and verifies the exact restored contents before accepting the result;
+- guided Step 4 treats incorrect generated execution metadata as a planner failure instead of asking the
+  tester to repair it manually;
+- guided Step 5 provides the exact typed-edit prompt used to prove pause enforcement; and
+- executable regressions cover approval → retrieval → implementation → pause → denied edit → resume →
+  cancellation and complete multi-checkpoint restoration.
 
 ## Alpha.25 guided-guide rendering correction
 
@@ -115,7 +124,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Guided regressions:    4 passed, 0 failed
+Guided regressions:    5 passed, 0 failed
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -125,21 +134,21 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.26
-Files:            434
-Compressed size:  485,901 bytes
-Unpacked size:    2,276,183 bytes
+Package:          atelier-prototype@0.14.0-alpha.27
+Files:            438
+Compressed size:  488,375 bytes
+Unpacked size:    2,285,190 bytes
 ```
 
 ## Verification boundary
 
 The correction environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
-Node 24.18.0 and TypeScript 7 toolchain. All 273 deterministic tests across 83 test files passed through
-bounded per-file runs using the required `--test-concurrency=8` setting. This includes the direct-user-shell
-Buffer contract, Pi TUI suspension/restoration, guided retry, diagnostic capture, and all prior workflow,
-recovery, validation, multi-repository, and provider fixtures. The aggregate Node 22 test-runner process
-still does not terminate reliably, so the pinned Node 24 CI and maintainer `mise check` remain authoritative
-for the single-process aggregate command.
+Node 24.18.0 and TypeScript 7 toolchain. The complete aggregate deterministic command passed with
+275 tests across 83 test files using the required `--test-concurrency=8` setting. This includes exact
+post-approval retrieval continuity, planner validation-catalog injection, complete guided checkpoint
+restoration, pause/resume/cancellation enforcement, and all prior workflow, recovery, validation,
+multi-repository, and provider fixtures. The pinned Node 24 CI and maintainer `mise check` remain
+authoritative for the supported runtime.
 
 The environment did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap` binary. Exact Git
 recovery is exercised against real Git repositories. Jujutsu operation recovery and sandbox command
@@ -149,10 +158,10 @@ live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.26` remains an interactive alpha. Direct shell output and external terminal ownership now
-follow Pi host contracts, while guided verification self-prepares missing workspaces, refreshes literal
-Markdown instructions without resetting progress, and preserves pre-launch failures without terminal-reset
-flashes. Workspace containment and exact recoverability now form
-the sole filesystem authority, but shell effect analysis remains intentionally conservative for arbitrary
-interpreters, scripts, build systems, and dynamically computed effects. Those cases require one concrete
-approval unless their effects can be bounded and recovered.
+`0.14.0-alpha.27` remains an interactive alpha. Guided verification now describes the actual
+investigate-mode and recoverability behavior, restores and verifies every generated checkpoint, and
+fails generated plans that name the wrong validation instead of requiring manual repair. Exact approval
+continues to bind source, workspace, provider, reconciliation, and task constraints; later retrieval
+activity is audited as provenance and cannot revoke an untouched execution grant by itself. Arbitrary
+interpreters, scripts, build systems, and dynamically computed shell effects remain intentionally
+conservative and require one concrete approval unless their effects can be bounded and recovered.

@@ -233,13 +233,20 @@ GUIDE
 
 Inside Pi, run `/status` first. The footer must use `git:` and `intel: disabled`.
 
-## Typed tools — no approval expected
+## Typed tools in investigate mode
 
 Send this model message:
 
 > Use only typed read, write, and edit tools. Read manual-policy/clean-read.txt, create manual-policy/typed-created.txt containing "typed created", append "typed edit" to manual-policy/clean-edit.txt, do not use Bash, and stop.
 
-## Direct user shell — no approval expected
+Expected:
+
+- The read succeeds.
+- The typed create and edit are blocked because investigate mode is read-only.
+- `manual-policy/typed-created.txt` is not created.
+- `manual-policy/clean-edit.txt` remains unchanged.
+
+## Direct user shell — automatically allowed by recoverability policy
 
 `!printf 'user shell create\n' > manual-policy/user-created.txt`
 
@@ -247,23 +254,31 @@ Send this model message:
 
 `!rm manual-policy/dirty-delete.txt`
 
-`!printf 'read-only output\n'`
-
-The output must render in Pi and Pi must remain usable. The dirty tracked deletion must create a verified checkpoint automatically.
-
-## Reject each protected or unrecoverable operation
-
-`!cat .env.acceptance`
-
 `!rm manual-policy/untracked-delete.txt`
 
 `!rm manual-policy/ignored-delete.txt`
+
+`!printf 'read-only output\n'`
+
+Expected:
+
+- None of these commands prompts for approval.
+- The output renders in Pi and Pi remains usable.
+- The clean tracked deletion is recoverable directly from Git.
+- The dirty tracked, untracked, and ignored deletions each create a verified checkpoint before execution.
+- After Pi exits, the harness restores and verifies all three checkpointed paths and prints their IDs and restored paths.
+
+## Explicit prompts — reject each operation
+
+`!cat .env.acceptance`
 GUIDE
     printf '\n`!printf '\''outside\\n'\'' > "%s/outside-write-must-not-exist.txt"`\n\n' "$RUN_ROOT"
     cat <<'GUIDE'
 `!node unknown-script.js`
 
-Expected reasons: secret access, unrecoverable untracked/ignored deletion, outside-workspace write, and indeterminate persistent effects.
+When each approval prompt appears, choose **No**.
+
+Expected reasons: secret access, outside-workspace write, and indeterminate persistent effects. None of these commands may execute.
 
 ## Model Bash — no approval expected
 
@@ -285,7 +300,7 @@ Inside Pi:
 
 Expected: no approval. Atelier snapshots the Jujutsu operation and allows the recoverable deletion.
 
-Exit Pi with Ctrl-D. The harness will restore the newest checkpoint and verify the original dirty working-copy content.
+Exit Pi with Ctrl-D. The harness will print the checkpoint ID, restore it, and verify the original dirty working-copy content.
 GUIDE
 
   cat >"$GUIDED_ROOT/guides/04-approval.md" <<'GUIDE'
@@ -295,12 +310,22 @@ Run:
 
 `/plan Add an exported ATELIER_PRODUCT_NAME constant with the value "Atelier" to packages/core/src/version.ts and add tests/version.test.ts verifying ATELIER_PRODUCT_NAME and ATELIER_VERSION. Do not change release metadata or any other behavior.`
 
-When the editor opens, replace the plan with one task whose execution object writes only:
+When the editor opens, **do not replace or repair the generated plan**. Inspect the task exactly as generated.
+
+It must contain this execution object:
+
+`<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["packages/core/src/version.ts","tests/version.test.ts"],"allowDependencyChanges":false,"validations":["manual-acceptance"],"allowFullSuite":false,"allowLocalChange":true}} -->`
+
+Also verify that the human-readable `### Validation` and `### Completion criteria` sections name `manual-acceptance`, not an invented validation such as `typecheck`.
+
+The exact reviewed write paths are:
 
 - `packages/core/src/version.ts`
 - `tests/version.test.ts`
 
-and declares validation `manual-acceptance`, no dependency changes, no full suite, and one local change.
+If any field or validation name is wrong, leave the plan unchanged, exit Pi, and record this step as **FAIL**. Manually correcting generated metadata would hide the planner defect this step is intended to test.
+
+If the plan is correct, save it unchanged and close the editor.
 
 Then:
 
@@ -320,7 +345,11 @@ This continues the approved task from step 4.
 1. Send: `Implement the active task using only read, edit, and write. Do not use Bash, validate, commit, or close. Stop after the two approved source changes.`
 2. Start a read-only explanation turn and run `/atelier-stop` while it is working. Task and execution must remain active.
 3. Run `/atelier-pause manual guided pause`.
-4. Ask for a typed edit adding `// pause-probe`; it must be blocked.
+4. Send this exact model message:
+
+   > Using only the typed edit tool, add the exact line `// pause-probe` to packages/core/src/version.ts. Do not use Bash or any other tool.
+
+   Expected: Atelier blocks the edit because execution is paused, and `packages/core/src/version.ts` does not contain `// pause-probe`.
 5. Run `/atelier-resume`; no model turn should start automatically.
 6. Run `/cancel manual guided cancellation`; execution constraints must be revoked, the Beads task must remain open, and source changes must remain.
 
@@ -415,26 +444,69 @@ collect_workspace() {
   )
 }
 
-restore_latest_checkpoint() {
+restore_all_checkpoints() {
   local name="$1"
   local root="$GUIDED_ROOT/$name"
   local repo="$root/repo"
   local list="$EVIDENCE_DIR/guided-$name/recovery-before-restore.json"
+  local restore_log="$EVIDENCE_DIR/guided-$name/recovery-restore.txt"
   mkdir -p "$(dirname "$list")"
   (
     source "$root/env.sh"
     cd "$repo"
     node ./bin/atlr.mjs recovery list --json >"$list"
-    local_id="$(node --input-type=module - "$list" <<'NODE'
+    : >"$restore_log"
+    local checkpoint_count=0
+    while IFS=$'\t' read -r checkpoint_id provider paths; do
+      [[ -n "$checkpoint_id" ]] || continue
+      checkpoint_count=$((checkpoint_count + 1))
+      printf '\nCheckpoint %s\n' "$checkpoint_id"
+      printf '  Provider: %s\n' "$provider"
+      printf '  Paths: %s\n' "$paths"
+      {
+        printf 'Checkpoint %s\nProvider: %s\nPaths: %s\n' "$checkpoint_id" "$provider" "$paths"
+        node ./bin/atlr.mjs recovery restore "$checkpoint_id"
+        printf '\n'
+      } | tee -a "$restore_log"
+    done < <(node --input-type=module - "$list" <<'NODE'
 import { readFileSync } from 'node:fs';
 const data = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const list = Array.isArray(data) ? data : data.checkpoints ?? [];
-if (list.length > 0) process.stdout.write(String(list.at(-1).id));
+for (const checkpoint of list) {
+  const provider = checkpoint.repositoryState?.provider ?? "unknown";
+  const paths = Array.isArray(checkpoint.paths) ? checkpoint.paths.join(", ") : "none";
+  process.stdout.write(`${checkpoint.id}\t${provider}\t${paths}\n`);
+}
 NODE
-)"
-    if [[ -n "$local_id" ]]; then
-      node ./bin/atlr.mjs recovery restore "$local_id" >"$EVIDENCE_DIR/guided-$name/recovery-restore.txt"
+    )
+    if [[ "$checkpoint_count" -eq 0 ]]; then
+      printf 'No recovery checkpoints were created.\n' | tee -a "$restore_log"
+      if [[ "${ATELIER_GUIDED_TEST_ALLOW_EMPTY_RECOVERY:-0}" == 1 ]]; then
+        return 0
+      fi
+      return 1
     fi
+
+    case "$name" in
+      policy-git)
+        [[ "$(cat manual-policy/dirty-delete.txt)" == $'dirty original\ndirty uncommitted' ]] \
+          || fail "dirty tracked checkpoint did not restore exact contents"
+        [[ "$(cat manual-policy/untracked-delete.txt)" == 'untracked contents' ]] \
+          || fail "untracked checkpoint did not restore exact contents"
+        [[ "$(cat manual-policy/ignored-delete.txt)" == 'ignored contents' ]] \
+          || fail "ignored checkpoint did not restore exact contents"
+        [[ ! -e manual-policy/typed-created.txt ]] \
+          || fail "investigate-mode typed create unexpectedly succeeded"
+        [[ "$(cat manual-policy/clean-edit.txt)" == 'clean edit' ]] \
+          || fail "investigate-mode typed edit unexpectedly changed clean-edit.txt"
+        printf 'Verified restored paths:\n  manual-policy/dirty-delete.txt\n  manual-policy/untracked-delete.txt\n  manual-policy/ignored-delete.txt\n'
+        ;;
+      policy-jj)
+        [[ "$(cat manual-policy/dirty-delete.txt)" == $'jj dirty original\njj uncommitted contents' ]] \
+          || fail "Jujutsu checkpoint did not restore exact dirty working-copy contents"
+        printf 'Verified restored path:\n  manual-policy/dirty-delete.txt\n'
+        ;;
+    esac
   )
 }
 
@@ -525,7 +597,7 @@ launch_step() {
   printf 'Pi exited with status %s. Collecting authoritative evidence...\n' "$rc"
   collect_workspace "$name"
   if [[ "$step" == 2 || "$step" == 3 ]]; then
-    restore_latest_checkpoint "$name" || true
+    restore_all_checkpoints "$name"
     collect_workspace "$name"
   fi
   record_result "$step" "$title"

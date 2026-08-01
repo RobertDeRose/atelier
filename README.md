@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.26**. Pi direct-user shell output now follows the host Buffer contract instead of crashing on the first output-producing `!` command. Full-screen editor and navigator commands suspend and restore Pi before transferring terminal ownership. Guided verification captures Pi stderr and exit status, preserves failures on screen, and can recreate and rerun one failed disposable step without discarding earlier results.
+Current release: **0.14.0-alpha.27**. Guided verification now matches the implemented investigate-mode and recoverability matrix, restores every path-scoped checkpoint with visible evidence, and tests generated plans without asking the user to repair them. Planning receives the exact configured validation catalog, and ordinary post-approval code retrieval is audited as provenance rather than revoking an otherwise exact source-bound execution grant.
 
 ## Current status
 
@@ -21,8 +21,9 @@ Atelier currently provides:
 
 - durable `ManualEdit` plan review with exact plan hashes and structural diffs;
 - preview-before-mutation task-provider reconciliation;
-- exact approval bound to source revisions, every approved workspace repository, retrieval revisions,
-  provider identity, reconciliation digest, and reviewed task constraints;
+- exact approval bound to source revisions, every approved workspace repository, retrieval provenance,
+  provider identity, reconciliation digest, and reviewed task constraints; later retrieval drift is recorded
+  but cannot revoke authority while source and task bindings remain exact;
 - atomic task claim and execution activation with reviewed task constraints;
 - restart-safe execution, invalidation, recovery-checkpoint, mutation, validation, and retrieval evidence;
 - an authoritative task-closure predicate requiring current required validations, an exact final-diff

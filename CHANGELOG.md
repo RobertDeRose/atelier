@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.14.0-alpha.27 — 2026-07-31
+
+### Fixed
+
+- Treat post-approval retrieval/index drift as non-authoritative provenance when the reviewed source baseline, task mapping, and execution constraints remain exact.
+- Record retrieval drift once per execution grant instead of invalidating an untouched approved task before implementation begins.
+- Include the exact configured validation catalog, required flags, and path/symbol selectors in the model-facing planning instruction so generated plans do not invent `typecheck` or other unconfigured names.
+- Rewrite guided Step 2 around the implemented investigate-mode and recoverability matrix, including explicit reject instructions only for secret, outside-workspace, and indeterminate effects.
+- Restore every path-scoped Git or Jujutsu recovery checkpoint, print checkpoint IDs/providers/paths, and verify exact restored contents before recording the manual result.
+- Make Step 4 validate the generated plan without manually repairing it, and make Step 5 spell out the exact paused typed-edit probe.
+- Add regressions for approval → retrieval → implementation → pause → blocked edit → resume → cancellation and for multi-checkpoint guided restoration.
+
 ## 0.14.0-alpha.26 — 2026-07-31
 
 - Emit `Buffer` chunks through Pi's `BashOperations` contract so output-producing direct `!` commands do not terminate the interactive host.

@@ -9,6 +9,30 @@ the Pi transcript, external SQLite ledger, trust records, exact approval and per
 Jujutsu status/diff evidence, and CLI cancellation output. It distinguishes product defects from procedure
 errors and from observations the evidence did not prove.
 
+## Alpha.27 guided-evidence corrections
+
+The alpha.26 guided evidence exposed four current issues that are distinct from the historical
+permission-model findings below:
+
+1. **Step 2 described the wrong policy.** Typed mutations were correctly denied in investigate mode, while
+   dirty tracked, untracked, and ignored deletion was checkpointed and allowed. Alpha.27 documents the
+   actual matrix and reserves explicit rejection for secret reads, outside-workspace effects, and
+   indeterminate commands.
+2. **The harness restored only one checkpoint.** Recovery output is newest-first, but the script selected
+   one terminal entry. Alpha.27 prints and restores every path-scoped checkpoint and verifies exact file
+   contents before accepting the step.
+3. **Step 4 asked the tester to repair planner output.** Alpha.27 injects the exact configured validation
+   catalog into planning and treats any generated `typecheck` substitution as a failure rather than a
+   manual-edit task.
+4. **Post-approval retrieval drift revoked an untouched execution.** Retrieval revisions remain durable
+   provenance, but they are not task-execution authority after approval. Alpha.27 records drift once and
+   preserves execution while source, workspace, provider, task mapping, and reviewed constraints remain
+   exact.
+
+A deterministic regression now covers exact approval, later retrieval, implementation, pause, a blocked
+`// pause-probe` typed edit, resume, and cancellation. A separate guided regression restores all Git
+checkpoints and verifies the restored dirty tracked, untracked, and ignored paths.
+
 ## Evidence-supported behavior retained
 
 The manual run confirmed several boundaries that alpha.6 preserves:

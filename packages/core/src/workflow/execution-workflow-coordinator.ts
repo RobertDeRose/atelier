@@ -23,6 +23,7 @@ import { newId, nowIso } from "../util/ids.ts";
 import {
   constraintsForPlanTask,
   createTaskConstraints,
+  retrievalBindingDigest,
   taskConstraintDigest,
   executionConstraintsMatch,
   sameRetrievalBindings,
@@ -627,8 +628,35 @@ export class ExecutionWorkflowCoordinator {
     if (!sameRepositoryBindings(stableExpected, stableActual)) {
       return "A secondary workspace repository changed during execution.";
     }
-    if (exactSource && !sameRetrievalBindings(grant.retrievalBindings, this.retrievalBindings())) {
-      return "Retrieval revision bindings changed before any approved task mutation was observed.";
+    if (exactSource) {
+      const currentRetrievalBindings = this.retrievalBindings();
+      if (!sameRetrievalBindings(grant.retrievalBindings, currentRetrievalBindings)) {
+        // Retrieval evidence is part of the exact approval record, but it is not
+        // execution authority. Provider indexing or additional post-approval
+        // discovery may legitimately change the current retrieval revision while
+        // the approved source baseline and task constraints remain exact.
+        // Preserve the drift as durable provenance instead of revoking an
+        // otherwise valid untouched execution grant.
+        const currentDigest = retrievalBindingDigest(currentRetrievalBindings);
+        const observationKey = `executionRetrievalObservation:${grant.id}`;
+        if (this.ledger.getState<string>(observationKey) !== currentDigest) {
+          this.ledger.setState(observationKey, currentDigest);
+          this.ledger.append({
+            kind: "execution.retrieval_drift_observed",
+            actor: "system",
+            repositorySnapshot: snapshot,
+            taskId: grant.taskId,
+            payload: {
+              executionGrantId: grant.id,
+              approvedRetrievalDigest: retrievalBindingDigest(grant.retrievalBindings),
+              currentRetrievalDigest: currentDigest,
+              approvedBindingCount: grant.retrievalBindings.length,
+              currentBindingCount: currentRetrievalBindings.length,
+              authorityChanged: false,
+            },
+          });
+        }
+      }
     }
     if (!exactSource && grant.repositorySnapshot.vcs !== "none" && grant.repositorySnapshot.headCommit !== "unborn") {
       try {

@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   AtelierCore,
   DisabledCodeProvider,
+  MockCodeProvider,
   createTaskConstraints,
   taskConstraintSummary,
   parsePlanText,
@@ -56,7 +57,10 @@ Change one implementation file and its focused test.
 - Generic shell is not part of this task.
 `;
 
-async function exactCore(prefix: string): Promise<{ root: string; core: AtelierCore }> {
+async function exactCore(
+  prefix: string,
+  codeProvider: DisabledCodeProvider | MockCodeProvider = new DisabledCodeProvider(),
+): Promise<{ root: string; core: AtelierCore }> {
   const root = createTemporaryRepository(prefix);
   writeFileSync(join(root, ".atelier", "PLAN.md"), EXACT_PLAN, "utf8");
   writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({
@@ -77,7 +81,7 @@ async function exactCore(prefix: string): Promise<{ root: string; core: AtelierC
   }), "utf8");
   const core = AtelierCore.open(root, {
     taskProvider: "memory",
-    codeProvider: new DisabledCodeProvider(),
+    codeProvider,
   });
   core.beginPlan("Exercise exact task constraints");
   const review = core.beginPlanReview();
@@ -152,6 +156,74 @@ test("reviewed task metadata produces one narrow task constraint", async () => {
     const closure = core.taskClosureReadiness();
     assert.equal(closure.ready, false);
     assert.ok(closure.blockers.some((item) => item.code === "validation_selection_missing"));
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("post-approval retrieval drift does not revoke source-bound execution control", async () => {
+  const provider = new MockCodeProvider([
+    {
+      repositoryId: "repo",
+      repositoryName: "repo",
+      root: "",
+      path: "src/allowed.ts",
+      content: "export const allowed = true;",
+      symbol: "allowed",
+    },
+  ]);
+  const { root, core } = await exactCore("atlr-retrieval-control-", provider);
+  try {
+    const originalGrant = core.ledger.getActiveExecutionGrant();
+    assert.ok(originalGrant);
+
+    // Simulate ordinary code-intelligence activity after exact approval. The
+    // resulting provider/index binding was not present in the approval record,
+    // but the approved source baseline and task constraints are unchanged.
+    const workspace = core.codeWorkspace();
+    await core.code.ensureIndex(workspace);
+    await core.code.search({ workspace, text: "allowed", limit: 10 });
+    assert.ok(core.code.retrievalStatus().bindings.length > 0);
+
+    assert.equal((await core.execution.resume())?.id, originalGrant.id);
+    assert.equal((await core.execution.resume())?.id, originalGrant.id);
+    assert.equal(core.ledger.listEvents({ kind: "execution.retrieval_drift_observed" }).length, 1);
+
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "allowed.ts"), "export const before = true;\n", "utf8");
+    const implementation = request(core, {
+      action: "write.file",
+      paths: [join(root, "src", "allowed.ts")],
+      rationale: "approved implementation after retrieval",
+    });
+    core.beginExecutionEvidence({
+      toolCallId: "retrieval-then-write",
+      toolName: "edit",
+      request: implementation,
+      ...allow(core, implementation),
+    });
+    writeFileSync(join(root, "src", "allowed.ts"), "export const after = true;\n", "utf8");
+    core.completeExecutionEvidence("retrieval-then-write", { status: "succeeded" });
+
+    core.execution.pause("manual retrieval regression pause");
+    assert.equal(core.evaluateWorkflow(request(core, {
+      action: "write.file",
+      paths: [join(root, "src", "allowed.ts")],
+      rationale: "pause probe",
+    })).result, "deny");
+
+    core.execution.resumePaused();
+    assert.equal(core.evaluateWorkflow(request(core, {
+      action: "write.file",
+      paths: [join(root, "src", "allowed.ts")],
+      rationale: "resumed edit",
+    })).result, "allow");
+
+    const taskId = originalGrant.taskId;
+    core.execution.cancel("manual retrieval regression cancellation");
+    assert.equal(core.ledger.getActiveExecutionGrant(), undefined);
+    assert.equal((await core.taskProvider.get(taskId))?.status, "in_progress");
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });

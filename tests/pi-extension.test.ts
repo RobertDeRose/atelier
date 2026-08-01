@@ -458,6 +458,17 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
     repositoryProvider: "git",
     codeProvider: "disabled",
   }));
+  writeFileSync(join(root, ".atelier", "validation.json"), JSON.stringify({
+    validations: {
+      "manual-acceptance": {
+        command: [process.execPath, "--version"],
+        category: "focused",
+        focused: true,
+        required: true,
+        paths: ["packages/core/src/version.ts", "tests/version.test.ts"],
+      },
+    },
+  }));
   const context = {
     ...fakeContext(root, { count: 0 }),
     waitForIdle: () => new Promise<void>(() => {}),
@@ -467,6 +478,9 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
     await commands.get("plan")!.handler("continue building Atelier", context);
     assert.match(sentMessages.at(-1) ?? "", /Atelier PLAN MODE/);
     assert.match(sentMessages.at(-1) ?? "", /Objective: continue building Atelier/);
+    assert.match(sentMessages.at(-1) ?? "", /manual-acceptance/);
+    assert.match(sentMessages.at(-1) ?? "", /Do not substitute an unconfigured command such as typecheck/);
+    assert.match(sentMessages.at(-1) ?? "", /packages\/core\/src\/version\.ts/);
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.26
+# Local Acceptance Workflow — 0.14.0-alpha.27
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -225,8 +225,9 @@ In a fresh Pi session:
 /plan Add an exported ATELIER_PRODUCT_NAME constant with the value "Atelier" to packages/core/src/version.ts and add tests/version.test.ts verifying ATELIER_PRODUCT_NAME and ATELIER_VERSION. Do not change release metadata or any other behavior.
 ```
 
-The plan should use one atomic task containing implementation and tests. Its task marker must contain this
-reviewable execution contract (formatting/order may differ):
+The planner must use the exact configured validation catalog. Inspect the generated plan without repairing
+it manually. The plan should use one atomic task containing implementation and tests, and its task marker
+must contain this reviewable execution contract (formatting/order may differ):
 
 ```json
 {
@@ -240,6 +241,10 @@ reviewable execution contract (formatting/order may differ):
   "allowLocalChange": true
 }
 ```
+
+The human-readable Validation and Completion sections must also name `manual-acceptance`, not an invented
+`typecheck`, `test`, or `check` validation. If the generated plan differs, leave it unchanged and record the
+planner failure; manually correcting it would hide the behavior under test.
 
 Planning may change only `.atelier/PLAN.md`; Beads and product source must remain unchanged. Preparation
 must fail when the execution contract is removed or names an unknown validation.
@@ -288,11 +293,23 @@ should not prompt. After denial, Pi must become idle. Atelier may show
 one passive incomplete-task warning, but it must not enqueue another turn or return to an endless
 `Working...` loop. Pressing Escape must also end the current turn without forcing continuation.
 
-Exercise the distinct controls in a separate active turn:
+Exercise the distinct controls in a separate active turn. After approval, perform one normal code-retrieval
+operation first and verify it does not invalidate the untouched execution grant. Then run:
 
 ```text
 /atelier-stop
 /atelier-pause manual pause acceptance
+```
+
+While paused, send this exact model instruction:
+
+```text
+Using only the typed edit tool, add the exact line // pause-probe to packages/core/src/version.ts. Do not use Bash or any other tool.
+```
+
+The typed edit must be blocked and the file must not contain `// pause-probe`. Then run:
+
+```text
 /atelier-resume
 /cancel manual user-control acceptance
 ```
@@ -300,7 +317,8 @@ Exercise the distinct controls in a separate active turn:
 Pass conditions: `/atelier-stop` aborts only the turn; `/atelier-pause` keeps the grant/task active but
 denies agent mutation; `/atelier-resume` restores mutation without starting a model turn; `/cancel` does
 not wait for idle, atomically records a cancelled workflow, revokes execution, preserves the
-open/in-progress Beads task, and preserves repository changes.
+open/in-progress Beads task, and preserves repository changes. Retrieval-session or index drift observed
+after approval must be recorded as provenance and must not independently revoke an untouched grant.
 
 Use a separate run for cancellation if the remaining closure workflow is also being tested.
 

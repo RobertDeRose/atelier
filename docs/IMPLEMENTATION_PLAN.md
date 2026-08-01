@@ -1,14 +1,16 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.26 (2026-07-31).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.27 (2026-07-31).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
 > concrete effect is contained, secret-sensitive, privileged, read-only, or exactly recoverable. Dirty
 > tracked and practical untracked/ignored destruction receives a verified Git/Jujutsu checkpoint before
 > execution. Model Bash and direct user shell share one pre-execution evaluator and OS sandbox path.
-> Exact approval binds source, all workspace roots, retrieval revisions, reconciliation, and reviewed task
-> constraints, but remains idle until the user explicitly requests implementation. Closure requires
+> Exact approval binds source, all workspace roots, provider identity, reconciliation, retrieval provenance,
+> and reviewed task constraints, but remains idle until the user explicitly requests implementation. Later
+> retrieval-session or index revision changes are recorded as provenance and do not revoke an untouched
+> execution while the reviewed source, task mapping, provider, and constraints remain exact. Closure requires
 > current required validation, exact final-diff review, a local change, and configured clean state.
 > Repository files cannot select provider/editor executables. Shell authorization requires agreement between
 > the hardened classifier and concrete-effect parser; when no OS sandbox is available, every exact command
@@ -17,7 +19,10 @@
 > signing-enabled workstation configuration cannot depend on credentials intentionally removed from child processes;
 > sandbox-dependent tests select their backend explicitly. Codesearch indexing now uses the bounded asynchronous
 > process runner so provider output survives timeout termination and unresponsive process groups are force-killed.
-> The guided verifier now initializes dependent paths safely, detects incomplete workspace sets, prepares them automatically before launch, emits terminal-reset sequences only after Pi has entered the TUI, and renders Markdown guides without shell-expanding backticks. Existing guided runs refresh corrected instructions in place without losing workspaces or results. Executable regressions cover preparation, literal guide rendering, launch, evidence collection, recovery inspection, and result recording under `set -u`.
+> The guided verifier now describes the actual investigate-mode and recoverability matrix, gives explicit
+> approve/reject instructions, prints and restores every path-scoped checkpoint, validates generated plan
+> metadata without asking the tester to repair it, and supplies exact typed-tool probes for pause enforcement.
+> Existing guided runs refresh corrected instructions in place without losing workspaces or results.
 >
 > **Historical permission sections below are non-normative.** ADR-0032 and the delivered-status section
 > supersede every older design involving trusted projects, permission grants, capability bundles,
@@ -43,7 +48,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.26
+## Implementation Status — v0.14.0-alpha.27
 
 The current prototype delivers the guarded local workflow:
 
@@ -59,13 +64,14 @@ The current prototype delivers the guarded local workflow:
   atomic non-blocking cancellation;
 - deterministic Working State reconstruction across Pi restart and compaction;
 - Jujutsu-first repository identity with Git compatibility;
-- bounded provider-first codesearch retrieval with provenance, reuse, invalidation, and multi-repository isolation; and
+- bounded provider-first codesearch retrieval with provenance, reuse, invalidation, and multi-repository isolation; post-approval retrieval drift is audited but does not independently revoke untouched source-bound execution; and
 - matching CLI/Pi commands for review, approval, execution, cancellation, validation, evidence, status, and state;
 - user-owned executable selection plus fail-closed per-command approval when shell confinement is unavailable;
 - workspace-wide scoped commits, combined diff review, source-content validation freshness, metadata finalization, and closure;
 - deterministic unsigned Git commits that do not depend on workstation signing agents; and
 - persistent TUI-only Markdown reports for operational inspection, plus a guided evidence-gathering harness that keeps instructions outside the Pi viewport, captures host failures, and retries disposable steps independently; and
-- Pi-compatible Buffer delivery for direct user-shell output plus explicit terminal suspension around editors and full-screen navigators.
+- Pi-compatible Buffer delivery for direct user-shell output plus explicit terminal suspension around editors and full-screen navigators; and
+- guided verification that restores every recovery checkpoint, verifies generated validation scope, and exercises approval → retrieval → implementation → pause → resume → cancellation.
 
 The portable acceptance fixtures in `tests/acceptance-workflow.test.ts`, `tests/workspace-policy.test.ts`, and `tests/recovery-manager.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `LOCAL_ACCEPTANCE.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their “planned” wording does not override this delivered-status section.
 
