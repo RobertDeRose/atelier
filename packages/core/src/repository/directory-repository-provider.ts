@@ -1,7 +1,15 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { RepositorySnapshot } from "./snapshot.ts";
-import type { RepositoryProvider, RepositoryProviderStatus, RepositoryCommitResult, RepositoryPathState, RepositoryDisplayState } from "./repository-provider.ts";
+import type {
+  RepositoryProvider,
+  RepositoryProviderStatus,
+  RepositoryCommitResult,
+  RepositoryPathState,
+  RepositoryDisplayState,
+  RepositoryObservation,
+  RepositoryObserveOptions,
+} from "./repository-provider.ts";
 import { sha256 } from "../util/hash.ts";
 
 /** Non-executing provider used outside a supported VCS. */
@@ -15,6 +23,23 @@ export class DirectoryRepositoryProvider implements RepositoryProvider {
     this.root = resolve(options.root);
     this.indexSchemaVersion = options.indexSchemaVersion ?? 1;
     this.reason = options.reason ?? "No supported repository provider is active.";
+  }
+
+  async observe(options: RepositoryObserveOptions = {}): Promise<RepositoryObservation> {
+    const snapshot = this.snapshot();
+    const paths = [...new Set(options.paths ?? [])].map((path) => resolve(path));
+    return {
+      status: this.status(),
+      snapshot,
+      displayState: this.displayState(),
+      root: this.root,
+      rawChangedPaths: [],
+      changedPaths: [],
+      ...(options.includeFiles ? { files: [] } : {}),
+      pathStates: Object.fromEntries(paths.map((path) => [path, this.classifyPath(path)])),
+      observedAt: new Date().toISOString(),
+      metrics: { durationMs: 0, subprocesses: 0, filesHashed: 0, bytesHashed: 0, cacheHit: true },
+    };
   }
 
   status(): RepositoryProviderStatus {
