@@ -1,12 +1,23 @@
 import { spawnSync } from "node:child_process";
 import { minimalEnvironment } from "../process/environment.ts";
-import { resolve } from "node:path";
+import { runProcess, type ProcessResult } from "../process/async-process.ts";
+import { relative, resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
-import type { RepositoryCommitResult, RepositoryDisplayState, RepositoryPathState, RepositoryProvider, RepositoryProviderStatus, RepositoryRecoveryState } from "./repository-provider.ts";
+import type {
+  RepositoryCommitResult,
+  RepositoryDisplayState,
+  RepositoryObservation,
+  RepositoryObserveOptions,
+  RepositoryPathState,
+  RepositoryProvider,
+  RepositoryProviderStatus,
+  RepositoryRecoveryState,
+} from "./repository-provider.ts";
 import { RepositoryObservationError } from "../domain/errors.ts";
 import { sha256 } from "../util/hash.ts";
+import { nowIso } from "../util/ids.ts";
 import { isSourcePath } from "./source-path.ts";
 import { resolveAccessPath } from "../security/path-boundary.ts";
 
@@ -84,6 +95,33 @@ function contentState(root: string, paths: string[], hashContents: boolean): str
   }).join("\0");
 }
 
+function asyncFailure(result: ProcessResult): string {
+  if (result.timedOut) return "timed out";
+  if (result.aborted) return "cancelled";
+  return result.stderr.trim() || `exit ${result.exitCode}`;
+}
+
+function hashChangedContents(root: string, paths: readonly string[]): { value: string; files: number; bytes: number } {
+  let files = 0;
+  let bytes = 0;
+  const value = [...new Set(paths)].sort().map((path) => {
+    const absolute = resolve(root, path);
+    if (!existsSync(absolute)) return `${path}:deleted`;
+    try {
+      const stat = statSync(absolute);
+      if (!stat.isFile()) return `${path}:non-file:${stat.mode}:${stat.size}:${stat.mtimeMs}`;
+      const content = readFileSync(absolute);
+      files += 1;
+      bytes += content.byteLength;
+      return `${path}:${stat.mode}:${content.byteLength}:${sha256(content)}`;
+    } catch {
+      return `${path}:unreadable`;
+    }
+  }).join("\0");
+  return { value, files, bytes };
+}
+
+
 
 export class GitRepositoryProvider implements RepositoryProvider {
   readonly name = "git" as const;
@@ -91,12 +129,200 @@ export class GitRepositoryProvider implements RepositoryProvider {
   private readonly ledger: SqliteLedger;
   private readonly indexSchemaVersion: number;
   private readonly stateKey: string;
+  private rootPromise?: Promise<string>;
+  private commonDirectoryPromise?: Promise<string>;
+  private observationPromise?: Promise<RepositoryObservation>;
+  private lastObservation?: RepositoryObservation;
 
   constructor(options: { cwd: string; ledger: SqliteLedger; indexSchemaVersion?: number }) {
     this.cwd = resolve(options.cwd);
     this.ledger = options.ledger;
     this.indexSchemaVersion = options.indexSchemaVersion ?? 1;
     this.stateKey = `repositoryDirtyState:git:${sha256(this.cwd).slice(0, 16)}`;
+  }
+
+  peekObservation(): RepositoryObservation | undefined {
+    return this.lastObservation;
+  }
+
+  invalidateObservation(): void {
+    delete this.lastObservation;
+  }
+
+  async observe(options: RepositoryObserveOptions = {}): Promise<RepositoryObservation> {
+    const cached = this.lastObservation;
+    const age = cached === undefined ? Number.POSITIVE_INFINITY : Date.now() - Date.parse(cached.observedAt);
+    const requested = [...new Set(options.paths ?? [])].map((path) => resolve(path));
+    const hasRequestedStates = requested.every((path) => cached?.pathStates[path] !== undefined);
+    if (!options.force && cached !== undefined && age <= 250 && (!options.includeFiles || cached.files !== undefined) && hasRequestedStates) {
+      return { ...cached, metrics: { ...cached.metrics, cacheHit: true, durationMs: 0, subprocesses: 0, filesHashed: 0, bytesHashed: 0 } };
+    }
+    if (this.observationPromise !== undefined && requested.length === 0 && options.includeFiles !== true) return this.observationPromise;
+    const pending = this.observeFresh(options);
+    if (requested.length === 0 && options.includeFiles !== true) this.observationPromise = pending;
+    try {
+      const observation = await pending;
+      this.lastObservation = observation;
+      return observation;
+    } finally {
+      if (this.observationPromise === pending) delete this.observationPromise;
+    }
+  }
+
+  async classifyPaths(paths: readonly string[], options: { signal?: AbortSignal } = {}): Promise<Record<string, RepositoryPathState>> {
+    const root = await this.repositoryRoot(options.signal);
+    const absolutePaths = [...new Set(paths.map((path) => resolve(path)))];
+    const relativePaths = absolutePaths.map((path) => relative(root, path).replaceAll("\\", "/"));
+    const trackedResult = await runProcess("git", ["ls-files", "-z", "--", ...relativePaths], {
+      cwd: root,
+      signal: options.signal,
+      timeoutMs: 10_000,
+      idleTimeoutMs: 3_000,
+      maxOutputBytes: 256 * 1024,
+    });
+    if (trackedResult.exitCode !== 0) throw new RepositoryObservationError(`Git path inventory failed: ${asyncFailure(trackedResult)}`);
+    const tracked = new Set(trackedResult.stdout.split("\0").filter(Boolean));
+    const ignoredResult = await runProcess("git", ["check-ignore", "-z", "--stdin"], {
+      cwd: root,
+      input: `${relativePaths.join("\0")}\0`,
+      signal: options.signal,
+      timeoutMs: 10_000,
+      idleTimeoutMs: 3_000,
+      maxOutputBytes: 256 * 1024,
+    });
+    const ignored = new Set(ignoredResult.stdout.split("\0").filter(Boolean));
+    const statusResult = await runProcess("git", ["status", "--porcelain=v1", "--untracked-files=all", "--", ...relativePaths], {
+      cwd: root,
+      signal: options.signal,
+      timeoutMs: 10_000,
+      idleTimeoutMs: 3_000,
+      maxOutputBytes: 256 * 1024,
+    });
+    if (statusResult.exitCode !== 0) throw new RepositoryObservationError(`Git path-state observation failed: ${asyncFailure(statusResult)}`);
+    const dirty = new Set(parseStatusPaths(statusResult.stdout));
+    return Object.fromEntries(absolutePaths.map((absolute, index) => {
+      const rel = relativePaths[index]!;
+      const state: RepositoryPathState = tracked.has(rel)
+        ? dirty.has(rel) ? "tracked_dirty" : "tracked_clean"
+        : ignored.has(rel) ? "ignored"
+          : existsSync(absolute) ? "untracked" : "missing";
+      return [absolute, state];
+    }));
+  }
+
+  private async repositoryRoot(signal?: AbortSignal): Promise<string> {
+    if (this.rootPromise !== undefined) return this.rootPromise;
+    const pending = runProcess("git", ["rev-parse", "--show-toplevel"], {
+      cwd: this.cwd,
+      signal,
+      timeoutMs: 10_000,
+      idleTimeoutMs: 3_000,
+      maxOutputBytes: 64 * 1024,
+    }).then((result) => {
+      if (result.exitCode !== 0) throw new RepositoryObservationError(`Git repository-root observation failed: ${asyncFailure(result)}`);
+      return result.stdout.trim();
+    });
+    this.rootPromise = pending;
+    pending.catch(() => { if (this.rootPromise === pending) delete this.rootPromise; });
+    return pending;
+  }
+
+  private async commonDirectory(root: string, signal?: AbortSignal): Promise<string> {
+    if (this.commonDirectoryPromise !== undefined) return this.commonDirectoryPromise;
+    const pending = runProcess("git", ["rev-parse", "--git-common-dir"], {
+      cwd: root,
+      signal,
+      timeoutMs: 10_000,
+      idleTimeoutMs: 3_000,
+      maxOutputBytes: 64 * 1024,
+    }).then((result) => {
+      if (result.exitCode !== 0) throw new RepositoryObservationError(`Git common-directory observation failed: ${asyncFailure(result)}`);
+      return result.stdout.trim();
+    });
+    this.commonDirectoryPromise = pending;
+    pending.catch(() => { if (this.commonDirectoryPromise === pending) delete this.commonDirectoryPromise; });
+    return pending;
+  }
+
+  private async observeFresh(options: RepositoryObserveOptions): Promise<RepositoryObservation> {
+    const started = performance.now();
+    let subprocesses = 0;
+    const run = async (args: string[], purpose: string, allowFailure = false): Promise<ProcessResult> => {
+      subprocesses += 1;
+      const result = await runProcess("git", args, {
+        cwd: await this.repositoryRoot(options.signal),
+        signal: options.signal,
+        timeoutMs: 15_000,
+        idleTimeoutMs: 5_000,
+        maxOutputBytes: 512 * 1024,
+      });
+      if (!allowFailure && result.exitCode !== 0) throw new RepositoryObservationError(`Git ${purpose} failed: ${asyncFailure(result)}`);
+      return result;
+    };
+    const root = await this.repositoryRoot(options.signal);
+    subprocesses += 1; // root observation (cached promises are intentionally counted only on cache misses by caller metrics)
+    const commonDir = await this.commonDirectory(root, options.signal);
+    subprocesses += 1;
+    const [statusResult, headResult, branchResult] = await Promise.all([
+      run(["status", "--porcelain=v1", "--untracked-files=all"], "working-copy observation"),
+      run(["rev-parse", "HEAD"], "head observation", true),
+      run(["symbolic-ref", "--quiet", "--short", "HEAD"], "branch observation", true),
+    ]);
+    const rawChangedPaths = parseStatusPaths(statusResult.stdout).sort();
+    const changedPaths = rawChangedPaths.filter(isSourcePath);
+    const sourceBaseCommit = headResult.exitCode === 0 ? headResult.stdout.trim() : "unborn";
+    const sourceContents = hashChangedContents(root, changedPaths);
+    const rawContents = hashChangedContents(root, rawChangedPaths.filter((path) => !changedPaths.includes(path)));
+    const sourceFingerprint = sha256(`${sourceBaseCommit}\0${changedPaths.join("\0")}\0${sourceContents.value}`);
+    const rawFingerprint = sha256(`${sourceBaseCommit}\0${statusResult.stdout}\0${sourceFingerprint}\0${rawContents.value}`);
+    const conflicts = statusResult.stdout.split("\n").filter(Boolean).some((line) => {
+      const code = line.slice(0, 2);
+      return code.includes("U") || code === "AA" || code === "DD";
+    });
+    let files: string[] | undefined;
+    if (options.includeFiles) {
+      const fileResult = await run(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], "file inventory");
+      files = fileResult.stdout.split("\0").filter(Boolean).filter(isSourcePath).sort();
+    }
+    const pathStates = (options.paths?.length ?? 0) > 0
+      ? await this.classifyPaths(options.paths!, { signal: options.signal })
+      : {};
+    if ((options.paths?.length ?? 0) > 0) subprocesses += 3;
+    const snapshot: RepositorySnapshot = {
+      repositoryId: `git:${sha256(`${root}\0${commonDir}`).slice(0, 24)}`,
+      workspaceId: sha256(root).slice(0, 16),
+      vcs: "git",
+      headCommit: sourceBaseCommit,
+      sourceBaseCommit,
+      sourceFingerprint,
+      dirtyGeneration: this.dirtyGeneration(rawFingerprint),
+      dirtyFingerprint: rawFingerprint,
+      indexSchemaVersion: this.indexSchemaVersion,
+    };
+    return {
+      status: { provider: "git", available: true, repository: true },
+      snapshot,
+      displayState: {
+        vcs: "git",
+        ...(branchResult.exitCode === 0 && branchResult.stdout.trim() ? { label: branchResult.stdout.trim() } : {}),
+        ...(sourceBaseCommit === "unborn" ? {} : { revision: sourceBaseCommit.slice(0, 8) }),
+        state: conflicts ? "conflicted" : rawChangedPaths.length > 0 ? "dirty" : "clean",
+        ...(branchResult.exitCode === 0 ? {} : { detached: true }),
+      },
+      root,
+      rawChangedPaths,
+      changedPaths,
+      ...(files === undefined ? {} : { files }),
+      pathStates,
+      observedAt: nowIso(),
+      metrics: {
+        durationMs: performance.now() - started,
+        subprocesses,
+        filesHashed: sourceContents.files + rawContents.files,
+        bytesHashed: sourceContents.bytes + rawContents.bytes,
+        cacheHit: false,
+      },
+    };
   }
 
   status(): RepositoryProviderStatus {
