@@ -16,7 +16,6 @@ import {
   createStatusView,
   statusViewText,
   rankPresentedHits,
-  type ManualEditEditor,
   type AtelierStatus,
 } from "../../../packages/core/src/index.ts";
 import {
@@ -33,6 +32,7 @@ import { preparationSummary } from "./approval-presentation.ts";
 import { confirmApprovalDialog } from "./approval-dialog.ts";
 import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "./navigation.ts";
 import { runInteractiveProcessWithPi } from "./interactive-process.ts";
+import { runPlanEditorWithPi } from "./manual-edit-process.ts";
 import { planInstruction } from "./plan-instruction.ts";
 import { contextCapsulePrompt, createAuthoritativeContextCapsule } from "./authoritative-context.ts";
 import { createAtelierBashOperations } from "./bash-operations.ts";
@@ -52,15 +52,10 @@ import {
   changedMarkdown,
   evidenceMarkdown,
   focusedSelectionMarkdown,
-  performanceMarkdown,
   readyTasksMarkdown,
-  statusMarkdown,
-  statusSummary,
   validationListMarkdown,
   validationResultsMarkdown,
   workflowMarkdown,
-  workflowSummary,
-  workflowStatusMarkdown,
 } from "./command-reports.ts";
 import {
   executionGrantText,
@@ -69,13 +64,14 @@ import {
 } from "./status-presentation.ts";
 import { FooterStatusController } from "./footer-status-controller.ts";
 import { registerCodeCommands } from "./code-commands.ts";
+import { registerStatusCommands } from "./status-commands.ts";
+import { clearAtelierPhase as clearPhase, showAtelierPhase as showPhase } from "./working-phase.ts";
 import {
   ATELIER_COMMIT_TOOL,
   ATELIER_STATE_TOOL,
   ATELIER_TASK_CLOSE_TOOL,
   registerWorkflowTools,
 } from "./workflow-tools.ts";
-
 const STATUS_KEY = "atlr";
 const WORKFLOW_AGENT_TOOLS = [
   ATELIER_VALIDATION_TOOL,
@@ -91,7 +87,6 @@ const CODE_RETRIEVAL_TOOLS = [
 export interface AtelierExtensionOptions {
   openCore?: (repositoryRoot: string) => AtelierCore;
 }
-
 interface ExtensionSessionState {
   sessionId: string;
   core?: AtelierCore;
@@ -104,14 +99,11 @@ interface ExtensionSessionState {
   authorizedShellToolCalls: Map<string, { allowUnsandboxed: boolean }>;
   footerStatus: FooterStatusController;
 }
-
 const SESSION_STATES = new WeakMap<object, ExtensionSessionState>();
-
 function sessionKey(ctx: ExtensionContext): object {
   const extended = ctx as ExtensionContext & { sessionManager?: object; session?: object };
   return extended.sessionManager ?? extended.session ?? ctx;
 }
-
 function sessionState(ctx: ExtensionContext): ExtensionSessionState {
   const key = sessionKey(ctx);
   const existing = SESSION_STATES.get(key);
@@ -169,33 +161,6 @@ function updateRuntimeFooter(ctx: ExtensionContext): void {
   sessionState(ctx).footerStatus.renderRuntime(ctx);
 }
 
-async function showPhase(ctx: ExtensionContext, message: string): Promise<void> {
-  ctx.ui.setWorkingMessage?.(`Atelier: ${message}…`);
-  await new Promise<void>((resolve) => setImmediate(resolve));
-}
-
-function clearPhase(ctx: ExtensionContext): void {
-  ctx.ui.setWorkingMessage?.();
-}
-
-
-async function runEditorWithPi(
-  ctx: ExtensionContext,
-  core: AtelierCore,
-  editor: ManualEditEditor,
-): Promise<{ exitCode: number; error?: string; signal?: string; editor: ManualEditEditor }> {
-  if (ctx.mode !== "tui") {
-    throw new Error(`ManualEdit requires Pi TUI mode to open ${core.config.planPath}. Run \`atlr review\` in a terminal, then resume this session.`);
-  }
-  const result = await runInteractiveProcessWithPi(ctx, {
-    command: editor.executable,
-    args: [...editor.args, core.config.planPath],
-    cwd: core.config.repositoryRoot,
-    purpose: "ManualEdit",
-  });
-  return { ...result, editor };
-}
-
 async function reviewPlan(
   ctx: ExtensionContext,
   core: AtelierCore,
@@ -210,7 +175,7 @@ async function reviewPlan(
     const editor = resolveEditorCommand(core.config, ctx.isProjectTrusted());
     const started = core.beginPlanReview({ editor });
     startedManualEditId = started.id;
-    const result = await runEditorWithPi(ctx, core, editor);
+    const result = await runPlanEditorWithPi(ctx, core, editor);
     if (result.exitCode !== 0 || result.error !== undefined || result.signal !== undefined) {
       core.cancelPlanReview(started.id, {
         status: result.signal === undefined ? "failed" : "interrupted",
@@ -930,7 +895,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     await reviewPlan(ctx, core);
   });
 
-
   pi.registerCommand("atelier-open", {
     description: "Open a repository path at an optional line in the configured editor",
     handler: async (args, ctx) => {
@@ -1035,20 +999,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     },
   });
 
-  pi.registerCommand("status", {
-    description: "Show Atelier workflow, plan, task, and policy state",
-    handler: async (_args, ctx) => {
-      const core = getCore(ctx);
-      await showPhase(ctx, "reading status");
-      try {
-        const status = await core.status();
-        appendAtelierReport(pi, ctx, "Atelier status", statusMarkdown(status), statusSummary(status));
-        await updateStatus(ctx, core, status);
-      } finally {
-        clearPhase(ctx);
-      }
-    },
-  });
+  registerStatusCommands(pi, { getCore, updateStatus });
 
   pi.registerCommand("plan", {
     description: "Enter guarded plan mode; the completed draft opens in the configured editor",
@@ -1064,7 +1015,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       pi.sendUserMessage(planInstruction(core, args.trim()));
     },
   });
-
 
   pi.registerCommand("plan-scope", {
     description: "Canonically update one task execution scope without editing embedded JSON",
@@ -1256,59 +1206,9 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     },
   });
 
-  const showWorkflowReport = async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
-    const core = getCore(ctx);
-    const requested = args.trim();
-    const full = requested === "--full" || requested === "full" || requested === "refresh";
-    await showPhase(ctx, full ? "refreshing authoritative workflow state" : "reading durable workflow state");
-    try {
-      if (full) {
-        const state = await core.buildWorkingState();
-        appendAtelierReport(pi, ctx, "Atelier workflow · full", core.workingStateBuilder.toMarkdown(state), workflowSummary(state));
-        await updateStatus(ctx, core);
-        return;
-      }
-      const status = await core.status();
-      appendAtelierReport(
-        pi,
-        ctx,
-        "Atelier workflow",
-        workflowStatusMarkdown(status),
-        status.currentTaskId === undefined ? `${status.mode} · no active task` : `${status.mode} · task ${status.currentTaskId}`,
-      );
-      await updateStatus(ctx, core, status);
-    } finally {
-      clearPhase(ctx);
-    }
-  };
-
-  pi.registerCommand("workflow", {
-    description: "Show durable workflow state; use /workflow full or /workflow refresh for retrieval-backed diagnostics",
-    handler: showWorkflowReport,
-  });
-
-  pi.registerCommand("state", {
-    description: "Compatibility alias for /workflow",
-    handler: showWorkflowReport,
-  });
-
   registerCodeCommands(pi, {
     getCore,
     getFooterStatus: (ctx) => sessionState(ctx).footerStatus,
-  });
-
-  pi.registerCommand("performance", {
-    description: "Show bounded interactive, subprocess, hashing, cache, and SQLite timing diagnostics",
-    handler: async (args, ctx) => {
-      const core = getCore(ctx);
-      if (args.trim() === "clear") {
-        core.clearPerformanceReport();
-        ctx.ui.notify("Atelier performance samples cleared.", "info");
-        return;
-      }
-      const report = core.performanceReport(100);
-      appendAtelierReport(pi, ctx, "Atelier performance", performanceMarkdown(report), `${report.interactive.sampleCount + report.sqlite.sampleCount} sample(s)`);
-    },
   });
 
   pi.registerCommand("changed", {

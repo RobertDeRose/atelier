@@ -1,9 +1,10 @@
-# Atelier Architecture — 0.14.0-alpha.29
+# Atelier Architecture — 0.14.0-alpha.30
 
-The Pi integration owns a session-local `FooterStatusController`. It serializes status observations, consumes
-model/thinking and code-index events, re-snapshots the active Git/Jujutsu provider after mutation boundaries,
-and compares current source revisions with the indexed baseline before rendering intelligence readiness.
-It does not poll while Pi is idle; the next Pi interaction refreshes externally changed state.
+The Pi integration owns a session-local `FooterStatusController` and request-scoped observation pipeline. It
+serializes and coalesces status observations, consumes model/thinking and code-index events, invalidates cached
+Git/Jujutsu state at mutation boundaries, and compares current source revisions with the indexed baseline before
+rendering intelligence readiness. It does not poll while Pi is idle; the next Pi interaction refreshes externally
+changed state.
 
 ## Product boundary
 
@@ -61,6 +62,42 @@ task title or Beads ID on the right. The second row presents provider-native `jj
 clean/dirty/conflicted state on the left, with `intel:` health on the right. Theme bold and semantic colors
 are applied by state, and expected empty workflow fields are deliberately omitted. `status-only` and
 `disabled` release custom-footer ownership back to Pi.
+
+## Interactive observation pipeline
+
+Routine Pi interactions use an asynchronous `RepositoryObservation` rather than assembling repository facts
+through independent synchronous calls. One observation can contain revision identity, display state, changed
+paths, batched path classifications, optional file inventory, and metrics for subprocesses and content hashing.
+`/status`, permission evaluation, exact approval, recovery preparation, and execution-evidence start reuse the
+same observation when they belong to one user action.
+
+Repository roots, provider selection, Beads version/initialization state, recent task records, and provider
+readiness are cached with explicit mutation invalidation. Dirty-source identity hashes only changed and untracked
+source paths. Presentation does not run the full closure predicate repeatedly: passive status consumes cached
+closure evidence, while closure itself and `/workflow full` remain authoritative.
+
+The interactive sequence is:
+
+```mermaid
+sequenceDiagram
+    participant U as User/Pi
+    participant UI as Atelier UI
+    participant C as AtelierCore
+    participant R as Git/Jujutsu
+    participant L as Ledger
+    U->>UI: /status, tool, or approval
+    UI-->>U: immediate phase feedback
+    UI->>C: request one observation
+    C->>R: async bounded subprocesses
+    R-->>C: snapshot + display + paths + metrics
+    C->>L: read/write durable state
+    C-->>UI: status or authorization decision
+    UI-->>U: report, prompt, or tool start
+```
+
+`/performance` exposes bounded session-local phase summaries, including duration, subprocess counts, files and
+bytes hashed, cache hits/misses, and SQLite operation/lock-wait observations. The telemetry contains no raw
+provider output or secret material.
 
 ## Persistent Pi report presentation
 

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { authorizeWorkspaceEffects } from "../apps/pi-extension/src/tool-authorization.ts";
+import { showAtelierPhase } from "../apps/pi-extension/src/working-phase.ts";
 import { AtelierCore } from "../packages/core/src/core.ts";
 import { createTemporaryRepository } from "./fixtures.ts";
 
@@ -29,12 +30,31 @@ test("interactive status yields to the event loop and reuses one cached reposito
     assert.equal(observations, 2, "each status request owns one observation instead of hidden duplicates");
     const repositorySamples = core.performanceReport().interactive.latest
       .filter((sample) => sample.operation === "status" && sample.phase === "repository.observe");
+    assert.ok((repositorySamples[0]?.subprocesses ?? Number.POSITIVE_INFINITY) <= 5,
+      `one Git status observation used too many subprocesses: ${repositorySamples[0]?.subprocesses}`);
     assert.equal(repositorySamples.at(-1)?.cache, "hit", "the repeated status should reuse the bounded observation cache");
+    assert.equal(repositorySamples.at(-1)?.subprocesses, 0, "a cached status observation must not launch VCS subprocesses");
+    assert.equal(repositorySamples.at(-1)?.filesHashed, 0, "a cached status observation must not rehash source files");
     assert.ok(core.performanceReport().interactive.latest.some((sample) => sample.operation === "/status" && sample.phase === "total"));
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test("interactive phase feedback is visible before delayed work starts", async () => {
+  const messages: Array<string | undefined> = [];
+  const context = {
+    ui: {
+      setWorkingMessage(message?: string): void { messages.push(message); },
+    },
+  } as unknown as ExtensionContext;
+
+  const pending = showAtelierPhase(context, "reading repository state");
+  assert.equal(messages[0], "Atelier: reading repository state…",
+    "the first feedback must be installed synchronously before provider work begins");
+  await pending;
 });
 
 test("explicit checkpoint approval is shown before Atelier copies recovery state", async () => {

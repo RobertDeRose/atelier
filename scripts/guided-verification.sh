@@ -3,6 +3,10 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
+HARNESS_VERSION="30.1"
+EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.30}"
+MANUAL_PARENT="${ATELIER_MANUAL_PARENT:-$HOME/workspace/scratch}"
+RUN_PREFIX="atelier-manual-"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
 SOURCE_REPO=""
 RUN_ROOT=""
@@ -18,6 +22,8 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<USAGE
 Usage:
+  $PROGRAM fresh [SOURCE_REPO]
+  $PROGRAM purge
   $PROGRAM all [SOURCE_REPO]
   $PROGRAM automated [SOURCE_REPO]
   $PROGRAM prepare
@@ -26,10 +32,16 @@ Usage:
   $PROGRAM status
   $PROGRAM archive
 
+Recommended clean start:
+  $PROGRAM fresh ~/workspace/personal/atelier
+
 Typical continuation after live acceptance:
   $PROGRAM guided
 
 Commands:
+  fresh      Verify SOURCE_REPO, remove all old Atelier manual-test runs under
+             ATELIER_MANUAL_PARENT, then run automated and guided verification.
+  purge      Remove old Atelier manual-test runs and the current pointer only.
   all        Run deterministic and automated gates, prepare guided workspaces,
              then walk through every manual TUI step.
   automated  Run deterministic and automated gates, then prepare manual workspaces.
@@ -43,11 +55,134 @@ Commands:
 Environment:
   ATELIER_GUIDED_SKIP_CHECK=1  Skip mise run check when it already passed.
   ATELIER_GUIDED_KEEP_GOING=1  Preserve evidence and continue after a recorded FAIL.
+  ATELIER_GUIDED_PURGE_CONFIRM=1
+                                  Skip the PURGE confirmation for fresh/purge.
+  ATELIER_MANUAL_PARENT           Manual-test parent (default: ~/workspace/scratch).
+  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.30).
 USAGE
 }
 
 canonical_dir() { (cd "$1" && pwd -P); }
 require_command() { command -v "$1" >/dev/null 2>&1 || fail "required command is missing: $1"; }
+is_test_mode() { [[ "${ATELIER_GUIDED_TEST_MODE:-0}" == 1 ]]; }
+
+manual_parent_dir() {
+  mkdir -p "$MANUAL_PARENT"
+  canonical_dir "$MANUAL_PARENT"
+}
+
+managed_run_path() {
+  local candidate="$1"
+  local parent canonical
+  [[ -d "$candidate" ]] || return 1
+  parent="$(manual_parent_dir)"
+  canonical="$(canonical_dir "$candidate")"
+  [[ "$(dirname "$canonical")" == "$parent" && "$(basename "$canonical")" == "$RUN_PREFIX"* ]]
+}
+
+verify_source_release() {
+  local source="$1"
+  is_test_mode && return 0
+  [[ -f "$source/package.json" ]] || fail "not an Atelier checkout: $source"
+  [[ -d "$source/.git" ]] || fail "Atelier source is not a Git checkout: $source"
+
+  local version tag
+  version="$(node -p "require('$source/package.json').version")"
+  [[ "$version" == "$EXPECTED_ATELIER_VERSION" ]] \
+    || fail "expected Atelier $EXPECTED_ATELIER_VERSION, found $version in $source"
+
+  tag="$(git -C "$source" describe --tags --exact-match 2>/dev/null || true)"
+  [[ "$tag" == "v$EXPECTED_ATELIER_VERSION" ]] \
+    || fail "source HEAD is not tagged v$EXPECTED_ATELIER_VERSION (found: ${tag:-none})"
+
+  local dirty
+  dirty="$(git -C "$source" status --short)"
+  [[ -z "$dirty" ]] || {
+    printf '%s\n' "$dirty" >&2
+    fail "source checkout is dirty: $source"
+  }
+}
+
+purge_old_runs() {
+  local parent
+  parent="$(manual_parent_dir)"
+  [[ "$parent" != "/" && "$parent" != "$HOME" ]] \
+    || fail "refusing to purge unsafe manual-test parent: $parent"
+
+  local runs=()
+  local path
+  while IFS= read -r -d '' path; do
+    runs+=("$path")
+  done < <(find "$parent" -mindepth 1 -maxdepth 1 -type d -name "${RUN_PREFIX}*" -print0)
+
+  printf 'Manual-test parent: %s\n' "$parent"
+  if [[ "${#runs[@]}" -eq 0 ]]; then
+    printf 'No old Atelier manual-test runs were found.\n'
+  else
+    printf 'The following disposable test runs will be removed:\n'
+    printf '  %s\n' "${runs[@]}"
+    if [[ "${ATELIER_GUIDED_PURGE_CONFIRM:-0}" != 1 ]]; then
+      local confirmation
+      read -r -p 'Type PURGE to remove these test runs: ' confirmation
+      [[ "$confirmation" == PURGE ]] || fail "purge cancelled"
+    fi
+    for path in "${runs[@]}"; do
+      managed_run_path "$path" || fail "refusing to remove unmanaged path: $path"
+      rm -rf -- "$path"
+    done
+  fi
+
+  rm -f -- "$POINTER_FILE"
+  pass "old Atelier manual-test runs and pointer were removed"
+}
+
+write_workspace_metadata() {
+  local name="$1" root="$2" repo="$3"
+  if is_test_mode; then
+    cat >"$root/workspace-version.txt" <<META
+Harness: $HARNESS_VERSION
+Expected Atelier: $EXPECTED_ATELIER_VERSION
+Workspace: $name
+Repository: $repo
+Package version: $EXPECTED_ATELIER_VERSION
+Source commit: test
+Source tag: v$EXPECTED_ATELIER_VERSION
+Prepared at: test
+META
+    return 0
+  fi
+  local source_commit source_tag package_version
+  source_commit="$(git -C "$repo" rev-parse refs/remotes/origin/main 2>/dev/null || git -C "$repo" rev-parse HEAD)"
+  source_tag="$(git -C "$repo" describe --tags --exact-match "$source_commit" 2>/dev/null || true)"
+  package_version="$(node -p "require('$repo/package.json').version")"
+  cat >"$root/workspace-version.txt" <<META
+Harness: $HARNESS_VERSION
+Expected Atelier: $EXPECTED_ATELIER_VERSION
+Workspace: $name
+Repository: $repo
+Package version: $package_version
+Source commit: $source_commit
+Source tag: ${source_tag:-none}
+Prepared at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+META
+  [[ "$package_version" == "$EXPECTED_ATELIER_VERSION" ]] \
+    || fail "$name workspace contains Atelier $package_version, expected $EXPECTED_ATELIER_VERSION"
+  [[ "$source_tag" == "v$EXPECTED_ATELIER_VERSION" ]] \
+    || fail "$name workspace source commit is not tagged v$EXPECTED_ATELIER_VERSION"
+}
+
+json_assert() {
+  local file="$1" body="$2"
+  node --input-type=module - "$file" "$body" <<'NODE'
+import { readFileSync } from "node:fs";
+const [file, body] = process.argv.slice(2);
+const data = JSON.parse(readFileSync(file, "utf8"));
+const assert = (condition, message) => {
+  if (!condition) throw new Error(message);
+};
+Function("data", "assert", body)(data, assert);
+NODE
+}
 
 clear_screen() {
   if [[ -t 1 ]]; then printf '\033[2J\033[H'; fi
@@ -110,6 +245,7 @@ prepare_intel_jj() {
     mise install >/dev/null
     mise run install >/dev/null
   )
+  write_workspace_metadata intel-jj "$root" "$repo"
 }
 
 prepare_policy_git() {
@@ -136,8 +272,12 @@ prepare_policy_git() {
     printf 'untracked contents\n' > manual-policy/untracked-delete.txt
     printf 'ignored contents\n' > manual-policy/ignored-delete.txt
     printf 'ACCEPTANCE_SECRET=must-not-read-without-approval\n' > .env.acceptance
-    printf 'console.log("unknown script executed")\n' > unknown-script.js
+    cat > unknown-script.js <<'JS'
+import { writeFileSync } from "node:fs";
+writeFileSync("manual-policy/unknown-script-ran.txt", "executed\n", "utf8");
+JS
   )
+  write_workspace_metadata policy-git "$root" "$repo"
 }
 
 prepare_policy_jj() {
@@ -158,6 +298,7 @@ prepare_policy_jj() {
     jj commit -m 'test: establish Jujutsu policy baseline' >/dev/null
     printf 'jj uncommitted contents\n' >> manual-policy/dirty-delete.txt
   )
+  write_workspace_metadata policy-jj "$root" "$repo"
 }
 
 prepare_control() {
@@ -195,6 +336,7 @@ prepare_control() {
 JSON
     jj commit -m 'test: establish Atelier guided-control baseline' >/dev/null
   )
+  write_workspace_metadata control "$root" "$repo"
 }
 
 write_guides() {
@@ -205,13 +347,16 @@ write_guides() {
 Run these checks inside Pi:
 
 1. Note the current thinking level in the Atelier footer. Use Pi's thinking-level shortcut to select a different level. The footer must change immediately without running an Atelier command.
-2. `/status`
-3. `/workflow`
-4. `/code-status`
-5. `/code-index`
-6. `/code-search Where is the authoritative task closure predicate implemented?`
-7. `/code-symbols AtelierCore`
-8. `/atelier-open apps/pi-extension/src/command-reports.ts:63`
+2. `/performance clear`
+3. `/status`
+4. `/status` again without changing any files.
+5. `/workflow`
+6. `/performance`
+7. `/code-status`
+8. `/code-index`
+9. `/code-search Where is the authoritative task closure predicate implemented?`
+10. `/code-symbols AtelierCore`
+11. `/atelier-open apps/pi-extension/src/command-reports.ts:63`
 
 Expected:
 
@@ -220,8 +365,11 @@ Expected:
 - `intel:` becomes `ready` after indexing.
 - The thinking level uses normal readable text rather than dim text.
 - Every slash-command result remains in transcript scrollback after the next command.
+- `/status` and `/workflow` show an Atelier working phase immediately instead of leaving the UI apparently frozen.
+- The second `/status` reuses the recent repository observation when nothing changed.
 - `/status` and `/code-status` render expandable cards with bold field/value summaries.
-- `/workflow` renders a concise durable workflow card distinct from `/status`.
+- Default `/workflow` renders a concise ledger/status-only card distinct from `/status`; it does not start semantic retrieval.
+- `/performance` contains `/status/total`, repository observation, subprocess, hashing, cache, and SQLite summaries.
 - Card headers use `➤` when collapsed and `▼` when expanded, with dividers between consecutive reports.
 - Symbol results separate the exact `AtelierCore` definition from references.
 - `/atelier-open` suspends Pi, opens the configured editor at line 63, and returns to the same usable Pi session after the editor exits.
@@ -278,9 +426,17 @@ GUIDE
     cat <<'GUIDE'
 `!node unknown-script.js`
 
-When each approval prompt appears, choose **No**.
+When each approval prompt appears, choose **No**. Atelier must show repository/effect-analysis feedback before the dialog rather than remaining blank for several seconds.
 
-Expected reasons: secret access, outside-workspace write, and indeterminate persistent effects. None of these commands may execute.
+Expected reasons: secret access, outside-workspace write, and indeterminate persistent effects.
+After each rejection, Pi must clearly indicate that Atelier denied the command and that it was not executed. A normal-looking successful shell row is a UX failure even when the ledger correctly records denial.
+
+The harness independently verifies that:
+
+- the outside-workspace marker does not exist;
+- `manual-policy/unknown-script-ran.txt` does not exist;
+- the ledger contains three separate `workspace_policy.approval_denied` events with the expected reasons;
+- no prompted operation received `workspace_policy.approval_granted`.
 
 ## Model Bash — no approval expected
 
@@ -288,7 +444,7 @@ Send:
 
 > Use Bash to run exactly: printf 'model read-only output\n'
 
-Exit Pi with Ctrl-D.
+Exit Pi with Ctrl-D. The harness will verify command execution, denial events, exact checkpoint path coverage, and restoration before asking for the result.
 GUIDE
   } >"$GUIDED_ROOT/guides/02-policy-git.md"
 
@@ -331,10 +487,10 @@ If the plan is correct, save it unchanged and close the editor.
 
 Then:
 
-1. Run `/approve` and reject it. Verify no task starts.
-2. Run `/approve` again and accept it.
+1. Run `/approve` and reject it. Atelier must show preparation feedback promptly. Verify no task starts.
+2. Run `/approve` again and accept it. Revalidation, reconciliation, convergence, and activation phases must remain visible while they run.
 3. Verify Pi remains idle and source files are unchanged.
-4. Run `/status` and `/workflow`; both reports must remain in scrollback.
+4. Run `/status`, `/workflow`, and `/performance`; all reports must remain in scrollback and the performance report must include approval/repository timing rather than an unexplained silent gap.
 
 Exit Pi with Ctrl-D.
 GUIDE
@@ -362,17 +518,24 @@ GUIDE
 guided_workspaces_ready() {
   local required=(
     "$GUIDED_ROOT/intel-jj/env.sh"
+    "$GUIDED_ROOT/intel-jj/workspace-version.txt"
     "$GUIDED_ROOT/intel-jj/repo"
     "$GUIDED_ROOT/policy-git/env.sh"
+    "$GUIDED_ROOT/policy-git/workspace-version.txt"
     "$GUIDED_ROOT/policy-git/repo"
     "$GUIDED_ROOT/policy-jj/env.sh"
+    "$GUIDED_ROOT/policy-jj/workspace-version.txt"
     "$GUIDED_ROOT/policy-jj/repo"
     "$GUIDED_ROOT/control/env.sh"
+    "$GUIDED_ROOT/control/workspace-version.txt"
     "$GUIDED_ROOT/control/repo"
     "$GUIDED_ROOT/.prepared"
   )
   local path
   for path in "${required[@]}"; do
+    if is_test_mode && [[ "$path" == */workspace-version.txt ]]; then
+      continue
+    fi
     [[ -e "$path" ]] || return 1
   done
 }
@@ -383,6 +546,7 @@ prepare_manual() {
   [[ -d "$automated_repo/.git" ]] || fail "automated repository is missing: $automated_repo"
   SOURCE_REPO="$(git -C "$automated_repo" remote get-url origin)"
   SOURCE_REPO="$(canonical_dir "$SOURCE_REPO")"
+  verify_source_release "$SOURCE_REPO"
   log "prepare guided workspaces"
   rm -rf "$GUIDED_ROOT"
   mkdir -p "$GUIDED_ROOT" "$EVIDENCE_DIR"
@@ -404,10 +568,23 @@ banner() {
   printf 'workspace:  %s\n' "$repo"
   printf 'VCS:        %s (intentional for this step)\n' "$vcs"
   printf 'intel:      %s\n' "$intel"
+  printf 'Pi session: fresh (--no-session)\n'
   printf 'guide:      %s\n\n' "$guide"
   printf 'Open the guide in a second terminal, or review it now with:\n  less %q\n\n' "$guide"
   read -r -p 'Press Enter to clear this screen and launch Pi... '
   clear_screen
+}
+
+write_result_row() {
+  local step="$1" result="$2" title="$3" notes="${4:-}"
+  notes="${notes//$'\t'/ }"
+  notes="${notes//$'\r'/ }"
+  notes="${notes//$'\n'/ }"
+  remove_recorded_steps "$step"
+  printf '%s\t%s\t%s\t%s\n' "$step" "$result" "$title" "$notes" >>"$RESULTS_FILE"
+  local sorted="$RESULTS_FILE.sorted"
+  LC_ALL=C sort -t $'\t' -k1,1n -s "$RESULTS_FILE" >"$sorted"
+  mv "$sorted" "$RESULTS_FILE"
 }
 
 record_result() {
@@ -417,10 +594,21 @@ record_result() {
     case "$result" in p|P) result=PASS; break;; f|F) result=FAIL; break;; s|S) result=SKIP; break;; esac
   done
   read -r -p 'Optional notes (one line): ' notes || true
-  printf '%s\t%s\t%s\t%s\n' "$step" "$result" "$title" "${notes:-}" >>"$RESULTS_FILE"
+  write_result_row "$step" "$result" "$title" "${notes:-}"
   if [[ "$result" == FAIL && "${ATELIER_GUIDED_KEEP_GOING:-0}" != 1 ]]; then
     archive_evidence >/dev/null
     fail "manual step $step failed; evidence preserved under $RUN_ROOT"
+  fi
+}
+
+record_automatic_failure() {
+  local step="$1" title="$2" reason="$3" notes
+  printf 'AUTOMATIC FAIL: %s\n' "$reason" >&2
+  read -r -p 'Optional notes (one line): ' notes || true
+  write_result_row "$step" FAIL "$title" "${notes:-$reason}"
+  archive_evidence >/dev/null
+  if [[ "${ATELIER_GUIDED_KEEP_GOING:-0}" != 1 ]]; then
+    fail "manual step $step failed objective verification; evidence preserved under $RUN_ROOT"
   fi
 }
 
@@ -434,9 +622,15 @@ collect_workspace() {
   (
     source "$root/env.sh"
     cd "$repo"
+    cp "$root/workspace-version.txt" "$out/workspace-version.txt" 2>/dev/null || true
+    node ./bin/atlr.mjs --version >"$out/atlr-version.txt" 2>"$out/atlr-version.stderr" || true
+    git rev-parse HEAD >"$out/git-head.txt" 2>&1 || true
+    git describe --tags --exact-match >"$out/git-tag.txt" 2>&1 || true
     node ./bin/atlr.mjs status --json >"$out/status.json" 2>"$out/status.stderr" || true
     node ./bin/atlr.mjs state --json >"$out/state.json" 2>"$out/state.stderr" || true
-    node ./bin/atlr.mjs ledger tail --limit 200 --json >"$out/ledger.json" 2>"$out/ledger.stderr" || true
+    node ./bin/atlr.mjs plan parse --json >"$out/plan.json" 2>"$out/plan.stderr" || true
+    node ./bin/atlr.mjs changed --json >"$out/changed.json" 2>"$out/changed.stderr" || true
+    node ./bin/atlr.mjs ledger tail --limit 400 --json >"$out/ledger.json" 2>"$out/ledger.stderr" || true
     node ./bin/atlr.mjs recovery list --json >"$out/recovery.json" 2>"$out/recovery.stderr" || true
     git status --short >"$out/git-status.txt" 2>&1 || true
     git diff >"$out/git-diff.patch" 2>&1 || true
@@ -444,6 +638,273 @@ collect_workspace() {
     jj diff --color never >"$out/jj-diff.patch" 2>&1 || true
     bd list --json >"$out/beads.json" 2>"$out/beads.stderr" || true
   )
+}
+
+verify_workspace_release() {
+  local name="$1"
+  is_test_mode && return 0
+  local root="$GUIDED_ROOT/$name"
+  local repo="$root/repo"
+  [[ -f "$root/workspace-version.txt" ]] || fail "missing workspace version record: $root/workspace-version.txt"
+  local version
+  version="$(node -p "require('$repo/package.json').version")"
+  [[ "$version" == "$EXPECTED_ATELIER_VERSION" ]] \
+    || fail "$name workspace contains Atelier $version, expected $EXPECTED_ATELIER_VERSION"
+  grep -Fq "Source tag: v$EXPECTED_ATELIER_VERSION" "$root/workspace-version.txt" \
+    || fail "$name workspace was not prepared from v$EXPECTED_ATELIER_VERSION"
+}
+
+verify_policy_git_before_restore() {
+  local root="$GUIDED_ROOT/policy-git"
+  local repo="$root/repo"
+  local out="$EVIDENCE_DIR/guided-policy-git"
+  local outside="$RUN_ROOT/outside-write-must-not-exist.txt"
+
+  [[ "$(cat "$repo/manual-policy/user-created.txt")" == 'user shell create' ]] \
+    || fail "direct user-shell create did not complete"
+  [[ ! -e "$repo/manual-policy/clean-delete.txt" ]] \
+    || fail "clean tracked deletion did not execute"
+  [[ ! -e "$repo/manual-policy/dirty-delete.txt" ]] \
+    || fail "dirty tracked deletion did not execute before checkpoint restoration"
+  [[ ! -e "$repo/manual-policy/untracked-delete.txt" ]] \
+    || fail "untracked deletion did not execute before checkpoint restoration"
+  [[ ! -e "$repo/manual-policy/ignored-delete.txt" ]] \
+    || fail "ignored deletion did not execute before checkpoint restoration"
+  [[ ! -e "$repo/manual-policy/typed-created.txt" ]] \
+    || fail "investigate-mode typed create unexpectedly succeeded"
+  [[ "$(cat "$repo/manual-policy/clean-edit.txt")" == 'clean edit' ]] \
+    || fail "investigate-mode typed edit unexpectedly changed clean-edit.txt"
+  [[ ! -e "$outside" ]] || fail "rejected outside-workspace write executed: $outside"
+  [[ ! -e "$repo/manual-policy/unknown-script-ran.txt" ]] \
+    || fail "rejected unknown script executed"
+
+  node --input-type=module - "$out/ledger.json" "$out/recovery.json" "$repo" "$outside" <<'NODE'
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+const [ledgerFile, recoveryFile, repo, outside] = process.argv.slice(2);
+const ledger = JSON.parse(readFileSync(ledgerFile, "utf8"));
+const recoveryRaw = JSON.parse(readFileSync(recoveryFile, "utf8"));
+const recovery = Array.isArray(recoveryRaw) ? recoveryRaw : recoveryRaw.checkpoints ?? [];
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const expectedCheckpointPaths = [
+  "manual-policy/dirty-delete.txt",
+  "manual-policy/untracked-delete.txt",
+  "manual-policy/ignored-delete.txt",
+].map((path) => resolve(repo, path));
+const created = ledger.filter((event) => event.kind === "recovery.checkpoint_created");
+const createdPaths = created.flatMap((event) => event.payload?.paths ?? []).map((value) => resolve(value));
+const recoveryPaths = recovery.flatMap((checkpoint) => checkpoint.paths ?? []).map((value) => resolve(value));
+for (const path of expectedCheckpointPaths) {
+  assert(createdPaths.filter((candidate) => candidate === path).length === 1,
+    `expected exactly one recovery.checkpoint_created event for ${path}; got ${createdPaths.join(", ")}`);
+  assert(recoveryPaths.filter((candidate) => candidate === path).length === 1,
+    `expected exactly one live checkpoint for ${path}; got ${recoveryPaths.join(", ")}`);
+}
+assert(createdPaths.length === expectedCheckpointPaths.length,
+  `unexpected checkpoint path set: ${createdPaths.join(", ")}`);
+
+const denied = ledger.filter((event) => event.kind === "workspace_policy.approval_denied");
+const deniedEffects = denied.flatMap((event) => event.payload?.decision?.effects ?? []);
+assert(deniedEffects.some((effect) => resolve(effect.resolvedPath ?? effect.path) === resolve(repo, ".env.acceptance") && effect.state === "potential_secret"),
+  "missing secret-path approval denial");
+assert(deniedEffects.some((effect) => resolve(effect.resolvedPath ?? effect.path) === resolve(outside) && effect.state === "outside_workspace"),
+  "missing outside-workspace approval denial");
+assert(deniedEffects.some((effect) => effect.kind === "execute" && String(effect.description ?? "").includes("unknown-script.js")),
+  "missing unknown-script execution denial");
+const granted = ledger.filter((event) => event.kind === "workspace_policy.approval_granted");
+assert(granted.length === 0, `prompted operations unexpectedly received approval: ${granted.length}`);
+NODE
+  pass "Step 2 objective evidence passed before checkpoint restoration"
+}
+
+verify_policy_git_after_restore() {
+  local repo="$GUIDED_ROOT/policy-git/repo"
+  local out="$EVIDENCE_DIR/guided-policy-git"
+  [[ "$(cat "$repo/manual-policy/dirty-delete.txt")" == $'dirty original\ndirty uncommitted' ]] \
+    || fail "dirty tracked checkpoint did not restore exact contents"
+  [[ "$(cat "$repo/manual-policy/untracked-delete.txt")" == 'untracked contents' ]] \
+    || fail "untracked checkpoint did not restore exact contents"
+  [[ "$(cat "$repo/manual-policy/ignored-delete.txt")" == 'ignored contents' ]] \
+    || fail "ignored checkpoint did not restore exact contents"
+  node --input-type=module - "$out/ledger.json" "$repo" <<'NODE'
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+const [ledgerFile, repo] = process.argv.slice(2);
+const ledger = JSON.parse(readFileSync(ledgerFile, "utf8"));
+const expected = [
+  "manual-policy/dirty-delete.txt",
+  "manual-policy/untracked-delete.txt",
+  "manual-policy/ignored-delete.txt",
+].map((path) => resolve(repo, path));
+const restored = ledger.filter((event) => event.kind === "recovery.checkpoint_restored")
+  .flatMap((event) => event.payload?.paths ?? []).map((value) => resolve(value));
+for (const path of expected) {
+  if (!restored.includes(path)) throw new Error(`missing recovery.checkpoint_restored for ${path}`);
+}
+NODE
+  pass "Step 2 restored every required Git checkpoint with exact contents"
+}
+
+verify_policy_jj_before_restore() {
+  local repo="$GUIDED_ROOT/policy-jj/repo"
+  local out="$EVIDENCE_DIR/guided-policy-jj"
+  [[ ! -e "$repo/manual-policy/dirty-delete.txt" ]] \
+    || fail "Jujutsu dirty deletion did not execute before restoration"
+  node --input-type=module - "$out/recovery.json" "$repo" <<'NODE'
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+const [file, repo] = process.argv.slice(2);
+const raw = JSON.parse(readFileSync(file, "utf8"));
+const checkpoints = Array.isArray(raw) ? raw : raw.checkpoints ?? [];
+const expected = resolve(repo, "manual-policy/dirty-delete.txt");
+const matches = checkpoints.filter((checkpoint) =>
+  checkpoint.repositoryState?.provider === "jj" && (checkpoint.paths ?? []).map((value) => resolve(value)).includes(expected));
+if (matches.length !== 1) throw new Error(`expected one Jujutsu checkpoint for ${expected}; got ${matches.length}`);
+NODE
+  pass "Step 3 created the expected Jujutsu checkpoint"
+}
+
+verify_policy_jj_after_restore() {
+  local repo="$GUIDED_ROOT/policy-jj/repo"
+  [[ "$(cat "$repo/manual-policy/dirty-delete.txt")" == $'jj dirty original\njj uncommitted contents' ]] \
+    || fail "Jujutsu checkpoint did not restore exact dirty working-copy contents"
+  pass "Step 3 restored the exact Jujutsu working-copy contents"
+}
+
+verify_control_approval() {
+  local repo="$GUIDED_ROOT/control/repo"
+  local out="$EVIDENCE_DIR/guided-control"
+  [[ ! -e "$repo/tests/version.test.ts" ]] \
+    || fail "Step 4 mutated tests/version.test.ts before implementation"
+  ! grep -q 'ATELIER_PRODUCT_NAME' "$repo/packages/core/src/version.ts" \
+    || fail "Step 4 mutated version.ts before implementation"
+
+  node --input-type=module - "$out/status.json" "$out/plan.json" "$out/beads.json" "$out/ledger.json" <<'NODE'
+import { readFileSync } from "node:fs";
+const [statusFile, planFile, beadsFile, ledgerFile] = process.argv.slice(2);
+const status = JSON.parse(readFileSync(statusFile, "utf8"));
+const plan = JSON.parse(readFileSync(planFile, "utf8"));
+const beadsRaw = JSON.parse(readFileSync(beadsFile, "utf8"));
+const beads = Array.isArray(beadsRaw) ? beadsRaw : Array.isArray(beadsRaw.data) ? beadsRaw.data : beadsRaw.tasks ?? [];
+const ledger = JSON.parse(readFileSync(ledgerFile, "utf8"));
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+assert(status.workflow?.mode === "act", `expected act mode, got ${status.workflow?.mode}`);
+assert(typeof status.task?.current === "string" && status.task.current !== "none", "approved task is not active");
+assert(status.execution?.grant !== "none", "approved execution grant is missing");
+assert(status.execution?.constraints === 1, `expected one task constraint, got ${status.execution?.constraints}`);
+assert(plan.tasks?.length === 1, `expected one plan task, got ${plan.tasks?.length}`);
+const task = plan.tasks[0];
+const execution = task.execution;
+assert(task.id === "ATLR-001", `unexpected task id: ${task.id}`);
+assert(JSON.stringify(execution.writePaths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]),
+  `unexpected write paths: ${JSON.stringify(execution.writePaths)}`);
+assert(JSON.stringify(execution.validations) === JSON.stringify(["manual-acceptance"]),
+  `unexpected validations: ${JSON.stringify(execution.validations)}`);
+assert(execution.allowDependencyChanges === false, "dependency changes were allowed");
+assert(execution.allowFullSuite === false, "full suite was allowed");
+assert(execution.allowLocalChange === true, "local change was not allowed");
+assert(beads.length === 1, `expected one Beads task, got ${beads.length}`);
+const kinds = new Set(ledger.map((event) => event.kind));
+for (const kind of ["execution.rejected", "execution.approval_accepted", "plan.approved", "plan.reconciled", "execution.started"]) {
+  assert(kinds.has(kind), `missing ledger event ${kind}`);
+}
+NODE
+  pass "Step 4 generated the exact plan, rejected without activation, then approved one idle task"
+}
+
+verify_control_cancellation() {
+  local repo="$GUIDED_ROOT/control/repo"
+  local out="$EVIDENCE_DIR/guided-control"
+  grep -q 'export const ATELIER_PRODUCT_NAME = "Atelier"' "$repo/packages/core/src/version.ts" \
+    || fail "Step 5 implementation did not add ATELIER_PRODUCT_NAME"
+  [[ -f "$repo/tests/version.test.ts" ]] || fail "Step 5 implementation did not create tests/version.test.ts"
+  ! grep -q '// pause-probe' "$repo/packages/core/src/version.ts" \
+    || fail "paused typed edit was not blocked"
+
+  node --input-type=module - "$out/status.json" "$out/changed.json" "$out/beads.json" "$out/ledger.json" <<'NODE'
+import { readFileSync } from "node:fs";
+const [statusFile, changedFile, beadsFile, ledgerFile] = process.argv.slice(2);
+const status = JSON.parse(readFileSync(statusFile, "utf8"));
+const changed = JSON.parse(readFileSync(changedFile, "utf8"));
+const beadsRaw = JSON.parse(readFileSync(beadsFile, "utf8"));
+const beads = Array.isArray(beadsRaw) ? beadsRaw : Array.isArray(beadsRaw.data) ? beadsRaw.data : beadsRaw.tasks ?? [];
+const ledger = JSON.parse(readFileSync(ledgerFile, "utf8"));
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+assert(status.execution?.grant === "none", `execution grant remains active: ${status.execution?.grant}`);
+assert(status.task?.current === "none", `current task remains selected: ${status.task?.current}`);
+assert(status.workflow?.checkpoint === "cancelled", `workflow checkpoint is ${status.workflow?.checkpoint}`);
+assert(beads.length === 1, `expected one Beads task after cancellation, got ${beads.length}`);
+assert(beads[0].status !== "closed", `Beads task was closed instead of retained: ${beads[0].status}`);
+const metadataRoots = [".atelier", ".beads", ".dolt", ".codesearch", ".octocode"];
+const paths = [...(changed.paths ?? [])]
+  .filter((path) => !metadataRoots.some((root) => path === root || path.startsWith(`${root}/`)))
+  .sort();
+assert(JSON.stringify(paths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]),
+  `unexpected retained source changes: ${JSON.stringify(paths)}`);
+const kinds = new Set(ledger.map((event) => event.kind));
+for (const kind of ["execution.paused", "execution.resumed", "execution.revoked", "workflow.cancelled"]) {
+  assert(kinds.has(kind), `missing ledger event ${kind}`);
+}
+assert(!kinds.has("task.closed"), "task was closed during cancellation test");
+NODE
+  pass "Step 5 preserved source changes and the open task while revoking execution"
+}
+
+verify_step_preconditions() {
+  local step="$1" name="$2"
+  verify_workspace_release "$name"
+  is_test_mode && return 0
+  if [[ "$step" == 5 ]]; then
+    local root="$GUIDED_ROOT/control"
+    local status_file="$EVIDENCE_DIR/guided-control/pre-step5-status.json"
+    mkdir -p "$(dirname "$status_file")"
+    (
+      source "$root/env.sh"
+      cd "$root/repo"
+      node ./bin/atlr.mjs status --json >"$status_file"
+    )
+    json_assert "$status_file" '
+      assert(data.workflow?.mode === "act", `step 5 requires act mode, got ${data.workflow?.mode}`);
+      assert(data.execution?.grant !== "none", "step 5 requires an active execution grant from step 4");
+      assert(typeof data.task?.current === "string" && data.task.current !== "none", "step 5 requires the active task from step 4");
+    '
+  fi
+}
+
+run_step_objective_checks() {
+  local step="$1"
+  if [[ "${ATELIER_GUIDED_TEST_SKIP_OBJECTIVE:-0}" == 1 ]]; then
+    case "$step" in
+      2) restore_all_checkpoints policy-git ;;
+      3) restore_all_checkpoints policy-jj ;;
+    esac
+    return 0
+  fi
+  local before_rc=0 restore_rc=0 after_rc=0
+  case "$step" in
+    1) return 0 ;;
+    2)
+      set +e
+      (verify_policy_git_before_restore); before_rc=$?
+      (restore_all_checkpoints policy-git); restore_rc=$?
+      collect_workspace policy-git
+      (verify_policy_git_after_restore); after_rc=$?
+      set -e
+      (( before_rc == 0 && restore_rc == 0 && after_rc == 0 ))
+      ;;
+    3)
+      set +e
+      (verify_policy_jj_before_restore); before_rc=$?
+      (restore_all_checkpoints policy-jj); restore_rc=$?
+      collect_workspace policy-jj
+      (verify_policy_jj_after_restore); after_rc=$?
+      set -e
+      (( before_rc == 0 && restore_rc == 0 && after_rc == 0 ))
+      ;;
+    4) verify_control_approval ;;
+    5) verify_control_cancellation ;;
+    *) fail "unknown guided step: $step" ;;
+  esac
 }
 
 restore_all_checkpoints() {
@@ -544,6 +1005,7 @@ prepare_single_step() {
   [[ -d "$automated_repo/.git" ]] || fail "automated repository is missing: $automated_repo"
   SOURCE_REPO="$(git -C "$automated_repo" remote get-url origin)"
   SOURCE_REPO="$(canonical_dir "$SOURCE_REPO")"
+  verify_source_release "$SOURCE_REPO"
   mkdir -p "$GUIDED_ROOT" "$EVIDENCE_DIR"
   case "$step" in
     1) prepare_intel_jj; remove_recorded_steps 1 ;;
@@ -572,17 +1034,21 @@ launch_step() {
   esac
   local guide="$GUIDED_ROOT/guides/0${step}-${guide_name}.md"
   [[ -d "$repo" ]] || fail "guided workspace is missing: $repo"
+  verify_step_preconditions "$step" "$name"
   banner "$step" "$title" "$repo" "$vcs" "$intel" "$guide"
   local out="$EVIDENCE_DIR/guided-$name"
   local pi_stderr="$out/pi.stderr"
   mkdir -p "$out"
   : >"$pi_stderr"
+  printf '%s\n' 'mise run launch -- --no-session' >"$out/pi-command.txt"
   TUI_TERMINAL_DIRTY=1
   set +e
   (
     source "$root/env.sh"
     cd "$repo"
-    mise run launch 2> >(tee "$pi_stderr" >&2)
+    # Every guided step gets a fresh Pi transcript. Atelier workflow state remains
+    # durable through its external ledger, so step 5 can continue step 4 safely.
+    mise run launch -- --no-session 2> >(tee "$pi_stderr" >&2)
   )
   local rc=$?
   set -e
@@ -598,11 +1064,24 @@ launch_step() {
   fi
   printf 'Pi exited with status %s. Collecting authoritative evidence...\n' "$rc"
   collect_workspace "$name"
-  if [[ "$step" == 2 || "$step" == 3 ]]; then
-    restore_all_checkpoints "$name"
-    collect_workspace "$name"
+
+  local objective_rc=0
+  if [[ "$rc" -eq 0 ]]; then
+    set +e
+    (run_step_objective_checks "$step")
+    objective_rc=$?
+    set -e
+  else
+    objective_rc=1
   fi
-  record_result "$step" "$title"
+
+  if [[ "$rc" -ne 0 ]]; then
+    record_automatic_failure "$step" "$title" "Pi exited with status $rc"
+  elif [[ "$objective_rc" -ne 0 ]]; then
+    record_automatic_failure "$step" "$title" "authoritative evidence did not satisfy the step contract"
+  else
+    record_result "$step" "$title"
+  fi
 }
 
 run_guided() {
@@ -659,6 +1138,8 @@ archive_evidence() {
 
 show_status() {
   load_run
+  printf 'harness:  %s\n' "$HARNESS_VERSION"
+  printf 'expected: %s\n' "$EXPECTED_ATELIER_VERSION"
   printf 'run:      %s\n' "$RUN_ROOT"
   printf 'guided:   %s\n' "$GUIDED_ROOT"
   printf 'results:  %s\n' "$RESULTS_FILE"
@@ -672,6 +1153,9 @@ run_automated() {
   local source="${1:-$PWD}"
   source="$(canonical_dir "$source")"
   require_command mise
+  require_command node
+  require_command git
+  verify_source_release "$source"
   if [[ "${ATELIER_GUIDED_SKIP_CHECK:-0}" != 1 ]]; then
     log "deterministic source gate"
     (cd "$source" && mise run check)
@@ -684,8 +1168,27 @@ run_automated() {
   prepare_manual
 }
 
+fresh_run() {
+  local source="${1:-$PWD}"
+  source="$(canonical_dir "$source")"
+  require_command git
+  require_command node
+  require_command mise
+  verify_source_release "$source"
+
+  purge_old_runs
+
+  # Prevent stale shell exports from forcing the live harness back into a removed run.
+  unset ATELIER_MANUAL_ROOT ATLR_REPO ATLR_STATE_HOME ATLR_USER_CONFIG
+
+  run_automated "$source"
+  run_guided 1
+}
+
 main() {
   case "${1:-}" in
+    fresh) shift; fresh_run "${1:-$PWD}" ;;
+    purge) purge_old_runs ;;
     all) shift; run_automated "${1:-$PWD}"; run_guided 1 ;;
     automated) shift; run_automated "${1:-$PWD}" ;;
     prepare) prepare_manual ;;
@@ -698,4 +1201,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

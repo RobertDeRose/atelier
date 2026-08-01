@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.29
+# Build Report — Atelier 0.14.0-alpha.30
 
 ## Result
 
@@ -16,6 +16,28 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.30 interactive-latency correction
+
+Alpha.30 implements the complete twenty-item correction from the alpha.29 UI-latency audit without weakening
+the workspace, recovery, exact-approval, or closure boundaries:
+
+- `/status` owns one observation and shares it with the footer; slash-command input no longer schedules a competing refresh;
+- passive status consumes cached closure evidence instead of running the complete closure predicate repeatedly;
+- default `/workflow` is ledger/status-only, while `/workflow full` and `/workflow refresh` explicitly rebuild retrieval-backed Working State;
+- model and thinking-level changes update runtime footer fields without repository, Beads, closure, or code-provider I/O;
+- Git and Jujutsu interactive observations use the bounded asynchronous process runner with cancellation and startup/idle/total timeouts;
+- request-scoped observations carry repository identity, display state, changed paths, batched path classifications, optional inventory, subprocess counts, and hashing metrics;
+- repository roots, provider selection, Beads version/initialization state, recent task reads, and code-provider readiness are cached and invalidated at mutation boundaries;
+- dirty-source identity hashes only changed and untracked source paths rather than the entire tracked source tree;
+- permission evaluation reuses one observation, prompts before expensive checkpoint copying, and never waits for a footer refresh before an approved tool starts;
+- exact approval uses preparation, one pre-apply revalidation inventory, and one post-apply convergence inventory;
+- immediate working phases make repository observation, effect evaluation, checkpointing, reconciliation, convergence, and activation visible; and
+- `/performance` reports bounded interactive, subprocess, hashing, cache, and SQLite timing samples, including potential lock waits.
+
+New deterministic regressions verify event-loop responsiveness, one-observation status, short-lived observation
+reuse, slash-command refresh ownership, prompt-before-checkpoint ordering, and exact-approval provider inventory
+counts. ADR-0036 records the request-scoped observation contract.
 
 ## Alpha.29 deterministic smoke-cleanup synchronization correction
 
@@ -152,7 +174,9 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
+Deterministic tests:   282 passed, 0 failed
 Guided regressions:    5 passed, 0 failed
+Interactive perf tests: 3 passed, 0 failed
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
 git diff --check:     passed
@@ -162,30 +186,28 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.29
-Files:            446
-Compressed size:  495,167 bytes
-Unpacked size:    2,314,461 bytes
+Package:          atelier-prototype@0.14.0-alpha.30
+Files:            469
+Compressed size:  529,456 bytes
+Unpacked size:    2,481,885 bytes
 ```
 
 ## Verification boundary
 
-The correction environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
-Node 24.18.0 and TypeScript 7 toolchain. The complete aggregate `npm run check` passed: metadata,
-type-check, build, all 278 deterministic tests with `--test-concurrency=8`, and the standalone smoke
-workflow. The corrected smoke-cleanup test also passed 20 consecutive targeted runs and a synthetic
-three-second `mktemp` startup delay that would have exceeded the former two-second assumption. The
-pinned Node 24 CI and maintainer `mise check` remain authoritative for the supported runtime.
+The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
+and TypeScript 7 toolchain. Type-checking and production compilation pass. All 282 deterministic tests pass in
+four bounded independent test-runner batches (138 + 22 + 78 + 44); the Node 22 aggregate runner can remain alive under the
+full 84-file concurrency set after completed output, so the pinned Node 24 `mise check` remains authoritative for
+the supported aggregate command.
 
-The environment did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap` binary. Exact Git
-recovery is exercised against real Git repositories. Jujutsu operation recovery and sandbox command
-construction are covered by deterministic fixtures and fail-closed tests; live Jujutsu, Seatbelt,
-Bubblewrap, codesearch, Beads, and Pi/Bun checks remain the responsibility of the pinned mise and
-live-conformance environments.
+The standalone smoke workflow, package dry-run, release metadata check, and script syntax pass. Bundle and
+fresh-checkout verification are performed after the release commit and annotated tag are created. Live Jujutsu, Seatbelt, Bubblewrap,
+codesearch, Beads, and Pi/Bun checks remain the responsibility of the pinned mise and live-conformance
+environments.
 
 ## Release classification
 
-`0.14.0-alpha.29` remains an interactive alpha. Footer status is now event-driven and provider-neutral:
+`0.14.0-alpha.30` remains an interactive alpha. Footer status is now event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so

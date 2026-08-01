@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.29
+# Local Acceptance Workflow — 0.14.0-alpha.30
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -78,6 +78,24 @@ Record the source and tools:
   done
 } | tee "$ATELIER_MANUAL_ROOT/tool-versions.txt"
 ```
+
+
+## Interactive latency checks
+
+In Pi, run `/performance clear`, then run `/status` twice, `/workflow`, and `/performance`.
+
+Pass conditions:
+
+- each command displays an Atelier phase message before repository/provider work begins;
+- the second `/status` reuses the recent repository observation when no source mutation occurred;
+- default `/workflow` does not initiate semantic retrieval or a code-provider refresh;
+- `/workflow full` remains available for explicit authoritative reconstruction;
+- the performance report contains `/status/total`, `repository.observe`, cache, subprocess, hashing, and SQLite summaries;
+- an approved tool begins without waiting for a complete footer observation; and
+- an operation requiring a recovery checkpoint prompts first, then visibly reports checkpoint creation after approval.
+
+The performance report is diagnostic rather than a security decision. Exact approval, tool authorization, and
+closure continue to force the current observations required by their authority boundaries.
 
 ## 1. Observational diagnostics and workspace selection
 
@@ -174,7 +192,7 @@ silently authorized by an active task or by sandbox availability alone.
 
 Before continuing, run `/status`, `/workflow`, and `/code-status` in sequence. Each result must remain visible
 in transcript scrollback after the next command. `/status` and `/code-status` should render expandable report cards with bold field/value summaries;
-`/workflow` should render a concise workflow report and remain distinguishable from `/status`. A workspace configured with `codeProvider: "disabled"` must show
+`/workflow` should render a concise ledger/status-only workflow report and remain distinguishable from `/status`; use `/workflow full` only for explicit provider-backed reconstruction. A workspace configured with `codeProvider: "disabled"` must show
 `intel: disabled`, not `offline`.
 
 For a guided, evidence-gathering walkthrough that clears each terminal transition and identifies the

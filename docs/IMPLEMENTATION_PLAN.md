@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.29 (2026-08-01).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.30 (2026-08-01).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -27,7 +27,11 @@
 > direct user shell completion, interactive child return, index lifecycle events, compaction, and the next user
 > interaction all schedule one serialized refresh. Git/Jujutsu state is re-observed through the active provider;
 > code intelligence becomes degraded when current source revisions differ from the indexed baseline and becomes
-> ready again only after a completed or provider-confirmed current index.
+> ready again only after a completed or provider-confirmed current index. Routine interactive work now uses
+> one asynchronous request-scoped repository observation, caches immutable/provider readiness facts, hashes only
+> dirty source paths, and renders phase feedback before expensive work. `/status` shares one calculation with the
+> footer; default `/workflow` is ledger-only; exact approval uses bounded inventories; and `/performance` exposes
+> subprocess, hashing, cache, phase, and SQLite timing diagnostics.
 >
 > **Historical permission sections below are non-normative.** ADR-0032 and the delivered-status section
 > supersede every older design involving trusted projects, permission grants, capability bundles,
@@ -53,7 +57,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.29
+## Implementation Status — v0.14.0-alpha.30
 
 The current prototype delivers the guarded local workflow:
 
@@ -77,7 +81,8 @@ The current prototype delivers the guarded local workflow:
 - deterministic unsigned Git commits that do not depend on workstation signing agents; and
 - persistent TUI-only Markdown reports for operational inspection, plus a guided evidence-gathering harness that keeps instructions outside the Pi viewport, captures host failures, and retries disposable steps independently; and
 - Pi-compatible Buffer delivery for direct user-shell output plus explicit terminal suspension around editors and full-screen navigators; and
-- guided verification that restores every recovery checkpoint, verifies generated validation scope, and exercises approval → retrieval → implementation → pause → resume → cancellation.
+- guided verification that restores every recovery checkpoint, verifies generated validation scope, and exercises approval → retrieval → implementation → pause → resume → cancellation.; and
+- an asynchronous request-scoped observation pipeline that removes duplicate interactive status/provider work, keeps default workflow display ledger-only, bounds exact-approval inventories, and records performance telemetry.
 
 The portable acceptance fixtures in `tests/acceptance-workflow.test.ts`, `tests/workspace-policy.test.ts`, and `tests/recovery-manager.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `LOCAL_ACCEPTANCE.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their “planned” wording does not override this delivered-status section.
 

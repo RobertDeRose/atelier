@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.14.0-alpha.30 — 2026-08-01
+
+### Performance
+
+- Reuse one request-scoped repository observation across status, workflow authorization, workspace policy, approval evidence, recovery preparation, and execution-evidence start.
+- Move interactive Git and Jujutsu observations to the bounded asynchronous process runner so Pi can render and accept input while VCS commands execute.
+- Make `/status` share one calculation with the footer, skip the generic input refresh for slash commands, and avoid recomputing the complete closure predicate during passive display.
+- Make `/workflow` ledger/status-only by default; `/workflow full` and `/workflow refresh` explicitly request retrieval-backed reconstruction.
+- Cache immutable repository identity, Beads version/initialization probes, recent task reads, and code-provider readiness; discard failed cache promises and invalidate caches at mutation boundaries.
+- Hash only changed and untracked source paths for dirty-source identity, batch VCS path classification, and reuse workspace snapshots where the exact operation permits it.
+- Prompt before copying an expensive recovery checkpoint, show visible analysis/checkpoint/reconciliation phases, and remove footer refresh from the approved tool-start critical path.
+- Bound exact approval to preparation, one pre-apply inventory, and one convergence inventory instead of hidden repeated previews.
+- Add `/performance` with bounded interactive, subprocess, hashing, cache, and SQLite timing diagnostics, including potential lock waits.
+
+### Tests
+
+- Add regressions for event-loop responsiveness, one-observation status, cache reuse, approval-before-checkpoint ordering, slash-command refresh ownership, and exact-approval inventory counts.
+
 ## 0.14.0-alpha.29 — 2026-08-01
 
 ### Fixed

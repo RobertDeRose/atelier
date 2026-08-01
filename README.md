@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.29**. The supported deterministic gate now synchronizes smoke-cancellation testing with the child process instead of assuming it reaches the cancellation point within two seconds. The test captures early process failure, allows bounded startup under concurrent load, always terminates the detached process group, and reports bounded stdout/stderr diagnostics without weakening cleanup assertions.
+Current release: **0.14.0-alpha.30**. Interactive status, workflow, permission, and exact-approval paths now share bounded asynchronous repository observations instead of repeatedly blocking Pi on synchronous VCS and provider work. `/status` owns one observation, default `/workflow` is ledger-only, explicit checkpoints show progress after approval, and `/performance` reports phase, subprocess, hashing, cache, and SQLite timing data.
 
 ## Current status
 
@@ -35,7 +35,8 @@ Atelier currently provides:
   human-readable task titles, code-index health, and provider-native Jujutsu/Git cleanliness;
 - expandable TUI-only Markdown report cards for status, workflow context, code intelligence, changed paths,
   validation, evidence, and ready-work inspection without adding those reports to model context;
-- approval-only plan activation that leaves Pi idle until the user explicitly requests implementation.
+- approval-only plan activation that leaves Pi idle until the user explicitly requests implementation; and
+- a request-scoped interactive observation pipeline with asynchronous Git/Jujutsu status, bounded provider caches, immediate phase feedback, and `/performance` latency diagnostics.
 
 The fuzzy file palette, project tree, Yazi/skim adapters, and richer Helix-native IDE surfaces remain
 future work. They are intentionally gated on the guarded workflow rather than being treated as current
@@ -331,8 +332,9 @@ Core slash commands include:
 /atelier-resume
 /cancel
 /status
-/workflow
+/workflow    # ledger/status-only by default; add full or refresh for Working State
 /state        # compatibility alias for /workflow
+/performance  # bounded latency, subprocess, hashing, cache, and SQLite diagnostics
 /code-status
 /code-index
 /code-search

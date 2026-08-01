@@ -1,6 +1,6 @@
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
-import { sourceRevisionIdentity } from "../repository/snapshot.ts";
 import { newId, nowIso } from "../util/ids.ts";
+import { CodeProviderStatusCache } from "./provider-status-cache.ts";
 import {
   canonicalizeRetrievalQuery,
   canonicalQueryRequestDigest,
@@ -75,53 +75,42 @@ import type {
   CodeSearchMode,
   CodeWorkspace,
 } from "./types.ts";
-
 export type { CodeIndexCoordinatorStatus, CodeServiceLimits } from "./service-types.ts";
 import type { CodeIndexCoordinatorStatus, CodeServiceLimits } from "./service-types.ts";
-
 interface CachedHitQuery extends CachedQueryCoverage {
   requestDigest: string;
   hits: CodeSearchHit[];
 }
-
 interface CachedRelationshipQuery extends CachedQueryCoverage {
   requestDigest: string;
   relationships: CodeRelationship[];
 }
-
 interface InventoryHit {
   hit: CodeSearchHit;
   sourceDigests: Set<string>;
 }
-
 interface ReferenceContext {
   query: CanonicalRetrievalQuery;
   workspace: CodeWorkspace;
 }
-
 interface CachedChunk {
   chunk: CodeChunk;
   queryDigest: string;
 }
-
 interface BoundedHits {
   hits: CodeSearchHit[];
   truncated: boolean;
 }
-
 interface BoundedRelationships {
   relationships: CodeRelationship[];
   truncated: boolean;
 }
-
 type CodeIndexStatusListener = (status: CodeIndexCoordinatorStatus) => void;
-
 const DEFAULT_PERSISTENCE_LIMITS: RetrievalPersistenceLimits = {
   maxRetainedSessions: 4,
   maxEntries: 256,
   maxBytes: 256_000,
 };
-
 const DEFAULT_LIMITS: CodeServiceLimits = {
   maxResults: 10,
   maxPreviewBytes: 2_000,
@@ -132,7 +121,6 @@ const DEFAULT_LIMITS: CodeServiceLimits = {
   maxUniquePaths: 32,
   maxEvidenceEntries: 64,
 };
-
 export class CodeService {
   private readonly registry: CodeProviderRegistry;
   private readonly ledger: SqliteLedger;
@@ -163,9 +151,7 @@ export class CodeService {
   private lastDecision: RetrievalReuseDecision | undefined;
   private pendingBindingInvalidationDigest: string | undefined;
   private telemetry: RetrievalTelemetry = emptyTelemetry();
-  private readonly providerStatusCache = new Map<string, { status: CodeProviderStatus; workspaceDigest: string; observedAt: number }>();
-  private readonly providerStatusPromises = new Map<string, Promise<CodeProviderStatus>>();
-
+  private readonly providerStatuses = new CodeProviderStatusCache();
   constructor(
     registry: CodeProviderRegistry,
     ledger: SqliteLedger,
@@ -183,17 +169,7 @@ export class CodeService {
     this.sessionStartedAt = nowIso();
     this.hydrateCheckpoint(this.ledger.loadRetrievalCheckpoint(sessionId));
   }
-
   providers(workspace?: CodeWorkspace) { return this.registry.statuses(workspace); }
-
-  private workspaceDigest(workspace?: CodeWorkspace): string {
-    if (workspace === undefined) return "none";
-    return workspace.repositories
-      .map((repository) => `${repository.id}:${sourceRevisionIdentity(repository.snapshot)}`)
-      .sort()
-      .join("\n");
-  }
-
   peekStatus(provider?: string, workspace?: CodeWorkspace): CodeProviderStatus | undefined {
     const selected = this.registry.get(provider);
     if (this.activeIndex !== undefined && this.indexStatus.provider === selected.name) {
@@ -206,37 +182,23 @@ export class CodeService {
         detail: "Atelier background indexing is active. Searches and index requests will join this operation.",
       };
     }
-    const cached = this.providerStatusCache.get(selected.name);
-    if (cached === undefined || cached.workspaceDigest !== this.workspaceDigest(workspace)) return undefined;
-    return cached.status;
+    return this.providerStatuses.peek(selected.name, workspace);
   }
 
   invalidateStatus(provider?: string): void {
-    if (provider === undefined) this.providerStatusCache.clear();
-    else this.providerStatusCache.delete(this.registry.get(provider).name);
+    this.providerStatuses.invalidate(provider === undefined ? undefined : this.registry.get(provider).name);
   }
 
   async status(provider?: string, workspace?: CodeWorkspace, options: { force?: boolean } = {}): Promise<CodeProviderStatus> {
     const selected = this.registry.get(provider);
     const active = this.peekStatus(selected.name, workspace);
     if (this.activeIndex !== undefined && this.indexStatus.provider === selected.name) return active!;
-    const workspaceDigest = this.workspaceDigest(workspace);
-    const cached = this.providerStatusCache.get(selected.name);
-    if (options.force !== true && cached !== undefined
-      && cached.workspaceDigest === workspaceDigest
-      && Date.now() - cached.observedAt <= 2_000) return cached.status;
-    const key = `${selected.name}\0${workspaceDigest}`;
-    const existing = this.providerStatusPromises.get(key);
-    if (existing !== undefined) return existing;
-    const pending = selected.status(workspace);
-    this.providerStatusPromises.set(key, pending);
-    try {
-      const status = await pending;
-      this.providerStatusCache.set(selected.name, { status, workspaceDigest, observedAt: Date.now() });
-      return status;
-    } finally {
-      if (this.providerStatusPromises.get(key) === pending) this.providerStatusPromises.delete(key);
-    }
+    return this.providerStatuses.get(
+      selected.name,
+      workspace,
+      () => selected.status(workspace),
+      options,
+    );
   }
 
   beginRetrievalSession(sessionId = newId("retrieval-session")): string {

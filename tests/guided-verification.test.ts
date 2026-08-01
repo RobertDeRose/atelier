@@ -82,6 +82,8 @@ test("guided verification resolves step workspace paths before launching and col
         PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
         REAL_NODE: process.execPath,
         ATELIER_GUIDED_TEST_ALLOW_EMPTY_RECOVERY: "1",
+        ATELIER_GUIDED_TEST_MODE: "1",
+        ATELIER_GUIDED_TEST_SKIP_OBJECTIVE: "1",
         TERM: "dumb",
       },
     });
@@ -167,6 +169,8 @@ test("guided verification auto-prepares missing workspaces and does not emit ter
         PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
         REAL_NODE: process.execPath,
         ATELIER_GUIDED_TEST_ALLOW_EMPTY_RECOVERY: "1",
+        ATELIER_GUIDED_TEST_MODE: "1",
+        ATELIER_GUIDED_TEST_SKIP_OBJECTIVE: "1",
         TERM: "xterm-256color",
       },
     });
@@ -273,6 +277,8 @@ test("guided retry recreates only the failed workspace and preserves prior resul
         PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
         REAL_NODE: process.execPath,
         ATELIER_GUIDED_TEST_ALLOW_EMPTY_RECOVERY: "1",
+        ATELIER_GUIDED_TEST_MODE: "1",
+        ATELIER_GUIDED_TEST_SKIP_OBJECTIVE: "1",
         TERM: "dumb",
       },
     });
@@ -300,7 +306,7 @@ test("guided retry recreates only the failed workspace and preserves prior resul
     const failedRetry = spawnSync("bash", [script, "retry", "2"], {
       cwd: process.cwd(),
       encoding: "utf8",
-      input: "\nf\nexpected failure\n",
+      input: "\nexpected failure\n",
       env: {
         ...process.env,
         ATELIER_ACCEPTANCE_POINTER: pointer,
@@ -309,6 +315,8 @@ test("guided retry recreates only the failed workspace and preserves prior resul
         PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
         REAL_NODE: process.execPath,
         ATELIER_GUIDED_TEST_ALLOW_EMPTY_RECOVERY: "1",
+        ATELIER_GUIDED_TEST_MODE: "1",
+        ATELIER_GUIDED_TEST_SKIP_OBJECTIVE: "1",
         TERM: "dumb",
       },
     });
@@ -400,6 +408,8 @@ test("guided Git policy restores every path-scoped checkpoint and prints concret
         FAKE_SOURCE_REPO: sourceRepo,
         PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
         REAL_NODE: process.execPath,
+        ATELIER_GUIDED_TEST_MODE: "1",
+        ATELIER_GUIDED_TEST_SKIP_OBJECTIVE: "1",
         RESTORE_LOG: restoreLog,
         TERM: "dumb",
       },

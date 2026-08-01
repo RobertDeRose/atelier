@@ -82,6 +82,9 @@ for (const path of [
   "apps/pi-extension/src/execution-outcome.ts",
   "apps/pi-extension/src/code-commands.ts",
   "apps/pi-extension/src/footer-status-controller.ts",
+  "apps/pi-extension/src/status-commands.ts",
+  "apps/pi-extension/src/working-phase.ts",
+  "apps/pi-extension/src/manual-edit-process.ts",
   "apps/pi-extension/src/approval-presentation.ts",
   "apps/pi-extension/src/status-presentation.ts",
   "apps/pi-extension/src/report-presentation.ts",
@@ -90,6 +93,7 @@ for (const path of [
   "apps/pi-extension/src/workflow-tools.ts",
   "packages/core/src/code/service-support.ts",
   "packages/core/src/code/service-types.ts",
+  "packages/core/src/code/provider-status-cache.ts",
   "packages/core/src/ledger/schema.ts",
   "packages/core/src/ledger/ledger-records.ts",
   "packages/core/src/state/working-state-markdown.ts",
@@ -97,6 +101,9 @@ for (const path of [
   "scripts/guided-verification.sh",
   "docs/ADR-0030-REPOSITORY-FINALIZATION-AND-CLOSURE-SEMANTICS.md",
   "docs/ADR-0033-PERSISTENT-MARKDOWN-REPORTS.md",
+  "docs/ADR-0036-INTERACTIVE-OBSERVATION-PIPELINE.md",
+  "docs/UI_LATENCY_AUDIT_ALPHA29.md",
+  "docs/UI_LATENCY_CORRECTIONS_ALPHA30.md",
 ]) {
   check(text(path).trim().length > 0, `${path} is missing or empty`);
 }
