@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.28
+# Local Acceptance Workflow — 0.14.0-alpha.29
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -14,7 +14,7 @@ npm run check
 npm pack --dry-run
 ```
 
-The suite covers startup-workspace selection, recoverability policy, sandboxed shell execution, real-path confinement, structured task execution
+The suite covers startup-workspace selection, recoverability policy, sandboxed shell execution, real-path confinement, smoke success/failure/cancellation cleanup with load-tolerant child-process synchronization, structured task execution
 constraints, exact constraint disclosure, exact approval and rejection, passive incomplete-task handling,
 stop/pause/resume/cancel control, typed model workflow tools, per-turn hard tool restrictions, accurate
 failure/interruption and per-operation path evidence, source-only freshness, scoped commits, idempotent

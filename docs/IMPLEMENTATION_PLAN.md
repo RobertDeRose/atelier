@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.28 (2026-07-31).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.29 (2026-08-01).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -53,7 +53,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.28
+## Implementation Status — v0.14.0-alpha.29
 
 The current prototype delivers the guarded local workflow:
 

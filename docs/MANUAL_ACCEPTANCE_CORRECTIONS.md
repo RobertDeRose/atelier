@@ -9,6 +9,19 @@ the Pi transcript, external SQLite ledger, trust records, exact approval and per
 Jujutsu status/diff evidence, and CLI cancellation output. It distinguishes product defects from procedure
 errors and from observations the evidence did not prove.
 
+## Alpha.29 deterministic-gate correction
+
+The fresh alpha.28 guided run reached 277 of 278 deterministic tests. The only failure occurred before any
+live or guided workspace was created: `tests/smoke-cleanup.test.ts` allowed only two seconds for a detached
+smoke process to reach its blocking fake-Node command. Under the supported eight-way macOS aggregate run,
+that readiness assumption expired while the rest of the suite was heavily contending for processes and disk.
+The failed assertion also bypassed the test's process-group termination path, leaving cleanup dependent on the
+test runner.
+
+Alpha.29 keeps the product cleanup assertions intact while replacing the timing assumption with bounded
+process-aware synchronization, diagnostics, and unconditional process-group teardown. This is a deterministic
+test defect, not evidence that `scripts/smoke.sh` failed to remove a repository after an observed cancellation.
+
 ## Alpha.28 live-footer correction
 
 The alpha.27 guided run exposed a stale runtime value in Atelier's custom Pi footer: Pi changed its

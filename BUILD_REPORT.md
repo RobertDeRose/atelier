@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.28
+# Build Report — Atelier 0.14.0-alpha.29
 
 ## Result
 
@@ -16,6 +16,17 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.29 deterministic smoke-cleanup synchronization correction
+
+Alpha.29 corrects the supported macOS aggregate-test failure exposed after the alpha.28 footer work:
+
+- the cancellation fixture waits for the blocking child or an early process exit for up to a bounded 60 seconds instead of assuming startup completes within two seconds under eight-way integration-test load;
+- child stdout, stderr, spawn errors, and exit state are captured and included when the cancellation point is not reached;
+- the detached smoke process group is force-terminated from `finally` on every assertion path, preventing a failed readiness assertion from leaking a shell and its sleeping child; and
+- normal success, explicit command failure, graceful cancellation, temporary-directory cleanup, and logged repository removal remain independently asserted.
+
+The correction changes only deterministic-test synchronization and diagnostics. It does not relax the smoke workflow or production cleanup behavior.
 
 ## Alpha.28 live-footer status correction
 
@@ -151,20 +162,20 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.28
+Package:          atelier-prototype@0.14.0-alpha.29
 Files:            446
-Compressed size:  494,790 bytes
-Unpacked size:    2,313,522 bytes
+Compressed size:  495,167 bytes
+Unpacked size:    2,314,461 bytes
 ```
 
 ## Verification boundary
 
 The correction environment provided Node 22.16.0 and TypeScript 5.8.3 rather than the supported
-Node 24.18.0 and TypeScript 7 toolchain. All 278 deterministic tests across 83 test files passed in
-bounded independent processes using the required `--test-concurrency=8` setting. After the final
-footer-module extraction, the aggregate Node 22 test-runner process did not terminate reliably, which
-matches the previously observed unsupported-runtime limitation. The pinned Node 24 CI and maintainer
-`mise check` remain authoritative for the supported aggregate command.
+Node 24.18.0 and TypeScript 7 toolchain. The complete aggregate `npm run check` passed: metadata,
+type-check, build, all 278 deterministic tests with `--test-concurrency=8`, and the standalone smoke
+workflow. The corrected smoke-cleanup test also passed 20 consecutive targeted runs and a synthetic
+three-second `mktemp` startup delay that would have exceeded the former two-second assumption. The
+pinned Node 24 CI and maintainer `mise check` remain authoritative for the supported runtime.
 
 The environment did not contain a real `jj`, macOS `sandbox-exec`, or Linux `bwrap` binary. Exact Git
 recovery is exercised against real Git repositories. Jujutsu operation recovery and sandbox command
@@ -174,7 +185,7 @@ live-conformance environments.
 
 ## Release classification
 
-`0.14.0-alpha.28` remains an interactive alpha. Footer status is now event-driven and provider-neutral:
+`0.14.0-alpha.29` remains an interactive alpha. Footer status is now event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so

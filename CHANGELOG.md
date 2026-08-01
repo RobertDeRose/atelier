@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0-alpha.29 — 2026-08-01
+
+### Fixed
+
+- Replace the smoke-cancellation test's two-second polling assumption with bounded synchronization against either the blocking child marker or an early child-process exit.
+- Capture bounded stdout, stderr, spawn errors, and exit metadata so a startup failure reports its cause rather than only `false !== true`.
+- Always terminate and await the detached smoke process group from cleanup paths, preventing a failed readiness assertion from leaking the smoke shell or fake Node child.
+- Retain exact assertions that success, explicit failure, and cancellation remove the temporary repository and external smoke state.
+
 ## 0.14.0-alpha.28 — 2026-07-31
 
 ### Fixed
