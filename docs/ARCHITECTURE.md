@@ -1,10 +1,16 @@
-# Atelier Architecture — 0.14.0-alpha.30
+# Atelier Architecture — 0.14.0-alpha.31
 
 The Pi integration owns a session-local `FooterStatusController` and request-scoped observation pipeline. It
 serializes and coalesces status observations, consumes model/thinking and code-index events, invalidates cached
 Git/Jujutsu state at mutation boundaries, and compares current source revisions with the indexed baseline before
 rendering intelligence readiness. It does not poll while Pi is idle; the next Pi interaction refreshes externally
 changed state.
+
+Repository observations canonicalize both the provider root and every requested path through existing ancestors
+before deriving VCS-relative pathspecs. This keeps macOS `/var` and `/private/var`, symlinked workspaces, and
+not-yet-created descendants inside the same repository identity. Each provider also versions its observation
+cache: invalidation detaches any in-flight result so a slower pre-mutation observation cannot overwrite newer
+footer, workflow, or code-intelligence state.
 
 ## Product boundary
 

@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.30 (2026-08-01).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.31 (2026-08-01).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -31,7 +31,9 @@
 > one asynchronous request-scoped repository observation, caches immutable/provider readiness facts, hashes only
 > dirty source paths, and renders phase feedback before expensive work. `/status` shares one calculation with the
 > footer; default `/workflow` is ledger-only; exact approval uses bounded inventories; and `/performance` exposes
-> subprocess, hashing, cache, phase, and SQLite timing diagnostics.
+> subprocess, hashing, cache, phase, and SQLite timing diagnostics. Git and Jujutsu canonicalize provider roots
+> and requested pathspecs before computing repository-relative paths, and observation generations prevent a
+> result started before invalidation from replacing current repository or intelligence state.
 >
 > **Historical permission sections below are non-normative.** ADR-0032 and the delivered-status section
 > supersede every older design involving trusted projects, permission grants, capability bundles,
@@ -57,7 +59,7 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.30
+## Implementation Status — v0.14.0-alpha.31
 
 The current prototype delivers the guarded local workflow:
 

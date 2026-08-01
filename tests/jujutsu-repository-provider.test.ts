@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
@@ -114,6 +114,47 @@ process.exit(1);
     assert.equal(commands.some((args) => args[0] === "commit" && args.includes(".atelier/PLAN.md")), false);
   } finally {
     ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Jujutsu path inventories canonicalize symlinked and macOS-style alias roots", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "atelier-jj-canonical-path-"));
+  const aliasParent = mkdtempSync(join(tmpdir(), "atelier-jj-path-alias-"));
+  const aliasRoot = join(aliasParent, "repo-alias");
+  mkdirSync(join(root, ".atelier"), { recursive: true });
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src", "main.ts"), "export const value = 1;\n", "utf8");
+  symlinkSync(root, aliasRoot, "dir");
+
+  const executable = join(root, "jj-canonical");
+  writeFileSync(executable, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("jj 0.43.0"); process.exit(0); }
+if (args[0] === "root") { console.log(${JSON.stringify(root)}); process.exit(0); }
+if (args[0] === "workspace" && args[1] === "root") { console.log(${JSON.stringify(root)}); process.exit(0); }
+if (args[0] === "log" && args.includes("@-")) { console.log("parent123"); process.exit(0); }
+if (args[0] === "log") { console.log("change123\\ncommit456"); process.exit(0); }
+if (args[0] === "op" && args[1] === "log") { console.log("operation789"); process.exit(0); }
+if (args[0] === "bookmark" && args[1] === "list") { console.log("main"); process.exit(0); }
+if (args[0] === "resolve" && args[1] === "--list") process.exit(0);
+if (args[0] === "file" && args[1] === "list") { console.log("src/main.ts"); process.exit(0); }
+if (args[0] === "diff" && args.includes("--name-only")) { console.log("src/main.ts"); process.exit(0); }
+if (args[0] === "diff") { console.log("diff --git a/src/main.ts b/src/main.ts"); process.exit(0); }
+process.exit(1);
+`, "utf8");
+  chmodSync(executable, 0o755);
+
+  const ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+  try {
+    const provider = new JujutsuRepositoryProvider({ cwd: aliasRoot, ledger, executable });
+    const aliasPath = join(aliasRoot, "src", "main.ts");
+    const observation = await provider.observe({ paths: [aliasPath] });
+    assert.equal(observation.root, realpathSync.native(root));
+    assert.equal(observation.pathStates[aliasPath], "tracked_dirty");
+  } finally {
+    ledger.close();
+    rmSync(aliasParent, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

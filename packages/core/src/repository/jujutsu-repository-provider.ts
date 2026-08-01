@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { minimalEnvironment } from "../process/environment.ts";
 import { runProcess, type ProcessResult } from "../process/async-process.ts";
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
@@ -19,6 +19,8 @@ import type {
   RepositoryProviderStatus,
   RepositoryRecoveryState,
 } from "./repository-provider.ts";
+import { resolveAccessPath } from "../security/path-boundary.ts";
+import { repositoryPathTargets } from "./repository-path.ts";
 
 interface CommandResult {
   status: number;
@@ -110,8 +112,9 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
   private readonly stateKey: string;
   private rootPromise?: Promise<string>;
   private workspaceRootPromise?: Promise<string>;
-  private observationPromise?: Promise<RepositoryObservation>;
+  private observationPromise?: { generation: number; promise: Promise<RepositoryObservation> };
   private lastObservation?: RepositoryObservation;
+  private observationGeneration = 0;
 
   constructor(options: {
     cwd: string;
@@ -131,7 +134,9 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
   }
 
   invalidateObservation(): void {
+    this.observationGeneration += 1;
     delete this.lastObservation;
+    delete this.observationPromise;
   }
 
   async observe(options: RepositoryObserveOptions = {}): Promise<RepositoryObservation> {
@@ -142,22 +147,28 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     if (!options.force && cached !== undefined && age <= 250 && (!options.includeFiles || cached.files !== undefined) && hasRequestedStates) {
       return { ...cached, metrics: { ...cached.metrics, cacheHit: true, durationMs: 0, subprocesses: 0, filesHashed: 0, bytesHashed: 0 } };
     }
-    if (this.observationPromise !== undefined && requested.length === 0 && options.includeFiles !== true) return this.observationPromise;
+    const generation = this.observationGeneration;
+    if (
+      this.observationPromise !== undefined
+      && this.observationPromise.generation === generation
+      && requested.length === 0
+      && options.includeFiles !== true
+    ) return this.observationPromise.promise;
     const pending = this.observeFresh(options);
-    if (requested.length === 0 && options.includeFiles !== true) this.observationPromise = pending;
+    if (requested.length === 0 && options.includeFiles !== true) this.observationPromise = { generation, promise: pending };
     try {
       const observation = await pending;
-      this.lastObservation = observation;
+      if (generation === this.observationGeneration) this.lastObservation = observation;
       return observation;
     } finally {
-      if (this.observationPromise === pending) delete this.observationPromise;
+      if (this.observationPromise?.promise === pending) delete this.observationPromise;
     }
   }
 
   async classifyPaths(paths: readonly string[], options: { signal?: AbortSignal } = {}): Promise<Record<string, RepositoryPathState>> {
     const root = await this.repositoryRoot(options.signal);
-    const absolutePaths = [...new Set(paths.map((path) => resolve(path)))];
-    const relativePaths = absolutePaths.map((path) => relative(root, path).replaceAll("\\", "/") || ".");
+    const targets = repositoryPathTargets(root, paths, "write");
+    const relativePaths = targets.map((target) => target.relative);
     const [listedResult, changedResult, ignoredResult] = await Promise.all([
       runProcess(this.executable, ["file", "list", ...relativePaths], {
         cwd: root, signal: options.signal, timeoutMs: 10_000, idleTimeoutMs: 3_000, maxOutputBytes: 256 * 1024,
@@ -175,13 +186,13 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     const listed = new Set(lines(listedResult.stdout));
     const changed = new Set(lines(changedResult.stdout));
     const ignored = new Set(ignoredResult.stdout.split("\0").filter(Boolean));
-    return Object.fromEntries(absolutePaths.map((absolute, index) => {
+    return Object.fromEntries(targets.map((target, index) => {
       const rel = relativePaths[index]!;
       const state: RepositoryPathState = listed.has(rel)
         ? changed.has(rel) ? "tracked_dirty" : "tracked_clean"
         : ignored.has(rel) ? "ignored"
-          : existsSync(absolute) ? "untracked" : "missing";
-      return [absolute, state];
+          : existsSync(target.absolute) ? "untracked" : "missing";
+      return [target.key, state];
     }));
   }
 
@@ -191,7 +202,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
       cwd: this.cwd, signal, timeoutMs: 10_000, idleTimeoutMs: 3_000, maxOutputBytes: 64 * 1024,
     }).then((result) => {
       if (result.exitCode !== 0) throw new RepositoryObservationError(`Jujutsu repository-root observation failed: ${asyncFailure(result)}`);
-      return result.stdout.trim();
+      return resolveAccessPath(result.stdout.trim(), "read");
     });
     this.rootPromise = pending;
     pending.catch(() => { if (this.rootPromise === pending) delete this.rootPromise; });
@@ -204,7 +215,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
       cwd: root, signal, timeoutMs: 10_000, idleTimeoutMs: 3_000, maxOutputBytes: 64 * 1024,
     }).then((result) => {
       if (result.exitCode !== 0) throw new RepositoryObservationError(`Jujutsu workspace-root observation failed: ${asyncFailure(result)}`);
-      return result.stdout.trim();
+      return resolveAccessPath(result.stdout.trim(), "read");
     });
     this.workspaceRootPromise = pending;
     pending.catch(() => { if (this.workspaceRootPromise === pending) delete this.workspaceRootPromise; });

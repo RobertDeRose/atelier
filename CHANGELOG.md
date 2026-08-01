@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.0-alpha.31 — 2026-08-01
+
+### Fixed
+
+- Canonicalize Git and Jujutsu repository roots and requested pathspecs through existing ancestors before computing repository-relative paths. This prevents macOS `/var/...` versus `/private/var/...` aliases from being misreported as outside the worktree during status, permission, validation, retrieval, and execution-evidence operations.
+- Preserve caller path keys while using canonical paths for VCS classification, so workspace policy and workflow authorization consume the exact batched result they requested.
+- Version repository-observation caches and discard results that began before an invalidation, preventing a slower stale Git or Jujutsu observation from replacing newer footer, workflow, or intelligence state.
+- Invalidate in-flight code-workspace observations together with repository state and prevent stale workspace completion from replacing a newer source baseline.
+- Remove the deterministic process-runner test's 200 ms child-start assumption while retaining strict timeout, cancellation, partial-output, and force-termination assertions.
+
+### Tests
+
+- Add portable Git and Jujutsu symlink-alias regressions that reproduce the macOS canonical-path failure without requiring `/private/var` on the test host.
+- Add a deterministic in-flight observation race proving invalidated results cannot overwrite fresh cached state.
+
 ## 0.14.0-alpha.30 — 2026-08-01
 
 ### Performance

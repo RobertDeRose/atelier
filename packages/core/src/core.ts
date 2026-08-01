@@ -59,7 +59,7 @@ import type { TaskProvider } from "./tasks/task-provider.ts";
 import type { RepositoryDisplayState } from "./repository/repository-provider.ts";
 import { hashFile, sha256 } from "./util/hash.ts";
 import { newId, nowIso } from "./util/ids.ts";
-import { isPathWithin } from "./security/path-boundary.ts";
+import { isPathWithin, resolveAccessPath } from "./security/path-boundary.ts";
 import { isSourcePath, sourcePaths } from "./repository/source-path.ts";
 import {
   repositoryRevisionBinding,
@@ -135,6 +135,7 @@ export class AtelierCore {
   private readonly workspaceRepositoryProviders = new Map<string, RepositoryProvider>();
   private lastCodeWorkspace?: CodeWorkspace;
   private codeWorkspacePromise?: Promise<CodeWorkspace>;
+  private repositoryObservationGeneration = 0;
   private cachedTaskClosure?: { executionGrantId: string; readiness: TaskClosureReadiness };
 
   private constructor(
@@ -273,9 +274,11 @@ export class AtelierCore {
   }
 
   invalidateRepositoryObservation(): void {
+    this.repositoryObservationGeneration += 1;
     this.repository.invalidateObservation?.();
     for (const provider of this.workspaceRepositoryProviders.values()) provider.invalidateObservation?.();
     delete this.lastCodeWorkspace;
+    delete this.codeWorkspacePromise;
     delete this.cachedTaskClosure;
   }
 
@@ -1099,8 +1102,8 @@ export class AtelierCore {
   }
 
   private repositoryProviderForRoot(root: string): RepositoryProvider {
-    const canonical = resolve(root);
-    if (canonical === resolve(this.config.repositoryRoot)) return this.repository;
+    const canonical = resolveAccessPath(root, "read");
+    if (canonical === resolveAccessPath(this.config.repositoryRoot, "read")) return this.repository;
     const existing = this.workspaceRepositoryProviders.get(canonical);
     if (existing !== undefined) return existing;
     const created = createRepositoryProvider(this.config, this.ledger, canonical);
@@ -1115,6 +1118,7 @@ export class AtelierCore {
     primaryObservation?: RepositoryObservation;
   } = {}): Promise<CodeWorkspace> {
     if (this.codeWorkspacePromise !== undefined && options.force !== true) return this.codeWorkspacePromise;
+    const generation = this.repositoryObservationGeneration;
     const pending = (async () => {
       const primary = options.primaryObservation ?? await this.observeRepository({
         ...(options.force === undefined ? {} : { force: options.force }),
@@ -1135,7 +1139,7 @@ export class AtelierCore {
           return provider.snapshot();
         },
       });
-      this.lastCodeWorkspace = workspace;
+      if (generation === this.repositoryObservationGeneration) this.lastCodeWorkspace = workspace;
       return workspace;
     })();
     if (options.force !== true) this.codeWorkspacePromise = pending;

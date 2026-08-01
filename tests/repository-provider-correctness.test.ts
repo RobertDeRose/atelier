@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -93,6 +93,77 @@ test("Git observation failures never masquerade as a clean repository", () => {
     ]) {
       assert.throws(observe, RepositoryObservationError);
     }
+  } finally {
+    ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Git path inventories canonicalize symlinked and macOS-style alias roots", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("directory symlink creation is not reliably available without elevated Windows privileges");
+    return;
+  }
+
+  const root = createTemporaryRepository("atlr-git-canonical-path-");
+  const aliasParent = mkdtempSync(join(tmpdir(), "atlr-git-path-alias-"));
+  const aliasRoot = join(aliasParent, "repo-alias");
+  symlinkSync(root, aliasRoot, "dir");
+  const ledger = new SqliteLedger(testDatabasePath(root));
+  try {
+    const provider = new GitRepositoryProvider({ cwd: aliasRoot, ledger });
+    const aliasPlan = join(aliasRoot, ".atelier", "PLAN.md");
+    writeFileSync(aliasPlan, "# Alias plan\n", "utf8");
+
+    const observation = await provider.observe({ paths: [aliasPlan] });
+    assert.equal(observation.root, realpathSync.native(root));
+    assert.equal(observation.pathStates[aliasPlan], "untracked");
+    assert.equal(observation.displayState.state, "dirty");
+  } finally {
+    ledger.close();
+    rmSync(aliasParent, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("invalidating a Git observation prevents an older in-flight result from replacing fresh state", async () => {
+  const root = createTemporaryRepository("atlr-git-observation-generation-");
+  git(root, "add", ".atelier/config.json");
+  git(root, "commit", "--quiet", "--no-gpg-sign", "-m", "test: establish clean observation baseline");
+  const ledger = new SqliteLedger(testDatabasePath(root));
+  try {
+    const provider = new GitRepositoryProvider({ cwd: root, ledger });
+    const mutable = provider as unknown as {
+      observeFresh(options: Record<string, unknown>): Promise<Awaited<ReturnType<GitRepositoryProvider["observe"]>>>;
+    };
+    const original = mutable.observeFresh.bind(provider);
+    let releaseFirst!: () => void;
+    let capturedFirst!: () => void;
+    const firstCaptured = new Promise<void>((resolve) => { capturedFirst = resolve; });
+    const release = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let calls = 0;
+    mutable.observeFresh = async (options) => {
+      calls += 1;
+      const observation = await original(options);
+      if (calls === 1) {
+        capturedFirst();
+        await release;
+      }
+      return observation;
+    };
+
+    const stalePending = provider.observe({ force: true });
+    await firstCaptured;
+    provider.invalidateObservation();
+    writeFileSync(join(root, "README.md"), "# changed after invalidation\n", "utf8");
+
+    const fresh = await provider.observe({ force: true });
+    assert.equal(fresh.displayState.state, "dirty");
+    releaseFirst();
+    const stale = await stalePending;
+    assert.equal(stale.displayState.state, "clean");
+    assert.equal(provider.peekObservation()?.displayState.state, "dirty",
+      "an observation started before invalidation must not overwrite the newer cache entry");
   } finally {
     ledger.close();
     rmSync(root, { recursive: true, force: true });

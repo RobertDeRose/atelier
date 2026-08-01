@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.30**. Interactive status, workflow, permission, and exact-approval paths now share bounded asynchronous repository observations instead of repeatedly blocking Pi on synchronous VCS and provider work. `/status` owns one observation, default `/workflow` is ledger-only, explicit checkpoints show progress after approval, and `/performance` reports phase, subprocess, hashing, cache, and SQLite timing data.
+Current release: **0.14.0-alpha.31**. The asynchronous observation pipeline now canonicalizes Git and Jujutsu pathspecs across filesystem aliases such as macOS `/var` and `/private/var`, and invalidation generations prevent older in-flight observations from overwriting newer repository or intelligence state. Alpha.30’s single-observation `/status`, ledger-only default `/workflow`, visible approval phases, and `/performance` telemetry remain intact.
 
 ## Current status
 

@@ -14,7 +14,11 @@ test("async process runner distinguishes timeout and cancellation", async () => 
   const timeout = await runProcess(
     process.execPath,
     ["-e", "process.stderr.write('started before timeout'); setTimeout(() => {}, 10000)"],
-    { cwd: process.cwd(), timeoutMs: 200 },
+    // The aggregate suite starts many Node fixtures concurrently. Give the
+    // child enough time to start and emit its diagnostic before exercising
+    // total-timeout termination; a 200 ms wall-clock assumption is not a
+    // process-runner contract and flakes under scheduler pressure.
+    { cwd: process.cwd(), timeoutMs: 2_000 },
   );
   assert.equal(timeout.timedOut, true);
   assert.match(timeout.stderr, /started before timeout/);

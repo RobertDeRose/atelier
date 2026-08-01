@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.30
+# Build Report — Atelier 0.14.0-alpha.31
 
 ## Result
 
@@ -16,6 +16,25 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.31 canonical-path and observation-invalidation correction
+
+Alpha.31 corrects the supported macOS aggregate failures exposed after the alpha.30 observation-pipeline
+release without reverting its latency improvements:
+
+- Git and Jujutsu canonicalize provider roots and every requested path through existing ancestors before
+  computing VCS-relative pathspecs, so macOS `/var/...` and `/private/var/...` identify the same worktree;
+- path-state results retain the caller's absolute key while Git/Jujutsu execute only canonical in-repository
+  pathspecs, preserving exact workspace-policy lookups;
+- repository observation caches carry an invalidation generation, and a result started before invalidation can
+  no longer replace newer footer, workflow, or intelligence state;
+- in-flight code-workspace observations are detached on repository invalidation and cannot restore a stale
+  source digest after an external edit; and
+- the asynchronous process-runner regression no longer assumes a Node child can start and emit output within
+  200 ms under aggregate scheduler pressure.
+
+Portable regressions reproduce the path-alias defect through a directory symlink and deterministically hold an
+old observation open across invalidation to prove that it cannot overwrite fresh state.
 
 ## Alpha.30 interactive-latency correction
 
@@ -174,7 +193,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:   282 passed, 0 failed
+Deterministic tests:   285 passed, 0 failed
 Guided regressions:    5 passed, 0 failed
 Interactive perf tests: 3 passed, 0 failed
 CLI smoke workflow:   passed
@@ -186,19 +205,18 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.30
-Files:            469
-Compressed size:  529,456 bytes
-Unpacked size:    2,481,885 bytes
+Package:          atelier-prototype@0.14.0-alpha.31
+Files:            473
+Compressed size:  531,397 bytes
+Unpacked size:    2,489,114 bytes
 ```
 
 ## Verification boundary
 
 The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
-and TypeScript 7 toolchain. Type-checking and production compilation pass. All 282 deterministic tests pass in
-four bounded independent test-runner batches (138 + 22 + 78 + 44); the Node 22 aggregate runner can remain alive under the
-full 84-file concurrency set after completed output, so the pinned Node 24 `mise check` remains authoritative for
-the supported aggregate command.
+and TypeScript 7 toolchain. Type-checking and production compilation pass. All 285 deterministic tests pass both
+through the aggregate eight-way command and through four bounded independent test-runner batches. The pinned
+Node 24 `mise check` remains authoritative for the supported runtime and macOS path-alias confirmation.
 
 The standalone smoke workflow, package dry-run, release metadata check, and script syntax pass. Bundle and
 fresh-checkout verification are performed after the release commit and annotated tag are created. Live Jujutsu, Seatbelt, Bubblewrap,
@@ -207,7 +225,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.30` remains an interactive alpha. Footer status is now event-driven and provider-neutral:
+`0.14.0-alpha.31` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so
