@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="33"
+HARNESS_VERSION="34"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
 PI_TIMEOUT_SECONDS="${ATELIER_PI_TIMEOUT_SECONDS:-600}"
 SOURCE_REPO=""
@@ -18,6 +18,7 @@ Usage:
   $PROGRAM all [SOURCE_REPO]
   $PROGRAM automated [SOURCE_REPO]
   $PROGRAM resume code
+  $PROGRAM resume implementation
   $PROGRAM resume shell
   $PROGRAM resume restart
   $PROGRAM prepare-tui [SOURCE_REPO]
@@ -29,6 +30,10 @@ Commands:
   automated    Run the complete non-interactive golden path in a persistent clone.
   resume code  Reuse the current persistent run and continue at the code-intelligence gate.
                On success, finish the automated path and prepare the TUI-only workspaces.
+  resume implementation
+               Reuse a run that completed approval and stopped during the typed
+               implementation gate. Harmless in-workspace directory reads are ignored,
+               completed source edits are not repeated, and the remaining path continues.
   resume shell Reuse a run that completed typed implementation and stopped at the
                headless JSON-mode shell-denial gate. Continue without redoing prior work.
   resume restart
@@ -183,21 +188,64 @@ NODE
 
 jsonl_assert_implementation_errors() {
   local file="$1"
-  local allowed_path="$2"
-  node --input-type=module - "$file" "$allowed_path" <<'NODE'
+  local workspace_root="$2"
+  local expected_missing_path="$3"
+  node --input-type=module - "$file" "$workspace_root" "$expected_missing_path" <<'NODE'
 import { readFileSync } from "node:fs";
-const [file, allowedPath] = process.argv.slice(2);
+import { isAbsolute, relative, resolve } from "node:path";
+
+const [file, workspaceRootInput, expectedMissingPathInput] = process.argv.slice(2);
+const workspaceRoot = resolve(workspaceRootInput);
+const expectedMissingPath = resolve(expectedMissingPathInput);
+const starts = new Map();
 const failures = [];
+
+const readTarget = (event) => {
+  const args = event?.args;
+  if (!args || typeof args !== "object") return undefined;
+  for (const key of ["path", "file", "filePath"]) {
+    if (typeof args[key] === "string" && args[key].length > 0) return args[key];
+  }
+  return undefined;
+};
+
+const absoluteTarget = (target) => {
+  if (typeof target !== "string" || target.length === 0) return undefined;
+  return isAbsolute(target) ? resolve(target) : resolve(workspaceRoot, target);
+};
+
+const isInsideWorkspace = (target) => {
+  if (!target) return false;
+  const rel = relative(workspaceRoot, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+};
+
 for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
   if (!line.trim().startsWith("{")) continue;
   let event;
   try { event = JSON.parse(line); } catch { continue; }
+
+  if (event?.type === "tool_execution_start" && typeof event.toolCallId === "string") {
+    starts.set(event.toolCallId, event);
+    continue;
+  }
   if (event?.type !== "tool_execution_end" || event.isError !== true) continue;
+
   const serialized = JSON.stringify(event.result ?? event.error ?? "tool error");
-  const expectedMissingRead = event.toolName === "read"
+  const start = typeof event.toolCallId === "string" ? starts.get(event.toolCallId) : undefined;
+  const target = absoluteTarget(readTarget(start));
+  const isRead = event.toolName === "read";
+
+  const expectedMissingRead = isRead
     && serialized.includes("ENOENT")
-    && serialized.includes(allowedPath);
-  if (!expectedMissingRead) failures.push(`${event.toolName ?? "unknown"}: ${serialized}`);
+    && target === expectedMissingPath;
+  const benignDirectoryRead = isRead
+    && serialized.includes("EISDIR")
+    && isInsideWorkspace(target);
+
+  if (!expectedMissingRead && !benignDirectoryRead) {
+    failures.push(`${event.toolName ?? "unknown"}: ${serialized}; target=${target ?? "unknown"}`);
+  }
 }
 if (failures.length > 0) throw new Error(`unexpected Pi tool errors:\n${failures.join("\n")}`);
 NODE
@@ -224,16 +272,35 @@ NODE
 }
 
 jsonl_parser_self_check() {
-  local fixture
+  local fixture workspace expected_missing outside_workspace
   fixture="$(mktemp -t atelier-jsonl-parser.XXXXXX)"
-  cat >"$fixture" <<'JSONL'
-{"type":"session","version":3,"id":"self-check","cwd":"/tmp"}
+  workspace="$(mktemp -d -t atelier-jsonl-workspace.XXXXXX)"
+  outside_workspace="$(mktemp -d -t atelier-jsonl-outside.XXXXXX)"
+  mkdir -p "$workspace/tests"
+  expected_missing="$workspace/tests/version.test.ts"
+  cat >"$fixture" <<JSONL
+{"type":"session","version":3,"id":"self-check","cwd":"$workspace"}
 {"type":"tool_execution_start","toolCallId":"state-1","toolName":"atlr_state","args":{}}
 {"type":"tool_execution_end","toolCallId":"state-1","toolName":"atlr_state","result":{"executionEvidence":[{"toolName":"write"},{"toolName":"edit"},{"toolName":"bash"}]},"isError":false}
+{"type":"tool_execution_start","toolCallId":"read-dir","toolName":"read","args":{"path":"."}}
+{"type":"tool_execution_end","toolCallId":"read-dir","toolName":"read","result":{"content":[{"type":"text","text":"EISDIR: illegal operation on a directory, read"}]},"isError":true}
+{"type":"tool_execution_start","toolCallId":"read-missing","toolName":"read","args":{"path":"tests/version.test.ts"}}
+{"type":"tool_execution_end","toolCallId":"read-missing","toolName":"read","result":{"content":[{"type":"text","text":"ENOENT: no such file or directory"}]},"isError":true}
 {"type":"agent_end","messages":[{"role":"toolResult","details":{"toolName":"write"}}]}
 JSONL
   jsonl_tool_assert "$fixture" "atlr_state" "bash,write,edit"
+  jsonl_assert_implementation_errors "$fixture" "$workspace" "$expected_missing"
+
+  cat >"$fixture" <<JSONL
+{"type":"tool_execution_start","toolCallId":"read-outside","toolName":"read","args":{"path":"$outside_workspace"}}
+{"type":"tool_execution_end","toolCallId":"read-outside","toolName":"read","result":{"content":[{"type":"text","text":"EISDIR: illegal operation on a directory, read"}]},"isError":true}
+JSONL
+  if jsonl_assert_implementation_errors "$fixture" "$workspace" "$expected_missing" >/dev/null 2>&1; then
+    fail "JSONL parser accepted an out-of-workspace EISDIR read"
+  fi
+
   rm -f "$fixture"
+  rm -rf "$workspace" "$outside_workspace"
 }
 
 
@@ -761,18 +828,40 @@ verify_current_validation() {
   '
 }
 
+implementation_is_complete() {
+  [[ "$(grep -Fc 'export const ATELIER_PRODUCT_NAME = "Atelier"' packages/core/src/version.ts 2>/dev/null || true)" == "1" ]] || return 1
+  [[ -f tests/version.test.ts ]] || return 1
+  grep -q 'ATELIER_PRODUCT_NAME' tests/version.test.ts || return 1
+  grep -q 'ATELIER_VERSION' tests/version.test.ts || return 1
+
+  local changed_file="$EVIDENCE_DIR/changed-implementation-completeness.json"
+  "${ATLR_BIN[@]}" changed --json >"$changed_file"
+  json_assert "$changed_file" '
+    const paths = [...data.paths].sort();
+    assert(JSON.stringify(paths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]), `implementation is not complete: ${paths}`);
+  ' >/dev/null 2>&1
+}
+
 run_headless_implementation() {
   log "headless Pi typed implementation"
+  if implementation_is_complete; then
+    pass "typed implementation was already complete; no model turn was repeated"
+    return
+  fi
+
   local version
   version="$(node -p "require('./package.json').version")"
   local implementation_prompt
   implementation_prompt=$(cat <<EOF
-Implement the active Atelier task now. Use only read, edit, write, and atlr_state. Do not use Bash, do not run validation, do not commit, and do not close the task. Add exactly one exported constant named ATELIER_PRODUCT_NAME with value "Atelier" to packages/core/src/version.ts. Create tests/version.test.ts using node:test and node:assert/strict; import ATELIER_PRODUCT_NAME and ATELIER_VERSION and assert they equal "Atelier" and "$version". Stop after those two approved source changes.
+Implement or finish the active Atelier task now. Make the result idempotent: packages/core/src/version.ts must contain exactly one exported constant named ATELIER_PRODUCT_NAME with value "Atelier", and tests/version.test.ts must verify ATELIER_PRODUCT_NAME and ATELIER_VERSION equal "Atelier" and "$version". Use only read, edit, write, and atlr_state. Read only the two exact file paths packages/core/src/version.ts and tests/version.test.ts; do not read "." or any directory. If tests/version.test.ts does not exist, create it directly. Do not use Bash, do not run validation, do not commit, and do not close the task. Stop after those two approved source changes.
 EOF
 )
   run_pi_json "$EVIDENCE_DIR/pi-implementation.jsonl" "read,edit,write,atlr_state" "$implementation_prompt"
   jsonl_tool_assert_any "$EVIDENCE_DIR/pi-implementation.jsonl" "write,edit" "bash,atlr_validate,atlr_commit,atlr_task_close"
-  jsonl_assert_implementation_errors "$EVIDENCE_DIR/pi-implementation.jsonl" "$ATLR_REPO/tests/version.test.ts"
+  jsonl_assert_implementation_errors \
+    "$EVIDENCE_DIR/pi-implementation.jsonl" \
+    "$ATLR_REPO" \
+    "$ATLR_REPO/tests/version.test.ts"
 
   grep -q 'export const ATELIER_PRODUCT_NAME = "Atelier"' packages/core/src/version.ts \
     || fail "Pi did not add ATELIER_PRODUCT_NAME"
@@ -1059,6 +1148,43 @@ resume_from_code() {
 }
 
 
+validate_implementation_resume_state() {
+  load_current_workspace
+  log "validate persistent run before resuming typed implementation"
+
+  "${ATLR_BIN[@]}" status --json >"$EVIDENCE_DIR/status-before-implementation-resume.json"
+  "${ATLR_BIN[@]}" changed --json >"$EVIDENCE_DIR/changed-before-implementation-resume.json"
+
+  json_assert "$EVIDENCE_DIR/status-before-implementation-resume.json" '
+    assert(data.workflow?.mode === "act", `workflow mode is ${data.workflow?.mode}, expected act`);
+    assert(typeof data.task?.current === "string" && data.task.current !== "none", "no active task exists");
+    assert(data.execution?.grant !== "none", "active execution grant is missing");
+    assert(data.execution?.constraints === 1, `unexpected reviewed task constraint count: ${data.execution?.constraints}`);
+  '
+  json_assert "$EVIDENCE_DIR/changed-before-implementation-resume.json" '
+    const allowed = new Set(["packages/core/src/version.ts", "tests/version.test.ts"]);
+    const unexpected = data.paths.filter((path) => !allowed.has(path));
+    assert(unexpected.length === 0, `unexpected source changes before implementation resume: ${unexpected}`);
+  '
+  [[ ! -e "$ATELIER_MANUAL_ROOT/headless-shell-ran" ]] || fail "outside-workspace shell marker already exists; resume is unsafe"
+  pass "approved task can safely resume at typed implementation"
+}
+
+resume_from_implementation() {
+  jsonl_parser_self_check
+  validate_implementation_resume_state
+  run_headless_implementation
+  verify_headless_shell_block
+  continue_headless_after_shell
+  archive_evidence >/dev/null
+  log "resumed automated acceptance from typed implementation"
+  prepare_tui_workspaces
+  archive_evidence >/dev/null
+  printf 'Run root: %s\n' "$ATELIER_MANUAL_ROOT"
+  printf 'Evidence archive: %s\n' "$ATELIER_MANUAL_ROOT/atelier-live-acceptance-evidence.tar.xz"
+  printf 'TUI checklist workspaces: %s\n' "$ATELIER_MANUAL_ROOT/tui"
+}
+
 validate_shell_resume_state() {
   load_current_workspace
   log "validate persistent run before resuming at the headless shell gate"
@@ -1144,9 +1270,10 @@ main() {
       shift
       case "${1:-}" in
         code) resume_from_code ;;
+        implementation) resume_from_implementation ;;
         shell) resume_from_shell ;;
         restart) resume_from_restart ;;
-        *) fail "usage: $PROGRAM resume code|shell|restart" ;;
+        *) fail "usage: $PROGRAM resume code|implementation|shell|restart" ;;
       esac
       ;;
     prepare-tui)

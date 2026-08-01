@@ -448,3 +448,22 @@ test("live acceptance isolates unrelated user Pi extensions while loading Atelie
   assert.match(live, /launch -ne --mode json -p --no-session --no-approve/);
   assert.match(live, /mise run launch -- -ne/);
 });
+
+
+test("live acceptance treats only correlated in-workspace EISDIR reads as benign", () => {
+  const live = join(process.cwd(), "scripts", "live-acceptance.sh");
+  const result = spawnSync(
+    "bash",
+    [
+      "-lc",
+      'source <(head -n -1 "$1"); jsonl_parser_self_check',
+      "bash",
+      live,
+    ],
+    { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, TERM: "dumb" } },
+  );
+
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(readFileSync(live, "utf8"), /resume implementation/);
+  assert.match(readFileSync(live, "utf8"), /do not read "\." or any directory/);
+});

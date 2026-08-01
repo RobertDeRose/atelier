@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.33**. Atelier uses one canonical path-identity layer across configuration, workspace selection, Git and Jujutsu pathspecs, workflow scopes, permission evaluation, validation, code providers, multi-repository finalization, and recovery. Alpha.33 makes that contract portable in the deterministic suite: codesearch subprocess arguments, Jujutsu workspace identity, and reviewed dependency paths are asserted against canonical roots, and `npm run check` reruns the path-sensitive tests through a symlinked temporary-directory alias. Filesystem aliases such as macOS `/var` and `/private/var` therefore receive the same release gate on Linux and macOS.
+Current release: **0.14.0-alpha.34**. Atelier retains the canonical path-identity and portable alias-test contract delivered in alpha.33. Alpha.34 corrects the live-acceptance implementation gate: Pi read errors are correlated to their exact tool-call arguments, an `EISDIR` result is tolerated only for a directory inside the approved workspace, and the expected `ENOENT` allowance remains limited to the missing focused test file. The live harness also supports idempotent `resume implementation`, so a completed model edit is not repeated after a harness-only assertion failure.
 
 ## Current status
 

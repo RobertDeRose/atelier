@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.14.0-alpha.34 — 2026-08-01
+
+### Fixed
+
+- Correlate Pi `tool_execution_start` and `tool_execution_end` events before deciding whether a read error is expected.
+- Treat `EISDIR` as benign only when the attempted read resolves inside the acceptance workspace; directory reads outside the workspace remain failures.
+- Keep the expected `ENOENT` exception limited to the exact missing `tests/version.test.ts` path.
+- Tell the implementation turn to read only the two reviewed files and never read `.` or another directory.
+- Add an idempotent `resume implementation` checkpoint so a harness-only assertion failure does not repeat already-completed model edits.
+
+### Tests
+
+- Add a live-harness parser self-check covering an in-workspace directory read, the one expected missing file, and rejection of an out-of-workspace directory read.
+
 ## 0.14.0-alpha.33 — 2026-08-01
 
 ### Fixed

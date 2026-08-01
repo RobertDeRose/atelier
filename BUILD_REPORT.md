@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.33
+# Build Report — Atelier 0.14.0-alpha.34
 
 ## Result
 
@@ -16,6 +16,18 @@ dist/apps/pi-extension/src/index.js
 
 The package exports Core JavaScript/types, declares the built Pi extension, and retains `bin/atlr.mjs`
 as the CLI entry. `prepack` rebuilds the package; source execution is development-only.
+
+## Alpha.34 live-acceptance implementation-gate correction
+
+Alpha.34 corrects a harness regression exposed by the supported Pi 0.83.0 model-facing implementation turn.
+Pi can harmlessly attempt to read a directory before selecting the two reviewed files, returning `EISDIR`. The
+release harness now correlates each read result with its originating arguments, accepts that result only when the
+target is inside the workspace, and continues to reject outside-workspace directory reads and every unrelated
+tool error. The single expected `ENOENT` remains restricted to `tests/version.test.ts`.
+
+The implementation prompt now names the only two readable paths, and `resume implementation` verifies the active
+execution and permitted source changes before continuing. If the two source edits already completed, the harness
+does not invoke the model a second time.
 
 ## Alpha.33 canonical-path test portability
 
@@ -222,7 +234,7 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:   292 passed, 0 failed
+Deterministic tests:   293 passed, 0 failed
 Path-alias lane:       76 passed, 0 failed
 Guided regressions:    passed in the aggregate suite
 Interactive perf tests: 3 passed, 0 failed
@@ -235,16 +247,16 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.33
+Package:          atelier-prototype@0.14.0-alpha.34
 Files:            474
-Compressed size:  537,736 bytes
-Unpacked size:    2,518,564 bytes
+Compressed size:  537,719 bytes
+Unpacked size:    2,518,465 bytes
 ```
 
 ## Verification boundary
 
 The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
-and TypeScript 7 toolchain. Type-checking and production compilation pass. All 292 deterministic tests pass through
+and TypeScript 7 toolchain. Type-checking and production compilation pass. All 293 deterministic tests pass through
 the aggregate eight-way command, and all 76 selected path-sensitive tests pass with `TMPDIR` routed through a symlink alias. The pinned
 Node 24 `mise check` remains authoritative for the supported runtime and macOS path-alias confirmation.
 
@@ -255,7 +267,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.33` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.34` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so
