@@ -1,4 +1,3 @@
-import { relative, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   AtelierCore,
@@ -7,9 +6,10 @@ import {
   type WorkflowActionRequest,
   type WorkflowDecision,
   type FilesystemEffect,
+  resolveAccessEntryPath,
   resolveAccessPath,
   resolveSandboxBackend,
-  sameAccessPath,
+  sameAccessEntryPath,
   type RepositoryObservation,
 } from "../../../packages/core/src/index.ts";
 
@@ -17,7 +17,7 @@ function toolReadPaths(event: any, ctx: ExtensionContext): string[] {
   const candidates = [event.input?.path, event.input?.directory, event.input?.cwd]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
   const paths = candidates.length === 0 ? [ctx.cwd] : candidates;
-  return [...new Set(paths.map((path) => resolveAccessPath(resolve(ctx.cwd, path), "read")))];
+  return [...new Set(paths.map((path) => resolveAccessPath(path, "read", ctx.cwd)))];
 }
 
 export function requestForTool(
@@ -104,10 +104,10 @@ export function requestForTool(
 
   if (event.toolName === "write" || event.toolName === "edit") {
     const path = typeof event.input?.path === "string"
-      ? resolveAccessPath(resolve(ctx.cwd, event.input.path), "write")
+      ? resolveAccessEntryPath(event.input.path, "write", ctx.cwd)
       : undefined;
     const dependency = path !== undefined
-      && isDependencyPath(relative(core.config.repositoryRoot, path));
+      && isDependencyPath(path);
     return {
       ...base,
       action: dependency ? "dependency.modify" : "write.file",
@@ -154,7 +154,8 @@ function consequenceMessage(decision: ReturnType<AtelierCore["evaluateWorkspaceE
   for (const effect of decision.effects.filter((item) => item.decision === "ask" || item.decision === "deny")) {
     const key = effect.reason;
     const paths = groups.get(key) ?? [];
-    if (effect.resolvedPath !== undefined) paths.push(effect.resolvedPath);
+    const path = effect.entryPath ?? effect.resolvedPath;
+    if (path !== undefined) paths.push(path);
     groups.set(key, paths);
   }
   return [...groups.entries()].map(([reason, paths]) =>
@@ -307,7 +308,7 @@ export function isDesignatedPlanWrite(request: WorkflowActionRequest, core: Atel
   return core.mode() === "plan"
     && request.action === "write.file"
     && (request.paths?.length ?? 0) > 0
-    && request.paths?.every((path) => sameAccessPath(path, core.config.planPath, "write")) === true;
+    && request.paths?.every((path) => sameAccessEntryPath(path, core.config.planPath, "write")) === true;
 }
 
 export async function authorizeTool(

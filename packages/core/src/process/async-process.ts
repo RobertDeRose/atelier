@@ -88,6 +88,16 @@ export async function runProcess(command: string, args: readonly string[], optio
     if (!options.inheritStdio) {
       child.stdout?.on("data", (chunk: Buffer) => { [stdout, stdoutTruncated] = append(stdout, chunk); options.onData?.(chunk.toString("utf8")); resetIdle(); });
       child.stderr?.on("data", (chunk: Buffer) => { [stderr, stderrTruncated] = append(stderr, chunk); options.onData?.(chunk.toString("utf8")); resetIdle(); });
+      child.stdin?.on("error", (error: NodeJS.ErrnoException) => {
+        // A short-lived child may exit before Node flushes stdin. EPIPE and
+        // ECONNRESET describe that normal race; the authoritative process
+        // result still arrives through the close event.
+        if (error.code === "EPIPE" || error.code === "ECONNRESET") return;
+        if (settled) return;
+        settled = true;
+        cleanup();
+        rejectPromise(error);
+      });
       if (options.input !== undefined) child.stdin?.end(options.input); else child.stdin?.end();
     }
     child.once("error", (error) => {

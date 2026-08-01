@@ -97,6 +97,11 @@ test("guided verification resolves step workspace paths before launching and col
     assert.equal(existsSync(join(runRoot, "atelier-guided-verification-evidence.tar.xz")), true);
     assert.equal(existsSync(join(evidence, "guided-policy-jj", "status.json")), true);
     assert.equal(existsSync(join(evidence, "guided-control", "status.json")), true);
+    assert.equal(
+      readFileSync(join(evidence, "guided-policy-jj", "pi-command.txt"), "utf8"),
+      "mise run launch -- -ne --no-session\n",
+      "guided Pi launches must isolate unrelated user extensions",
+    );
     const footerGuide = readFileSync(join(guidedRoot, "guides", "01-intel-jj.md"), "utf8");
     assert.match(footerGuide, /thinking-level shortcut to select a different level/i);
     assert.match(footerGuide, /must change immediately without running an Atelier command/i);
@@ -435,4 +440,11 @@ test("guided Git policy restores every path-scoped checkpoint and prints concret
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test("live acceptance isolates unrelated user Pi extensions while loading Atelier explicitly", () => {
+  const live = readFileSync(join(process.cwd(), "scripts", "live-acceptance.sh"), "utf8");
+  assert.match(live, /launch -ne --mode json -p --no-session --no-approve/);
+  assert.match(live, /mise run launch -- -ne/);
 });

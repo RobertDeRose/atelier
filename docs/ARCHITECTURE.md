@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.31
+# Atelier Architecture — 0.14.0-alpha.32
 
 The Pi integration owns a session-local `FooterStatusController` and request-scoped observation pipeline. It
 serializes and coalesces status observations, consumes model/thinking and code-index events, invalidates cached
@@ -6,11 +6,16 @@ Git/Jujutsu state at mutation boundaries, and compares current source revisions 
 rendering intelligence readiness. It does not poll while Pi is idle; the next Pi interaction refreshes externally
 changed state.
 
-Repository observations canonicalize both the provider root and every requested path through existing ancestors
-before deriving VCS-relative pathspecs. This keeps macOS `/var` and `/private/var`, symlinked workspaces, and
-not-yet-created descendants inside the same repository identity. Each provider also versions its observation
-cache: invalidation detaches any in-flight result so a slower pre-mutation observation cannot overwrite newer
-footer, workflow, or code-intelligence state.
+Alpha.32 centralizes path identity in `security/path-boundary.ts` and `repository/repository-path.ts`. Every
+repository-aware subsystem receives three deliberate spellings: the caller-facing lexical key, the canonical
+filesystem entry with parent aliases resolved, and the fully resolved access target. Repository roots, caches,
+workspace membership, and boundary checks use canonical identities; Git/Jujutsu pathspecs, reviewed task scope,
+and recovery snapshots preserve the named final entry. This prevents macOS `/var` versus `/private/var` drift
+without conflating a tracked symlink with the file it targets. Missing descendants are resolved through the
+nearest existing canonical ancestor, so planned new paths and existing paths share one identity model.
+
+Each repository provider also versions its observation cache: invalidation detaches any in-flight result so a
+slower pre-mutation observation cannot overwrite newer footer, workflow, or code-intelligence state.
 
 ## Product boundary
 

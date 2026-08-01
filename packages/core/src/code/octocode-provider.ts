@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
 import { sourceRevisionIdentity, sourceSnapshotBase } from "../repository/snapshot.ts";
+import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus, type ResolvedCodeSearchFocus } from "./focus.ts";
@@ -63,7 +63,7 @@ export class OctocodeProvider implements CodeProvider {
 
   constructor(options: { command?: string; cwd: string; timeoutMs?: number; indexTimeoutMs?: number; environment?: Record<string, string> }) {
     this.command = options.command ?? "octocode";
-    this.cwd = resolve(options.cwd);
+    this.cwd = canonicalRepositoryRoot(options.cwd);
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.indexTimeoutMs = options.indexTimeoutMs ?? Math.max(this.timeoutMs, 30 * 60_000);
     this.environment = options.environment ?? {};
@@ -130,27 +130,28 @@ export class OctocodeProvider implements CodeProvider {
     }
     await this.close();
     for (const repository of workspace.repositories) {
-      const before = this.inspectStats(repository.root);
+      const repositoryRoot = canonicalRepositoryRoot(repository.root);
+      const before = this.inspectStats(repositoryRoot);
       const configurationIssue = this.embeddingConfigurationIssue(before);
       if (configurationIssue) {
-        throw new Error(`Octocode cannot index or search ${repository.root}: ${configurationIssue}`);
+        throw new Error(`Octocode cannot index or search ${repositoryRoot}: ${configurationIssue}`);
       }
       const indexArgs = ["index"];
       const result = spawnSync(this.command, indexArgs, {
-        cwd: repository.root,
+        cwd: repositoryRoot,
         env: minimalEnvironment({ overrides: this.environment }),
         encoding: "utf8",
         timeout: this.indexTimeoutMs,
         shell: false,
       });
       if (result.error || result.status !== 0) {
-        throw new Error(`octocode index failed for ${repository.root}: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`);
+        throw new Error(`octocode index failed for ${repositoryRoot}: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`);
       }
-      const after = this.inspectStats(repository.root);
+      const after = this.inspectStats(repositoryRoot);
       if (after.totalBlocks <= 0) {
-        throw new Error(`Octocode index completed for ${repository.root} but produced no searchable blocks. ${this.embeddingConfigurationIssue(after) ?? "Run octocode stats and octocode clear before retrying if the existing index is unrecoverable."}`);
+        throw new Error(`Octocode index completed for ${repositoryRoot} but produced no searchable blocks. ${this.embeddingConfigurationIssue(after) ?? "Run octocode stats and octocode clear before retrying if the existing index is unrecoverable."}`);
       }
-      await this.clientFor(repository.id, repository.root);
+      await this.clientFor(repository.id, repositoryRoot);
     }
     this.indexedRevisions = Object.fromEntries(workspace.repositories.map((repository) => [
       repository.id,
@@ -213,7 +214,7 @@ export class OctocodeProvider implements CodeProvider {
     return {
       reference,
       repositoryId: repository,
-      path: relative(root, path),
+      path: repositoryPathTarget(root, path, "read").relative,
       ...(data.startLine === undefined ? {} : { startLine: data.startLine }),
       ...(data.endLine === undefined ? {} : { endLine: data.endLine }),
       content,
@@ -283,14 +284,15 @@ export class OctocodeProvider implements CodeProvider {
   private async clientFor(repositoryId: string, root: string): Promise<OctocodeClientState> {
     const existing = this.clients.get(repositoryId);
     if (existing) return existing;
-    const client = new McpStdioClient(this.command, ["mcp", "--path", root], { cwd: root, timeoutMs: this.timeoutMs, environment: this.environment });
+    const repositoryRoot = canonicalRepositoryRoot(root);
+    const client = new McpStdioClient(this.command, ["mcp", "--path", repositoryRoot], { cwd: repositoryRoot, timeoutMs: this.timeoutMs, environment: this.environment });
     const initialized = await client.initialize({ clientVersion: ATELIER_VERSION });
     const version = initialized.serverInfo.version ?? this.probeVersion().version;
     this.identity = { name: "octocode", instanceId: "octocode:experimental", ...(version ? { version } : {}) };
     const tools = new Map((await client.listTools()).map((tool) => [tool.name, tool]));
     const state = { client, tools };
     this.clients.set(repositoryId, state);
-    this.roots.set(repositoryId, resolve(root));
+    this.roots.set(repositoryId, repositoryRoot);
     return state;
   }
 
@@ -474,7 +476,7 @@ function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, reposi
   for (const item of candidates) {
     const rawPath = stringValue(item, ["path", "file_path", "file", "filename", "source"]);
     if (!rawPath) continue;
-    const path = isAbsolute(rawPath) ? relative(root, rawPath) : rawPath;
+    const path = normalizeOctocodePath(root, rawPath);
     const startLine = numberValue(item, ["start_line", "startLine", "line", "line_number"]);
     const endLine = numberValue(item, ["end_line", "endLine"]);
     const content = stringValue(item, ["content", "code", "snippet", "text", "preview"]);
@@ -511,7 +513,7 @@ function normalizeRelationships(result: McpToolCallResult, query: CodeRelationsh
   for (const item of candidates) {
     const rawPath = stringValue(item, ["target_path", "path", "file", "target", "to"]);
     if (!rawPath || rawPath === query.reference.path) continue;
-    const path = isAbsolute(rawPath) ? relative(root, rawPath) : rawPath;
+    const path = normalizeOctocodePath(root, rawPath);
     const kind = relationshipKind(stringValue(item, ["relationship", "kind", "type", "edge"]));
     const target: CodeReference = { provider: "octocode", opaqueId: encodeReference({ repositoryId: query.reference.repositoryId, path }), repositoryId: query.reference.repositoryId, path };
     relationships.push({ kind, source: query.reference, target, ...(stringValue(item, ["label", "description", "name"]) ? { label: stringValue(item, ["label", "description", "name"])! } : {}), provenance: provenance(identity, query.reference.repositoryId, query.reference.path, "semantic") });
@@ -638,10 +640,12 @@ function numberValue(record: Record<string, unknown>, keys: string[]): number | 
 }
 function encodeReference(data: OctocodeReferenceData): string { return Buffer.from(JSON.stringify(data), "utf8").toString("base64url"); }
 function decodeReference(value: string): OctocodeReferenceData { return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as OctocodeReferenceData; }
+function normalizeOctocodePath(root: string, path: string): string {
+  return repositoryPathTarget(root, path, "read").relative;
+}
+
 function safePath(root: string, path: string): string {
-  const resolved = resolve(root, path);
-  const prefix = `${resolve(root)}${sep}`;
-  if (resolved !== resolve(root) && !resolved.startsWith(prefix)) throw new Error(`Octocode reference escaped repository root: ${path}`);
+  const resolved = repositoryPathTarget(root, path, "read").absolute;
   if (!existsSync(resolved)) throw new Error(`Octocode source path does not exist: ${path}`);
   return resolved;
 }

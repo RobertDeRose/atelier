@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.31 (2026-08-01).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.32 (2026-08-01).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -59,7 +59,17 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.31
+## Implementation Status — v0.14.0-alpha.32
+
+
+### Canonical path identity correction
+
+- One shared path-boundary layer resolves lexical inputs against explicit repository/workspace bases, canonicalizes every existing ancestor, and separately preserves the final filesystem entry.
+- Git, Jujutsu, directory, code-intelligence, validation, plan review, workflow authorization, multi-repository finalization, and recovery all consume that shared identity instead of ad-hoc `resolve()`/`relative()` pairs.
+- macOS `/var` and `/private/var`, symlinked repository roots, relative provider paths, and not-yet-created descendants produce stable in-worktree pathspecs.
+- Workflow and recovery scope uses the named repository entry, so a final tracked symlink is not silently reinterpreted as its target file.
+- Workspace confinement still follows the final symlink target and rejects escaping existing or future descendants.
+- The asynchronous process runner treats an early child `EPIPE`/`ECONNRESET` while flushing stdin as a normal exit race and retains the authoritative close result.
 
 The current prototype delivers the guarded local workflow:
 

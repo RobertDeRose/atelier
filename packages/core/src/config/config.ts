@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { ConfigurationError } from "../domain/errors.ts";
-import { isPathWithin } from "../security/path-boundary.ts";
+import { isPathWithin, resolveAccessPath } from "../security/path-boundary.ts";
 import { sha256 } from "../util/hash.ts";
 import { splitCommandLine } from "../util/command-line.ts";
 import { establishSessionWorkspace } from "../workspace/session-workspace.ts";
@@ -90,8 +90,7 @@ export interface PartialAtelierConfig {
 }
 
 function canonicalRoot(path: string): string {
-  const root = resolve(path);
-  return existsSync(root) ? realpathSync.native(root) : root;
+  return resolveAccessPath(path, "read");
 }
 
 export function userConfigPath(): string {
@@ -151,11 +150,11 @@ function requireProjectPath(root: string, value: string, field: string): string 
   if (!isPathWithin(path, root, "write")) {
     throw new ConfigurationError(`${field} must remain inside the project root: ${path}`);
   }
-  return path;
+  return resolveAccessPath(path, "write");
 }
 
 function requireExternalRuntimePath(root: string, value: string, field: string): string {
-  const path = resolve(value);
+  const path = resolveAccessPath(value, "write");
   if (isPathWithin(path, root, "write")) {
     throw new ConfigurationError(`${field} must remain outside the project root: ${path}`);
   }
@@ -172,8 +171,8 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
   const workspace = establishSessionWorkspace(repositoryRoot, options.workspaceRoot);
   const root = repository;
   if (!isPathWithin(root, workspace.root, "read")) throw new ConfigurationError(`Repository root must remain inside the Atelier workspace: ${root}`);
-  const projectDirectory = resolve(root, ".atelier");
-  const projectConfigPath = resolve(projectDirectory, "config.json");
+  const projectDirectory = requireProjectPath(root, ".atelier", "projectDirectory");
+  const projectConfigPath = requireProjectPath(root, ".atelier/config.json", "projectConfigPath");
   const userConfig = readJsonConfig(userConfigPath());
   const repositoryConfig = readJsonConfig(projectConfigPath);
   rejectRepositoryExecutableConfiguration(repositoryConfig, projectConfigPath);
@@ -183,8 +182,8 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
   const runtimeDirectory = requireExternalRuntimePath(root, runtimeValue ?? defaultRuntimeDirectory(root), "runtimeDirectory");
   const databasePath = requireExternalRuntimePath(root, userConfig.databasePath ?? join(runtimeDirectory, "atelier.db"), "databasePath");
   const planPath = requireProjectPath(root, merged.planPath ?? ".atelier/PLAN.md", "planPath");
-  const validationPath = resolve(projectDirectory, "validation.json");
-  const workspacePath = resolve(projectDirectory, "workspace.json");
+  const validationPath = requireProjectPath(root, ".atelier/validation.json", "validationPath");
+  const workspacePath = requireProjectPath(root, ".atelier/workspace.json", "workspacePath");
 
   const repositoryProvider = validateChoice(merged.repositoryProvider ?? "auto", ["auto", "jj", "git"] as const, "repositoryProvider");
   const taskProvider = validateChoice(merged.taskProvider ?? "beads", ["beads", "memory", "none"] as const, "taskProvider");
@@ -195,7 +194,7 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
   const sandboxBackend = validateChoice(merged.sandboxBackend ?? "auto", ["auto", "seatbelt", "bubblewrap", "none"] as const, "sandboxBackend");
 
   const octocodeConfigPath = userConfig.octocodeConfigPath !== undefined
-    ? resolveFromRoot(root, userConfig.octocodeConfigPath)
+    ? resolveAccessPath(resolveFromRoot(root, userConfig.octocodeConfigPath), "write")
     : requireProjectPath(root, repositoryConfig.octocodeConfigPath ?? ".atelier/octocode-config.toml", "octocodeConfigPath");
   const editor = process.env.ATLR_EDITOR ?? userConfig.editor;
   return {

@@ -20,7 +20,12 @@ import type {
   RepositoryRecoveryState,
 } from "./repository-provider.ts";
 import { resolveAccessPath } from "../security/path-boundary.ts";
-import { repositoryPathTargets } from "./repository-path.ts";
+import {
+  canonicalRepositoryRoot,
+  repositoryPathTarget,
+  repositoryPathTargets,
+  repositoryPathspecs,
+} from "./repository-path.ts";
 
 interface CommandResult {
   status: number;
@@ -122,7 +127,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     executable?: string;
     indexSchemaVersion?: number;
   }) {
-    this.cwd = resolve(options.cwd);
+    this.cwd = canonicalRepositoryRoot(options.cwd);
     this.ledger = options.ledger;
     this.executable = options.executable ?? "jj";
     this.indexSchemaVersion = options.indexSchemaVersion ?? 1;
@@ -142,7 +147,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
   async observe(options: RepositoryObserveOptions = {}): Promise<RepositoryObservation> {
     const cached = this.lastObservation;
     const age = cached === undefined ? Number.POSITIVE_INFINITY : Date.now() - Date.parse(cached.observedAt);
-    const requested = [...new Set(options.paths ?? [])].map((path) => resolve(path));
+    const requested = repositoryPathTargets(this.cwd, options.paths ?? [], "write").map((target) => target.key);
     const hasRequestedStates = requested.every((path) => cached?.pathStates[path] !== undefined);
     if (!options.force && cached !== undefined && age <= 250 && (!options.includeFiles || cached.files !== undefined) && hasRequestedStates) {
       return { ...cached, metrics: { ...cached.metrics, cacheHit: true, durationMs: 0, subprocesses: 0, filesHashed: 0, bytesHashed: 0 } };
@@ -168,7 +173,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
   async classifyPaths(paths: readonly string[], options: { signal?: AbortSignal } = {}): Promise<Record<string, RepositoryPathState>> {
     const root = await this.repositoryRoot(options.signal);
     const targets = repositoryPathTargets(root, paths, "write");
-    const relativePaths = targets.map((target) => target.relative);
+    const relativePaths = [...new Set(targets.map((target) => target.relative))];
     const [listedResult, changedResult, ignoredResult] = await Promise.all([
       runProcess(this.executable, ["file", "list", ...relativePaths], {
         cwd: root, signal: options.signal, timeoutMs: 10_000, idleTimeoutMs: 3_000, maxOutputBytes: 256 * 1024,
@@ -186,13 +191,14 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     const listed = new Set(lines(listedResult.stdout));
     const changed = new Set(lines(changedResult.stdout));
     const ignored = new Set(ignoredResult.stdout.split("\0").filter(Boolean));
-    return Object.fromEntries(targets.map((target, index) => {
-      const rel = relativePaths[index]!;
+    return Object.fromEntries(targets.flatMap((target) => {
+      const rel = target.relative;
       const state: RepositoryPathState = listed.has(rel)
         ? changed.has(rel) ? "tracked_dirty" : "tracked_clean"
         : ignored.has(rel) ? "ignored"
           : existsSync(target.absolute) ? "untracked" : "missing";
-      return [target.key, state];
+      return [...new Set([target.key, target.entry])]
+        .map((path) => [path, state] as const);
     }));
   }
 
@@ -319,8 +325,8 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
   }
 
   snapshot(): RepositorySnapshot {
-    const root = required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim();
-    const workspaceRoot = required(this.executable, this.cwd, ["workspace", "root"], "workspace-root observation").stdout.trim();
+    const root = canonicalRepositoryRoot(required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim());
+    const workspaceRoot = canonicalRepositoryRoot(required(this.executable, this.cwd, ["workspace", "root"], "workspace-root observation").stdout.trim());
     const identity = required(this.executable, root, [
       "log", "-r", "@", "--no-graph", "--color", "never",
       "-T", 'change_id ++ "\\n" ++ commit_id ++ "\\n"',
@@ -360,7 +366,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
   }
 
   displayState(): RepositoryDisplayState {
-    const root = required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim();
+    const root = canonicalRepositoryRoot(required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim());
     const identity = lines(required(this.executable, root, [
       "log", "-r", "@", "--no-graph", "--color", "never",
       "-T", 'change_id.shortest(8) ++ "\\n"',
@@ -398,31 +404,31 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
 
   diff(path?: string): string {
     const args = ["diff", "--git", "--color", "never"];
-    if (path !== undefined) args.push("--", path);
+    if (path !== undefined) args.push("--", ...repositoryPathspecs(this.cwd, [path], "read"));
     return required(this.executable, this.cwd, args, "working-copy diff").stdout;
   }
 
   diffFrom(reference: string, path?: string): string {
     const args = ["diff", "--from", reference, "--to", "@", "--git", "--color", "never"];
-    if (path !== undefined) args.push("--", path);
+    if (path !== undefined) args.push("--", ...repositoryPathspecs(this.cwd, [path], "read"));
     return required(this.executable, this.cwd, args, `diff from ${reference}`).stdout;
   }
 
   classifyPath(path: string): RepositoryPathState {
-    const root = required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim();
-    const absolute = resolve(path);
-    const relativePath = absolute.startsWith(`${root}/`) ? absolute.slice(root.length + 1) : absolute;
+    const root = canonicalRepositoryRoot(required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim());
+    const target = repositoryPathTarget(root, path, "write");
+    const relativePath = target.relative;
     const listed = run(this.executable, root, ["file", "list", relativePath]);
     if (listed.status === 0 && lines(listed.stdout).includes(relativePath)) {
       return this.observeRawChangedPaths().includes(relativePath) ? "tracked_dirty" : "tracked_clean";
     }
     const ignored = spawnSync("git", ["check-ignore", "-q", "--", relativePath], { cwd: root, env: minimalEnvironment(), shell: false });
     if (ignored.status === 0) return "ignored";
-    return existsSync(absolute) ? "untracked" : "missing";
+    return existsSync(target.absolute) ? "untracked" : "missing";
   }
 
   captureRecoveryState(paths: string[]): RepositoryRecoveryState {
-    const root = required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim();
+    const root = canonicalRepositoryRoot(required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim());
     // Reading @ snapshots the current working copy before the operation ID is
     // captured, making the operation log the exact recovery boundary.
     const identity = required(this.executable, root, [
@@ -433,18 +439,17 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     const operationId = required(this.executable, root, [
       "op", "log", "--limit", "1", "--no-graph", "--color", "never", "-T", 'id ++ "\n"',
     ], "recovery operation capture").stdout.trim();
-    const relativePaths = paths.map((path) => {
-      const absolute = resolve(path);
-      if (absolute === root) return ".";
-      if (!absolute.startsWith(`${root}/`)) throw new Error(`Jujutsu recovery path is outside the repository: ${absolute}`);
-      return absolute.slice(root.length + 1);
-    });
+    const relativePaths = repositoryPathspecs(root, paths, "write");
     return { provider: "jj", native: { root, changeId, commitId, operationId, relativePaths, restoreScope: "repository-operation" } };
   }
 
   restoreRecoveryState(state: RepositoryRecoveryState, paths: string[]): void {
     if (state.provider !== "jj" || state.native === undefined) throw new Error("Jujutsu recovery state is unavailable.");
-    const root = String(state.native.root);
+    const root = canonicalRepositoryRoot(String(state.native.root));
+    const currentRoot = canonicalRepositoryRoot(
+      required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim(),
+    );
+    if (root !== currentRoot) throw new Error(`Jujutsu recovery state belongs to a different repository: ${root}`);
     const operationId = String(state.native.operationId ?? "");
     if (!operationId) throw new Error("Jujutsu recovery operation is missing.");
     required(this.executable, root, ["op", "restore", operationId], "recovery operation restore");
@@ -461,7 +466,11 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
 
   verifyRecoveryState(state: RepositoryRecoveryState, _paths: string[]): void {
     if (state.provider !== "jj" || state.native === undefined) throw new Error("Jujutsu recovery state is unavailable.");
-    const root = String(state.native.root);
+    const root = canonicalRepositoryRoot(String(state.native.root));
+    const currentRoot = canonicalRepositoryRoot(
+      required(this.executable, this.cwd, ["root"], "repository-root observation").stdout.trim(),
+    );
+    if (root !== currentRoot) throw new Error(`Jujutsu recovery state belongs to a different repository: ${root}`);
     const operationId = String(state.native.operationId ?? "");
     const expectedChange = String(state.native.changeId ?? "");
     const expectedCommit = String(state.native.commitId ?? "");
@@ -492,7 +501,9 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
   commit(message: string, paths?: string[]): RepositoryCommitResult {
     const normalized = message.trim();
     if (!normalized) throw new Error("Change description cannot be empty.");
-    const changed = (paths ?? this.changedPaths()).filter(isSourcePath);
+    const changed = paths === undefined
+      ? this.changedPaths()
+      : repositoryPathspecs(this.cwd, paths, "write").filter(isSourcePath);
     if (changed.length === 0) throw new Error("No Jujutsu source changes are available to finalize.");
     if (paths === undefined) {
       required(this.executable, this.cwd, ["describe", "-m", normalized], "change description");
@@ -518,7 +529,7 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
   commitMetadata(message: string, paths: string[]): RepositoryCommitResult {
     const normalized = message.trim();
     if (!normalized) throw new Error("Metadata change description cannot be empty.");
-    const changed = [...new Set(paths)].sort();
+    const changed = repositoryPathspecs(this.cwd, paths, "write").sort();
     if (changed.length === 0) throw new Error("No workflow metadata changes are available to finalize.");
     required(this.executable, this.cwd, ["commit", "-m", normalized, "--", ...changed], "workflow metadata change creation");
     return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };

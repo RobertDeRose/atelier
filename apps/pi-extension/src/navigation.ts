@@ -1,13 +1,13 @@
 import { existsSync } from "node:fs";
 import { delimiter, resolve } from "node:path";
-import type { AtelierCore, EditorCommand } from "../../../packages/core/src/index.ts";
+import { resolveAccessPath, type AtelierCore, type EditorCommand } from "../../../packages/core/src/index.ts";
 
 export interface FileLocation { path: string; line?: number }
 
 export function parseFileLocation(value: string, cwd: string): FileLocation {
   const trimmed = value.trim();
   const match = /^(.*?):(\d+)$/.exec(trimmed);
-  const path = resolve(cwd, match?.[1] ?? trimmed);
+  const path = resolveAccessPath(match?.[1] ?? trimmed, "read", cwd);
   return { path, ...(match?.[2] === undefined ? {} : { line: Number(match[2]) }) };
 }
 

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -16,6 +15,7 @@ import {
   createStatusView,
   statusViewText,
   rankPresentedHits,
+  resolveAccessPath,
   type AtelierStatus,
 } from "../../../packages/core/src/index.ts";
 import {
@@ -121,7 +121,7 @@ function sessionState(ctx: ExtensionContext): ExtensionSessionState {
 
 function coreFor(ctx: ExtensionContext, openCore: (repositoryRoot: string) => AtelierCore): AtelierCore {
   const state = sessionState(ctx);
-  const root = resolve(ctx.cwd);
+  const root = resolveAccessPath(ctx.cwd, "read");
   if (state.core !== undefined && state.root === root) return state.core;
   if (state.core !== undefined) {
     throw new Error(
@@ -923,7 +923,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const editor = resolveEditorCommand(core.config, ctx.isProjectTrusted());
       await runInteractiveProcessWithPi(ctx, {
         command: editor.executable,
-        args: editorArguments(editor, { path: resolve(core.config.repositoryRoot, selected) }),
+        args: editorArguments(editor, { path: resolveAccessPath(selected, "read", core.config.repositoryRoot) }),
         cwd: core.config.repositoryRoot,
         purpose: "Repository file navigation",
       });

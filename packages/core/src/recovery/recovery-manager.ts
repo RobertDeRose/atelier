@@ -12,9 +12,11 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { EvaluatedEffect } from "../policy/workspace-policy.ts";
 import type { RepositoryProvider, RepositoryRecoveryState } from "../repository/repository-provider.ts";
+import { repositoryPathTarget, repositoryRelativePath } from "../repository/repository-path.ts";
+import { resolveAccessEntryPath, resolveAccessPath, sameAccessPath } from "../security/path-boundary.ts";
 import { newId } from "../util/ids.ts";
 
 interface SnapshotEntry {
@@ -91,8 +93,8 @@ export class RecoveryManager {
     repository: RepositoryProvider;
     maxBytes?: number;
   }) {
-    this.root = resolve(options.workspaceRoot);
-    this.directory = join(options.runtimeDirectory, "checkpoints");
+    this.root = resolveAccessPath(options.workspaceRoot, "write");
+    this.directory = join(resolveAccessPath(options.runtimeDirectory, "write"), "checkpoints");
     this.repository = options.repository;
     this.maxBytes = options.maxBytes ?? 16 * 1024 * 1024;
   }
@@ -103,9 +105,9 @@ export class RecoveryManager {
   ): RecoveryCheckpoint {
     const paths = [...new Set(
       effects
-        .map((effect) => effect.resolvedPath)
+        .map((effect) => effect.path ?? effect.entryPath ?? effect.resolvedPath)
         .filter((path): path is string => path !== undefined),
-    )].sort();
+    )].map((path) => resolveAccessEntryPath(path, "write", this.root)).sort();
     if (paths.length === 0) throw new Error("No concrete path was available for recovery checkpointing.");
 
     const id = newId("checkpoint");
@@ -164,7 +166,7 @@ export class RecoveryManager {
   restore(id: string): string[] {
     const directory = join(this.directory, basename(id));
     const manifest = this.readManifest(directory);
-    if (resolve(manifest.workspaceRoot) !== this.root) {
+    if (!sameAccessPath(manifest.workspaceRoot, this.root, "write")) {
       throw new Error("Recovery checkpoint belongs to a different Atelier workspace.");
     }
 
@@ -203,11 +205,10 @@ export class RecoveryManager {
     entries: SnapshotEntry[],
     bytes: { value: number },
   ): void {
-    const absolute = resolve(path);
-    const rel = relative(this.root, absolute).replaceAll("\\", "/");
-    if (!rel || rel === ".." || rel.startsWith("../")) {
-      throw new Error(`Checkpoint path is outside workspace: ${absolute}`);
-    }
+    const targetPath = repositoryPathTarget(this.root, path, "write");
+    const absolute = targetPath.entry;
+    const rel = targetPath.relative;
+    if (rel === ".") throw new Error(`Checkpoint path cannot be the entire workspace root: ${absolute}`);
 
     const stat = lexicalStat(absolute);
     if (stat === undefined) {
@@ -274,7 +275,7 @@ export class RecoveryManager {
       return;
     }
 
-    const rel = relative(this.root, entry.path).replaceAll("\\", "/");
+    const rel = repositoryRelativePath(this.root, entry.path, "write");
     copyFileSync(join(directory, "files", rel), entry.path);
     if (entry.mode !== undefined) chmodSync(entry.path, entry.mode & 0o7777);
   }
@@ -282,7 +283,7 @@ export class RecoveryManager {
   private verifyCheckpoint(directory: string, manifest: RecoveryManifest): void {
     for (const entry of manifest.entries) {
       if (entry.kind === "file") {
-        const rel = relative(this.root, entry.path).replaceAll("\\", "/");
+        const rel = repositoryRelativePath(this.root, entry.path, "write");
         const stored = join(directory, "files", rel);
         if (!existsSync(stored) || digest(stored) !== entry.digest) {
           throw new Error(`Recovery checkpoint verification failed for ${entry.path}.`);

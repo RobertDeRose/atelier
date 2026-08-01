@@ -20,7 +20,12 @@ import { sha256 } from "../util/hash.ts";
 import { nowIso } from "../util/ids.ts";
 import { isSourcePath } from "./source-path.ts";
 import { resolveAccessPath } from "../security/path-boundary.ts";
-import { repositoryPathTargets } from "./repository-path.ts";
+import {
+  canonicalRepositoryRoot,
+  repositoryPathTarget,
+  repositoryPathTargets,
+  repositoryPathspecs,
+} from "./repository-path.ts";
 
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
@@ -137,7 +142,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
   private observationGeneration = 0;
 
   constructor(options: { cwd: string; ledger: SqliteLedger; indexSchemaVersion?: number }) {
-    this.cwd = resolve(options.cwd);
+    this.cwd = canonicalRepositoryRoot(options.cwd);
     this.ledger = options.ledger;
     this.indexSchemaVersion = options.indexSchemaVersion ?? 1;
     this.stateKey = `repositoryDirtyState:git:${sha256(this.cwd).slice(0, 16)}`;
@@ -156,7 +161,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
   async observe(options: RepositoryObserveOptions = {}): Promise<RepositoryObservation> {
     const cached = this.lastObservation;
     const age = cached === undefined ? Number.POSITIVE_INFINITY : Date.now() - Date.parse(cached.observedAt);
-    const requested = [...new Set(options.paths ?? [])].map((path) => resolve(path));
+    const requested = repositoryPathTargets(this.cwd, options.paths ?? [], "write").map((target) => target.key);
     const hasRequestedStates = requested.every((path) => cached?.pathStates[path] !== undefined);
     if (!options.force && cached !== undefined && age <= 250 && (!options.includeFiles || cached.files !== undefined) && hasRequestedStates) {
       return { ...cached, metrics: { ...cached.metrics, cacheHit: true, durationMs: 0, subprocesses: 0, filesHashed: 0, bytesHashed: 0 } };
@@ -182,7 +187,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
   async classifyPaths(paths: readonly string[], options: { signal?: AbortSignal } = {}): Promise<Record<string, RepositoryPathState>> {
     const root = await this.repositoryRoot(options.signal);
     const targets = repositoryPathTargets(root, paths, "write");
-    const relativePaths = targets.map((target) => target.relative);
+    const relativePaths = [...new Set(targets.map((target) => target.relative))];
     const trackedResult = await runProcess("git", ["ls-files", "-z", "--", ...relativePaths], {
       cwd: root,
       signal: options.signal,
@@ -210,13 +215,14 @@ export class GitRepositoryProvider implements RepositoryProvider {
     });
     if (statusResult.exitCode !== 0) throw new RepositoryObservationError(`Git path-state observation failed: ${asyncFailure(statusResult)}`);
     const dirty = new Set(parseStatusPaths(statusResult.stdout));
-    return Object.fromEntries(targets.map((target, index) => {
-      const rel = relativePaths[index]!;
+    return Object.fromEntries(targets.flatMap((target) => {
+      const rel = target.relative;
       const state: RepositoryPathState = tracked.has(rel)
         ? dirty.has(rel) ? "tracked_dirty" : "tracked_clean"
         : ignored.has(rel) ? "ignored"
           : existsSync(target.absolute) ? "untracked" : "missing";
-      return [target.key, state];
+      return [...new Set([target.key, target.entry])]
+        .map((path) => [path, state] as const);
     }));
   }
 
@@ -247,7 +253,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
       maxOutputBytes: 64 * 1024,
     }).then((result) => {
       if (result.exitCode !== 0) throw new RepositoryObservationError(`Git common-directory observation failed: ${asyncFailure(result)}`);
-      return result.stdout.trim();
+      return resolveAccessPath(result.stdout.trim(), "read", root);
     });
     this.commonDirectoryPromise = pending;
     pending.catch(() => { if (this.commonDirectoryPromise === pending) delete this.commonDirectoryPromise; });
@@ -343,7 +349,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
   }
 
   snapshot(): RepositorySnapshot {
-    const root = requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim();
+    const root = canonicalRepositoryRoot(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim());
     const head = runGit(root, ["rev-parse", "HEAD"]);
     const commonDir = requiredGit(root, ["rev-parse", "--git-common-dir"], "common-directory observation");
     const status = requiredGit(root, ["status", "--porcelain=v1", "--untracked-files=all"], "working-copy observation");
@@ -358,7 +364,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
       `${sourceBaseCommit}\0${rawStatusLines.join("\n")}\0${sourceFingerprint}\0${contentState(root, rawChanged, false)}`,
     );
     return {
-      repositoryId: `git:${sha256(`${root}\0${commonDir.stdout.trim()}`).slice(0, 24)}`,
+      repositoryId: `git:${sha256(`${root}\0${resolveAccessPath(commonDir.stdout.trim(), "read", root)}`).slice(0, 24)}`,
       workspaceId: sha256(root).slice(0, 16),
       vcs: "git",
       headCommit: sourceBaseCommit,
@@ -371,7 +377,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
   }
 
   displayState(): RepositoryDisplayState {
-    const root = requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim();
+    const root = canonicalRepositoryRoot(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim());
     const branch = runGit(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
     const head = runGit(root, ["rev-parse", "--short=8", "HEAD"]);
     const status = requiredGit(root, ["status", "--porcelain=v1", "--untracked-files=all"], "display-state observation");
@@ -407,9 +413,9 @@ export class GitRepositoryProvider implements RepositoryProvider {
   }
 
   classifyPath(path: string): RepositoryPathState {
-    const root = resolveAccessPath(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim(), "read");
-    const absolute = resolveAccessPath(path, "write");
-    const relativePath = absolute.startsWith(`${root}/`) ? absolute.slice(root.length + 1) : absolute;
+    const root = canonicalRepositoryRoot(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim());
+    const target = repositoryPathTarget(root, path, "write");
+    const relativePath = target.relative;
     const tracked = runGit(root, ["ls-files", "--error-unmatch", "--", relativePath]);
     if (tracked.status === 0) {
       const status = requiredGit(root, ["status", "--porcelain=v1", "--", relativePath], "path-state observation");
@@ -417,17 +423,12 @@ export class GitRepositoryProvider implements RepositoryProvider {
     }
     const ignored = runGit(root, ["check-ignore", "-q", "--", relativePath]);
     if (ignored.status === 0) return "ignored";
-    return existsSync(absolute) ? "untracked" : "missing";
+    return existsSync(target.absolute) ? "untracked" : "missing";
   }
 
   captureRecoveryState(paths: string[]): RepositoryRecoveryState {
-    const root = resolveAccessPath(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim(), "read");
-    const relativePaths = paths.map((path) => {
-      const absolute = resolveAccessPath(path, "write");
-      if (absolute === root) return ".";
-      if (!absolute.startsWith(`${root}/`)) throw new Error(`Git recovery path is outside the repository: ${absolute}`);
-      return absolute.slice(root.length + 1);
-    });
+    const root = canonicalRepositoryRoot(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim());
+    const relativePaths = repositoryPathspecs(root, paths, "write");
     const head = runGit(root, ["rev-parse", "HEAD"]);
     const headCommit = head.status === 0 ? head.stdout.trim() : "unborn";
     const index = requiredGit(root, ["ls-files", "--stage", "-z", "--", ...relativePaths], "recovery index capture").stdout;
@@ -448,7 +449,11 @@ export class GitRepositoryProvider implements RepositoryProvider {
 
   restoreRecoveryState(state: RepositoryRecoveryState, paths: string[]): void {
     if (state.provider !== "git" || state.native === undefined) throw new Error("Git recovery state is unavailable.");
-    const root = String(state.native.root);
+    const root = canonicalRepositoryRoot(String(state.native.root));
+    const currentRoot = canonicalRepositoryRoot(
+      requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim(),
+    );
+    if (root !== currentRoot) throw new Error(`Git recovery state belongs to a different repository: ${root}`);
     const relativePaths = Array.isArray(state.native.relativePaths) ? state.native.relativePaths.map(String) : [];
     if (relativePaths.length === 0) return;
     const head = runGit(root, ["rev-parse", "HEAD"]);
@@ -492,7 +497,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
   }
 
   diff(path?: string): string {
-    const suffix = path === undefined ? [] : [path];
+    const suffix = path === undefined ? [] : repositoryPathspecs(this.cwd, [path], "read");
     const working = requiredGit(this.cwd, ["diff", "--no-ext-diff", "--", ...suffix], "working-tree diff").stdout;
     const staged = requiredGit(this.cwd, ["diff", "--cached", "--no-ext-diff", "--", ...suffix], "staged diff").stdout;
     return [
@@ -502,10 +507,11 @@ export class GitRepositoryProvider implements RepositoryProvider {
   }
 
   diffFrom(reference: string, path?: string): string {
-    const suffix = path === undefined ? [] : [path];
+    const suffix = path === undefined ? [] : repositoryPathspecs(this.cwd, [path], "read");
+    const scopedPath = suffix[0];
     const tracked = requiredGit(this.cwd, ["diff", "--no-ext-diff", revision(reference), "--", ...suffix], `diff from ${reference}`).stdout;
     const untracked = this.untrackedPaths()
-      .filter((candidate) => path === undefined || candidate === path || candidate.startsWith(`${path}/`))
+      .filter((candidate) => scopedPath === undefined || candidate === scopedPath || candidate.startsWith(`${scopedPath}/`))
       .map((candidate) => {
         const result = runGit(this.cwd, ["diff", "--no-index", "--no-ext-diff", "--", "/dev/null", candidate]);
         if (result.status !== 0 && result.status !== 1) {
@@ -524,7 +530,9 @@ export class GitRepositoryProvider implements RepositoryProvider {
   commit(message: string, paths?: string[]): RepositoryCommitResult {
     const normalized = message.trim();
     if (!normalized) throw new Error("Commit message cannot be empty.");
-    const changed = (paths ?? this.changedPaths()).filter(isSourcePath);
+    const changed = paths === undefined
+      ? this.changedPaths()
+      : repositoryPathspecs(this.cwd, paths, "write").filter(isSourcePath);
     if (changed.length === 0) throw new Error("No repository changes are available to commit.");
     requiredGit(this.cwd, ["add", "-A", "--", ...changed], "staging");
     // Keep workflow/provider metadata and unrelated pre-staged changes out of
@@ -542,7 +550,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
   commitMetadata(message: string, paths: string[]): RepositoryCommitResult {
     const normalized = message.trim();
     if (!normalized) throw new Error("Metadata commit message cannot be empty.");
-    const changed = [...new Set(paths)].sort();
+    const changed = repositoryPathspecs(this.cwd, paths, "write").sort();
     if (changed.length === 0) throw new Error("No workflow metadata changes are available to commit.");
     requiredGit(this.cwd, ["add", "-A", "--", ...changed], "workflow metadata staging");
     requiredGit(this.cwd, ["commit", "--no-gpg-sign", "-m", normalized, "--", ...changed], "workflow metadata commit");

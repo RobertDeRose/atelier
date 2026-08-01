@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import { ConfigurationError } from "../domain/errors.ts";
 import type { RepositorySnapshot } from "../repository/snapshot.ts";
+import { resolveAccessPath } from "../security/path-boundary.ts";
 import type { CodeWorkspace } from "./types.ts";
 
 interface WorkspaceFile {
@@ -23,8 +24,7 @@ export interface CodeWorkspaceLoadOptions {
 }
 
 function canonicalRoot(path: string): string {
-  const absolute = resolve(path);
-  return existsSync(absolute) ? realpathSync.native(absolute) : absolute;
+  return resolveAccessPath(path, "read");
 }
 
 export function loadCodeWorkspace(
@@ -36,7 +36,11 @@ export function loadCodeWorkspace(
   const options: CodeWorkspaceLoadOptions = typeof snapshotForRootOrOptions === "function"
     ? { snapshotForRoot: snapshotForRootOrOptions }
     : (snapshotForRootOrOptions ?? {});
-  const workspacePath = resolve(options.workspacePath ?? resolve(projectRoot, ".atelier", "workspace.json"));
+  const workspacePath = resolveAccessPath(
+    options.workspacePath ?? resolve(projectRoot, ".atelier", "workspace.json"),
+    "read",
+    projectRoot,
+  );
   if (!existsSync(workspacePath)) return singleWorkspace(projectRoot, primary);
   const parsed = JSON.parse(readFileSync(workspacePath, "utf8")) as WorkspaceFile;
   if (parsed === null || typeof parsed !== "object" || (parsed.repositories !== undefined && !Array.isArray(parsed.repositories))) {
@@ -96,7 +100,11 @@ export async function loadCodeWorkspaceAsync(
   options: AsyncCodeWorkspaceLoadOptions = {},
 ): Promise<CodeWorkspace> {
   const projectRoot = canonicalRoot(root);
-  const workspacePath = resolve(options.workspacePath ?? resolve(projectRoot, ".atelier", "workspace.json"));
+  const workspacePath = resolveAccessPath(
+    options.workspacePath ?? resolve(projectRoot, ".atelier", "workspace.json"),
+    "read",
+    projectRoot,
+  );
   if (!existsSync(workspacePath)) return singleWorkspace(projectRoot, primary);
   const parsed = JSON.parse(readFileSync(workspacePath, "utf8")) as WorkspaceFile;
   if (parsed === null || typeof parsed !== "object" || (parsed.repositories !== undefined && !Array.isArray(parsed.repositories))) {

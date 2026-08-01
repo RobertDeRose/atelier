@@ -1,9 +1,12 @@
-import { relative } from "node:path";
 import type { ApprovedTaskConstraint } from "../domain/types.ts";
+import { repositoryRelativePath } from "../repository/repository-path.ts";
 
 function displayPath(repositoryRoot: string, path: string): string {
-  const value = relative(repositoryRoot, path).replaceAll("\\", "/");
-  return value || ".";
+  try {
+    return repositoryRelativePath(repositoryRoot, path, "write");
+  } catch {
+    return path;
+  }
 }
 
 /** Human-facing reviewed task constraints. This is not a permission profile. */

@@ -1,7 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { arch, platform } from "node:os";
-import { resolve } from "node:path";
 import type {
   FocusedValidationSelection,
   RepositorySnapshot,
@@ -15,6 +14,8 @@ import { nowIso, newId } from "../util/ids.ts";
 import { sourceSnapshotFingerprint } from "../repository/snapshot.ts";
 import { minimalEnvironment } from "../process/environment.ts";
 import { redactText } from "../security/redaction.ts";
+import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
+import { resolveAccessPath } from "../security/path-boundary.ts";
 
 export interface ValidationDefinition {
   command: string[];
@@ -63,9 +64,13 @@ export class ValidationService {
   private readonly manifestPath: string;
 
   constructor(options: { root: string; database: SqliteDatabase; manifestPath?: string }) {
-    this.root = resolve(options.root);
+    this.root = canonicalRepositoryRoot(options.root);
     this.database = options.database;
-    this.manifestPath = resolve(options.manifestPath ?? resolve(this.root, ".atelier", "validation.json"));
+    this.manifestPath = resolveAccessPath(
+      options.manifestPath ?? ".atelier/validation.json",
+      "read",
+      this.root,
+    );
     this.migrate();
   }
 
@@ -471,8 +476,9 @@ export class ValidationService {
 
   private environmentFingerprint(name: string, definition: ValidationDefinition, environment: NodeJS.ProcessEnv): string {
     const lockfiles = ["package-lock.json", "mise.lock", "flake.lock", "Cargo.lock", "uv.lock", "pnpm-lock.yaml", "yarn.lock"]
-      .filter((path) => existsSync(resolve(this.root, path)))
-      .map((path) => `${path}:${sha256(readFileSync(resolve(this.root, path)))}`);
+      .map((path) => [path, repositoryPathTarget(this.root, path, "read").absolute] as const)
+      .filter(([, absolute]) => existsSync(absolute))
+      .map(([path, absolute]) => `${path}:${sha256(readFileSync(absolute))}`);
     return sha256(JSON.stringify({
       name,
       command: definition.command,

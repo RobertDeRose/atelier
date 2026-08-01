@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OctocodeProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
@@ -39,7 +39,7 @@ process.stdin.on('data', chunk => {
     else if (request.method === 'tools/call') {
       const { name, arguments: input } = request.params;
       fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), tool: name, input }) + '\\n');
-      if (name === 'semantic_search') result = { structuredContent: { results: [{ path: 'src/auth.ts', start_line: 2, end_line: 4, score: 0.91, signature: 'function refreshToken', content: 'export function refreshToken() {}' }] } };
+      if (name === 'semantic_search') result = { structuredContent: { results: [{ path: process.env.FAKE_OCTOCODE_RESULT_PATH ?? 'src/auth.ts', start_line: 2, end_line: 4, score: 0.91, signature: 'function refreshToken', content: 'export function refreshToken() {}' }] } };
       else if (name === 'graphrag') result = { structuredContent: { relationships: [{ type: 'imports', target_path: 'src/token.ts', description: 'token validation' }] } };
       else result = { structuredContent: {} };
     }
@@ -116,6 +116,50 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("Octocode canonicalizes aliased repository roots and absolute result paths", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-octocode-canonical-"));
+  const repositoryRoot = join(root, "repository");
+  const aliasParent = mkdtempSync(join(tmpdir(), "atlr-octocode-canonical-alias-"));
+  const aliasRoot = join(aliasParent, "repository");
+  mkdirSync(join(repositoryRoot, "src"), { recursive: true });
+  writeFileSync(join(repositoryRoot, "src", "auth.ts"), "export function refreshToken() {}\n", "utf8");
+  symlinkSync(repositoryRoot, aliasRoot, "dir");
+  const fake = fakeOctocode(root);
+  const provider = new OctocodeProvider({
+    command: fake.command,
+    cwd: aliasRoot,
+    timeoutMs: TEST_TOOL_TIMEOUT_MS,
+    environment: {
+      VOYAGE_API_KEY: "test-key",
+      FAKE_OCTOCODE_RESULT_PATH: join(aliasRoot, "src", "auth.ts"),
+    },
+  });
+  const work = workspace([{ id: "repo", root: aliasRoot }]);
+  try {
+    assert.equal(await provider.ensureIndex(work), "ready");
+    const hits = await provider.search({
+      workspace: work,
+      text: "refresh token",
+      mode: "semantic",
+      limit: 5,
+      includeTests: true,
+      includeGenerated: false,
+    });
+    assert.equal(hits[0]?.path, "src/auth.ts");
+    const chunk = await provider.read(hits[0]!.reference);
+    assert.equal(chunk.path, "src/auth.ts");
+
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { cwd: string; args?: string[] });
+    assert.ok(calls.some((call) => call.args?.[0] === "index" && call.cwd === realpathSync.native(repositoryRoot)));
+    assert.equal(calls.some((call) => call.args?.some((arg) => arg.includes("../"))), false);
+  } finally {
+    await provider.close();
+    rmSync(aliasParent, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 
 test(
   "Octocode version probes preserve timeout diagnostics instead of reporting a missing executable",

@@ -1,5 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolveAccessPath } from "../security/path-boundary.ts";
 
 export interface SessionWorkspace {
   root: string;
@@ -7,7 +6,9 @@ export interface SessionWorkspace {
 }
 
 export function establishSessionWorkspace(startupCwd: string, explicitRoot?: string): SessionWorkspace {
-  const selected = resolve(explicitRoot ?? startupCwd);
-  const root = existsSync(selected) ? realpathSync.native(selected) : selected;
-  return { root, source: explicitRoot === undefined ? "startup_cwd" : "explicit" };
+  const selected = explicitRoot ?? startupCwd;
+  return {
+    root: resolveAccessPath(selected, "read", startupCwd),
+    source: explicitRoot === undefined ? "startup_cwd" : "explicit",
+  };
 }

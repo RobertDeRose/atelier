@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import type {
   RepositoryProvider,
@@ -11,6 +10,7 @@ import type {
   RepositoryObserveOptions,
 } from "./repository-provider.ts";
 import { sha256 } from "../util/hash.ts";
+import { canonicalRepositoryRoot, repositoryPathTargets } from "./repository-path.ts";
 
 /** Non-executing provider used outside a supported VCS. */
 export class DirectoryRepositoryProvider implements RepositoryProvider {
@@ -20,14 +20,14 @@ export class DirectoryRepositoryProvider implements RepositoryProvider {
   private readonly reason: string;
 
   constructor(options: { root: string; indexSchemaVersion?: number; reason?: string }) {
-    this.root = resolve(options.root);
+    this.root = canonicalRepositoryRoot(options.root);
     this.indexSchemaVersion = options.indexSchemaVersion ?? 1;
     this.reason = options.reason ?? "No supported repository provider is active.";
   }
 
   async observe(options: RepositoryObserveOptions = {}): Promise<RepositoryObservation> {
     const snapshot = this.snapshot();
-    const paths = [...new Set(options.paths ?? [])].map((path) => resolve(path));
+    const targets = repositoryPathTargets(this.root, options.paths ?? [], "write");
     return {
       status: this.status(),
       snapshot,
@@ -36,7 +36,11 @@ export class DirectoryRepositoryProvider implements RepositoryProvider {
       rawChangedPaths: [],
       changedPaths: [],
       ...(options.includeFiles ? { files: [] } : {}),
-      pathStates: Object.fromEntries(paths.map((path) => [path, this.classifyPath(path)])),
+      pathStates: Object.fromEntries(targets.flatMap((target) => {
+        const state: RepositoryPathState = existsSync(target.entry) ? "untracked" : "missing";
+        return [...new Set([target.key, target.entry])]
+          .map((path) => [path, state] as const);
+      })),
       observedAt: new Date().toISOString(),
       metrics: { durationMs: 0, subprocesses: 0, filesHashed: 0, bytesHashed: 0, cacheHit: true },
     };
@@ -71,7 +75,10 @@ export class DirectoryRepositoryProvider implements RepositoryProvider {
   diff(): string { return ""; }
   diffFrom(_reference: string, _path?: string): string { return ""; }
   listFiles(): string[] { return []; }
-  classifyPath(path: string): RepositoryPathState { return existsSync(resolve(path)) ? "untracked" : "missing"; }
+  classifyPath(path: string): RepositoryPathState {
+    const target = repositoryPathTargets(this.root, [path], "write")[0];
+    return target !== undefined && existsSync(target.entry) ? "untracked" : "missing";
+  }
   commitMetadata(_message: string, _paths: string[]): RepositoryCommitResult { throw new Error("Directory repository provider cannot create metadata commits."); }
   commit(_message: string, _paths?: string[]): RepositoryCommitResult { throw new Error(this.reason); }
 }

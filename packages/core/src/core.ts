@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { loadConfig, type AtelierConfig } from "./config/config.ts";
 import { WorkingStateBuilder } from "./state/working-state-builder.ts";
 import type {
@@ -61,6 +60,7 @@ import { hashFile, sha256 } from "./util/hash.ts";
 import { newId, nowIso } from "./util/ids.ts";
 import { isPathWithin, resolveAccessPath } from "./security/path-boundary.ts";
 import { isSourcePath, sourcePaths } from "./repository/source-path.ts";
+import { repositoryPathTarget, repositoryPathTargets, repositoryRelativePath } from "./repository/repository-path.ts";
 import {
   repositoryRevisionBinding,
   type RepositoryRevisionBinding,
@@ -96,21 +96,23 @@ export interface AtelierStatus {
 }
 
 function repositoryRelativeSourcePath(repositoryRoot: string, path: string): string | undefined {
-  const absolute = resolve(path);
-  const rel = relative(repositoryRoot, absolute).replaceAll("\\", "/");
-  if (!rel || rel === ".." || rel.startsWith("../") || !isSourcePath(rel)) return undefined;
-  return rel;
+  try {
+    const rel = repositoryRelativePath(repositoryRoot, path, "write");
+    return rel === "." || !isSourcePath(rel) ? undefined : rel;
+  } catch {
+    return undefined;
+  }
 }
 
 function sourcePathFingerprint(repositoryRoot: string, path: string): string {
-  const absolute = resolve(repositoryRoot, path);
-  if (!existsSync(absolute)) return "missing";
+  const entry = repositoryPathTarget(repositoryRoot, path, "read").entry;
   try {
-    const stat = statSync(absolute);
+    const stat = lstatSync(entry);
+    if (stat.isSymbolicLink()) return `symlink:${readlinkSync(entry)}`;
     if (!stat.isFile()) return `non-file:${stat.mode}:${stat.size}`;
-    return `file:${stat.size}:${sha256(readFileSync(absolute))}`;
+    return `file:${stat.size}:${sha256(readFileSync(entry))}`;
   } catch {
-    return "unreadable";
+    return "missing";
   }
 }
 
@@ -255,7 +257,12 @@ export class AtelierCore {
           rawChangedPaths: this.repository.rawChangedPaths(),
           changedPaths: this.repository.changedPaths(),
           ...(options.includeFiles ? { files: this.repository.listFiles() } : {}),
-          pathStates: Object.fromEntries((options.paths ?? []).map((path) => [resolve(path), this.repository.classifyPath?.(path) ?? "unknown"])),
+          pathStates: Object.fromEntries(repositoryPathTargets(this.config.repositoryRoot, options.paths ?? [], "write")
+            .flatMap((target) => {
+              const state = this.repository.classifyPath?.(target.entry) ?? "unknown";
+              return [...new Set([target.key, target.entry])]
+                .map((path) => [path, state] as const);
+            })),
           observedAt: new Date().toISOString(),
           metrics: { durationMs: 0, subprocesses: 0, filesHashed: 0, bytesHashed: 0, cacheHit: false },
         } satisfies RepositoryObservation;
@@ -302,7 +309,7 @@ export class AtelierCore {
         this.config.projectConfigPath,
         `${JSON.stringify(
           {
-            planPath: relative(this.config.repositoryRoot, this.config.planPath),
+            planPath: repositoryRelativePath(this.config.repositoryRoot, this.config.planPath, "write"),
             taskProvider: this.config.taskProvider,
             repositoryProvider: this.config.repositoryProvider,
             codeProvider: this.config.codeProvider,
@@ -1423,7 +1430,7 @@ export class AtelierCore {
       operation: options.operation ?? "workspace-policy",
     });
     const decision = this.workspacePolicy.evaluate(effects, {
-      classify: (path) => observation.pathStates[resolve(path)]
+      classify: (path) => observation.pathStates[path]
         ?? this.repository.classifyPath?.(path)
         ?? (existsSync(path) ? "untracked" : "missing"),
     });

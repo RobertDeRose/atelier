@@ -19,6 +19,7 @@ import { parsePlanFile } from "../planning/plan-parser.ts";
 import { PlanReconciler } from "../planning/plan-reconciler.ts";
 import type { RepositoryProvider } from "../repository/repository-provider.ts";
 import type { RepositorySnapshot } from "../repository/snapshot.ts";
+import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
 import type { TaskProvider } from "../tasks/task-provider.ts";
 import { newId, nowIso } from "../util/ids.ts";
 import {
@@ -86,11 +87,11 @@ export class ExecutionWorkflowCoordinator {
   private readonly configuredSourceContext: (() => ExecutionSourceContext | Promise<ExecutionSourceContext>) | undefined;
 
   constructor(options: ExecutionWorkflowCoordinatorOptions) {
-    this.planPath = options.planPath;
+    this.repositoryRoot = canonicalRepositoryRoot(options.repositoryRoot);
+    this.planPath = repositoryPathTarget(this.repositoryRoot, options.planPath, "write").entry;
     this.ledger = options.ledger;
     this.provider = options.provider;
     this.repository = options.repository;
-    this.repositoryRoot = options.repositoryRoot;
     this.repositoryBindings = options.repositoryBindings ?? (() => []);
     this.retrievalBindings = options.retrievalBindings ?? (() => []);
     this.validationConstraints = options.validationConstraints ?? (() => []);

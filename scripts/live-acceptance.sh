@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="11"
+HARNESS_VERSION="32"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
 PI_TIMEOUT_SECONDS="${ATELIER_PI_TIMEOUT_SECONDS:-600}"
 SOURCE_REPO=""
@@ -561,7 +561,7 @@ verify_code_intelligence() {
   local model_args=()
   [[ -z "${ATELIER_MODEL:-}" ]] || model_args=(--model "$ATELIER_MODEL")
   run_with_timeout "$PI_TIMEOUT_SECONDS" "$EVIDENCE_DIR/pi-code-tools.jsonl" \
-    "${ATLR_BIN[@]}" launch --mode json -p --no-session --no-approve \
+    "${ATLR_BIN[@]}" launch -ne --mode json -p --no-session --no-approve \
     "${model_args[@]}" \
     --tools atlr_code_status,atlr_code_search,atlr_code_symbols \
     "Call atlr_code_status exactly once. Then call atlr_code_search once with a focused query containing the exact identifier AtelierCore. Finally call atlr_code_symbols for AtelierCore exactly once. Use no other tools and identify the class definition path."
@@ -749,7 +749,7 @@ run_pi_json() {
   local model_args=()
   [[ -z "${ATELIER_MODEL:-}" ]] || model_args=(--model "$ATELIER_MODEL")
   run_with_timeout "$PI_TIMEOUT_SECONDS" "$logfile" \
-    "${ATLR_BIN[@]}" launch --mode json -p --no-session --no-approve \
+    "${ATLR_BIN[@]}" launch -ne --mode json -p --no-session --no-approve \
     "${model_args[@]}" --tools "$tools" "$prompt"
 }
 
@@ -971,12 +971,12 @@ JSON
 Pi trust independence smoke:
   source "$tui_root/pi-trust/env.sh"
   cd "\$ATLR_REPO"
-  mise run launch
+  mise run launch -- -ne
 
 TUI workflow/control smoke:
   source "$tui_root/control/env.sh"
   cd "\$ATLR_REPO"
-  mise run launch
+  mise run launch -- -ne
 
 See docs/LOCAL_ACCEPTANCE.md in the current repository for the interactive checklist.
 EOF

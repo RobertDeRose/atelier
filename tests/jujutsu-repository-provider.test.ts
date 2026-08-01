@@ -149,9 +149,17 @@ process.exit(1);
   try {
     const provider = new JujutsuRepositoryProvider({ cwd: aliasRoot, ledger, executable });
     const aliasPath = join(aliasRoot, "src", "main.ts");
-    const observation = await provider.observe({ paths: [aliasPath] });
+    const relativeMissing = "src/not-created.ts";
+    const canonicalMissing = join(realpathSync.native(root), relativeMissing);
+    const observation = await provider.observe({ paths: [aliasPath, relativeMissing] });
     assert.equal(observation.root, realpathSync.native(root));
     assert.equal(observation.pathStates[aliasPath], "tracked_dirty");
+    assert.equal(observation.pathStates[realpathSync.native(aliasPath)], "tracked_dirty");
+    assert.equal(observation.pathStates[canonicalMissing], "missing");
+    assert.equal(provider.classifyPath(relativeMissing), "missing");
+    const recovery = provider.captureRecoveryState([aliasPath, relativeMissing]);
+    assert.equal(recovery.native?.root, realpathSync.native(root));
+    assert.deepEqual(recovery.native?.relativePaths, ["src/main.ts", relativeMissing]);
   } finally {
     ledger.close();
     rmSync(aliasParent, { recursive: true, force: true });

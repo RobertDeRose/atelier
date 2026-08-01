@@ -1,5 +1,5 @@
-import { basename, relative } from "node:path";
-import { isPathWithin, resolveAccessPath } from "../security/path-boundary.ts";
+import { basename, isAbsolute, relative } from "node:path";
+import { isPathWithin, resolveAccessPath, resolveAccessTarget } from "../security/path-boundary.ts";
 
 export const EFFECT_KINDS = [
   "read",
@@ -41,7 +41,10 @@ export interface FilesystemEffect {
 export type WorkspaceDecisionKind = "allow" | "checkpoint_then_allow" | "ask" | "deny";
 
 export interface EvaluatedEffect extends FilesystemEffect {
+  /** Canonical access target used for workspace-boundary enforcement. */
   resolvedPath?: string;
+  /** Canonical parent path preserving the final filesystem entry. */
+  entryPath?: string;
   state: WorkspacePathState;
   decision: WorkspaceDecisionKind;
   reason: string;
@@ -64,13 +67,21 @@ const DEFAULT_SECRET_PATTERNS = [
 ];
 
 export function isPotentialSecretPath(path: string, workspaceRoot: string, extraPatterns: readonly string[] = []): boolean {
-  const rel = relative(workspaceRoot, path).replaceAll("\\", "/");
-  const candidate = rel && !rel.startsWith("../") ? rel : path.replaceAll("\\", "/");
-  const leaf = basename(candidate);
-  return DEFAULT_SECRET_PATTERNS.some((pattern) => pattern.test(candidate) || pattern.test(leaf))
-    || extraPatterns.some((pattern) => {
-      try { return new RegExp(pattern).test(candidate); } catch { return false; }
-    });
+  const root = resolveAccessPath(workspaceRoot, "read");
+  const target = resolveAccessTarget(path, "read", root);
+  const candidates = [...new Set([target.entry, target.canonical].map((candidate) => {
+    const relationship = relative(root, candidate);
+    return relationship !== "" && !relationship.startsWith("..") && !isAbsolute(relationship)
+      ? relationship.replaceAll("\\", "/")
+      : candidate.replaceAll("\\", "/");
+  }))];
+  return candidates.some((candidate) => {
+    const leaf = basename(candidate);
+    return DEFAULT_SECRET_PATTERNS.some((pattern) => pattern.test(candidate) || pattern.test(leaf))
+      || extraPatterns.some((pattern) => {
+        try { return new RegExp(pattern).test(candidate); } catch { return false; }
+      });
+  });
 }
 
 export interface WorkspaceStateResolver {
@@ -117,32 +128,37 @@ export class WorkspacePolicyEvaluator {
       return { ...effect, state: "unknown", decision: "ask", reason: "The affected path could not be determined." };
     }
 
-    const resolvedPath = resolveAccessPath(effect.path, effect.kind === "read" ? "read" : "write");
-    if (!isPathWithin(resolvedPath, this.root, effect.kind === "read" ? "read" : "write")) {
-      return { ...effect, resolvedPath, state: "outside_workspace", decision: "ask", reason: `The operation affects a path outside the Atelier workspace: ${resolvedPath}` };
+    const access = effect.kind === "read" ? "read" : "write";
+    const target = resolveAccessTarget(effect.path, access, this.root);
+    const resolvedPath = target.canonical;
+    const entryPath = target.entry;
+    if (!isPathWithin(resolvedPath, this.root, access)) {
+      return { ...effect, resolvedPath, entryPath, state: "outside_workspace", decision: "ask", reason: `The operation affects a path outside the Atelier workspace: ${resolvedPath}` };
     }
-    if (isPotentialSecretPath(resolvedPath, this.root, this.secretPatterns)) {
-      return { ...effect, resolvedPath, state: "potential_secret", decision: "ask", reason: `The operation accesses a likely secret path: ${resolvedPath}` };
+    if (isPotentialSecretPath(effect.path, this.root, this.secretPatterns)) {
+      return { ...effect, resolvedPath, entryPath, state: "potential_secret", decision: "ask", reason: `The operation accesses a likely secret path: ${entryPath}` };
     }
 
-    const state = resolver.classify(resolvedPath);
-    if (effect.kind === "read") return { ...effect, resolvedPath, state, decision: "allow", reason: "Ordinary workspace read is allowed." };
-    if (effect.kind === "create" && state === "missing") return { ...effect, resolvedPath, state, decision: "allow", reason: "Creating a new path inside the workspace is recoverable." };
+    // VCS and recovery state belongs to the named filesystem entry. Boundary
+    // enforcement separately uses the fully resolved canonical target above.
+    const state = resolver.classify(entryPath);
+    if (effect.kind === "read") return { ...effect, resolvedPath, entryPath, state, decision: "allow", reason: "Ordinary workspace read is allowed." };
+    if (effect.kind === "create" && state === "missing") return { ...effect, resolvedPath, entryPath, state, decision: "allow", reason: "Creating a new path inside the workspace is recoverable." };
     if ((effect.kind === "mutate" || effect.kind === "delete" || effect.kind === "overwrite") && state === "tracked_clean") {
-      return { ...effect, resolvedPath, state, decision: "allow", reason: "The clean tracked path is recoverable from version control." };
+      return { ...effect, resolvedPath, entryPath, state, decision: "allow", reason: "The clean tracked path is recoverable from version control." };
     }
     if ((effect.kind === "mutate" || effect.kind === "delete" || effect.kind === "overwrite") && state === "tracked_dirty") {
-      return { ...effect, resolvedPath, state, decision: "checkpoint_then_allow", reason: "The dirty tracked path must be checkpointed before mutation." };
+      return { ...effect, resolvedPath, entryPath, state, decision: "checkpoint_then_allow", reason: "The dirty tracked path must be checkpointed before mutation." };
     }
     if (effect.kind === "mutate" && (state === "untracked" || state === "ignored") && effect.preservesPrevious === true) {
-      return { ...effect, resolvedPath, state, decision: "allow", reason: "The mutation preserves the existing untracked contents." };
+      return { ...effect, resolvedPath, entryPath, state, decision: "allow", reason: "The mutation preserves the existing untracked contents." };
     }
     if ((effect.kind === "mutate" || effect.kind === "overwrite" || effect.kind === "delete") && (state === "untracked" || state === "ignored")) {
-      return { ...effect, resolvedPath, state, decision: "checkpoint_then_allow", reason: "The existing untracked or ignored path must be checkpointed before destructive change." };
+      return { ...effect, resolvedPath, entryPath, state, decision: "checkpoint_then_allow", reason: "The existing untracked or ignored path must be checkpointed before destructive change." };
     }
     if (effect.kind === "create" && state !== "missing") {
-      return { ...effect, resolvedPath, state, decision: "ask", reason: `The create operation would replace existing state at ${resolvedPath}.` };
+      return { ...effect, resolvedPath, entryPath, state, decision: "ask", reason: `The create operation would replace existing state at ${entryPath}.` };
     }
-    return { ...effect, resolvedPath, state, decision: "ask", reason: `Atelier cannot guarantee recovery for ${resolvedPath}.` };
+    return { ...effect, resolvedPath, entryPath, state, decision: "ask", reason: `Atelier cannot guarantee recovery for ${entryPath}.` };
   }
 }

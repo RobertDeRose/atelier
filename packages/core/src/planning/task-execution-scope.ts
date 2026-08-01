@@ -1,6 +1,7 @@
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute } from "node:path";
 import type { PlanTask } from "../domain/types.ts";
 import { isDependencyPath, isSourcePath } from "../repository/source-path.ts";
+import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
 
 export interface ValidationConstraintDescriptor {
   name: string;
@@ -32,12 +33,14 @@ function resolveApprovedPath(repositoryRoot: string, candidate: string, options:
   const relativeCandidate = separator === -1 ? candidate : candidate.slice(separator + 2);
   const selectedRoot = repositoryId === undefined ? repositoryRoot : options.repositoryRoots?.[repositoryId];
   if (selectedRoot === undefined) throw new Error(`Execution path ${candidate} names unknown workspace repository ${repositoryId}.`);
-  const absolute = resolve(selectedRoot, relativeCandidate);
-  const rel = relative(selectedRoot, absolute);
-  if (isAbsolute(relativeCandidate) || rel === ".." || rel.startsWith(`..${sep}`) || !isSourcePath(rel)) {
+  if (isAbsolute(relativeCandidate)) {
     throw new Error(`Execution path ${candidate} is not a repository-relative application-source path.`);
   }
-  return absolute;
+  const target = repositoryPathTarget(canonicalRepositoryRoot(selectedRoot), relativeCandidate, "write");
+  if (!isSourcePath(target.relative)) {
+    throw new Error(`Execution path ${candidate} is not a repository-relative application-source path.`);
+  }
+  return target.entry;
 }
 
 export function deriveTaskExecutionScope(
@@ -69,7 +72,7 @@ export function deriveTaskExecutionScope(
     );
   }
   const writePaths = [...new Set(task.execution.writePaths.map((path) => resolveApprovedPath(repositoryRoot, path, options)))].sort();
-  const dependencyPaths = writePaths.filter((path) => isDependencyPath(relative(repositoryRoot, path)));
+  const dependencyPaths = writePaths.filter(isDependencyPath);
   if (dependencyPaths.length > 0 && !task.execution.allowDependencyChanges) {
     throw new Error(`Task ${task.id} includes dependency manifests but allowDependencyChanges is false.`);
   }

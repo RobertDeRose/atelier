@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import type {
   ApprovedTaskConstraint,
   ExecutionGrant,
@@ -7,7 +6,7 @@ import type {
   WorkflowDecision,
   WorkflowMode,
 } from "../domain/types.ts";
-import { isPathWithin } from "../security/path-boundary.ts";
+import { isAccessEntryWithin, sameAccessEntryPath } from "../security/path-boundary.ts";
 import { newId } from "../util/ids.ts";
 
 export interface WorkflowGuardState {
@@ -27,8 +26,8 @@ function selectedConstraint(state: WorkflowGuardState): ApprovedTaskConstraint |
 }
 
 function allowedPath(path: string, approved: readonly string[]): boolean {
-  const absolute = resolve(path);
-  return approved.some((candidate) => absolute === candidate || isPathWithin(absolute, candidate));
+  return approved.some((candidate) =>
+    sameAccessEntryPath(path, candidate, "write") || isAccessEntryWithin(path, candidate, "write"));
 }
 
 function decision(request: WorkflowActionRequest, result: "allow" | "deny", reason: string, matchedRules: string[] = []): WorkflowDecision {
@@ -49,7 +48,7 @@ export class WorkflowGuard {
     if (state.mode === "plan") {
       const paths = request.paths ?? [];
       if ((request.action === "write.file" || request.action === "write.multiple_files")
-        && paths.length > 0 && paths.every((path) => resolve(path) === resolve(state.planPath))) {
+        && paths.length > 0 && paths.every((path) => sameAccessEntryPath(path, state.planPath, "write"))) {
         return decision(request, "allow", "Plan mode permits mutation only of the designated plan document.", ["plan document mutation"]);
       }
       return decision(request, "deny", "Plan mode permits only the designated plan document to change.");

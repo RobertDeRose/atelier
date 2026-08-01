@@ -6,9 +6,10 @@ import { DirectoryRepositoryProvider } from "./directory-repository-provider.ts"
 import { GitRepositoryProvider } from "./git-repository-provider.ts";
 import { JujutsuRepositoryProvider } from "./jujutsu-repository-provider.ts";
 import type { RepositoryProvider } from "./repository-provider.ts";
+import { canonicalRepositoryRoot } from "./repository-path.ts";
 
 function detectedProvider(start: string): "jj" | "git" | "none" {
-  let current = resolve(start);
+  let current = canonicalRepositoryRoot(start);
   for (;;) {
     // A colocated Jujutsu repository contains both .jj and .git. Prefer the
     // Jujutsu provider without starting either executable on the Pi startup
@@ -26,13 +27,14 @@ export function createRepositoryProvider(
   ledger: SqliteLedger,
   repositoryRoot = config.repositoryRoot,
 ): RepositoryProvider {
+  const root = canonicalRepositoryRoot(repositoryRoot);
   const selected = config.repositoryProvider === "auto"
-    ? detectedProvider(repositoryRoot)
+    ? detectedProvider(root)
     : config.repositoryProvider;
 
   if (selected === "jj") {
     return new JujutsuRepositoryProvider({
-      cwd: repositoryRoot,
+      cwd: root,
       ledger,
       executable: config.jjCommand,
       indexSchemaVersion: config.indexSchemaVersion,
@@ -40,13 +42,13 @@ export function createRepositoryProvider(
   }
   if (selected === "git") {
     return new GitRepositoryProvider({
-      cwd: repositoryRoot,
+      cwd: root,
       ledger,
       indexSchemaVersion: config.indexSchemaVersion,
     });
   }
   return new DirectoryRepositoryProvider({
-    root: repositoryRoot,
+    root,
     indexSchemaVersion: config.indexSchemaVersion,
     reason: "No supported repository marker was detected.",
   });

@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   classifyShellCommand,
   resolveSandboxBackend,
+  resolveAbsolutePath,
+  resolveAccessPath,
   type AtelierCore,
   type FilesystemEffect,
 } from "../../../packages/core/src/index.ts";
@@ -35,7 +36,11 @@ function pathFrom(cwd: string, value: string): string | undefined {
     || clean.startsWith("~")
     || /[$`]|\$\(|[<>|;&*?\[\]{}]/.test(clean)
   ) return undefined;
-  return isAbsolute(clean) ? resolve(clean) : resolve(cwd, clean);
+  try {
+    return resolveAbsolutePath(clean, cwd);
+  } catch {
+    return undefined;
+  }
 }
 
 function pathEffect(
@@ -325,9 +330,11 @@ function sandboxIsAvailable(core: AtelierCore): boolean {
 }
 
 export function effectsForTool(event: any, ctx: ExtensionContext, core: AtelierCore): FilesystemEffect[] {
-  const path = typeof event.input?.path === "string" ? resolve(ctx.cwd, event.input.path) : undefined;
+  const path = typeof event.input?.path === "string" ? resolveAbsolutePath(event.input.path, ctx.cwd) : undefined;
   if (["read", "grep", "find", "ls"].includes(event.toolName)) {
-    const target = path ?? (typeof event.input?.directory === "string" ? resolve(ctx.cwd, event.input.directory) : ctx.cwd);
+    const target = path ?? (typeof event.input?.directory === "string"
+      ? resolveAbsolutePath(event.input.directory, ctx.cwd)
+      : resolveAccessPath(ctx.cwd, "read"));
     return [{ kind: "read", path: target, description: `${event.toolName} target` }];
   }
   if (event.toolName === "write") {

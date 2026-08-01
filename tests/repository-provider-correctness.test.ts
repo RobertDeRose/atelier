@@ -115,9 +115,17 @@ test("Git path inventories canonicalize symlinked and macOS-style alias roots", 
     const aliasPlan = join(aliasRoot, ".atelier", "PLAN.md");
     writeFileSync(aliasPlan, "# Alias plan\n", "utf8");
 
-    const observation = await provider.observe({ paths: [aliasPlan] });
+    const relativeMissing = ".atelier/not-created.md";
+    const canonicalMissing = join(realpathSync.native(root), relativeMissing);
+    const observation = await provider.observe({ paths: [aliasPlan, relativeMissing] });
     assert.equal(observation.root, realpathSync.native(root));
     assert.equal(observation.pathStates[aliasPlan], "untracked");
+    assert.equal(observation.pathStates[realpathSync.native(aliasPlan)], "untracked");
+    assert.equal(observation.pathStates[canonicalMissing], "missing");
+    assert.equal(provider.classifyPath(relativeMissing), "missing");
+    const recovery = provider.captureRecoveryState([aliasPlan, relativeMissing]);
+    assert.equal(recovery.native?.root, realpathSync.native(root));
+    assert.deepEqual(recovery.native?.relativePaths, [".atelier/PLAN.md", relativeMissing]);
     assert.equal(observation.displayState.state, "dirty");
   } finally {
     ledger.close();

@@ -1,17 +1,16 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import type { CodeWorkspace } from "../code/types.ts";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import { sourceSnapshotBase } from "./snapshot.ts";
 import type { RepositoryCommitResult, RepositoryProvider } from "./repository-provider.ts";
 import {
-  repositoryBindingDigest,
   repositoryRevisionBinding,
   type RepositoryRevisionBinding,
 } from "./revision-binding.ts";
-import { isPathWithin } from "../security/path-boundary.ts";
+import { isAccessEntryWithin, resolveAccessEntryPath } from "../security/path-boundary.ts";
 import { isSourcePath, sourcePaths } from "./source-path.ts";
 import { sha256 } from "../util/hash.ts";
+import { canonicalRepositoryRoot, repositoryPathTarget, repositoryRelativePath } from "./repository-path.ts";
 
 export interface WorkspaceRepositoryContext {
   id: string;
@@ -69,7 +68,7 @@ export interface WorkspaceMetadataState {
 }
 
 function canonicalRelative(root: string, path: string): string {
-  return relative(root, resolve(root, path)).replaceAll("\\", "/");
+  return repositoryRelativePath(root, path, "write");
 }
 
 export class WorkspaceRepositoryService {
@@ -87,20 +86,33 @@ export class WorkspaceRepositoryService {
     baselines?: readonly RepositoryRevisionBinding[];
     useWorkspaceSnapshots?: boolean;
   }) {
-    this.workspace = options.workspace;
+    const primaryRoot = canonicalRepositoryRoot(options.primaryRoot);
     const baselineById = new Map((options.baselines ?? []).map((binding) => [binding.repositoryId, binding]));
-    this.contexts = options.workspace.repositories.map((repository) => ({
-      id: repository.id,
-      name: repository.name,
-      root: repository.root,
-      primary: repository.root === options.primaryRoot,
-      provider: repository.root === options.primaryRoot
-        ? options.primaryProvider
-        : options.providerForRoot(repository.root),
-      snapshot: repository.snapshot,
-      ...(baselineById.get(repository.id) === undefined ? {} : { baseline: baselineById.get(repository.id)! }),
-    }));
-    this.approvedPaths = [...new Set(options.approvedPaths ?? [])].map((path) => resolve(path)).sort();
+    this.contexts = options.workspace.repositories.map((repository) => {
+      const root = canonicalRepositoryRoot(repository.root);
+      return {
+        id: repository.id,
+        name: repository.name,
+        root,
+        primary: root === primaryRoot,
+        provider: root === primaryRoot
+          ? options.primaryProvider
+          : options.providerForRoot(root),
+        snapshot: repository.snapshot,
+        ...(baselineById.get(repository.id) === undefined ? {} : { baseline: baselineById.get(repository.id)! }),
+      };
+    });
+    this.workspace = {
+      ...options.workspace,
+      roots: this.contexts.map((context) => context.root),
+      repositories: options.workspace.repositories.map((repository, index) => ({
+        ...repository,
+        root: this.contexts[index]!.root,
+      })),
+    };
+    this.approvedPaths = [...new Set(options.approvedPaths ?? [])]
+      .map((path) => resolveAccessEntryPath(path, "write", primaryRoot))
+      .sort();
     this.useWorkspaceSnapshots = options.useWorkspaceSnapshots === true;
   }
 
@@ -137,11 +149,11 @@ export class WorkspaceRepositoryService {
       const observed = sourcePaths(fromBaseline && baseline.vcs !== "none"
         ? context.provider.changedPathsFrom(baseline.sourceBaseCommit)
         : context.provider.changedPaths());
-      const changedPaths = observed.filter((path) => this.owner(resolve(context.root, path))?.id === context.id);
+      const changedPaths = observed.filter((path) => this.owner(repositoryPathTarget(context.root, path, "write").entry)?.id === context.id);
       const approved = this.approvedPaths.filter((path) => this.owner(path)?.id === context.id);
       const outside = changedPaths.filter((path) => {
-        const absolute = resolve(context.root, path);
-        return !approved.some((approvedRoot) => isPathWithin(absolute, approvedRoot, "write"));
+        const entry = repositoryPathTarget(context.root, path, "write").entry;
+        return !approved.some((approvedRoot) => isAccessEntryWithin(entry, approvedRoot, "write"));
       });
       if (outside.length > 0) {
         throw new Error(
@@ -156,7 +168,7 @@ export class WorkspaceRepositoryService {
         provider: context.provider,
         baseline,
         changedPaths,
-        absolutePaths: changedPaths.map((path) => resolve(context.root, path)),
+        absolutePaths: changedPaths.map((path) => repositoryPathTarget(context.root, path, "write").entry),
       };
     });
   }
@@ -241,7 +253,7 @@ export class WorkspaceRepositoryService {
 
   sourceChangedPaths(): string[] {
     return this.contexts.flatMap((context) => sourcePaths(context.provider.changedPaths())
-      .filter((path) => this.owner(resolve(context.root, path))?.id === context.id)
+      .filter((path) => this.owner(repositoryPathTarget(context.root, path, "write").entry)?.id === context.id)
       .map((path) => this.qualify(context.id, path)));
   }
 
@@ -249,7 +261,7 @@ export class WorkspaceRepositoryService {
     const repositories = this.contexts.map((context) => {
       const paths = context.provider.rawChangedPaths()
         .filter((path) => !isSourcePath(path))
-        .filter((path) => this.owner(resolve(context.root, path))?.id === context.id)
+        .filter((path) => this.owner(repositoryPathTarget(context.root, path, "write").entry)?.id === context.id)
         .sort();
       return {
         repositoryId: context.id,
@@ -291,23 +303,23 @@ export class WorkspaceRepositoryService {
 
   rawChangedPaths(): string[] {
     return this.contexts.flatMap((context) => context.provider.rawChangedPaths()
-      .filter((path) => this.owner(resolve(context.root, path))?.id === context.id)
+      .filter((path) => this.owner(repositoryPathTarget(context.root, path, "write").entry)?.id === context.id)
       .map((path) => this.qualify(context.id, path)));
   }
 
   rawChangedFingerprints(): Record<string, string> {
     return Object.fromEntries(this.contexts.flatMap((context) => context.provider.rawChangedPaths()
-      .filter((path) => this.owner(resolve(context.root, path))?.id === context.id)
+      .filter((path) => this.owner(repositoryPathTarget(context.root, path, "write").entry)?.id === context.id)
       .map((path) => {
         const qualified = this.qualify(context.id, path);
-        const absolute = resolve(context.root, path);
-        if (!existsSync(absolute)) return [qualified, "missing"] as const;
+        const entry = repositoryPathTarget(context.root, path, "read").entry;
         try {
-          const stat = statSync(absolute);
+          const stat = lstatSync(entry);
+          if (stat.isSymbolicLink()) return [qualified, `symlink:${readlinkSync(entry)}`] as const;
           if (!stat.isFile()) return [qualified, `non-file:${stat.mode}:${stat.size}`] as const;
-          return [qualified, `file:${stat.size}:${sha256(readFileSync(absolute))}`] as const;
+          return [qualified, `file:${stat.size}:${sha256(readFileSync(entry))}`] as const;
         } catch {
-          return [qualified, "unreadable"] as const;
+          return [qualified, "missing"] as const;
         }
       })));
   }
@@ -325,8 +337,9 @@ export class WorkspaceRepositoryService {
   }
 
   private owner(path: string): WorkspaceRepositoryContext | undefined {
+    const entry = resolveAccessEntryPath(path, "write");
     return this.contexts
-      .filter((context) => isPathWithin(path, context.root, "write"))
+      .filter((context) => isAccessEntryWithin(entry, context.root, "write"))
       .sort((left, right) => right.root.length - left.root.length)[0];
   }
 

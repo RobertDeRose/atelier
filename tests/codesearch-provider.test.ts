@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodesearchProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
@@ -196,6 +196,48 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
     assert.equal(searchCall?.params?.arguments?.semantic_mode, "hybrid");
   } finally {
     await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("codesearch canonicalizes workspace aliases and absolute provider result paths", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-canonical-root-"));
+  const aliasParent = mkdtempSync(join(tmpdir(), "atlr-codesearch-canonical-alias-"));
+  const aliasRoot = join(aliasParent, "repo");
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src", "auth.ts"), "export function refreshToken() { return token; }\n", "utf8");
+  symlinkSync(root, aliasRoot, "dir");
+  const fake = fakeCodesearch(root);
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: aliasRoot,
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    environment: { FAKE_RESULT_PATH: join(aliasRoot, "src", "auth.ts") },
+  });
+  try {
+    const aliasedWorkspace = workspace(aliasRoot);
+    assert.equal(await provider.ensureIndex(aliasedWorkspace), "ready");
+    const hits = await provider.search({
+      workspace: aliasedWorkspace,
+      text: "refresh token",
+      mode: "semantic",
+      limit: 5,
+      includeTests: true,
+      includeGenerated: false,
+    });
+    assert.equal(hits[0]?.path, "src/auth.ts");
+    assert.equal(hits[0]?.reference.path, "src/auth.ts");
+
+    const calls = readFileSync(fake.log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+    assert.ok(calls.some((args) => args[0] === "index" && args[1] === realpathSync.native(root)));
+    assert.equal(calls.some((args) => args.some((arg) => arg.includes("../"))), false);
+  } finally {
+    await provider.close();
+    rmSync(aliasParent, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

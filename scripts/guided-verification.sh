@@ -3,8 +3,8 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="31.0"
-EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.31}"
+HARNESS_VERSION="32.0"
+EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.32}"
 MANUAL_PARENT="${ATELIER_MANUAL_PARENT:-$HOME/workspace/scratch}"
 RUN_PREFIX="atelier-manual-"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
@@ -14,6 +14,7 @@ GUIDED_ROOT=""
 EVIDENCE_DIR=""
 RESULTS_FILE=""
 TUI_TERMINAL_DIRTY=0
+LIVE_TOOLCHAIN_SOURCE=""
 
 log() { printf '\n==> %s\n' "$*"; }
 pass() { printf 'PASS: %s\n' "$*"; }
@@ -58,13 +59,47 @@ Environment:
   ATELIER_GUIDED_PURGE_CONFIRM=1
                                   Skip the PURGE confirmation for fresh/purge.
   ATELIER_MANUAL_PARENT           Manual-test parent (default: ~/workspace/scratch).
-  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.31).
+  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.32).
 USAGE
 }
 
 canonical_dir() { (cd "$1" && pwd -P); }
 require_command() { command -v "$1" >/dev/null 2>&1 || fail "required command is missing: $1"; }
 is_test_mode() { [[ "${ATELIER_GUIDED_TEST_MODE:-0}" == 1 ]]; }
+
+ensure_live_toolchain() {
+  local source="$1"
+  [[ "$LIVE_TOOLCHAIN_SOURCE" == "$source" ]] && return 0
+  is_test_mode && { LIVE_TOOLCHAIN_SOURCE="$source"; return 0; }
+
+  log "verify live-acceptance toolchain"
+  # The standalone harness can be launched from ~/Downloads, where the source
+  # repository's mise-managed tools are not necessarily present in the caller's
+  # PATH. Install the pinned tools, then probe the complete live toolchain inside
+  # a mise exec environment before deleting any previous acceptance evidence.
+  (cd "$source" && mise install)
+
+  local missing=()
+  local tool
+  for tool in git node mise jj bd codesearch pi python3; do
+    if ! (
+      cd "$source"
+      mise exec -- sh -c 'command -v "$1" >/dev/null 2>&1' sh "$tool"
+    ); then
+      missing+=("$tool")
+    fi
+  done
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    printf 'The live-acceptance environment is missing required commands:\n' >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    printf 'Atelier tools declared in mise.toml are resolved through `mise exec`; Pi and Beads must also be installed and visible to that environment.\n' >&2
+    fail "live-acceptance toolchain preflight failed before purge"
+  fi
+
+  LIVE_TOOLCHAIN_SOURCE="$source"
+  pass "live-acceptance toolchain is available through mise exec"
+}
 
 manual_parent_dir() {
   mkdir -p "$MANUAL_PARENT"
@@ -1040,7 +1075,7 @@ launch_step() {
   local pi_stderr="$out/pi.stderr"
   mkdir -p "$out"
   : >"$pi_stderr"
-  printf '%s\n' 'mise run launch -- --no-session' >"$out/pi-command.txt"
+  printf '%s\n' 'mise run launch -- -ne --no-session' >"$out/pi-command.txt"
   TUI_TERMINAL_DIRTY=1
   set +e
   (
@@ -1048,7 +1083,7 @@ launch_step() {
     cd "$repo"
     # Every guided step gets a fresh Pi transcript. Atelier workflow state remains
     # durable through its external ledger, so step 5 can continue step 4 safely.
-    mise run launch -- --no-session 2> >(tee "$pi_stderr" >&2)
+    mise run launch -- -ne --no-session 2> >(tee "$pi_stderr" >&2)
   )
   local rc=$?
   set -e
@@ -1156,6 +1191,7 @@ run_automated() {
   require_command node
   require_command git
   verify_source_release "$source"
+  ensure_live_toolchain "$source"
   if [[ "${ATELIER_GUIDED_SKIP_CHECK:-0}" != 1 ]]; then
     log "deterministic source gate"
     (cd "$source" && mise run check)
@@ -1163,7 +1199,13 @@ run_automated() {
     printf 'WARNING: skipping deterministic source gate because ATELIER_GUIDED_SKIP_CHECK=1\n'
   fi
   log "automated live acceptance"
-  "$source/scripts/live-acceptance.sh" all "$source"
+  (
+    cd "$source"
+    # Keep the project-pinned Node, Jujutsu, codesearch, and other mise tools in
+    # PATH for the complete child harness, including after it changes into its
+    # freshly cloned acceptance repository.
+    mise exec -- "$source/scripts/live-acceptance.sh" all "$source"
+  )
   load_run
   prepare_manual
 }
@@ -1175,6 +1217,8 @@ fresh_run() {
   require_command node
   require_command mise
   verify_source_release "$source"
+  # Preflight all live dependencies before deleting prior evidence.
+  ensure_live_toolchain "$source"
 
   purge_old_runs
 

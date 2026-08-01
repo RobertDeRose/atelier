@@ -98,3 +98,32 @@ test("secret classification is narrow and does not treat every ignored path as p
   assert.equal(evaluator.evaluate([{ kind: "read", path: join(root, ".env.local") }], states).result, "ask");
   assert.equal(evaluator.evaluate([{ kind: "read", path: join(root, "dist", "bundle.js") }], states).result, "allow");
 });
+
+test("workspace policy keeps final symlink entry identity separate from its resolved target", () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-policy-symlink-entry-"));
+  const target = join(root, "target.txt");
+  const link = join(root, "tracked-link");
+  const secretLink = join(root, ".env");
+  writeFileSync(target, "target\n", "utf8");
+  symlinkSync("target.txt", link);
+  symlinkSync("target.txt", secretLink);
+
+  const evaluator = new WorkspacePolicyEvaluator({ root });
+  const canonicalRoot = realpathSync.native(root);
+  const canonicalTarget = realpathSync.native(target);
+  const canonicalLinkEntry = join(canonicalRoot, "tracked-link");
+  const states = resolver({
+    [canonicalLinkEntry]: "tracked_dirty",
+    [canonicalTarget]: "tracked_clean",
+  });
+
+  const deletion = evaluator.evaluate([{ kind: "delete", path: link, destructive: true }], states);
+  assert.equal(deletion.result, "checkpoint_then_allow");
+  assert.equal(deletion.effects[0]?.entryPath, canonicalLinkEntry);
+  assert.equal(deletion.effects[0]?.resolvedPath, canonicalTarget);
+  assert.equal(deletion.effects[0]?.state, "tracked_dirty");
+
+  const secretRead = evaluator.evaluate([{ kind: "read", path: secretLink }], states);
+  assert.equal(secretRead.result, "ask", "a secret-shaped symlink entry remains protected");
+  assert.equal(secretRead.effects[0]?.entryPath, join(canonicalRoot, ".env"));
+});

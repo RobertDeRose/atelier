@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.14.0-alpha.32 — 2026-08-01
+
+### Fixed
+
+- Replace ad-hoc path resolution with one canonical identity layer shared by configuration, session workspaces, repository providers, workflow scope, permission evaluation, code providers, validation, multi-repository finalization, and recovery.
+- Resolve relative repository paths against the repository root rather than `process.cwd()`, and canonicalize every existing ancestor before deriving Git or Jujutsu pathspecs.
+- Preserve caller spellings for result lookup while mapping filesystem aliases such as macOS `/var/...` and `/private/var/...` to one repository identity.
+- Preserve the final filesystem entry separately from its resolved target so tracked symlinks retain their VCS, workflow, fingerprint, and recovery identity.
+- Restore exact Git index/worktree state for valid and broken symlinks without checkpointing the target file by mistake.
+- Keep workspace confinement based on the fully resolved target, including missing descendants below escaping symlinks.
+- Ignore normal `EPIPE`/`ECONNRESET` races when a short-lived subprocess exits before stdin finishes flushing.
+- Run live and guided Pi acceptance with user extensions disabled while loading the Atelier extension explicitly, preventing unrelated local extension failures from invalidating Atelier acceptance.
+
+### Tests
+
+- Add alias-root, relative-path, missing-descendant, final-symlink, recovery, code-provider, Git, Jujutsu, workflow-policy, and complete `AtelierCore` canonical-path regressions.
+
 ## 0.14.0-alpha.31 — 2026-08-01
 
 ### Fixed

@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { sourceRevisionIdentity, sourceSnapshotBase } from "../repository/snapshot.ts";
+import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
+import { isPathWithin } from "../security/path-boundary.ts";
 import { nowIso } from "../util/ids.ts";
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
@@ -70,13 +72,13 @@ export class CodesearchProvider implements CodeProvider {
 
   constructor(options: CodesearchProviderOptions) {
     this.command = options.command ?? "codesearch";
-    this.cwd = resolve(options.cwd);
+    this.cwd = canonicalRepositoryRoot(options.cwd);
     this.mode = options.mode ?? "auto";
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.indexTimeoutMs = options.indexTimeoutMs ?? 300_000;
     this.pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.environment = options.environment;
-    this.indexSelectionStatePath = resolve(this.cwd, ".atelier", "codesearch-index-state.json");
+    this.indexSelectionStatePath = repositoryPathTarget(this.cwd, ".atelier/codesearch-index-state.json", "write").absolute;
   }
 
   async status(workspace?: CodeWorkspace): Promise<CodeProviderStatus> {
@@ -133,8 +135,8 @@ export class CodesearchProvider implements CodeProvider {
     if (version === undefined) throw new Error(`codesearch executable not found: ${this.command}`);
     const databasesPresentBeforeStartup = new Set(
       workspace.repositories
-        .map((repository) => resolve(repository.root))
-        .filter((repositoryRoot) => existsSync(resolve(repositoryRoot, ".codesearch.db"))),
+        .map((repository) => canonicalRepositoryRoot(repository.root))
+        .filter((repositoryRoot) => existsSync(repositoryPathTarget(repositoryRoot, ".codesearch.db", "read").absolute)),
     );
     await this.connect();
     this.indexState = "building";
@@ -149,7 +151,8 @@ export class CodesearchProvider implements CodeProvider {
     const selectionState = readIndexSelectionState(this.indexSelectionStatePath);
     for (const repository of workspace.repositories) {
       if (routedThroughServe) {
-        await this.runIndexCommand(["index", "add", repository.root], repository.root, "index add");
+        const repositoryRoot = canonicalRepositoryRoot(repository.root);
+        await this.runIndexCommand(["index", "add", repositoryRoot], repositoryRoot, "index add");
       } else {
         // `index add` returns early when a local database already exists. The bare
         // `index <path>` command is the repair/update path and rebuilds a missing
@@ -159,24 +162,24 @@ export class CodesearchProvider implements CodeProvider {
         // incremental path cannot remove files that still exist and merely became
         // ignored. Atelier therefore fingerprints the repository selection inputs
         // and requests one full rebuild whenever that fingerprint changes.
-        const repositoryRoot = resolve(repository.root);
+        const repositoryRoot = canonicalRepositoryRoot(repository.root);
         const fingerprint = indexSelectionFingerprint(repositoryRoot, version);
         const priorFingerprint = selectionState.repositories[repositoryRoot]?.fingerprint;
         const selectionChanged = priorFingerprint !== fingerprint;
         const existingHealth = databasesPresentBeforeStartup.has(repositoryRoot) && selectionChanged
-          ? this.readLocalVectorHealth(repository.root)
+          ? this.readLocalVectorHealth(repositoryRoot)
           : undefined;
         const force = existingHealth !== undefined && existingHealth.state !== "missing";
         await this.runIndexCommand(
-          ["index", repository.root, ...(force ? ["--force"] : [])],
-          repository.root,
+          ["index", repositoryRoot, ...(force ? ["--force"] : [])],
+          repositoryRoot,
           force ? "index --force" : "index",
         );
-        const health = this.readLocalVectorHealth(repository.root);
+        const health = this.readLocalVectorHealth(repositoryRoot);
         if (health.state !== "ready") {
           this.indexState = health.state;
           this.localIndexWarnings = [health.detail];
-          throw new Error(`codesearch local vector index is not ready for ${repository.root}: ${health.detail}`);
+          throw new Error(`codesearch local vector index is not ready for ${repositoryRoot}: ${health.detail}`);
         }
         selectionState.repositories[repositoryRoot] = {
           fingerprint,
@@ -945,8 +948,7 @@ function resolveRepository(workspace: CodeWorkspace, project?: string, path?: st
 function normalizeRepositoryPath(repository: CodeWorkspace["repositories"][number], path: string): string {
   const normalized = normalizeSlashes(path).replace(/^\.\//, "");
   if (isAbsolute(path) && pathWithinRoot(repository.root, path)) {
-    const candidate = normalizeSlashes(relative(repository.root, path));
-    return candidate || ".";
+    return repositoryPathTarget(repository.root, path, "read").relative;
   }
   for (const alias of repositoryAliases(repository)) {
     if (normalized.startsWith(`${alias}/`)) return normalized.slice(alias.length + 1);
@@ -955,9 +957,7 @@ function normalizeRepositoryPath(repository: CodeWorkspace["repositories"][numbe
 }
 
 function pathWithinRoot(root: string, path: string): boolean {
-  if (!isAbsolute(path)) return false;
-  const candidate = relative(resolve(root), resolve(path));
-  return candidate === "" || (!candidate.startsWith("..") && !isAbsolute(candidate));
+  return isAbsolute(path) && isPathWithin(path, root, "read", root);
 }
 
 function repositoryAliases(repository: CodeWorkspace["repositories"][number]): string[] {
@@ -1180,12 +1180,13 @@ function formatIndexFailure(
 }
 
 function indexSelectionFingerprint(repositoryRoot: string, providerVersion: string): string {
+  const root = canonicalRepositoryRoot(repositoryRoot);
   const hash = createHash("sha256");
   hash.update("atelier-codesearch-index-selection-v1\0");
   hash.update(providerVersion);
   hash.update("\0");
   for (const name of INDEX_SELECTION_FILES) {
-    const path = resolve(repositoryRoot, name);
+    const path = repositoryPathTarget(root, name, "read").absolute;
     hash.update(name);
     hash.update("\0");
     hash.update(existsSync(path) ? readFileSync(path) : Buffer.from("<missing>", "utf8"));

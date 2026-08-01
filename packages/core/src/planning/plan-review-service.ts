@@ -1,5 +1,4 @@
 import { existsSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
 import type {
   Actor,
   ManualEdit,
@@ -15,6 +14,8 @@ import { sha256 } from "../util/hash.ts";
 import { newId, nowIso } from "../util/ids.ts";
 import { ensurePlanDocument } from "./plan-document.ts";
 import { parsePlanText } from "./plan-parser.ts";
+import { canonicalRepositoryRoot, repositoryPathTarget, repositoryRelativePath } from "../repository/repository-path.ts";
+import { resolveAccessPath } from "../security/path-boundary.ts";
 import {
   createPlanStructureSnapshot,
   diffPlanStructures,
@@ -56,9 +57,9 @@ export class PlanReviewService {
     ledger: SqliteLedger;
     repository: RepositoryProvider;
   }) {
-    this.repositoryRoot = resolve(options.repositoryRoot);
-    this.planPath = resolve(options.planPath);
-    this.stateDirectory = resolve(options.stateDirectory);
+    this.repositoryRoot = canonicalRepositoryRoot(options.repositoryRoot);
+    this.planPath = repositoryPathTarget(this.repositoryRoot, options.planPath, "write").entry;
+    this.stateDirectory = resolveAccessPath(options.stateDirectory, "write");
     this.ledger = options.ledger;
     this.repository = options.repository;
   }
@@ -346,14 +347,12 @@ export class PlanReviewService {
   }
 
   private sourceState(): SourceState {
-    const planRelative = normalizePath(relative(this.repositoryRoot, this.planPath));
-    const stateRelative = normalizePath(relative(this.repositoryRoot, this.stateDirectory));
+    const planRelative = normalizePath(repositoryRelativePath(this.repositoryRoot, this.planPath, "write"));
     const paths = [...new Set(this.repository.changedPaths().map(normalizePath))]
       .filter((path) => path !== planRelative)
-      .filter((path) => path !== stateRelative && !path.startsWith(`${stateRelative}/`))
       .sort();
     const entries = paths.map((path) => {
-      const absolute = resolve(this.repositoryRoot, path);
+      const absolute = repositoryPathTarget(this.repositoryRoot, path, "read").absolute;
       let contentHash = "missing";
       try {
         contentHash = sha256(readFileSync(absolute));
