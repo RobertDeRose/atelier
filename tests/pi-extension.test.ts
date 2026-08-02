@@ -1204,9 +1204,16 @@ test("an explicit per-turn no-Bash/no-validation/no-commit/no-close instruction 
     const ledger = new SqliteLedger(testDatabasePath(root));
     assert.equal(ledger.listEvents({ kind: "policy.user_constraint_blocked" }).length, 4);
     const outsideDecision = ledger.listEvents({ kind: "workspace_policy.decision", limit: 20 })
-      .map((event) => event.payload as { result?: string; effects?: Array<{ state?: string; resolvedPath?: string }> })
+      .map((event) => event.payload as {
+        result?: string;
+        effects?: Array<{ state?: string; path?: string; resolvedPath?: string }>;
+      })
       .find((decision) => decision.result === "ask"
-        && decision.effects?.some((effect) => effect.state === "outside_workspace" && effect.resolvedPath === outsideMarker));
+        && decision.effects?.some((effect) => effect.state === "outside_workspace"
+          // The policy payload intentionally preserves the caller-facing lexical
+          // path while resolvedPath uses canonical filesystem identity. On macOS,
+          // those may be /var/... and /private/var/... for the same entry.
+          && effect.path === outsideMarker));
     assert.ok(outsideDecision, "workflow-first denial must still record the concrete outside-workspace consequence");
     ledger.close();
 

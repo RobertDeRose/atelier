@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0-alpha.38 — 2026-08-02
+
+- Make the workflow-first denial regression assert the preserved caller path rather than comparing a canonical `/private/var/...` path to macOS's lexical `/var/...` spelling.
+- Keep canonical `resolvedPath` authoritative for workspace enforcement while retaining `effect.path` for caller-facing audit correlation.
+- Run the complete Pi-extension policy regression through the canonical temporary-path alias lane.
+
 ## 0.14.0-alpha.37 — 2026-08-02
 
 - Record the concrete workspace-policy decision even when the workflow guard blocks a tool first.
