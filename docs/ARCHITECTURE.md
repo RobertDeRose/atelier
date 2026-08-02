@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.38
+# Atelier Architecture — 0.14.0-alpha.40
 
 The Pi integration owns a session-local `FooterStatusController` and request-scoped observation pipeline. It
 serializes and coalesces status observations, consumes model/thinking and code-index events, invalidates cached

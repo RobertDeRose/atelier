@@ -1,6 +1,12 @@
-# Build Report — Atelier 0.14.0-alpha.38
+# Build Report — Atelier 0.14.0-alpha.40
 
 ## Result
+
+## Alpha.40 release-lineage and footer synchronization correction
+
+Alpha.40 is built directly on commit `8c29808d094d840fc054ce4a80eac2c78e105b34`, the latest branch supplied by the user. The prior alpha.39 bundle was created from a sibling alpha.38 commit and therefore could not be fast-forwarded into the maintained checkout. Alpha.40 applies the idle footer synchronization correction on the maintained lineage and provides a bundle whose `main` is a direct descendant of the supplied branch.
+
+The footer regression now waits for the exact asynchronous dirty/degraded render instead of assuming repository observation completes within 500 ms under aggregate scheduler pressure. Runtime footer behavior is unchanged.
 
 ## Alpha.38 macOS policy-evidence assertion correction
 
@@ -260,16 +266,16 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.38
+Package:          atelier-prototype@0.14.0-alpha.40
 Files:            474
-Compressed size:  538,360 bytes
-Unpacked size:    2,522,088 bytes
+Compressed size:  538,339 bytes
+Unpacked size:    2,521,967 bytes
 ```
 
 ## Verification boundary
 
 The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
-and TypeScript 7 toolchain. Type-checking and production compilation pass. All 294 deterministic tests pass in bounded per-file processes, and all 76 selected path-sensitive tests pass with `TMPDIR` routed through a symlink alias. The pinned
+and TypeScript 7 toolchain. Type-checking and production compilation pass. All 294 deterministic tests pass through the aggregate eight-way command, and all 76 selected path-sensitive tests pass with `TMPDIR` routed through a symlink alias. The pinned
 Node 24 `mise check` remains authoritative for the supported runtime and macOS path-alias confirmation.
 
 The standalone smoke workflow, package dry-run, release metadata check, and script syntax pass. Bundle and
@@ -279,7 +285,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.38` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.40` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so

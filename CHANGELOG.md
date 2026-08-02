@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0-alpha.40 — 2026-08-02
+
+- Rebuild the release directly on the maintained `8c29808` branch supplied by the user, so the bundle is fast-forwardable from the actual local checkout.
+- Replace the idle footer regression's fixed 500 ms polling window with an event-driven wait for the exact dirty/degraded footer render and a bounded diagnostic timeout.
+- Synchronize the bundled guided and live acceptance harness identities with alpha.40.
+- Supersede the divergent alpha.39 bundle; no runtime authorization or canonical-path semantics are changed.
+
 ## 0.14.0-alpha.38 — 2026-08-02
 
 - Make the workflow-first denial regression assert the preserved caller path rather than comparing a canonical `/private/var/...` path to macOS's lexical `/var/...` spelling.

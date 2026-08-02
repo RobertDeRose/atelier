@@ -45,6 +45,7 @@ function fakeContext(
     notifications?: string[];
     widgets?: string[][];
     footers?: string[];
+    onFooter?: (footer: string) => void;
     signal?: AbortSignal;
     isIdle?: () => boolean;
     abort?: () => void;
@@ -83,7 +84,9 @@ function fakeContext(
       setFooter: (factory: any) => {
         if (factory === undefined) return;
         const component = factory({}, {}, {});
-        observations.footers?.push(component.render(240).join("\n"));
+        const footer = component.render(240).join("\n");
+        observations.footers?.push(footer);
+        observations.onFooter?.(footer);
       },
       custom: async (factory: any) => {
         if (!observations.renderCustom) return { exitCode: 0 };
@@ -479,7 +482,22 @@ test("the next Pi input refreshes repository and intelligence state changed whil
     codeProvider: "mock",
   }));
   const footers: string[] = [];
-  const context = fakeContext(root, { count: 0 }, [], { footers, thinkingLevel: "low" });
+  let idleDriftObservationArmed = false;
+  let resolveRefreshedFooter!: (footer: string) => void;
+  const refreshedFooter = new Promise<string>((resolve) => { resolveRefreshedFooter = resolve; });
+  const context = fakeContext(root, { count: 0 }, [], {
+    footers,
+    thinkingLevel: "low",
+    onFooter: (footer) => {
+      if (
+        idleDriftObservationArmed
+        && /git: (?:main|master) · ● dirty/.test(footer)
+        && /intel: degraded/.test(footer)
+      ) {
+        resolveRefreshedFooter(footer);
+      }
+    },
+  });
   try {
     await events.get("session_start")!({}, context);
     const add = spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8", shell: false });
@@ -494,13 +512,23 @@ test("the next Pi input refreshes repository and intelligence state changed whil
     assert.match(footers.at(-1) ?? "", /git: (?:main|master) · ✓ clean/);
     assert.match(footers.at(-1) ?? "", /intel: ready/);
 
+    idleDriftObservationArmed = true;
     writeFileSync(join(root, "README.md"), "changed outside Pi while idle\n", { flag: "a" });
     events.get("input")!({ text: "inspect current state", source: "interactive" }, context);
-    for (let attempt = 0; attempt < 100 && !/● dirty/.test(footers.at(-1) ?? ""); attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    assert.match(footers.at(-1) ?? "", /git: (?:main|master) · ● dirty/);
-    assert.match(footers.at(-1) ?? "", /intel: degraded/);
+    let timeout: NodeJS.Timeout | undefined;
+    const footer = await Promise.race([
+      refreshedFooter,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`Timed out waiting for the idle-drift footer refresh. Last footer:\n${footers.at(-1) ?? "none"}`));
+        }, 30_000);
+        timeout.unref();
+      }),
+    ]).finally(() => {
+      if (timeout !== undefined) clearTimeout(timeout);
+    });
+    assert.match(footer, /git: (?:main|master) · ● dirty/);
+    assert.match(footer, /intel: degraded/);
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });

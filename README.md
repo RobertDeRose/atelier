@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.38**. Atelier retains the canonical path-identity and portable alias-test contract delivered in alpha.33. Alpha.38 corrects the final macOS policy-evidence regression by correlating workflow-first denial events through the preserved caller path while keeping canonical `resolvedPath` identity authoritative for workspace enforcement.
+Current release: **0.14.0-alpha.40**. Alpha.40 is based directly on the maintained alpha.38 branch supplied by the user, incorporates the event-driven idle-footer synchronization correction, and supersedes the divergent alpha.39 release bundle.
 
 ## Current status
 
