@@ -1290,6 +1290,9 @@ main() {
     status)
       show_status
       ;;
+    self-check)
+      jsonl_parser_self_check
+      ;;
     -h|--help|help|"")
       usage
       ;;
@@ -1300,4 +1303,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

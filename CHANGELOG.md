@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0-alpha.35 — 2026-08-01
+
+- Replaced the non-portable `head -n -1` sourced-script test with an explicit `self-check` harness command.
+- Guarded `scripts/live-acceptance.sh` entrypoint execution so its functions can be sourced safely by tests and diagnostics.
+- Kept the canonical path identity implementation from alpha.34 unchanged and verified it through the dedicated alias-path release lane.
+
 ## 0.14.0-alpha.34 — 2026-08-01
 
 ### Fixed

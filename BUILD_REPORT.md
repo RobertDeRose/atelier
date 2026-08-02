@@ -1,4 +1,4 @@
-# Build Report — Atelier 0.14.0-alpha.34
+# Build Report — Atelier 0.14.0-alpha.35
 
 ## Result
 
@@ -247,7 +247,7 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.34
+Package:          atelier-prototype@0.14.0-alpha.35
 Files:            474
 Compressed size:  537,719 bytes
 Unpacked size:    2,518,465 bytes
@@ -267,7 +267,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.34` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.35` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so

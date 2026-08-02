@@ -454,12 +454,7 @@ test("live acceptance treats only correlated in-workspace EISDIR reads as benign
   const live = join(process.cwd(), "scripts", "live-acceptance.sh");
   const result = spawnSync(
     "bash",
-    [
-      "-lc",
-      'source <(head -n -1 "$1"); jsonl_parser_self_check',
-      "bash",
-      live,
-    ],
+    [live, "self-check"],
     { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, TERM: "dumb" } },
   );
 
