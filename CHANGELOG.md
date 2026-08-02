@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0-alpha.36 — 2026-08-01
+
+- Made headless shell-denial acceptance rely on durable workspace-policy evidence rather than Pi-version-specific JSONL wording.
+- Added an explicit assertion that the Bash tool ended in error and that the outside-workspace marker was never created.
+- Preserved restart-resume verification by archiving and reusing the exact policy-decision ledger evidence.
+
 ## 0.14.0-alpha.35 — 2026-08-01
 
 - Replaced the non-portable `head -n -1` sourced-script test with an explicit `self-check` harness command.

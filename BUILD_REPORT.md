@@ -1,6 +1,11 @@
-# Build Report — Atelier 0.14.0-alpha.35
+# Build Report — Atelier 0.14.0-alpha.36
 
 ## Result
+
+## Alpha.36 headless denial evidence correction
+
+Alpha.36 removes a brittle acceptance dependency on the exact error text emitted by Pi JSON mode. Pi 0.83 can preserve the blocked tool result without serializing the extension's full reason string into the JSONL stream. The harness now verifies the authoritative conditions directly: the Bash tool ended in error, the outside-workspace marker was not created, and the ledger contains an `ask` decision with an `outside_workspace` evaluated effect and no approval grant.
+
 
 Atelier builds successfully as stable JavaScript and declarations. The supported launcher consumes
 `dist` rather than TypeScript source.

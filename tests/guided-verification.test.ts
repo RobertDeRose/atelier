@@ -462,3 +462,11 @@ test("live acceptance treats only correlated in-workspace EISDIR reads as benign
   assert.match(readFileSync(live, "utf8"), /resume implementation/);
   assert.match(readFileSync(live, "utf8"), /do not read "\." or any directory/);
 });
+
+test("live acceptance verifies headless workspace denial from durable policy evidence", async () => {
+  const script = readFileSync(join(process.cwd(), "scripts/live-acceptance.sh"), "utf8");
+  assert.match(script, /jsonl_assert_tool_failed/);
+  assert.match(script, /ledger-headless-shell-block\.json/);
+  assert.match(script, /outside_workspace/);
+  assert.doesNotMatch(script, /jsonl_assert_string \"\$EVIDENCE_DIR\/pi-headless-shell-block\.jsonl\"/);
+});

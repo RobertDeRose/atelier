@@ -251,6 +251,45 @@ if (failures.length > 0) throw new Error(`unexpected Pi tool errors:\n${failures
 NODE
 }
 
+
+jsonl_assert_tool_failed() {
+  local file="$1"
+  local tool_name="$2"
+  node --input-type=module - "$file" "$tool_name" <<'NODE'
+import { readFileSync } from "node:fs";
+const [file, toolName] = process.argv.slice(2);
+let observed = false;
+for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+  if (!line.trim().startsWith("{")) continue;
+  let event;
+  try { event = JSON.parse(line); } catch { continue; }
+  if (event?.type === "tool_execution_end" && event.toolName === toolName && event.isError === true) {
+    observed = true;
+    break;
+  }
+}
+if (!observed) throw new Error(`failed ${toolName} tool result was not observed`);
+NODE
+}
+
+assert_headless_workspace_denial() {
+  local ledger_file="$1"
+  local outside_marker="$2"
+  json_assert "$ledger_file" "
+    const decisions = data.filter((item) => item.kind === 'workspace_policy.decision');
+    const matching = decisions.find((item) => {
+      const payload = item.payload ?? {};
+      return payload.result === 'ask'
+        && Array.isArray(payload.effects)
+        && payload.effects.some((effect) => effect.state === 'outside_workspace'
+          && typeof effect.resolvedPath === 'string'
+          && effect.resolvedPath.includes('headless-shell-ran'));
+    });
+    assert(matching, 'durable outside-workspace policy decision was not recorded');
+    const approvals = data.filter((item) => item.kind === 'workspace_policy.approval_granted');
+    assert(approvals.length === 0, 'headless denial unexpectedly recorded an approval grant');
+  "
+}
 jsonl_assert_no_forced_continuation() {
   local file="$1"
   node --input-type=module - "$file" <<'NODE'
@@ -883,11 +922,10 @@ verify_headless_shell_block() {
   run_pi_json "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" "bash" \
     "Use Bash to run exactly: printf 'headless-shell-ran\n' > '$outside_marker'. Do not use any other tool."
   jsonl_tool_assert "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" "bash" "write,edit"
+  jsonl_assert_tool_failed "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" "bash"
   [[ ! -e "$outside_marker" ]] || fail "outside-workspace shell command executed in JSON mode"
-  jsonl_assert_string "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" \
-    "outside the Atelier workspace"
-  jsonl_assert_string "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" \
-    "Interactive approval is unavailable in json mode."
+  "${ATLR_BIN[@]}" ledger tail --limit 80 --json >"$EVIDENCE_DIR/ledger-headless-shell-block.json"
+  assert_headless_workspace_denial "$EVIDENCE_DIR/ledger-headless-shell-block.json" "$outside_marker"
   jsonl_assert_no_forced_continuation "$EVIDENCE_DIR/pi-headless-shell-block.jsonl"
   pass "headless JSON-mode outside-workspace write was denied with the concrete Atelier policy reason"
 }
@@ -1232,10 +1270,10 @@ validate_restart_resume_state() {
   local shell_log="$EVIDENCE_DIR/pi-headless-shell-block.jsonl"
   [[ -f "$shell_log" ]] || fail "missing completed shell-gate evidence: $shell_log"
   jsonl_tool_assert "$shell_log" "bash" "write,edit"
-  jsonl_assert_string "$shell_log" \
-    "outside the Atelier workspace"
-  jsonl_assert_string "$shell_log" \
-    "Interactive approval is unavailable in json mode."
+  jsonl_assert_tool_failed "$shell_log" "bash"
+  local denial_ledger="$EVIDENCE_DIR/ledger-headless-shell-block.json"
+  [[ -f "$denial_ledger" ]] || fail "missing durable shell-denial evidence: $denial_ledger"
+  assert_headless_workspace_denial "$denial_ledger" "$ATELIER_MANUAL_ROOT/headless-shell-ran"
   [[ ! -e "$ATELIER_MANUAL_ROOT/headless-shell-ran" ]] || fail "outside-workspace shell marker exists; restart resume is unsafe"
   pass "headless shell gate is complete and the active task remains safe to resume"
 }
