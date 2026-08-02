@@ -1,5 +1,25 @@
 declare module "@earendil-works/pi-coding-agent" {
 
+  export interface BashResult {
+    output: string;
+    exitCode: number | undefined;
+    cancelled: boolean;
+    truncated: boolean;
+    fullOutputPath?: string;
+  }
+
+  export interface UserBashEvent {
+    type: "user_bash";
+    command: string;
+    excludeFromContext: boolean;
+    cwd: string;
+  }
+
+  export interface UserBashEventResult {
+    operations?: BashOperations;
+    result?: BashResult;
+  }
+
   export interface BashOperations {
     exec(
       command: string,
@@ -92,6 +112,13 @@ declare module "@earendil-works/pi-coding-agent" {
     getThinkingLevel?(): string;
     getActiveTools(): string[];
     setActiveTools(toolNames: string[]): void;
+    on(
+      event: "user_bash",
+      handler: (
+        event: UserBashEvent,
+        ctx: ExtensionContext,
+      ) => Promise<UserBashEventResult | void> | UserBashEventResult | void,
+    ): void;
     on(
       event: string,
       handler: (event: any, ctx: ExtensionContext) => Promise<any> | any,

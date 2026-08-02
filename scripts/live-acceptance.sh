@@ -3,7 +3,10 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="40"
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
+HARNESS_VERSION="41.1"
+EXPECTED_ATELIER_VERSION="0.14.0-alpha.41"
+EXPECTED_ATELIER_TAG="v0.14.0-alpha.41"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
 PI_TIMEOUT_SECONDS="${ATELIER_PI_TIMEOUT_SECONDS:-600}"
 SOURCE_REPO=""
@@ -49,6 +52,53 @@ Environment:
   ATELIER_PI_TIMEOUT_SECONDS   Timeout for each Pi headless run (default: 600).
   ATELIER_MODEL                Optional Pi --model value for headless prompts.
 EOF
+}
+
+runtime_repository_for_command() {
+  local command="${1:-}"
+  local candidate=""
+
+  case "$command" in
+    all|automated)
+      candidate="${2:-$PWD}"
+      ;;
+    resume|prepare-tui|archive|status)
+      if [[ -f "$POINTER_FILE" ]]; then
+        local run_root
+        run_root="$(cat "$POINTER_FILE")"
+        if [[ -f "$run_root/env.sh" ]]; then
+          candidate="$(bash -c 'source "$1"; printf "%s\n" "$ATLR_REPO"' _ "$run_root/env.sh")"
+        fi
+      fi
+      ;;
+    self-check|-h|--help|help|"")
+      return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  [[ -n "$candidate" && -d "$candidate" ]] || return 1
+  canonical_dir "$candidate"
+}
+
+ensure_mise_runtime() {
+  [[ "${ATELIER_LIVE_MISE_ACTIVE:-0}" == "1" ]] && return 0
+
+  local runtime_repo
+  runtime_repo="$(runtime_repository_for_command "$@" 2>/dev/null || true)"
+  [[ -n "$runtime_repo" ]] || return 0
+
+  command -v mise >/dev/null 2>&1 || fail "mise is required to activate the Atelier toolchain"
+  [[ -f "$runtime_repo/mise.toml" ]] || fail "Atelier mise.toml is missing: $runtime_repo/mise.toml"
+
+  log "activate the Atelier toolchain through mise"
+  cd "$runtime_repo"
+  mise install
+
+  exec env ATELIER_LIVE_MISE_ACTIVE=1 \
+    mise exec -- bash "$SCRIPT_PATH" "$@"
 }
 
 require_command() {
@@ -404,7 +454,40 @@ run_with_timeout() {
   fi
 }
 
+validate_current_workspace_release() {
+  [[ -f "$ATLR_REPO/package.json" ]] || fail "acceptance repository package metadata is missing: $ATLR_REPO/package.json"
+
+  local actual_version actual_tag
+  actual_version="$(node -p "require('$ATLR_REPO/package.json').version" 2>/dev/null || true)"
+  actual_tag="$(git -C "$ATLR_REPO" describe --tags --abbrev=0 2>/dev/null || true)"
+
+  if [[ "$actual_version" == "$EXPECTED_ATELIER_VERSION" && "$actual_tag" == "$EXPECTED_ATELIER_TAG" ]]; then
+    return 0
+  fi
+
+  cat >&2 <<EOF
+FAIL: this acceptance run cannot be resumed with $PROGRAM.
+
+Run repository: $ATLR_REPO
+Run version:    ${actual_version:-unknown}
+Nearest tag:    ${actual_tag:-none}
+Harness expects: $EXPECTED_ATELIER_VERSION ($EXPECTED_ATELIER_TAG)
+
+The run was created from an older Atelier release. Resuming it would execute the
+old clone's bin/atlr.mjs and produce mixed-version evidence. Start a fresh run
+from the current tagged source checkout instead:
+
+  unset ATELIER_MANUAL_ROOT ATLR_REPO ATLR_STATE_HOME ATLR_USER_CONFIG
+  ATELIER_GUIDED_SKIP_CHECK=1 \
+    bash "$HOME/Downloads/atelier-alpha41-guided-verification.sh" \
+    fresh \
+    "$HOME/workspace/personal/atelier"
+EOF
+  exit 1
+}
+
 load_current_workspace() {
+  local release_check="${1:-strict}"
   [[ -f "$POINTER_FILE" ]] || fail "no current acceptance run; expected pointer: $POINTER_FILE"
   local root
   root="$(cat "$POINTER_FILE")"
@@ -415,6 +498,9 @@ load_current_workspace() {
   ATLR_BIN=(node "$ATLR_REPO/bin/atlr.mjs")
   EVIDENCE_DIR="$ATELIER_MANUAL_ROOT/evidence"
   mkdir -p "$EVIDENCE_DIR"
+  if [[ "$release_check" == "strict" ]]; then
+    validate_current_workspace_release
+  fi
 }
 
 write_environment() {
@@ -429,7 +515,10 @@ export VISUAL="\${VISUAL:-hx}"
 export EDITOR="\${EDITOR:-\$VISUAL}"
 
 atlr() {
-  node "\$ATLR_REPO/bin/atlr.mjs" "\$@"
+  (
+    cd "\$ATLR_REPO"
+    mise exec -- node "\$ATLR_REPO/bin/atlr.mjs" "\$@"
+  )
 }
 EOF
 }
@@ -454,6 +543,8 @@ create_automated_workspace() {
 
   local version
   version="$(source_version)"
+  [[ "$version" == "$EXPECTED_ATELIER_VERSION" ]] \
+    || fail "harness expects Atelier $EXPECTED_ATELIER_VERSION, but source checkout reports $version"
   local expected_tag="v$version"
   local actual_tag
   actual_tag="$(git -C "$SOURCE_REPO" describe --tags --exact-match 2>/dev/null || true)"
@@ -924,7 +1015,7 @@ verify_headless_shell_block() {
   jsonl_tool_assert "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" "bash" "write,edit"
   jsonl_assert_tool_failed "$EVIDENCE_DIR/pi-headless-shell-block.jsonl" "bash"
   [[ ! -e "$outside_marker" ]] || fail "outside-workspace shell command executed in JSON mode"
-  "${ATLR_BIN[@]}" ledger tail --limit 80 --json >"$EVIDENCE_DIR/ledger-headless-shell-block.json"
+  "${ATLR_BIN[@]}" ledger tail --limit 500 --json >"$EVIDENCE_DIR/ledger-headless-shell-block.json"
   assert_headless_workspace_denial "$EVIDENCE_DIR/ledger-headless-shell-block.json" "$outside_marker"
   jsonl_assert_no_forced_continuation "$EVIDENCE_DIR/pi-headless-shell-block.jsonl"
   pass "headless JSON-mode outside-workspace write was denied with the concrete Atelier policy reason"
@@ -1111,7 +1202,7 @@ EOF
 }
 
 archive_evidence() {
-  load_current_workspace
+  load_current_workspace allow-stale
   local output="$ATELIER_MANUAL_ROOT/atelier-live-acceptance-evidence.tar.xz"
   tar -C "$ATELIER_MANUAL_ROOT" -cJf "$output" \
     evidence env.sh tui 2>/dev/null || \
@@ -1120,7 +1211,7 @@ archive_evidence() {
 }
 
 show_status() {
-  load_current_workspace
+  load_current_workspace allow-stale
   printf 'Run root: %s\n' "$ATELIER_MANUAL_ROOT"
   printf 'Automated repository: %s\n' "$ATLR_REPO"
   printf 'Evidence: %s\n' "$EVIDENCE_DIR"
@@ -1342,5 +1433,6 @@ main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  ensure_mise_runtime "$@"
   main "$@"
 fi

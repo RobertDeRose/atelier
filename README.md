@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.40**. Alpha.40 is based directly on the maintained alpha.38 branch supplied by the user, incorporates the event-driven idle-footer synchronization correction, and supersedes the divergent alpha.39 release bundle.
+Current release: **0.14.0-alpha.41**. Alpha.41 makes direct `!`/`!!` shell denial conform to Pi's `user_bash` replacement-result contract, so a rejected command is never executed and its output cannot leak. It also restores distinct default `/status` and `/workflow` reports without reintroducing provider-backed workflow latency.
 
 ## Current status
 

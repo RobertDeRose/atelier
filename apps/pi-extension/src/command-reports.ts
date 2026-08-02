@@ -46,7 +46,26 @@ export function statusMarkdown(status: AtelierStatus): string {
 }
 
 export function workflowStatusMarkdown(status: AtelierStatus): string {
-  const lines = [statusMarkdown(status)];
+  const view = createStatusView(status);
+  const task = status.currentTaskTitle
+    ?? (view.task.current === "none" ? "none" : code(view.task.current));
+  const execution = status.activeExecutionGrant === undefined
+    ? "none"
+    : `${code(status.activeExecutionGrant.id)} · ${status.activeExecutionGrant.status} · task ${code(status.activeExecutionGrant.taskId)}`;
+  const lines = [
+    markdownFields([
+      ["mode", code(view.workflow.mode)],
+      ["checkpoint", view.workflow.checkpoint],
+      ["plan", view.workflow.plan],
+      ["task", task],
+      ["execution", execution],
+      ["task provider", `${view.task.provider} (${view.task.providerState})`],
+      ["closure", view.execution.closure],
+    ]),
+  ];
+  if (view.workflow.objective !== undefined) {
+    lines.push("", "### Objective", "", view.workflow.objective);
+  }
   if (status.activeTaskConstraints.length > 0) {
     lines.push("", "### Reviewed constraints", "");
     for (const constraint of status.activeTaskConstraints) {
@@ -58,6 +77,7 @@ export function workflowStatusMarkdown(status: AtelierStatus): string {
       );
     }
   }
+  lines.push("", "### Next action", "", view.workflow.nextAction);
   return lines.join("\n");
 }
 

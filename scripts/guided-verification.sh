@@ -3,8 +3,8 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="40.0"
-EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.40}"
+HARNESS_VERSION="41.1"
+EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.41}"
 MANUAL_PARENT="${ATELIER_MANUAL_PARENT:-$HOME/workspace/scratch}"
 RUN_PREFIX="atelier-manual-"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
@@ -15,6 +15,7 @@ EVIDENCE_DIR=""
 RESULTS_FILE=""
 TUI_TERMINAL_DIRTY=0
 LIVE_TOOLCHAIN_SOURCE=""
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
 
 log() { printf '\n==> %s\n' "$*"; }
 pass() { printf 'PASS: %s\n' "$*"; }
@@ -59,13 +60,57 @@ Environment:
   ATELIER_GUIDED_PURGE_CONFIRM=1
                                   Skip the PURGE confirmation for fresh/purge.
   ATELIER_MANUAL_PARENT           Manual-test parent (default: ~/workspace/scratch).
-  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.40).
+  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.41).
 USAGE
 }
 
 canonical_dir() { (cd "$1" && pwd -P); }
 require_command() { command -v "$1" >/dev/null 2>&1 || fail "required command is missing: $1"; }
 is_test_mode() { [[ "${ATELIER_GUIDED_TEST_MODE:-0}" == 1 ]]; }
+
+toolchain_source_for_command() {
+  local command="${1:-}"
+  local source root repo
+
+  case "$command" in
+    fresh|all|automated)
+      source="${2:-$PWD}"
+      [[ -d "$source" ]] || return 1
+      canonical_dir "$source"
+      ;;
+    prepare|guided|retry|status|archive)
+      [[ -f "$POINTER_FILE" ]] || return 1
+      root="$(<"$POINTER_FILE")"
+      repo="$root/repo"
+      [[ -f "$repo/mise.toml" ]] || return 1
+      canonical_dir "$repo"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+activate_mise_environment() {
+  is_test_mode && return 0
+  [[ "${ATELIER_GUIDED_MISE_ACTIVE:-0}" == 1 ]] && return 0
+
+  local source
+  source="$(toolchain_source_for_command "$@" 2>/dev/null || true)"
+  [[ -n "$source" ]] || return 0
+
+  require_command mise
+  log "activate the Atelier toolchain through mise"
+  (cd "$source" && mise install)
+
+  # `mise install` installs configured tools but does not mutate the PATH of the
+  # already-running shell. Re-exec the complete standalone harness through
+  # `mise exec` so Jujutsu, codesearch, Node, and the remaining project tools
+  # stay available after the harness changes into disposable cloned workspaces.
+  cd "$source"
+  exec env ATELIER_GUIDED_MISE_ACTIVE=1 \
+    mise exec -- bash "$SCRIPT_PATH" "$@"
+}
 
 ensure_live_toolchain() {
   local source="$1"
@@ -275,9 +320,9 @@ prepare_intel_jj() {
   (
     source "$root/env.sh"
     cd "$ATLR_REPO"
+    mise install >/dev/null
     jj git init --colocate >/dev/null
     chmod 700 .beads 2>/dev/null || true
-    mise install >/dev/null
     mise run install >/dev/null
   )
   write_workspace_metadata intel-jj "$root" "$repo"
@@ -323,9 +368,9 @@ prepare_policy_jj() {
   (
     source "$root/env.sh"
     cd "$ATLR_REPO"
+    mise install >/dev/null
     jj git init --colocate >/dev/null
     chmod 700 .beads 2>/dev/null || true
-    mise install >/dev/null
     mise run install >/dev/null
     configure_repo "$ATLR_REPO" jj none disabled
     mkdir -p manual-policy
@@ -344,9 +389,9 @@ prepare_control() {
   (
     source "$root/env.sh"
     cd "$ATLR_REPO"
+    mise install >/dev/null
     jj git init --colocate >/dev/null
     chmod 700 .beads 2>/dev/null || true
-    mise install >/dev/null
     mise run install >/dev/null
     node ./bin/atlr.mjs init --beads >/dev/null
     cat >.atelier/validation.json <<'JSON'
@@ -1182,6 +1227,7 @@ show_status() {
   for name in intel-jj policy-git policy-jj control; do
     [[ -d "$GUIDED_ROOT/$name/repo" ]] && printf '%-12s %s\n' "$name" "$GUIDED_ROOT/$name/repo"
   done
+  return 0
 }
 
 run_automated() {
@@ -1246,5 +1292,6 @@ main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  activate_mise_environment "$@"
   main "$@"
 fi

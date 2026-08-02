@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension/src/index.ts";
@@ -1411,8 +1411,9 @@ test("model Bash and direct user shell share one workspace-policy authorization 
   const confirmationBodies: string[] = [];
   const context = fakeContext(root, confirms, [], {
     confirmationBodies,
-    confirmResults: [true, true, false],
+    confirmResults: [true, true, false, false],
   });
+  const outsideMarker = `${root}-outside-write.txt`;
   try {
     await events.get("session_start")!({}, context);
     const bash = tools.get("bash");
@@ -1468,12 +1469,38 @@ test("model Bash and direct user shell share one workspace-policy authorization 
     assert.match(deniedModel?.reason ?? "", /investigate mode is read-only/i);
     assert.equal(confirms.count, 2, "workflow-denied commands must not prompt or create recovery state");
 
-    const deniedUser = await events.get("user_bash")!({ command: "node unknown-script.js" }, context);
-    assert.equal(deniedUser?.block, true);
-    assert.match(deniedUser?.reason ?? "", /user denied/i);
+    const outsideCommand = `printf denied > ${JSON.stringify(outsideMarker)}`;
+    const deniedUser = await events.get("user_bash")!({ command: outsideCommand }, context);
+    assert.equal(deniedUser?.operations, undefined, "a denied direct shell command must not receive executable operations");
+    assert.equal(deniedUser?.result?.exitCode, 126);
+    assert.match(deniedUser?.result?.output ?? "", /DENIED BY ATELIER/);
+    assert.match(deniedUser?.result?.output ?? "", /command was not executed/i);
+    // Mirror Pi's user_bash fallback: without a replacement result or custom
+    // operations it executes the command normally. This would expose the old
+    // invalid { block, reason } return shape by creating the marker.
+    if (deniedUser?.result === undefined && deniedUser?.operations === undefined) {
+      spawnSync("/bin/sh", ["-lc", outsideCommand], { cwd: root, encoding: "utf8" });
+    }
+    assert.equal(existsSync(outsideMarker), false, "a user-denied outside-workspace command must not execute");
     assert.equal(confirms.count, 3, "every executable unsandboxed command requires one concrete approval");
+
+    const secret = join(root, ".env.acceptance");
+    writeFileSync(secret, "ATELIER_SECRET_MUST_NOT_LEAK\n", "utf8");
+    const secretCommand = "cat .env.acceptance";
+    const deniedSecret = await events.get("user_bash")!({ command: secretCommand }, context);
+    assert.equal(deniedSecret?.result?.exitCode, 126);
+    assert.match(deniedSecret?.result?.output ?? "", /DENIED BY ATELIER/);
+    assert.doesNotMatch(deniedSecret?.result?.output ?? "", /ATELIER_SECRET_MUST_NOT_LEAK/);
+    let fallbackOutput = "";
+    if (deniedSecret?.result === undefined && deniedSecret?.operations === undefined) {
+      fallbackOutput = spawnSync("/bin/sh", ["-lc", secretCommand], { cwd: root, encoding: "utf8" }).stdout ?? "";
+    }
+    assert.doesNotMatch(fallbackOutput, /ATELIER_SECRET_MUST_NOT_LEAK/, "a user-denied secret read must not execute or expose output");
+    assert.equal(readFileSync(secret, "utf8"), "ATELIER_SECRET_MUST_NOT_LEAK\n");
+    assert.equal(confirms.count, 4);
   } finally {
     await events.get("session_shutdown")!({}, context);
+    rmSync(outsideMarker, { force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -1512,6 +1539,8 @@ test("Pi status, workflow, and code commands append expandable persistent report
     assert.doesNotMatch(entries[0]?.data.markdown ?? "", /^\| field \| value \|/m);
     assert.match(entries[0]?.data.summary ?? "", /investigate/);
     assert.match(entries[1]?.data.markdown ?? "", /^\*\*mode:\*\*/m);
+    assert.doesNotMatch(entries[1]?.data.markdown ?? "", /^\*\*workspace:\*\*/m);
+    assert.notEqual(entries[1]?.data.markdown, entries[0]?.data.markdown, "/workflow must not duplicate /status");
     assert.match(entries[1]?.data.summary ?? "", /no active task/);
     assert.match(entries[2]?.data.markdown ?? "", /^\*\*provider:\*\*/m);
     assert.match(entries[2]?.data.markdown ?? "", /^\*\*state:\*\* disabled/m);

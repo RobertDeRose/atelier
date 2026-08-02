@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.40 (2026-08-02).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.41 (2026-08-02).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -59,7 +59,15 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.40
+## Implementation Status — v0.14.0-alpha.41
+
+### Direct user-shell denial contract and report separation
+
+- Pi `tool_call` denial continues to use `{ block, reason }`; direct `user_bash` denial now uses Pi's distinct full replacement `BashResult` contract.
+- A rejected direct shell command returns an explicit nonzero result and never receives executable operations, preventing Pi from falling through to its default shell executor.
+- Regression coverage mirrors Pi's fallback behavior and proves rejected outside-workspace writes and likely-secret reads do not execute or leak output.
+- Default `/status` remains the workspace and repository snapshot. Default `/workflow` is a distinct ledger-focused report; `/workflow full` remains the explicit retrieval-backed reconstruction.
+- Standalone live and guided harnesses re-execute through the repository mise environment; live resume rejects mixed-version clones while still allowing evidence archival and status inspection.
 
 ### Canonical-path portability gate
 

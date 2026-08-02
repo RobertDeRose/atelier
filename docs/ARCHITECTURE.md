@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.40
+# Atelier Architecture — 0.14.0-alpha.41
 
 The Pi integration owns a session-local `FooterStatusController` and request-scoped observation pipeline. It
 serializes and coalesces status observations, consumes model/thinking and code-index events, invalidates cached
@@ -224,6 +224,8 @@ command.
 
 Pi's model-facing `bash` replacement and direct `user_bash` event both pass through the same effect and
 workspace evaluation. A matching pre-execution authorization token is required before the executor runs.
+Model-tool denial uses Pi's `tool_call` block result. Direct-user-shell denial returns a complete replacement
+`BashResult` with no executable operations, so Pi cannot fall through to its default shell executor.
 When available, Seatbelt or Bubblewrap grants one writable workspace, hides common credential paths,
 uses a minimal environment, disables network by default, and enforces process timeouts. When no sandbox
 backend exists, execution can fall back only after the concrete effects were allowed, checkpointed, or

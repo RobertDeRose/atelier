@@ -66,6 +66,7 @@ import { FooterStatusController } from "./footer-status-controller.ts";
 import { registerCodeCommands } from "./code-commands.ts";
 import { registerStatusCommands } from "./status-commands.ts";
 import { clearAtelierPhase as clearPhase, showAtelierPhase as showPhase } from "./working-phase.ts";
+import { deniedUserBashResult } from "./user-bash-result.ts";
 import {
   ATELIER_COMMIT_TOOL,
   ATELIER_STATE_TOOL,
@@ -771,7 +772,9 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       observation,
     });
     clearPhase(ctx);
-    if (authorization.response !== undefined) return authorization.response;
+    if (authorization.response !== undefined) {
+      return deniedUserBashResult(authorization.response.reason);
+    }
     return { operations: createAtelierBashOperations({
       workspace: core.config.workspaceRoot, backend: core.config.sandboxBackend,
       allowUnsandboxed: authorization.allowUnsandboxed,

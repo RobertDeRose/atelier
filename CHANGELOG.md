@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0-alpha.41 — 2026-08-02
+
+- Return a complete Pi `BashResult` from denied `user_bash` events instead of the `tool_call`-only `{ block, reason }` shape. Rejected direct shell commands now render an explicit Atelier denial with exit status 126 and are never executed by Pi's fallback shell path.
+- Add regressions proving rejected outside-workspace writes create no marker and rejected secret reads expose no command output.
+- Make default `/workflow` a distinct ledger-focused report containing mode, workflow checkpoint, plan, task, execution, provider, closure, reviewed constraints, and next action; `/status` remains the workspace/repository snapshot.
+- Model Pi's `user_bash` event/result contract in the local SDK declarations so a future `{ block, reason }` regression fails type checking.
+- Make standalone guided and live harnesses activate the repository toolchain through `mise exec`; live resume also rejects mixed-version acceptance clones while archive/status remain available for old evidence.
+
 ## 0.14.0-alpha.40 — 2026-08-02
 
 - Rebuild the release directly on the maintained `8c29808` branch supplied by the user, so the bundle is fast-forwardable from the actual local checkout.

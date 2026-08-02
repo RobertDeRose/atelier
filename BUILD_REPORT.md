@@ -1,6 +1,14 @@
-# Build Report — Atelier 0.14.0-alpha.40
+# Build Report — Atelier 0.14.0-alpha.41
 
 ## Result
+
+## Alpha.41 direct user-shell denial and workflow-report correction
+
+Alpha.41 fixes a security-critical integration mismatch between Pi's `tool_call` and `user_bash` extension events. `tool_call` supports `{ block, reason }`; `user_bash` accepts only custom operations or a full replacement `BashResult`. Earlier Atelier releases returned the tool-call shape when a user rejected a direct `!` command, so Pi ignored it and executed the command through its default shell path. Alpha.41 returns an explicit exit-126 replacement result, visibly states that Atelier denied the command, and supplies no executable operations.
+
+The release also separates the default reports again. `/status` displays workspace and repository state. `/workflow` displays the durable workflow checkpoint, plan, task, execution grant, task-provider state, closure, reviewed constraints, and next action without initiating retrieval. `/workflow full` retains the explicit retrieval-backed diagnostic.
+
+The standalone guided and live harnesses now reactivate the selected repository's mise environment before using Node, Jujutsu, codesearch, or other pinned tools. Live resume refuses a clone from a different Atelier release, preventing newer assertions from running against an older `bin/atlr.mjs`; archive and status remain available for preserving stale-run evidence.
 
 ## Alpha.40 release-lineage and footer synchronization correction
 
@@ -266,10 +274,11 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.40
-Files:            474
-Compressed size:  538,339 bytes
-Unpacked size:    2,521,967 bytes
+Package:          atelier-prototype@0.14.0-alpha.41
+Files:            479
+Built dist files: 416
+Compressed size:  540,523 bytes
+Unpacked size:    2,529,273 bytes
 ```
 
 ## Verification boundary
@@ -285,7 +294,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.40` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.41` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so
