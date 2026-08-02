@@ -1181,8 +1181,9 @@ test("an explicit per-turn no-Bash/no-validation/no-commit/no-close instruction 
     assert.match(prompt.systemPrompt, /commit\/local change/i);
     assert.match(prompt.systemPrompt, /task closure/i);
 
+    const outsideMarker = join(root, "..", `${root.split("/").at(-1)}-blocked-outside`);
     for (const [toolName, input] of [
-      ["bash", { command: "node --test" }],
+      ["bash", { command: `printf blocked > '${outsideMarker}'` }],
       ["atlr_validate", { action: "focused" }],
       ["atlr_commit", { message: "test: forbidden" }],
       ["atlr_task_close", { reason: "forbidden" }],
@@ -1202,6 +1203,11 @@ test("an explicit per-turn no-Bash/no-validation/no-commit/no-close instruction 
 
     const ledger = new SqliteLedger(testDatabasePath(root));
     assert.equal(ledger.listEvents({ kind: "policy.user_constraint_blocked" }).length, 4);
+    const outsideDecision = ledger.listEvents({ kind: "workspace_policy.decision", limit: 20 })
+      .map((event) => event.payload as { result?: string; effects?: Array<{ state?: string; resolvedPath?: string }> })
+      .find((decision) => decision.result === "ask"
+        && decision.effects?.some((effect) => effect.state === "outside_workspace" && effect.resolvedPath === outsideMarker));
+    assert.ok(outsideDecision, "workflow-first denial must still record the concrete outside-workspace consequence");
     ledger.close();
 
     await events.get("agent_settled")!({}, context);

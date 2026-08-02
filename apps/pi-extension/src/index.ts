@@ -37,7 +37,7 @@ import { planInstruction } from "./plan-instruction.ts";
 import { contextCapsulePrompt, createAuthoritativeContextCapsule } from "./authoritative-context.ts";
 import { createAtelierBashOperations } from "./bash-operations.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
-import { authorizeShellEffects, authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, requestForTool } from "./tool-authorization.ts";
+import { authorizeShellEffects, authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, recordBlockedWorkspaceConsequence, recordWorkspacePolicyDecision, repositoryObservationPaths, requestForTool } from "./tool-authorization.ts";
 import { effectsForTool, effectsForUserBash } from "./tool-effects.ts";
 import {
   eventInputText,
@@ -118,7 +118,6 @@ function sessionState(ctx: ExtensionContext): ExtensionSessionState {
   SESSION_STATES.set(key, created);
   return created;
 }
-
 function coreFor(ctx: ExtensionContext, openCore: (repositoryRoot: string) => AtelierCore): AtelierCore {
   const state = sessionState(ctx);
   const root = resolveAccessPath(ctx.cwd, "read");
@@ -136,7 +135,6 @@ function coreFor(ctx: ExtensionContext, openCore: (repositoryRoot: string) => At
   delete state.lastCompletionNotice;
   return state.core;
 }
-
 async function replaceCore(
   ctx: ExtensionContext,
   openCore: (repositoryRoot: string) => AtelierCore,
@@ -152,15 +150,12 @@ async function replaceCore(
   state.footerStatus.resetRepository();
   return coreFor(ctx, openCore);
 }
-
 function updateStatus(ctx: ExtensionContext, core: AtelierCore, status?: AtelierStatus): Promise<void> {
   return sessionState(ctx).footerStatus.refresh(ctx, core, status);
 }
-
 function updateRuntimeFooter(ctx: ExtensionContext): void {
   sessionState(ctx).footerStatus.renderRuntime(ctx);
 }
-
 async function reviewPlan(
   ctx: ExtensionContext,
   core: AtelierCore,
@@ -185,7 +180,6 @@ async function reviewPlan(
       });
       throw new Error(`Editor exited with code ${result.exitCode}${result.error ? `: ${result.error}` : ""}`);
     }
-
     const review = core.completePlanReview(started.id, { exitCode: result.exitCode });
     const parsed = core.parsePlan();
     const errors = parsed.diagnostics.filter((diagnostic) => diagnostic.level === "error");
@@ -213,7 +207,6 @@ async function reviewPlan(
       },
     });
     await updateStatus(ctx, core);
-
     ctx.ui.notify(
       manualEditSummary(review, parsed.diagnostics, reconciliation, reconciliationError),
       errors.length > 0 || (reconciliation?.conflicts.length ?? 0) > 0 ? "warning" : "info",
@@ -240,7 +233,6 @@ async function reviewPlan(
     await updateStatus(ctx, core);
   }
 }
-
 function manualEditSummary(
   review: ReturnType<AtelierCore["completePlanReview"]>,
   diagnostics: ReturnType<AtelierCore["parsePlan"]>["diagnostics"],
@@ -263,7 +255,6 @@ function manualEditSummary(
         ]),
   ].join("\n");
 }
-
 async function approveAndReconcile(
   _pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
@@ -285,7 +276,6 @@ async function approveAndReconcile(
     ctx.ui.notify(providerStatus.reason ?? `${providerStatus.provider} is unavailable or uninitialized.`, "error");
     return;
   }
-
   let prepared;
   try {
     await showPhase(ctx, "preparing exact transaction");
@@ -320,7 +310,6 @@ async function approveAndReconcile(
     await core.execution.approveAndApply(prepared.approval.id, false);
     return;
   }
-
   try {
     const transition = await core.execution.approveAndApply(prepared.approval.id, true, {
       onPhase: async (phase) => {
@@ -345,7 +334,6 @@ async function approveAndReconcile(
     clearPhase(ctx);
   }
 }
-
 export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExtensionOptions = {}): void {
   const openCore = options.openCore ?? ((repositoryRoot: string) => AtelierCore.open(repositoryRoot, { ...(process.env.ATELIER_WORKSPACE_ROOT === undefined ? {} : { workspaceRoot: process.env.ATELIER_WORKSPACE_ROOT }) }));
   const getCore = (ctx: ExtensionContext): AtelierCore => {
@@ -676,14 +664,18 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     const extensionState = sessionState(ctx);
     const turnBlock = turnPolicyBlockReason(String(event.toolName), extensionState.turnPolicy);
     if (turnBlock !== undefined) {
+      const effects = effectsForTool(event, ctx, core);
+      await showPhase(ctx, "reading repository state");
+      const observation = await recordBlockedWorkspaceConsequence(effects, ctx, core);
       const taskId = core.ledger.getState<string>("currentTaskId");
       core.ledger.append({
         kind: "policy.user_constraint_blocked",
         actor: "user",
         ...(taskId === undefined ? {} : { taskId }),
-        repositorySnapshot: core.repository.snapshot(),
+        repositorySnapshot: observation.snapshot,
         payload: { toolName: event.toolName, reason: turnBlock },
       });
+      clearPhase(ctx);
       return { block: true, reason: turnBlock };
     }
     if (core.mode() === "plan"
@@ -704,13 +696,17 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     const signal = contextSignal(ctx);
     await showPhase(ctx, "reading repository state");
     const observation = await core.observeRepository({
-      paths: effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]),
+      paths: repositoryObservationPaths(effects, core),
       ...(signal === undefined ? {} : { signal }),
       operation: "permission",
     });
     const request = requestForTool(event, ctx, core, effects, observation);
     const authorization = await authorizeTool(request, ctx, core);
     if (authorization.response !== undefined) {
+      // Preserve the concrete workspace consequence even when the workflow
+      // guard blocks first. This keeps headless denials auditable without
+      // prompting, checkpointing, or broadening workflow authority.
+      await recordWorkspacePolicyDecision(effects, ctx, core, { observation });
       clearPhase(ctx);
       return authorization.response;
     }
@@ -765,7 +761,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     const signal = contextSignal(ctx);
     await showPhase(ctx, "reading repository state");
     const observation = await core.observeRepository({
-      paths: effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]),
+      paths: repositoryObservationPaths(effects, core),
       ...(signal === undefined ? {} : { signal }),
       operation: "permission",
     });

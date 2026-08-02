@@ -1,6 +1,10 @@
-# Build Report — Atelier 0.14.0-alpha.36
+# Build Report — Atelier 0.14.0-alpha.37
 
 ## Result
+
+## Alpha.37 workflow-first denial evidence correction
+
+Alpha.37 records the concrete workspace-policy consequence even when a current-turn or workflow guard blocks the tool before the normal workspace authorization phase. The diagnostic evaluation does not prompt, create a checkpoint, or grant authority. Repository observations now receive only paths contained by the selected repository, while outside-workspace effects remain available to the workspace-policy evaluator.
 
 ## Alpha.36 headless denial evidence correction
 

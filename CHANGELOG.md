@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0-alpha.37 — 2026-08-02
+
+- Record the concrete workspace-policy decision even when the workflow guard blocks a tool first.
+- Keep headless denials auditable without prompting, checkpointing, or broadening workflow authority.
+- Fix the resumed outside-workspace shell acceptance gate after a prior failed or paused execution.
+
 ## 0.14.0-alpha.36 — 2026-08-01
 
 - Made headless shell-denial acceptance rely on durable workspace-policy evidence rather than Pi-version-specific JSONL wording.

@@ -3,6 +3,7 @@ import {
   AtelierCore,
   classifyShellCommand,
   isDependencyPath,
+  isAccessEntryWithin,
   type WorkflowActionRequest,
   type WorkflowDecision,
   type FilesystemEffect,
@@ -175,6 +176,51 @@ export interface WorkspaceEffectsAuthorization {
   observation: RepositoryObservation;
 }
 
+export function repositoryObservationPaths(
+  effects: readonly { path?: string }[],
+  core: AtelierCore,
+): string[] {
+  return effects.flatMap((effect) =>
+    effect.path !== undefined && isAccessEntryWithin(effect.path, core.config.repositoryRoot, "write")
+      ? [effect.path]
+      : []);
+}
+
+export async function recordBlockedWorkspaceConsequence(
+  effects: readonly FilesystemEffect[],
+  ctx: ExtensionContext,
+  core: AtelierCore,
+): Promise<RepositoryObservation> {
+  const observation = await core.observeRepository({
+    paths: repositoryObservationPaths(effects, core),
+    ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+    operation: "permission",
+  });
+  await recordWorkspacePolicyDecision(effects, ctx, core, { observation });
+  return observation;
+}
+
+export async function recordWorkspacePolicyDecision(
+  effects: readonly FilesystemEffect[],
+  ctx: ExtensionContext,
+  core: AtelierCore,
+  options: { observation?: RepositoryObservation } = {},
+): Promise<{ decision: ReturnType<AtelierCore["evaluateWorkspaceEffects"]>; observation: RepositoryObservation }> {
+  await showAuthorizationPhase(ctx, "evaluating operation effects");
+  const evaluated = await core.evaluateWorkspaceEffectsAsync(effects, {
+    ...(options.observation === undefined ? {} : { observation: options.observation }),
+    ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+    operation: "permission",
+  });
+  core.ledger.append({
+    kind: "workspace_policy.decision",
+    actor: "agent",
+    repositorySnapshot: evaluated.observation.snapshot,
+    payload: evaluated.decision,
+  });
+  return evaluated;
+}
+
 export async function authorizeWorkspaceEffects(
   effects: readonly FilesystemEffect[],
   ctx: ExtensionContext,
@@ -187,18 +233,8 @@ export async function authorizeWorkspaceEffects(
     observation?: RepositoryObservation;
   } = {},
 ): Promise<WorkspaceEffectsAuthorization> {
-  await showAuthorizationPhase(ctx, "evaluating operation effects");
-  const evaluated = await core.evaluateWorkspaceEffectsAsync(effects, {
+  const { decision, observation } = await recordWorkspacePolicyDecision(effects, ctx, core, {
     ...(options.observation === undefined ? {} : { observation: options.observation }),
-    ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
-    operation: "permission",
-  });
-  const { decision, observation } = evaluated;
-  core.ledger.append({
-    kind: "workspace_policy.decision",
-    actor: "agent",
-    repositorySnapshot: observation.snapshot,
-    payload: decision,
   });
 
   const confirmOnce = async (reason: string): Promise<WorkspaceEffectsAuthorization> => {
