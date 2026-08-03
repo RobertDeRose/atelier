@@ -337,6 +337,12 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
   assert.equal(confirms.count, 5);
 
   const agentStart = await events.get("before_agent_start")!({ systemPrompt: "base" }, context);
+  const phaseLedger = new SqliteLedger(testDatabasePath(root));
+  const agentContextPhase = phaseLedger.listEvents({ kind: "ui.phase_changed", limit: 30 })
+    .find((event) => (event.payload as { operation?: string; state?: string }).operation === "agent.context"
+      && (event.payload as { operation?: string; state?: string }).state === "presented");
+  phaseLedger.close();
+  assert.equal((agentContextPhase?.payload as { surface?: string } | undefined)?.surface, "native_working_indicator");
   assert.match(agentStart?.systemPrompt ?? "", /Provider-first retrieval is advisory/i);
   assert.match(agentStart?.systemPrompt ?? "", /Raw repository inspection remains available/i);
   assert.match(agentStart?.systemPrompt ?? "", /## Retrieval session/);

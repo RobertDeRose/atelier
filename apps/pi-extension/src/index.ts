@@ -780,8 +780,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   pi.on("before_agent_start", async (event, ctx) => {
     const core = getCore(ctx);
     await showPhase(ctx, "building authoritative working state", {
-      core,
-      operation: "agent.context",
+      core, operation: "agent.context", surface: "native",
     });
     try {
       try {

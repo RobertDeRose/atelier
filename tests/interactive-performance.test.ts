@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { authorizeWorkspaceEffects } from "../apps/pi-extension/src/tool-authorization.ts";
-import { showAtelierPhase } from "../apps/pi-extension/src/working-phase.ts";
+import { clearAtelierPhase, showAtelierPhase } from "../apps/pi-extension/src/working-phase.ts";
 import { AtelierCore } from "../packages/core/src/core.ts";
 import { createTemporaryRepository } from "./fixtures.ts";
 
@@ -78,6 +78,27 @@ test("interactive phase feedback is visible before delayed work starts", async (
   assert.equal(component.render(120).length, 1, "the idle phase must occupy exactly one transient line");
   component.dispose?.();
   await pending;
+});
+
+
+
+test("agent lifecycle can force Pi's native working indicator while the context still reports idle", async () => {
+  const messages: Array<string | undefined> = [];
+  const widgets: Array<{ key: string; content: unknown }> = [];
+  const context = {
+    mode: "tui",
+    isIdle: () => true,
+    ui: {
+      setWorkingMessage(message?: string): void { messages.push(message); },
+      setWidget(key: string, content: unknown): void { widgets.push({ key, content }); },
+    },
+  } as unknown as ExtensionContext;
+
+  await showAtelierPhase(context, "building authoritative working state", { surface: "native" });
+  assert.equal(messages[0], "Atelier: building authoritative working state…");
+  assert.equal(widgets.length, 0, "a forced native phase must not install the idle spinner");
+  clearAtelierPhase(context);
+  assert.equal(messages.at(-1), undefined);
 });
 
 test("explicit checkpoint approval is shown before Atelier copies recovery state", async () => {

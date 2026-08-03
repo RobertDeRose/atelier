@@ -37,9 +37,12 @@ function phaseKey(ctx: ExtensionContext): object {
   return sessionManager ?? (ctx as object);
 }
 
+export type AtelierPhaseSurface = "auto" | "spinner" | "native";
+
 export interface AtelierPhaseOptions {
   core?: AtelierCore;
   operation?: string;
+  surface?: AtelierPhaseSurface;
 }
 
 function truncateLine(value: string, width: number): string {
@@ -109,7 +112,12 @@ export async function showAtelierPhase(
     recordCleared(prior, "replaced");
   }
 
-  const widgetVisible = ctx.mode === "tui" && ctx.isIdle();
+  const surface = options.surface ?? "auto";
+  const widgetVisible = surface === "spinner"
+    ? ctx.mode === "tui"
+    : surface === "native"
+      ? false
+      : ctx.mode === "tui" && ctx.isIdle();
   const phase: ActivePhase = {
     id: `phase-${randomUUID()}`,
     message,

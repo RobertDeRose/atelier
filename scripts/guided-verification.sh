@@ -3,8 +3,8 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="45.1"
-EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.45}"
+HARNESS_VERSION="46.1"
+EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.46}"
 MANUAL_PARENT="${ATELIER_MANUAL_PARENT:-$HOME/workspace/scratch}"
 RUN_PREFIX="atelier-manual-"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
@@ -62,7 +62,7 @@ Environment:
                                   Skip the PURGE confirmation for fresh/purge.
   ATELIER_MANUAL_PARENT           Manual-test parent (default: ~/workspace/scratch).
   ATELIER_ARCHIVE_TAR             Override the archive tar executable; gtar is preferred when available.
-  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.45).
+  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.46).
 USAGE
 }
 
@@ -875,6 +875,8 @@ assert(statusPhase.surface === "single_line_spinner_and_working",
 assert(workflowPhase.surface === "single_line_spinner_and_working",
   `/workflow used unexpected progress surface: ${workflowPhase.surface ?? "missing"}`);
 NODE
+  verifier_rc=$?
+  (( verifier_rc == 0 )) || return "$verifier_rc"
   pass "Step 1 captured distinct reports, live footer changes, and visible command phases"
 }
 
@@ -979,6 +981,8 @@ assert(settled.some((event) => event.payload?.isIdle === true
   && Date.parse(event.occurredAt) >= Date.parse(succeededModelBashEvent.occurredAt)),
   "Pi never recorded an idle settled state after model Bash completion");
 NODE
+  verifier_rc=$?
+  (( verifier_rc == 0 )) || return "$verifier_rc"
   pass "Step 2 objective evidence passed before checkpoint restoration"
 }
 
@@ -1007,6 +1011,8 @@ for (const path of expected) {
   if (!restored.includes(path)) throw new Error(`missing recovery.checkpoint_restored for ${path}`);
 }
 NODE
+  verifier_rc=$?
+  (( verifier_rc == 0 )) || return "$verifier_rc"
   pass "Step 2 restored every required Git checkpoint with exact contents"
 }
 
@@ -1026,6 +1032,8 @@ const matches = checkpoints.filter((checkpoint) =>
   checkpoint.repositoryState?.provider === "jj" && (checkpoint.paths ?? []).map((value) => resolve(value)).includes(expected));
 if (matches.length !== 1) throw new Error(`expected one Jujutsu checkpoint for ${expected}; got ${matches.length}`);
 NODE
+  verifier_rc=$?
+  (( verifier_rc == 0 )) || return "$verifier_rc"
   pass "Step 3 created the expected Jujutsu checkpoint"
 }
 
@@ -1122,6 +1130,8 @@ for (const [operation, kind] of [
     `${operation} feedback was recorded after ${kind}`);
 }
 NODE
+  verifier_rc=$?
+  (( verifier_rc == 0 )) || return "$verifier_rc"
   pass "Step 4 generated the exact plan, rejected without activation, then approved one idle task"
 }
 
@@ -1184,6 +1194,8 @@ for (const forbidden of ["execution.paused", "execution.revoked", "workflow.canc
   assert(!kinds.has(forbidden), `implementation phase reached control event ${forbidden} too early`);
 }
 NODE
+  verifier_rc=$?
+  (( verifier_rc == 0 )) || return "$verifier_rc"
   pass "Step 5A completed exactly the two approved source changes and retained active execution"
 }
 
@@ -1224,6 +1236,8 @@ for (const forbidden of ["execution.paused", "execution.revoked", "workflow.canc
   assert(!kinds.has(forbidden), `stop-only phase reached ${forbidden}`);
 }
 NODE
+  verifier_rc=$?
+  (( verifier_rc == 0 )) || return "$verifier_rc"
   pass "Step 5B stopped only the current turn and retained active execution"
 }
 
@@ -1260,15 +1274,22 @@ const kinds = new Set(ledger.map((event) => event.kind));
 for (const kind of ["execution.paused", "execution.unpaused", "execution.revoked", "workflow.cancelled"]) {
   assert(kinds.has(kind), `missing ledger event ${kind}`);
 }
-const paused = ledger.find((event) => event.kind === "execution.paused");
-const pausedFooter = ledger.find((event) => event.kind === "ui.footer_presented"
+const chronological = [...ledger].sort((left, right) =>
+  Date.parse(left.occurredAt) - Date.parse(right.occurredAt));
+const paused = chronological.filter((event) => event.kind === "execution.paused").at(-1);
+const unpaused = chronological.find((event) => event.kind === "execution.unpaused"
+  && Date.parse(event.occurredAt) >= Date.parse(paused?.occurredAt ?? ""));
+const pausedFooter = chronological.find((event) => event.kind === "ui.footer_presented"
   && Date.parse(event.occurredAt) >= Date.parse(paused?.occurredAt ?? "")
+  && (unpaused === undefined || Date.parse(event.occurredAt) <= Date.parse(unpaused.occurredAt))
   && /mode:\s*paused/.test(event.payload?.rendered?.text ?? ""));
 assert(paused && pausedFooter, "footer never rendered mode: paused after /atelier-pause");
 assert(Date.parse(pausedFooter.occurredAt) - Date.parse(paused.occurredAt) <= 500,
   `paused footer was delayed by ${Date.parse(pausedFooter.occurredAt) - Date.parse(paused.occurredAt)}ms`);
 assert(!kinds.has("task.closed"), "task was closed during cancellation test");
 NODE
+  verifier_rc=$?
+  (( verifier_rc == 0 )) || return "$verifier_rc"
   pass "Step 5 preserved source changes and the open task while revoking execution"
 }
 

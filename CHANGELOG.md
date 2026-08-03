@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0-alpha.46 — 2026-08-03
+
+- Make transient progress surface selection explicit: `before_agent_start` forces Pi's native working indicator even when the hook observes `ctx.isIdle() === true`; idle commands retain the one-line spinner.
+- Clear any replaced idle spinner before a native agent phase and persist `native_working_indicator` evidence independently of Pi's transient idle flag.
+- Verify paused-footer latency against the earliest paused render after the latest `execution.paused` event and before `execution.unpaused`, rather than the newest-first ledger order.
+- Propagate every embedded guided-verifier failure so objective evidence can never be followed by a misleading `PASS`.
+- Add regression coverage for explicit native phase selection under an idle context and chronological guided pause evidence.
+
 ## 0.14.0-alpha.45 — 2026-08-03
 
 - Keep the footer's `mode:` field durable and move idle slash-command/approval progress into one animated above-editor status line; use Pi's native working indicator during agent and tool turns.

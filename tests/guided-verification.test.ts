@@ -545,6 +545,10 @@ test("guided acceptance verifies durable visual and model-Bash lifecycle evidenc
   assert.match(source, /--no-fflags/);
   assert.match(source, /single_line_spinner_and_working/);
   assert.match(source, /native_working_indicator/);
+  assert.match(source, /const chronological = \[\.\.\.ledger\]\.sort/);
+  assert.match(source, /const pausedFooter = chronological\.find/);
+  assert.doesNotMatch(source, /const pausedFooter = ledger\.find/);
+  assert.match(source, /\(\( verifier_rc == 0 \)\) \|\| return "\$verifier_rc"/);
   assert.match(source, /--exclude='guided\/\*\/repo\/node_modules'/);
   const phaseSource = readFileSync(join(process.cwd(), "apps/pi-extension/src/working-phase.ts"), "utf8");
   const footerSource = readFileSync(join(process.cwd(), "apps/pi-extension/src/status-presentation.ts"), "utf8");

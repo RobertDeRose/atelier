@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.45**. Alpha.45 keeps durable workflow mode separate from transient progress, presents idle work as one animated status line, uses Pi's native working indicator during agent turns, prevents an unreviewed plan scaffold from triggering semantic retrieval for exact file-scoped objectives, and strips macOS extended metadata from acceptance archives.
+Current release: **0.14.0-alpha.46**. Alpha.46 makes agent-turn progress surface selection lifecycle-explicit, so `before_agent_start` always uses Pi's native working indicator even while Pi still reports idle, and makes guided pause evidence chronological so later paused footer refreshes cannot create false latency failures.
 
 ## Current status
 

@@ -1,4 +1,14 @@
-# Build Report — Atelier 0.14.0-alpha.45
+# Build Report — Atelier 0.14.0-alpha.46
+
+
+## Alpha.46 correction verification
+
+Alpha.46 corrects two acceptance findings from the alpha.45 guided run:
+
+- `before_agent_start` now forces the native Pi working indicator even when the hook temporarily reports idle;
+- pause latency verification sorts newest-first ledger evidence chronologically and selects the first paused render after the latest pause transition.
+
+The guided harness also propagates every embedded Node verifier failure before printing a pass. Targeted tests cover explicit native surface selection under an idle context and the chronological pause-verifier source contract.
 
 ## Result
 
@@ -332,15 +342,15 @@ git diff --check
 npm pack --dry-run
 ```
 
-The alpha.45 correction working tree passed:
+The alpha.46 correction working tree passed:
 
 ```text
 Release metadata:              passed
 Type-check:                    passed
 Production build:              passed
-Deterministic tests:           305 passed, 0 failed (four bounded groups: 65 + 91 + 75 + 74)
-Canonical path-alias lane:     78 passed, 0 failed
-Targeted final-delta tests:   32 passed, 0 failed
+Deterministic tests:           306 passed, 0 failed
+Canonical path-alias lane:     79 passed, 0 failed
+Targeted final-delta tests:   34 passed, 0 failed
 CLI smoke workflow:            passed
 Acceptance syntax/self-check:  passed
 Git diff validation:           passed
@@ -350,15 +360,15 @@ Package dry-run:               passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.45
-Files:            495
+Package:          atelier-prototype@0.14.0-alpha.46
+Files:            496
 Built dist files: 428
 ```
 
 ## Verification boundary
 
 The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
-and TypeScript 7 toolchain. The complete 305-test suite in four bounded groups and the 78-test canonical temporary-path lane pass
+and TypeScript 7 toolchain. The complete 306-test suite and the 79-test canonical temporary-path lane pass
 in this environment, together with type-checking, production compilation, smoke, harness self-checks, and the
 package dry-run. The pinned Node 24 `mise check` remains authoritative for the supported macOS toolchain.
 
@@ -369,7 +379,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.45` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.46` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so
@@ -378,7 +388,7 @@ lifecycle event. Arbitrary interpreters, scripts, build systems, and dynamically
 remain intentionally conservative and require one concrete approval unless their effects can be bounded
 and recovered.
 
-## Additional alpha.45 acceptance contracts
+## Additional alpha.46 acceptance contracts
 
 - The live implementation prompt requires the exact local TypeScript source import
   `../packages/core/src/version.ts`.
