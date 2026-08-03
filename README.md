@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.42**. Alpha.42 completes Pi's interactive lifecycle: authorized model Bash streams output and always settles, `/plan` and `/approve` show durable phase feedback before expensive work, and footer/report/phase/tool presentation is recorded as bounded diagnostic evidence for guided acceptance.
+Current release: **0.14.0-alpha.43**. Alpha.43 preserves the alpha.42 Pi lifecycle corrections and hardens the aggregate regression gate: scheduler or Git contention can no longer turn a deterministic no-footer-I/O assertion into a misleading missing-evidence failure.
 
 ## Current status
 

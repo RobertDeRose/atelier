@@ -1132,7 +1132,6 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
       input: { path: "src/index.ts" },
     }, context), undefined);
     const statusCountBeforeResult = statuses.length;
-    const toolResultStartedAt = Date.now();
     await events.get("tool_result")!({
       toolCallId: "edit-routine",
       toolName: "edit",
@@ -1140,11 +1139,18 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
       content: [{ type: "text", text: "updated" }],
       isError: false,
     }, context);
-    assert.ok(Date.now() - toolResultStartedAt < 250, "tool completion must not wait for a full footer observation");
-    // Footer refresh is deliberately detached from the tool-completion
-    // critical path. Dedicated footer tests cover eventual presentation; this
-    // workflow test only requires that tool settlement is not blocked.
-    void statusCountBeforeResult;
+    assert.equal(
+      statuses.length,
+      statusCountBeforeResult,
+      "tool completion must not synchronously start a footer/status observation",
+    );
+    // Wall-clock thresholds inside the aggregate suite are scheduler-sensitive
+    // and can fail under unrelated Git/process contention. The deterministic
+    // contract is that tool_result does not initiate presentation I/O; the
+    // dedicated interactive-performance tests cover event-loop responsiveness.
+    let evidenceLedger = new SqliteLedger(testDatabasePath(root));
+    assert.equal(evidenceLedger.getExecutionEvidence("edit-routine")?.status, "succeeded");
+    evidenceLedger.close();
     assert.equal(await events.get("tool_call")!({
       toolCallId: "edit-failed",
       toolName: "edit",
@@ -1157,6 +1163,9 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
       content: [{ type: "text", text: "replacement did not match" }],
       isError: true,
     }, context);
+    evidenceLedger = new SqliteLedger(testDatabasePath(root));
+    assert.equal(evidenceLedger.getExecutionEvidence("edit-failed")?.status, "failed");
+    evidenceLedger.close();
     assert.equal(await events.get("tool_call")!({
       toolCallId: "bash-check",
       toolName: "bash",
@@ -1168,6 +1177,9 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
       content: [{ type: "text", text: "ReferenceError: signal is not defined\nCommand exited with code 1" }],
       isError: true,
     }, context);
+    evidenceLedger = new SqliteLedger(testDatabasePath(root));
+    assert.equal(evidenceLedger.getExecutionEvidence("bash-check")?.status, "failed");
+    evidenceLedger.close();
     assert.equal(await events.get("tool_call")!({
       toolCallId: "bash-commit",
       toolName: "bash",
@@ -1206,12 +1218,9 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
     assert.equal(cancelledLedger.getActiveExecutionGrant(), undefined);
     cancelledLedger.close();
   } finally {
+    // Cleanup must never replace the original assertion with a secondary
+    // "missing evidence" failure when the test exits before later tool calls.
     await events.get("session_shutdown")!({}, context);
-    const ledger = new SqliteLedger(testDatabasePath(root));
-    assert.equal(ledger.getExecutionEvidence("edit-routine")?.status, "succeeded");
-    assert.equal(ledger.getExecutionEvidence("edit-failed")?.status, "failed");
-    assert.equal(ledger.getExecutionEvidence("bash-check")?.status, "failed");
-    ledger.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

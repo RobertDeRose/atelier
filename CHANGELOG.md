@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0-alpha.43 — 2026-08-03
+
+- Replace the act-mode regression's scheduler-sensitive 250 ms `tool_result` threshold with a deterministic assertion that tool completion publishes no synchronous footer/status observation.
+- Verify successful and failed execution evidence immediately after each corresponding tool result.
+- Remove behavioral assertions from cleanup so a premature test failure cannot be masked by a later missing-evidence assertion.
+- Retain the alpha.42 runtime, model-Bash lifecycle, phase feedback, and durable UI-evidence behavior unchanged.
+
 ## 0.14.0-alpha.42 — 2026-08-03
 
 - Replace the model-facing Bash wrapper with a sequential policy-controlled tool that owns authorization consumption, streamed output updates, a final success result or thrown failure/interruption, and bounded lifecycle evidence.

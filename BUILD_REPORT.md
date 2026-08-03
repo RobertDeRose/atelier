@@ -1,6 +1,19 @@
-# Build Report — Atelier 0.14.0-alpha.42
+# Build Report — Atelier 0.14.0-alpha.43
 
 ## Result
+
+## Alpha.43 aggregate regression determinism correction
+
+Alpha.43 corrects the final supported-runtime failure from alpha.42. The act-mode regression used a fixed
+250 ms wall-clock limit to infer that `tool_result` did not wait for footer work. Under aggregate Git and
+process contention, the durable execution-evidence snapshot itself could exceed that threshold even though
+no footer observation was started. The test then entered `finally`, where mandatory evidence assertions for
+operations that had never run replaced the original timing failure with a misleading missing-evidence error.
+
+The regression now asserts the actual contract: `tool_result` does not synchronously publish footer/status
+output. Dedicated interactive-performance tests retain event-loop responsiveness coverage. Execution evidence
+is verified immediately after each tool result, and cleanup performs cleanup only, preserving the original
+failure cause. Runtime behavior is unchanged from alpha.42.
 
 ## Alpha.42 Pi UI lifecycle and evidence correction
 
@@ -275,36 +288,46 @@ git diff --check
 npm pack --dry-run
 ```
 
-The final working tree passed:
+The alpha.43 correction working tree passed:
 
 ```text
-Release metadata:     passed
-Type-check:           passed
-Build:                passed
-Deterministic tests:   296 passed, 0 failed in bounded processes
-Path-alias lane:       76 passed, 0 failed
-Guided regressions:    9 passed, 0 failed
-Interactive perf tests: 3 passed, 0 failed
-CLI smoke workflow:   passed
-Acceptance syntax:    passed
-git diff --check:     passed
-Package dry-run:      passed
+Release metadata:              passed
+Type-check:                    passed
+Build:                         passed
+Pi extension regressions:      20 passed, 0 failed
+Changed act-mode regression:   passed with 80 ms added to every Git subprocess
+Canonical alias regression:    passed for the changed act-mode test
+Guided regressions:            9 passed, 0 failed
+Interactive perf tests:        3 passed, 0 failed
+Async process tests:           4 passed, 0 failed
+CLI smoke workflow:            passed
+Acceptance syntax/self-check:  passed
+git diff --check:              passed
+Package dry-run:               passed
 ```
+
+The supported alpha.42 workstation aggregate reached 295 of 296 passing tests; its sole reported failure was
+this scheduler-sensitive act-mode assertion. Alpha.43 corrects that exact test and preserves the alpha.42
+runtime. The complete supported Node 24 aggregate remains the final workstation gate.
 
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.42
+Package:          atelier-prototype@0.14.0-alpha.43
 Files:            488
 Built dist files: 424
-Compressed size:  554,670 bytes
-Unpacked size:    2,584,912 bytes
+Compressed size:  554,853 bytes
+Unpacked size:    2,585,514 bytes
 ```
 
 ## Verification boundary
 
 The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
-and TypeScript 7 toolchain. Type-checking and production compilation pass. All 296 deterministic tests pass in bounded processes using the same eight-way test-file concurrency contract, and all 76 selected path-sensitive tests pass with `TMPDIR` routed through a symlink alias. The all-at-once Node 22 runner can stall under process-heavy fixture contention; the pinned Node 24 `mise check` remains authoritative for the supported aggregate runtime and macOS path-alias confirmation.
+and TypeScript 7 toolchain. Type-checking and production compilation pass. The changed test passes normally,
+through a canonical temporary-directory alias, and with an artificial 80 ms delay on every Git subprocess.
+The complete Pi-extension, guided-verification, interactive-performance, and asynchronous-process test files
+also pass. The all-at-once Node 22 runner can retain process-heavy fixture handles after printing TAP results;
+the pinned Node 24 `mise check` remains authoritative for the complete aggregate and macOS path-alias lane.
 
 The standalone smoke workflow, package dry-run, release metadata check, and script syntax pass. Bundle and
 fresh-checkout verification are performed after the release commit and annotated tag are created. Live Jujutsu, Seatbelt, Bubblewrap,
@@ -313,7 +336,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.42` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.43` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so

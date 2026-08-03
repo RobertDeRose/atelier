@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.42 (2026-08-03).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.43 (2026-08-03).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -59,7 +59,14 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.42
+## Implementation Status — v0.14.0-alpha.43
+
+### Aggregate regression determinism
+
+- Tool-result settlement is asserted by observable behavior rather than a scheduler-sensitive 250 ms wall-clock threshold.
+- The act-mode regression verifies that `tool_result` does not synchronously publish footer/status output and relies on the dedicated interactive-performance suite for event-loop timing.
+- Execution evidence is checked immediately after each completed tool result, so a later failure cannot be replaced by a misleading cleanup-time "missing evidence" assertion.
+- Test cleanup contains no behavioral assertions and therefore preserves the original failure cause under process or Git contention.
 
 ### Pi tool lifecycle, phase feedback, and presentation evidence
 
