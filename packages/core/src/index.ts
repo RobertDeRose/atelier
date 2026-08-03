@@ -8,6 +8,7 @@ export * from "./domain/types.ts";
 export * from "./ledger/sqlite-ledger.ts";
 export * from "./ledger/sqlite-runtime.ts";
 export * from "./planning/plan-document.ts";
+export * from "./planning/plan-metadata.ts";
 export * from "./planning/plan-scope-editor.ts";
 export * from "./planning/plan-parser.ts";
 export * from "./planning/plan-review-service.ts";

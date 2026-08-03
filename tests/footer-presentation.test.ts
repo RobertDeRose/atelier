@@ -68,6 +68,20 @@ test("Atelier footer applies bold headings and semantic state colors", () => {
   assert.match(line2, /<error>offline<\/error>/);
 });
 
+
+test("Atelier footer renders transient phases as inline status instead of a transcript widget", () => {
+  const lines = renderAtelierFooter(
+    context(),
+    status(),
+    "ready",
+    160,
+    {},
+    "medium",
+    "gpt-test",
+    "preparing exact transaction…",
+  );
+  assert.match(lines[0] ?? "", /mode: investigate · preparing exact transaction…/);
+});
 test("status-only and disabled footer modes release Pi footer ownership", () => {
   const values: unknown[] = [];
   const ctx = { mode: "tui", ui: { setFooter: (value: unknown) => values.push(value) } } as any;

@@ -115,17 +115,22 @@ test("guided verification resolves step workspace paths before launching and col
     assert.match(refreshedGuide, /typed create and edit are blocked because investigate mode is read-only/i);
     assert.match(refreshedGuide, /dirty tracked, untracked, and ignored deletions each create a verified checkpoint/i);
     assert.match(refreshedGuide, /Working….*indicator clears/is);
+    assert.match(refreshedGuide, /stop without restating the command or its output/i);
+    assert.match(refreshedGuide, /Make exactly one Bash tool call, then stop without restating/i);
     const approvalGuide = readFileSync(join(guidedRoot, "guides", "04-approval.md"), "utf8");
     assert.match(approvalGuide, /do not replace or repair the generated plan/i);
-    assert.match(approvalGuide, /"validations":\["manual-acceptance"\]/);
+    assert.match(approvalGuide, /<!-- atlr:task\n\{/);
+    assert.match(approvalGuide, /"validations": \[\s*"manual-acceptance"\s*\]/);
     const controlGuide = readFileSync(join(guidedRoot, "guides", "05-control.md"), "utf8");
     assert.match(controlGuide, /three separate Pi sessions/i);
     const implementationGuide = readFileSync(join(guidedRoot, "guides", "05a-control-implementation.md"), "utf8");
     assert.match(implementationGuide, /Do not run `\/atelier-stop` during this implementation turn/i);
     const stopGuide = readFileSync(join(guidedRoot, "guides", "05b-control-stop.md"), "utf8");
     assert.match(stopGuide, /only the current turn stops/i);
+    assert.equal((stopGuide.match(/task and execution grant/g) ?? []).length, 2);
     const controlsGuide = readFileSync(join(guidedRoot, "guides", "05c-control-actions.md"), "utf8");
     assert.match(controlsGuide, /Using only the typed edit tool, add the exact line `\/\/ pause-probe`/);
+    assert.match(controlsGuide, /footer must change to `mode: paused` immediately/i);
     assert.equal(existsSync(join(evidence, "guided-control-implementation")), true);
     assert.equal(existsSync(join(evidence, "guided-control-stop")), true);
   } finally {
@@ -502,4 +507,7 @@ test("guided acceptance verifies durable visual and model-Bash lifecycle evidenc
   assert.match(source, /event\.payload\?\.hadOutput === true/);
   assert.match(source, /approve\.prepare/);
   assert.match(source, /approve\.activate/);
+  assert.match(source, /COPYFILE_DISABLE=1 tar/);
+  assert.match(source, /--exclude='guided\/\*\/repo\/node_modules'/);
+  assert.doesNotMatch(source, /setWidget\?\.\(PHASE_WIDGET_KEY/);
 });

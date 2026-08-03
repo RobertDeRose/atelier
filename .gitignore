@@ -9,6 +9,8 @@
 .atelier/evaluation/
 .atelier/probe-staleness.txt
 .atelier/codesearch-index-state.json
+.atelier/codesearch-index-state.json.*.tmp
+.atelier/.codesearch-index-state.json.*.tmp
 .atelier/octocode-config.toml
 .atelier/octocode-config.managed.json
 

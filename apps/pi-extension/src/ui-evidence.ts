@@ -79,7 +79,7 @@ export function recordPhaseEvidence(
     operation?: string;
     phaseId: string;
     durationMs?: number;
-    surface: "working" | "widget_and_working";
+    surface: "working" | "inline_status_and_working";
     reason?: string;
   },
 ): void {

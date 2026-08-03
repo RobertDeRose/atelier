@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -89,6 +89,7 @@ test("CLI review, exact approval, cancellation, and JSON workflow remain coordin
     assert.ok(Array.isArray(reviewed.manualEdit.structuralDiff.added));
     assert.ok(Array.isArray(reviewed.diagnostics));
     assert.ok(Array.isArray(reviewed.reconciliation.operations));
+    const reviewedPlan = readFileSync(join(root, ".atelier", "PLAN.md"), "utf8");
 
     const prepare = run(root, ["plan", "prepare", "--json"]);
     assert.equal(prepare.status, 0, prepare.stderr);
@@ -118,7 +119,7 @@ test("CLI review, exact approval, cancellation, and JSON workflow remain coordin
     ]);
     assert.equal(drifted.status, 1);
     assert.match(drifted.stderr, /plan changed after preparation/i);
-    writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
+    writeFileSync(join(root, ".atelier", "PLAN.md"), reviewedPlan, "utf8");
 
     const approved = run(root, [
       "approve", "--approval", prepared.approval.id,

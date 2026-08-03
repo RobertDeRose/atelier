@@ -86,6 +86,34 @@ function asyncFailure(result: ProcessResult): string {
   return result.stderr.trim() || `exit ${result.exitCode}`;
 }
 
+const TRANSIENT_SNAPSHOT_RETRY_DELAYS_MS = [25, 75] as const;
+
+function isTransientWorkingCopySnapshotRace(result: ProcessResult): boolean {
+  if (result.exitCode === 0 || result.timedOut || result.aborted) return false;
+  const detail = `${result.stderr}\n${result.stdout}`;
+  return /Failed to snapshot the working copy/i.test(detail)
+    && /No such file or directory \(os error 2\)/i.test(detail)
+    && /[\\/]\.atelier[\\/][^\n]*\.tmp\b/i.test(detail);
+}
+
+function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(new Error("aborted"));
+  return new Promise((resolve, reject) => {
+    let timer: NodeJS.Timeout;
+    const onAbort = () => {
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error("aborted"));
+    };
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function hashChangedContents(root: string, paths: readonly string[]): { value: string; files: number; bytes: number } {
   let files = 0;
   let bytes = 0;
@@ -234,12 +262,24 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     const root = await this.repositoryRoot(options.signal);
     subprocesses += 1;
     const runAsync = async (args: string[], purpose: string, allowFailure = false): Promise<ProcessResult> => {
-      subprocesses += 1;
-      const result = await runProcess(this.executable, args, {
-        cwd: root, signal: options.signal, timeoutMs: 15_000, idleTimeoutMs: 5_000, maxOutputBytes: 512 * 1024,
-      });
-      if (!allowFailure && result.exitCode !== 0) throw new RepositoryObservationError(`Jujutsu ${purpose} failed: ${asyncFailure(result)}`);
-      return result;
+      for (let attempt = 0; ; attempt += 1) {
+        subprocesses += 1;
+        const result = await runProcess(this.executable, args, {
+          cwd: root,
+          signal: options.signal,
+          timeoutMs: 15_000,
+          idleTimeoutMs: 5_000,
+          maxOutputBytes: 512 * 1024,
+        });
+        if (result.exitCode === 0) return result;
+        const retryDelay = TRANSIENT_SNAPSHOT_RETRY_DELAYS_MS[attempt];
+        if (retryDelay !== undefined && isTransientWorkingCopySnapshotRace(result)) {
+          await waitForRetry(retryDelay, options.signal);
+          continue;
+        }
+        if (allowFailure) return result;
+        throw new RepositoryObservationError(`Jujutsu ${purpose} failed: ${asyncFailure(result)}`);
+      }
     };
     const workspaceRoot = await this.workspaceRoot(root, options.signal);
     subprocesses += 1;

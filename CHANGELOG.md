@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0-alpha.44 — 2026-08-03
+
+- Move mutable codesearch corpus-selection state from `.atelier/` into the repository-specific external runtime directory, migrate the former file after a successful index, and retain compatibility ignores for old temporary writers.
+- Retry Jujutsu observation only for the bounded `ENOENT` race caused by a disappearing `.atelier/*.tmp` file; unrelated repository failures remain explicit and fail closed.
+- Replace transient above-editor phase widgets with Pi's native working label during agent turns and a static inline footer status while Pi is idle, while preserving durable phase-order evidence.
+- Render pause, resume, and cancellation in the footer immediately from durable workflow state, then reconcile them with a normal asynchronous repository/provider refresh.
+- Canonically pretty-print `atlr:task` authority as multiline JSON before ManualEdit while continuing to parse legacy one-line comments.
+- Skip semantic discovery for planning objectives that already name every implementation file unless they explicitly request broader impact or location discovery.
+- Harden guided/live evidence collection by suppressing AppleDouble files, excluding cloned build/vendor/VCS stores, hardening `.beads` permissions before tool probes, and requiring the model-Bash probe to stop after its single command.
+
 ## 0.14.0-alpha.43 — 2026-08-03
 
 - Replace the act-mode regression's scheduler-sensitive 250 ms `tool_result` threshold with a deterministic assertion that tool completion publishes no synchronous footer/status observation.

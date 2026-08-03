@@ -3,7 +3,24 @@
 <!-- atlr:plan version="1" -->
 
 ## ATLR-001 — Establish guarded runtime
-<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["packages/core/src/policy","tests/action-classifier.test.ts","tests/workspace-policy.test.ts"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->
+<!-- atlr:task
+{
+  "id": "ATLR-001",
+  "priority": 1,
+  "type": "task",
+  "execution": {
+    "writePaths": [
+      "packages/core/src/policy",
+      "tests/action-classifier.test.ts",
+      "tests/workspace-policy.test.ts"
+    ],
+    "allowDependencyChanges": false,
+    "validations": [],
+    "allowFullSuite": false,
+    "allowLocalChange": true
+  }
+}
+-->
 
 ### Goal
 
@@ -39,7 +56,24 @@ Create the policy and provenance boundary required before repository mutation.
 - Runtime enforcement is authoritative; prompts are advisory
 
 ## ATLR-002 — Add task-backed continuation
-<!-- atlr:task {"id":"ATLR-002","priority":2,"type":"feature","execution":{"writePaths":["packages/core/src/tasks","packages/core/src/state","tests/reconciliation-state.test.ts"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->
+<!-- atlr:task
+{
+  "id": "ATLR-002",
+  "priority": 2,
+  "type": "feature",
+  "execution": {
+    "writePaths": [
+      "packages/core/src/tasks",
+      "packages/core/src/state",
+      "tests/reconciliation-state.test.ts"
+    ],
+    "allowDependencyChanges": false,
+    "validations": [],
+    "allowFullSuite": false,
+    "allowLocalChange": true
+  }
+}
+-->
 
 ### Goal
 

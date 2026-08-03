@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.43 (2026-08-03).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.44 (2026-08-03).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -59,7 +59,26 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.43
+## Implementation Status — v0.14.0-alpha.44
+
+### External provider state and repository-observation resilience
+
+- Codesearch corpus-selection fingerprints live under the repository-specific external runtime directory; legacy `.atelier/codesearch-index-state.json` is a migration source only and is removed after a successful external write.
+- Selection-state writes use private unique temporary files and same-filesystem atomic rename outside the working copy.
+- Jujutsu retries only the exact bounded working-copy snapshot race that reports `ENOENT` for an `.atelier/*.tmp` path; cancellation and every unrelated error remain authoritative.
+
+### Inline progress, immediate workflow state, and reviewable plan authority
+
+- Transient `/plan`, `/approve`, permission, checkpoint, and provider phases use Pi's native working label during agent turns plus a static inline footer status while idle, rather than an above-editor widget.
+- Pause, resume, and cancellation render immediately from durable workflow state before the asynchronous repository/provider refresh.
+- Valid `atlr:task` metadata is canonicalized to multiline indented JSON before ManualEdit; legacy one-line comments remain parseable.
+- Planning objectives that explicitly name every writable file produce direct-read decisions and skip semantic discovery unless they also ask for an unknown location or broader impact.
+
+### Acceptance-evidence hygiene
+
+- Guided and live archives suppress macOS AppleDouble files and exclude cloned dependencies, build output, nested Git/Jujutsu stores, and provider databases.
+- Guided workspace setup hardens `.beads` permissions before version/status probes.
+- The read-only model-Bash probe requests exactly one command and no redundant narration, while lifecycle evidence remains authoritative.
 
 ### Aggregate regression determinism
 

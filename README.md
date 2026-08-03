@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.43**. Alpha.43 preserves the alpha.42 Pi lifecycle corrections and hardens the aggregate regression gate: scheduler or Git contention can no longer turn a deterministic no-footer-I/O assertion into a misleading missing-evidence failure.
+Current release: **0.14.0-alpha.44**. Alpha.44 isolates mutable codesearch state from the working copy, recovers narrowly from the legacy Jujutsu temporary-file race, presents transient work through a static inline footer status and Pi's native working indicator, renders workflow transitions immediately, and makes reviewed task authority readable as canonical multiline JSON.
 
 ## Current status
 
@@ -106,20 +106,40 @@ Runtime state is user-owned and outside the repository. By default it is stored 
 
 ```text
 ${XDG_STATE_HOME:-~/.local/state}/atelier/repositories/<root-hash>/atelier.db
+${XDG_STATE_HOME:-~/.local/state}/atelier/repositories/<root-hash>/code/codesearch-index-state.json
 ```
 
 `ATLR_STATE_HOME` or user configuration can relocate runtime state. Repository configuration cannot
 redirect the ledger or caches, and it cannot select editor, Beads, Jujutsu, codesearch, or Octocode
 executables. Those commands come only from user configuration, controlled defaults, or `ATLR_EDITOR`.
-Legacy `.atelier/*.db` files are ignored, but `.atelier/config.json`, `PLAN.md`, `validation.json`, and
-`workspace.json` are intentionally trackable.
+Legacy `.atelier/*.db` and codesearch selection-state files are ignored and migrated; mutable provider state
+never participates in Git or Jujutsu working-copy snapshots. `.atelier/config.json`, `PLAN.md`,
+`validation.json`, and `workspace.json` remain intentionally trackable.
 
 ## Exact plan-to-task workflow
 
 Every approvable task includes a structured execution contract in its `atlr:task` marker. For example:
 
 ```markdown
-<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["src/example.ts","tests/example.test.ts"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
+<!-- atlr:task
+{
+  "id": "ATLR-001",
+  "priority": 1,
+  "type": "task",
+  "execution": {
+    "writePaths": [
+      "src/example.ts",
+      "tests/example.test.ts"
+    ],
+    "allowDependencyChanges": false,
+    "validations": [
+      "focused"
+    ],
+    "allowFullSuite": false,
+    "allowLocalChange": true
+  }
+}
+-->
 ```
 
 Free-form Scope and Out-of-scope sections remain human context; the `execution` object is the reviewed task-constraint source. Missing, unknown, inconsistent, absolute, out-of-root, or non-source entries fail preparation. See

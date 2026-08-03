@@ -56,6 +56,10 @@ declare module "@earendil-works/pi-coding-agent" {
     options?: { operations?: BashOperations },
   ): BashToolDefinition;
 
+  export interface ReadonlyFooterDataProvider {
+    getExtensionStatuses(): ReadonlyMap<string, string>;
+  }
+
   export interface ExtensionUIContext {
     confirm(title: string, message: string): Promise<boolean>;
     select(title: string, options: string[]): Promise<string | undefined>;
@@ -71,7 +75,7 @@ declare module "@earendil-works/pi-coding-agent" {
       factory: ((
         tui: unknown,
         theme: unknown,
-        footerData: unknown,
+        footerData: ReadonlyFooterDataProvider,
       ) => { render(width: number): string[]; invalidate(): void; dispose?(): void }) | undefined,
     ): void;
     custom<T>(

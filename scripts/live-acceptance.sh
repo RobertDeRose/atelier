@@ -4,9 +4,9 @@ IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
-HARNESS_VERSION="43.1"
-EXPECTED_ATELIER_VERSION="0.14.0-alpha.43"
-EXPECTED_ATELIER_TAG="v0.14.0-alpha.43"
+HARNESS_VERSION="44.1"
+EXPECTED_ATELIER_VERSION="0.14.0-alpha.44"
+EXPECTED_ATELIER_TAG="v0.14.0-alpha.44"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
 PI_TIMEOUT_SECONDS="${ATELIER_PI_TIMEOUT_SECONDS:-600}"
 SOURCE_REPO=""
@@ -558,6 +558,7 @@ create_automated_workspace() {
   write_environment "$manual_root" "$manual_root/repo"
 
   load_current_workspace
+  chmod 700 .beads 2>/dev/null || true
   jj git init --colocate
   mise install
   mise run install
@@ -701,13 +702,21 @@ verify_shell_policy() {
 }
 
 capture_codesearch_diagnostics() {
-  local suffix="$1"
+  local suffix="$1" selection_state_path
   codesearch doctor >"$EVIDENCE_DIR/codesearch-doctor-$suffix.txt" 2>&1 || true
   codesearch stats >"$EVIDENCE_DIR/codesearch-stats-$suffix.txt" 2>&1 || true
+  selection_state_path="$(node --no-warnings --experimental-strip-types --input-type=module -e '
+    import { join } from "node:path";
+    import { loadConfig } from "./packages/core/src/config/config.ts";
+    console.log(join(loadConfig(process.cwd()).runtimeDirectory, "code", "codesearch-index-state.json"));
+  ')"
   {
     printf 'database_exists=%s\n' "$([[ -e .codesearch.db ]] && printf true || printf false)"
     [[ ! -e .codesearch.db ]] || du -sh .codesearch.db
-    printf 'selection_state_exists=%s\n' "$([[ -e .atelier/codesearch-index-state.json ]] && printf true || printf false)"
+    printf 'selection_state_path=%s\n' "$selection_state_path"
+    printf 'selection_state_exists=%s\n' "$([[ -e "$selection_state_path" ]] && printf true || printf false)"
+    [[ ! -e "$selection_state_path" ]] || ls -l "$selection_state_path"
+    printf 'legacy_selection_state_exists=%s\n' "$([[ -e .atelier/codesearch-index-state.json ]] && printf true || printf false)"
   } >"$EVIDENCE_DIR/codesearch-files-$suffix.txt" 2>&1
 }
 
@@ -777,7 +786,25 @@ write_plan_fixture() {
 <!-- atlr:plan version="1" -->
 
 ## ATLR-001 — Add a stable Atelier product-name constant
-<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["packages/core/src/version.ts","tests/version.test.ts"],"allowDependencyChanges":false,"validations":["manual-acceptance"],"allowFullSuite":false,"allowLocalChange":true}} -->
+<!-- atlr:task
+{
+  "id": "ATLR-001",
+  "priority": 1,
+  "type": "task",
+  "execution": {
+    "writePaths": [
+      "packages/core/src/version.ts",
+      "tests/version.test.ts"
+    ],
+    "allowDependencyChanges": false,
+    "validations": [
+      "manual-acceptance"
+    ],
+    "allowFullSuite": false,
+    "allowLocalChange": true
+  }
+}
+-->
 
 ### Goal
 
@@ -1204,9 +1231,19 @@ EOF
 archive_evidence() {
   load_current_workspace allow-stale
   local output="$ATELIER_MANUAL_ROOT/atelier-live-acceptance-evidence.tar.xz"
-  tar -C "$ATELIER_MANUAL_ROOT" -cJf "$output" \
+  local excludes=(
+    --exclude='._*'
+    --exclude='.DS_Store'
+    --exclude='tui/*/repo/node_modules'
+    --exclude='tui/*/repo/dist'
+    --exclude='tui/*/repo/.git'
+    --exclude='tui/*/repo/.jj/repo/store'
+    --exclude='tui/*/repo/.codesearch.db'
+    --exclude='tui/*/repo/.octocode'
+  )
+  COPYFILE_DISABLE=1 tar -C "$ATELIER_MANUAL_ROOT" "${excludes[@]}" -cJf "$output" \
     evidence env.sh tui 2>/dev/null || \
-    tar -C "$ATELIER_MANUAL_ROOT" -cJf "$output" evidence env.sh
+    COPYFILE_DISABLE=1 tar -C "$ATELIER_MANUAL_ROOT" "${excludes[@]}" -cJf "$output" evidence env.sh
   printf '%s\n' "$output"
 }
 

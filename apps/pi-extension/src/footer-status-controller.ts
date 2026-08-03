@@ -49,6 +49,10 @@ export class FooterStatusController {
   private lastContext?: ExtensionContext;
   private lastCore?: AtelierCore;
   private lastStatus?: AtelierStatus;
+  /** Last complete repository/provider observation; optimistic workflow renders never replace it. */
+  private lastObservedStatus?: AtelierStatus;
+  /** Last authoritative state before a pause, used for immediate resume rendering. */
+  private lastUnpausedStatus?: AtelierStatus;
   private lastIntel?: FooterIntelState;
   private lastObservedAt = 0;
   private lastFooterEvidenceKey?: string;
@@ -72,6 +76,8 @@ export class FooterStatusController {
     delete this.lastContext;
     delete this.lastCore;
     delete this.lastStatus;
+    delete this.lastObservedStatus;
+    delete this.lastUnpausedStatus;
     delete this.lastIntel;
     this.lastObservedAt = 0;
     delete this.lastFooterEvidenceKey;
@@ -79,6 +85,8 @@ export class FooterStatusController {
 
   resetRepository(): void {
     delete this.providerIntel;
+    delete this.lastObservedStatus;
+    delete this.lastUnpausedStatus;
     delete this.lastFooterEvidenceKey;
     delete this.indexedWorkspaceSourceDigest;
     delete this.lastIndexCompletionKey;
@@ -208,11 +216,71 @@ export class FooterStatusController {
     return "offline";
   }
 
+  /**
+   * Render a ledger-only workflow transition immediately, without waiting for
+   * repository, task-provider, or code-intelligence observation. A normal
+   * asynchronous refresh can replace this optimistic view afterward.
+   */
+  renderWorkflowTransition(ctx: ExtensionContext, core: AtelierCore): void {
+    if (!this.enabled || this.lastStatus === undefined || this.lastCore !== core) return;
+
+    const grant = core.ledger.getActiveExecutionGrant();
+    const currentTaskId = core.ledger.getState<string>("currentTaskId");
+    const workflowCheckpoint = core.currentWorkflowRun()?.checkpoint ?? "none";
+    const paused = workflowCheckpoint === "paused";
+    const observed = paused
+      ? this.lastObservedStatus ?? this.lastStatus
+      : this.lastUnpausedStatus ?? this.lastObservedStatus ?? this.lastStatus;
+    const {
+      activeExecutionGrant: _previousGrant,
+      currentTaskId: previousTaskId,
+      currentTaskTitle: previousTaskTitle,
+      ...base
+    } = observed;
+    const resumedFromPausedObservation = !paused && grant !== undefined
+      && (base.closureStatus.includes("execution is paused") || /Resume execution/i.test(base.nextAction));
+    const status: AtelierStatus = {
+      ...base,
+      mode: core.mode(),
+      workflowCheckpoint,
+      activeTaskConstraints: core.activeTaskConstraints(),
+      closureStatus: grant === undefined
+        ? workflowCheckpoint === "completed" ? "completed" : "not applicable — no active task"
+        : paused
+          ? "blocked — execution is paused"
+          : resumedFromPausedObservation
+            ? "pending — evaluating completion readiness"
+            : base.closureStatus,
+      nextAction: grant === undefined
+        ? workflowCheckpoint === "cancelled"
+          ? "Resume the cancelled approved task or start a new plan."
+          : base.nextAction
+        : paused
+          ? `Resume execution ${grant.id} before mutating task state.`
+          : resumedFromPausedObservation
+            ? `Continue execution for task ${grant.taskId}.`
+            : base.nextAction,
+      ...(grant === undefined ? {} : { activeExecutionGrant: grant }),
+      ...(currentTaskId === undefined ? {} : { currentTaskId }),
+      ...(currentTaskId !== undefined && currentTaskId === previousTaskId && previousTaskTitle !== undefined
+        ? { currentTaskTitle: previousTaskTitle }
+        : {}),
+    };
+
+    this.lastContext = ctx;
+    this.lastStatus = status;
+    if (!paused) this.lastUnpausedStatus = status;
+    const intel = this.lastIntel ?? this.effectiveIntelState(core, status);
+    this.lastIntel = intel;
+    this.render(ctx, core, status, intel);
+  }
+
   /** Re-render only model/thinking/context fields without repository or provider I/O. */
   renderRuntime(ctx = this.lastContext): void {
     if (!this.enabled || ctx === undefined || this.lastCore === undefined || this.lastStatus === undefined) return;
     this.render(ctx, this.lastCore, this.lastStatus, this.lastIntel ?? this.effectiveIntelState(this.lastCore, this.lastStatus));
   }
+
 
   private render(ctx: ExtensionContext, core: AtelierCore, status: AtelierStatus, intel: FooterIntelState): void {
     const indexing = core.code.indexingStatus();
@@ -281,6 +349,8 @@ export class FooterStatusController {
       this.lastContext = ctx;
       this.lastCore = core;
       this.lastStatus = status;
+      this.lastObservedStatus = status;
+      if (status.workflowCheckpoint !== "paused") this.lastUnpausedStatus = status;
       this.lastIntel = intel;
       this.render(ctx, core, status, intel);
     } catch (error) {

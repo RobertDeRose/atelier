@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { defaultRuntimeDirectory } from "../config/config.ts";
 import { sourceRevisionIdentity, sourceSnapshotBase } from "../repository/snapshot.ts";
 import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
 import { isPathWithin } from "../security/path-boundary.ts";
@@ -33,6 +34,8 @@ import type {
 export interface CodesearchProviderOptions {
   command?: string;
   cwd: string;
+  /** External Atelier runtime directory used for mutable provider state. */
+  stateDirectory?: string;
   mode?: "auto" | "local" | "client";
   timeoutMs?: number;
   indexTimeoutMs?: number;
@@ -57,6 +60,7 @@ export class CodesearchProvider implements CodeProvider {
   private readonly pollIntervalMs: number;
   private readonly environment: Record<string, string> | undefined;
   private readonly indexSelectionStatePath: string;
+  private readonly legacyIndexSelectionStatePath: string;
   private client: McpStdioClient | undefined;
   private identity: CodeProviderIdentity = { name: "codesearch", instanceId: "codesearch-local" };
   private tools: McpToolDefinition[] = [];
@@ -78,7 +82,13 @@ export class CodesearchProvider implements CodeProvider {
     this.indexTimeoutMs = options.indexTimeoutMs ?? 300_000;
     this.pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.environment = options.environment;
-    this.indexSelectionStatePath = repositoryPathTarget(this.cwd, ".atelier/codesearch-index-state.json", "write").absolute;
+    const stateDirectory = resolve(options.stateDirectory ?? join(defaultRuntimeDirectory(this.cwd), "code"));
+    this.indexSelectionStatePath = join(stateDirectory, "codesearch-index-state.json");
+    this.legacyIndexSelectionStatePath = repositoryPathTarget(
+      this.cwd,
+      ".atelier/codesearch-index-state.json",
+      "write",
+    ).absolute;
   }
 
   async status(workspace?: CodeWorkspace): Promise<CodeProviderStatus> {
@@ -148,7 +158,10 @@ export class CodesearchProvider implements CodeProvider {
     // so local repair must stop MCP completely before invoking `codesearch index`.
     if (!routedThroughServe) await this.close();
 
-    const selectionState = readIndexSelectionState(this.indexSelectionStatePath);
+    const selectionState = readIndexSelectionState(
+      this.indexSelectionStatePath,
+      this.legacyIndexSelectionStatePath,
+    );
     for (const repository of workspace.repositories) {
       if (routedThroughServe) {
         const repositoryRoot = canonicalRepositoryRoot(repository.root);
@@ -187,6 +200,15 @@ export class CodesearchProvider implements CodeProvider {
           updatedAt: nowIso(),
         };
         writeIndexSelectionState(this.indexSelectionStatePath, selectionState);
+        if (this.legacyIndexSelectionStatePath !== this.indexSelectionStatePath) {
+          try {
+            rmSync(this.legacyIndexSelectionStatePath, { force: true });
+          } catch (error) {
+            this.localIndexWarnings.push(
+              `Unable to remove legacy codesearch selection state: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
       }
     }
 
@@ -1195,10 +1217,15 @@ function indexSelectionFingerprint(repositoryRoot: string, providerVersion: stri
   return hash.digest("hex");
 }
 
-function readIndexSelectionState(path: string): IndexSelectionState {
-  if (!existsSync(path)) return { version: 1, repositories: {} };
+function readIndexSelectionState(path: string, legacyPath?: string): IndexSelectionState {
+  const source = existsSync(path)
+    ? path
+    : legacyPath !== undefined && existsSync(legacyPath)
+      ? legacyPath
+      : undefined;
+  if (source === undefined) return { version: 1, repositories: {} };
   try {
-    const value = JSON.parse(readFileSync(path, "utf8")) as Partial<IndexSelectionState>;
+    const value = JSON.parse(readFileSync(source, "utf8")) as Partial<IndexSelectionState>;
     if (value.version === 1 && value.repositories && typeof value.repositories === "object") {
       return { version: 1, repositories: value.repositories as IndexSelectionState["repositories"] };
     }
@@ -1207,8 +1234,20 @@ function readIndexSelectionState(path: string): IndexSelectionState {
 }
 
 function writeIndexSelectionState(path: string, state: IndexSelectionState): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  renameSync(temporary, path);
+  const destinationDirectory = dirname(path);
+  mkdirSync(destinationDirectory, { recursive: true, mode: 0o700 });
+  const temporary = join(
+    destinationDirectory,
+    `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  try {
+    writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    });
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }

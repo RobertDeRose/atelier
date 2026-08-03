@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadConfig, type AtelierConfig } from "./config/config.ts";
 import { WorkingStateBuilder } from "./state/working-state-builder.ts";
 import type {
@@ -1487,6 +1488,7 @@ function createCodeProviders(config: AtelierConfig): { providers: CodeProvider[]
   const codesearch = new CodesearchProvider({
     command: config.codeCommand,
     cwd: config.repositoryRoot,
+    stateDirectory: join(config.runtimeDirectory, "code"),
     mode: config.codeMode,
     timeoutMs: config.codeTimeoutMs,
     indexTimeoutMs: config.codeIndexTimeoutMs,

@@ -21,6 +21,7 @@ test("parses stable task metadata and dependencies", () => {
   assert.deepEqual(plan.tasks[1]?.completionCriteria, ["Ready task selection is deterministic"]);
 });
 
+
 test("reports duplicate IDs, unknown dependencies, cycles, and missing completion criteria", () => {
   const invalid = `# Invalid\n\n## ATLR-001 — One\n### Depends on\n- ATLR-002\n### Completion criteria\n- Done\n\n## ATLR-002 — Two\n### Depends on\n- ATLR-001\n### Completion criteria\n\n## ATLR-001 — Duplicate\n### Depends on\n- ATLR-999\n### Completion criteria\n- Done\n`;
   const plan = parsePlanText(invalid, "PLAN.md");
@@ -152,4 +153,33 @@ test("structural plan diff reports stable task identity changes as remove and ad
 
   assert.deepEqual(diff.added, ["ATLR-020"]);
   assert.deepEqual(diff.removed, ["ATLR-002"]);
+});
+
+test("parses canonical multiline task metadata and formats legacy comments for review", async () => {
+  const { formatPlanTaskMetadataText } = await import("../packages/core/src/planning/plan-metadata.ts");
+  const legacy = `# Plan
+
+## ATLR-001 — Example
+<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["src/example.ts"],"allowDependencyChanges":false,"validations":["focused"],"allowFullSuite":false,"allowLocalChange":true}} -->
+
+### Goal
+
+Ship it.
+
+### Validation
+
+- focused
+
+### Completion criteria
+
+- Done
+`;
+  const formatted = formatPlanTaskMetadataText(legacy);
+  assert.match(formatted, /<!-- atlr:task\n\{\n  "id": "ATLR-001"/);
+  assert.match(formatted, /"writePaths": \[\n      "src\/example\.ts"\n    \]/);
+  assert.match(formatted, /\n-->\n\n### Goal/);
+
+  const parsed = parsePlanText(formatted, "PLAN.md");
+  assert.deepEqual(parsed.diagnostics.filter((item) => item.level === "error"), []);
+  assert.deepEqual(parsed.tasks[0]?.execution?.writePaths, ["src/example.ts"]);
 });

@@ -32,8 +32,9 @@ Atelier owns an explicit Pi presentation lifecycle:
 3. Pi `tool_result` handlers complete durable mutation evidence but do not await repository or footer refreshes.
    `agent_settled` owns the post-turn footer observation, allowing Pi to finalize the tool row and clear its
    working indicator first.
-4. Slash-command and approval work installs an above-editor phase widget, status entry, and working message,
-   then yields one event-loop turn before expensive work begins. `/plan` keeps its phase until the agent starts;
+4. Slash-command and approval work installs an inline footer status and Pi working message, then yields one
+   event-loop turn before expensive work begins. Transient phase text does not use an above-editor widget.
+   `/plan` keeps its phase until the agent starts;
    `/approve` exposes provider, preparation, revalidation, reconciliation, convergence, activation, and final
    status phases.
 5. Atelier persists bounded diagnostic presentation events for reports, footer renders, phase transitions,

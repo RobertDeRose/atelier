@@ -1,7 +1,9 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createStatusView, statusViewSummary, type AtelierStatus } from "../../../packages/core/src/index.ts";
+import { ATELIER_PHASE_STATUS_KEY } from "./working-phase.ts";
 
 export type FooterIntelState = "ready" | "indexing" | "degraded" | "offline" | "disabled";
+
 
 type FooterState = "clean" | "dirty" | "conflicted" | "unknown";
 
@@ -191,11 +193,26 @@ function conciseBlocker(status: AtelierStatus): string | undefined {
   return truncate(reason.split(/[.;]/)[0]?.trim() || "blocked", 28);
 }
 
-function modeCells(status: AtelierStatus, theme: FooterTheme): FooterCell[] {
+function modeCells(
+  status: AtelierStatus,
+  theme: FooterTheme,
+  phaseStatus?: string,
+): FooterCell[] {
   const mode = displayMode(status);
   const header = { plain: "mode:", styled: heading(theme, "mode:") };
   const modePart = { plain: ` ${mode}`, styled: ` ${fg(theme, mode === "paused" ? "warning" : "accent", mode)}` };
-  if (status.currentTaskId === undefined) return [joinedCell([header, modePart], 3)];
+  const phase = phaseStatus === undefined || phaseStatus === ""
+    ? []
+    : [
+        { plain: " · ", styled: fg(theme, "dim", " · ") },
+        { plain: phaseStatus, styled: fg(theme, "warning", phaseStatus) },
+      ];
+  if (status.currentTaskId === undefined) {
+    return [
+      ...(phase.length === 0 ? [] : [joinedCell([header, modePart, ...phase], 6)]),
+      joinedCell([header, modePart], 3),
+    ];
+  }
 
   const title = status.currentTaskTitle ?? status.currentTaskId;
   const blocker = conciseBlocker(status);
@@ -207,6 +224,10 @@ function modeCells(status: AtelierStatus, theme: FooterTheme): FooterCell[] {
     ? []
     : [{ plain: " · blocked", styled: `${fg(theme, "dim", " · ")}${stateText(theme, "blocked")}` }];
   return [
+    ...(phase.length === 0 ? [] : [
+      joinedCell([header, modePart, ...phase, taskHeader, { plain: truncate(title, 18) }], 10),
+      joinedCell([header, modePart, ...phase], 9),
+    ]),
     joinedCell([header, modePart, taskHeader, { plain: title }, ...blocked], 7),
     joinedCell([header, modePart, taskHeader, { plain: truncate(title, 28) }, ...blocked], 6),
     joinedCell([header, modePart, taskHeader, { plain: truncate(title, 18) }, ...blockedShort], 5),
@@ -230,9 +251,14 @@ export function renderAtelierFooter(
   theme: FooterTheme = {},
   thinkingLevel?: string,
   modelName?: string,
+  phaseStatus?: string,
 ): string[] {
   return [
-    chooseAligned(runtimeCells(ctx, theme, thinkingLevel, modelName), modeCells(status, theme), width),
+    chooseAligned(
+      runtimeCells(ctx, theme, thinkingLevel, modelName),
+      modeCells(status, theme, phaseStatus),
+      width,
+    ),
     chooseAligned(vcsCells(status, theme), [intelCell(intel, theme)], width),
   ];
 }
@@ -247,9 +273,19 @@ export function installAtelierFooter(
 ): void {
   if (ctx.mode !== "tui" || ctx.ui.setFooter === undefined) return;
   if (mode !== "atelier") { ctx.ui.setFooter(undefined); return; }
-  ctx.ui.setFooter((_tui, theme) => ({
+  ctx.ui.setFooter((_tui, theme, footerData) => ({
     render(width: number): string[] {
-      return renderAtelierFooter(ctx, status, intel, width, theme as FooterTheme, thinkingLevel, modelName);
+      const phaseStatus = footerData.getExtensionStatuses().get(ATELIER_PHASE_STATUS_KEY);
+      return renderAtelierFooter(
+        ctx,
+        status,
+        intel,
+        width,
+        theme as FooterTheme,
+        thinkingLevel,
+        modelName,
+        phaseStatus,
+      );
     },
     invalidate(): void {},
   }));

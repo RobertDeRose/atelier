@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type {
   Actor,
   ManualEdit,
@@ -13,6 +13,7 @@ import type { RepositoryProvider } from "../repository/repository-provider.ts";
 import { sha256 } from "../util/hash.ts";
 import { newId, nowIso } from "../util/ids.ts";
 import { ensurePlanDocument } from "./plan-document.ts";
+import { formatPlanTaskMetadataText } from "./plan-metadata.ts";
 import { parsePlanText } from "./plan-parser.ts";
 import { canonicalRepositoryRoot, repositoryPathTarget, repositoryRelativePath } from "../repository/repository-path.ts";
 import { resolveAccessPath } from "../security/path-boundary.ts";
@@ -103,6 +104,9 @@ export class PlanReviewService {
 
   begin(options: BeginPlanReviewOptions = {}): ManualEdit {
     ensurePlanDocument(this.planPath);
+    const draft = readFileSync(this.planPath, "utf8");
+    const formattedDraft = formatPlanTaskMetadataText(draft);
+    if (formattedDraft !== draft) writeFileSync(this.planPath, formattedDraft, "utf8");
     const beforeRepositorySnapshot = this.repository.snapshot();
     const beforeSource = this.sourceState();
     const before = parsePlanText(readFileSync(this.planPath, "utf8"), this.planPath);

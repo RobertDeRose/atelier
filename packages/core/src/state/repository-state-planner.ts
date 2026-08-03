@@ -76,6 +76,12 @@ export class RepositoryStatePlanner {
     }
 
     const searchableSources = sources
+      .filter((source) => {
+        if (source.purpose !== "plan_objective") return true;
+        if (!objectiveIsFullyScopedByKnownPaths(source.text, knownPaths)) return true;
+        explanation.push("The planning objective names its implementation files explicitly; semantic discovery is unnecessary.");
+        return false;
+      })
       .map((source) => ({ ...source, text: removeKnownPaths(source.text, knownPaths) }))
       .filter((source) => hasSearchableText(source.text));
     const purposes = unique(searchableSources.map((source) => source.purpose));
@@ -203,6 +209,22 @@ export function extractLiteralHints(text: string, maximum = 8): string[] {
     if (hints.length >= maximum) break;
   }
   return hints.slice(0, maximum);
+}
+
+
+const DISCOVERY_LANGUAGE = /\b(?:find|locate|discover|identify|determine|investigate|where|architecture|impact|related|across|unknown|implementation location|which files?)\b/i;
+
+/**
+ * A plan objective that names every file it asks Atelier to change is already
+ * a bounded direct-read request. Semantic search in that case adds latency and
+ * can introduce irrelevant evidence; retain it only when the objective also
+ * asks Atelier to discover an implementation location or broader impact.
+ */
+function objectiveIsFullyScopedByKnownPaths(text: string, knownPaths: readonly string[]): boolean {
+  if (knownPaths.length === 0 || DISCOVERY_LANGUAGE.test(text)) return false;
+  const normalized = text.toLowerCase();
+  const mutationIntent = /\b(?:add|change|update|modify|export|remove|rename|create|write|verify|test|fix)\b/.test(normalized);
+  return mutationIntent && knownPaths.every((path) => normalized.includes(path.toLowerCase()));
 }
 
 function extractKnownPaths(text: string): string[] {

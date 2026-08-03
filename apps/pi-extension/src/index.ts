@@ -982,9 +982,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       }
     },
   });
-
   registerStatusCommands(pi, { getCore, updateStatus });
-
   pi.registerCommand("plan", {
     description: "Enter guarded plan mode; the completed draft opens in the configured editor",
     handler: async (args, ctx) => {
@@ -1115,14 +1113,15 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const core = getCore(ctx);
       const reason = args.trim() || "User paused execution through Pi /atelier-pause.";
       const paused = core.execution.pause(reason);
-      abortContext(ctx);
       if (paused === undefined) {
         ctx.ui.notify("No active execution exists to pause.", "info");
         return;
       }
+      sessionState(ctx).footerStatus.renderWorkflowTransition(ctx, core);
+      abortContext(ctx);
       delete sessionState(ctx).lastCompletionNotice;
       ctx.ui.notify(`Paused execution ${paused.id}; task ${paused.taskId} remains active but agent mutations are disabled.`, "info");
-      await updateStatus(ctx, core);
+      void updateStatus(ctx, core);
     },
   });
 
@@ -1150,8 +1149,9 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         ctx.ui.notify("No active execution exists to resume.", "info");
         return;
       }
+      sessionState(ctx).footerStatus.renderWorkflowTransition(ctx, core);
       ctx.ui.notify(`Execution ${resumed.id} is available again; task ${resumed.taskId} remains active.`, "info");
-      await updateStatus(ctx, core);
+      void updateStatus(ctx, core);
     },
   });
 
@@ -1161,14 +1161,15 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const core = getCore(ctx);
       const reason = args.trim() || "User cancelled execution through Pi /cancel.";
       const cancelled = core.execution.cancel(reason);
-      abortContext(ctx);
       if (cancelled === undefined) {
         ctx.ui.notify("No active execution exists to cancel.", "info");
         return;
       }
+      sessionState(ctx).footerStatus.renderWorkflowTransition(ctx, core);
+      abortContext(ctx);
       delete sessionState(ctx).lastCompletionNotice;
       ctx.ui.notify(`Cancelled execution ${cancelled.id}; task ${cancelled.taskId} remains open.`, "info");
-      await updateStatus(ctx, core);
+      void updateStatus(ctx, core);
     },
   });
 

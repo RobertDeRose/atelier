@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodesearchProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
@@ -123,6 +123,7 @@ test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and 
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -216,6 +217,7 @@ test("codesearch canonicalizes workspace aliases and absolute provider result pa
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: aliasRoot,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -253,6 +255,7 @@ test("codesearch index readiness outranks unrelated optional-index errors", asyn
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -275,6 +278,7 @@ test("codesearch local indexing closes the MCP writer before running the CLI rep
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -300,6 +304,7 @@ test("codesearch client mode uses configured project aliases", async () => {
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "client",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -342,6 +347,7 @@ test("codesearch auto search degrades to bounded literal retrieval when semantic
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -386,6 +392,7 @@ test("explicit semantic search surfaces provider operational errors", async () =
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -414,6 +421,7 @@ test("codesearch local indexing rejects an unbuilt vector index even when MCP re
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -440,6 +448,7 @@ test("codesearch does not force a fresh index when MCP startup creates the datab
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -465,6 +474,7 @@ test("codesearch repairs an existing empty database without forcing a rebuild", 
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -490,6 +500,7 @@ test("codesearch forces an existing index when selection state is missing", asyn
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -512,6 +523,7 @@ test("codesearch index timeout reports the timeout and preserves partial output"
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 500,
@@ -531,6 +543,7 @@ test("codesearch index timeout reports the timeout and preserves partial output"
 
 test("codesearch forces one local rebuild when repository selection inputs change", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-selection-"));
+  const stateDirectory = mkdtempSync(join(tmpdir(), "atlr-codesearch-selection-state-"));
   const fake = fakeCodesearch(root);
   writeFileSync(join(root, ".codesearchignore"), "tests/fixtures/codesearch-*/\n", "utf8");
 
@@ -538,6 +551,7 @@ test("codesearch forces one local rebuild when repository selection inputs chang
     const provider = new CodesearchProvider({
       command: fake.command,
       cwd: root,
+      stateDirectory,
       mode: "local",
       timeoutMs: 2_000,
       indexTimeoutMs: 2_000,
@@ -563,13 +577,58 @@ test("codesearch forces one local rebuild when repository selection inputs chang
     assert.equal(indexCalls[1]?.includes("--force"), false);
     assert.ok(indexCalls[2]?.includes("--force"));
 
-    const state = JSON.parse(readFileSync(join(root, ".atelier", "codesearch-index-state.json"), "utf8")) as {
+    const state = JSON.parse(readFileSync(join(stateDirectory, "codesearch-index-state.json"), "utf8")) as {
       version?: number;
       repositories?: Record<string, { fingerprint?: string }>;
     };
     assert.equal(state.version, 1);
     assert.match(state.repositories?.[canonicalRoot(root)]?.fingerprint ?? "", /^[a-f0-9]{64}$/);
   } finally {
+    rmSync(stateDirectory, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("codesearch stores mutable selection state outside the repository and migrates legacy state", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-external-state-"));
+  const stateDirectory = mkdtempSync(join(tmpdir(), "atlr-codesearch-state-home-"));
+  const fake = fakeCodesearch(root);
+  const run = async () => {
+    const provider = new CodesearchProvider({
+      command: fake.command,
+      cwd: root,
+      stateDirectory,
+      mode: "local",
+      timeoutMs: 2_000,
+      indexTimeoutMs: 2_000,
+      pollIntervalMs: 5,
+    });
+    try {
+      assert.equal(await provider.ensureIndex(workspace(root)), "ready");
+    } finally {
+      await provider.close();
+    }
+  };
+
+  const externalState = join(stateDirectory, "codesearch-index-state.json");
+  const legacyState = join(root, ".atelier", "codesearch-index-state.json");
+  try {
+    await run();
+    assert.equal(existsSync(externalState), true);
+    assert.equal(existsSync(legacyState), false);
+    assert.equal(readdirSync(stateDirectory).some((name) => name.endsWith(".tmp")), false);
+
+    mkdirSync(join(root, ".atelier"), { recursive: true });
+    writeFileSync(legacyState, readFileSync(externalState));
+    rmSync(externalState);
+
+    await run();
+    assert.equal(existsSync(externalState), true, "legacy state was not migrated to runtime storage");
+    assert.equal(existsSync(legacyState), false, "legacy repository-local state was not removed");
+    assert.equal(readdirSync(join(root, ".atelier")).some((name) => /^codesearch-index-state\.json\..*\.tmp$/.test(name)), false);
+  } finally {
+    rmSync(stateDirectory, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -591,6 +650,7 @@ test("codesearch overfetches and reranks implementation searches toward diverse 
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -647,6 +707,7 @@ test("codesearch fuses bounded literal identifiers into focused automatic retrie
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -705,6 +766,7 @@ test("codesearch augmentation uses explicit identifier hints instead of generic 
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,
@@ -749,6 +811,7 @@ test("codesearch does not augment healthy semantic search with generic natural-l
   const provider = new CodesearchProvider({
     command: fake.command,
     cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
     mode: "local",
     timeoutMs: 2_000,
     indexTimeoutMs: 2_000,

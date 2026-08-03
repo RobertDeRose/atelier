@@ -38,7 +38,7 @@ function appendBounded(current: string, chunk: string): string {
  * Pi-compatible model Bash tool with Atelier authorization and sandboxing.
  *
  * The tool owns a complete start/update/end lifecycle. It always settles its
- * promise, emits the final captured output, clears Atelier's phase widget, and
+ * promise, emits the final captured output, clears Atelier's inline phase, and
  * records durable visual/lifecycle evidence. The underlying bounded process
  * runner also resolves after a parent exits even when a detached descendant
  * keeps inherited stdio open, preventing Pi's Working indicator from hanging.

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { ParsedPlan, PlanDiagnostic, PlanTask, TaskExecutionContract, TaskType } from "../domain/types.ts";
 import { sha256 } from "../util/hash.ts";
+import { parseTaskMetadataBlock } from "./plan-metadata.ts";
 
 interface MutableTask {
   id: string;
@@ -44,19 +45,6 @@ function parseTaskHeading(line: string): { id: string; title: string } | undefin
   const separator = /^##\s+([A-Za-z][A-Za-z0-9._-]*)\s*(?:—|--|:|-)\s*(.+?)\s*$/.exec(line);
   if (separator?.[1] && separator[2]) return { id: separator[1].trim(), title: separator[2].trim() };
   return undefined;
-}
-
-function parseTaskMetadata(line: string): Record<string, unknown> | undefined {
-  const match = /^\s*<!--\s*atlr:task\s+(.+?)\s*-->\s*$/.exec(line);
-  if (!match?.[1]) return undefined;
-  try {
-    const parsed = JSON.parse(match[1]) as unknown;
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : undefined;
-  } catch {
-    return { __invalid: true };
-  }
 }
 
 function cleanLines(lines: string[]): string[] {
@@ -262,13 +250,14 @@ export function parsePlanText(text: string, path = "PLAN.md"): ParsedPlan {
 
     if (current === undefined) continue;
 
-    const metadata = parseTaskMetadata(line);
-    if (metadata !== undefined) {
-      if (metadata.__invalid === true) {
+    const metadataBlock = parseTaskMetadataBlock(lines, index);
+    if (metadataBlock !== undefined) {
+      const metadata = metadataBlock.metadata;
+      if (metadata === undefined) {
         diagnostics.push({
           level: "error",
           code: "invalid_task_metadata",
-          message: "Task metadata must be a valid JSON object.",
+          message: metadataBlock.error ?? "Task metadata must be a valid JSON object.",
           line: lineNumber,
           taskId: current.id,
         });
@@ -299,6 +288,7 @@ export function parsePlanText(text: string, path = "PLAN.md"): ParsedPlan {
           }
         }
       }
+      index = metadataBlock.endIndex;
       continue;
     }
 

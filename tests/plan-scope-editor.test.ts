@@ -57,6 +57,11 @@ test("plan scope editor writes canonical metadata and a readable authorization s
     allowFullSuite: false,
     allowLocalChange: true,
   });
+  assert.match(updated, /<!-- atlr:task\n\{\n  "id": "ATLR-001"/);
+  assert.match(updated, /"execution": \{\n    "writePaths": \[/);
+  assert.match(updated, /\n-->\n/);
+  assert.match(updated, /<!-- atlr:task\n\{[\s\S]*?\n\}\n-->/);
+  assert.doesNotMatch(updated, /<!--\s*atlr:task\s+\{[^\n]+\}\s*-->/);
   assert.match(updated, /### Authorization/);
   assert.match(updated, /Writable paths: `src\/example\.ts`, `tests\/example\.test\.ts`/);
   assert.match(updated, /Dependency changes: not allowed/);

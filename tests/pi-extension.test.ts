@@ -73,6 +73,7 @@ function fakeContext(
     sessionKey?: object;
   } = {},
 ): ExtensionCommandContext {
+  const statusValues = new Map<string, string>();
   return {
     sessionManager: observations.sessionKey ?? {},
     cwd,
@@ -96,7 +97,11 @@ function fakeContext(
       notify: (message: string) => { observations.notifications?.push(message); },
       setStatus: (key: string, value: string | undefined) => {
         observations.statusEvents?.push({ key, value });
-        if (value !== undefined) statuses.push(value);
+        if (value === undefined) statusValues.delete(key);
+        else {
+          statusValues.set(key, value);
+          statuses.push(value);
+        }
       },
       setWorkingMessage: (message?: string) => { observations.workingMessages?.push(message); },
       setWorkingVisible: (): void => {},
@@ -106,7 +111,9 @@ function fakeContext(
       },
       setFooter: (factory: any) => {
         if (factory === undefined) return;
-        const component = factory({}, {}, {});
+        const component = factory({}, {}, {
+          getExtensionStatuses: () => statusValues,
+        });
         const footer = component.render(240).join("\n");
         observations.footers?.push(footer);
         observations.onFooter?.(footer);
@@ -748,14 +755,16 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
   }));
   const workingMessages: Array<string | undefined> = [];
   const widgetEvents: Array<{ key: string; content: string[] | undefined }> = [];
+  const statusEvents: Array<{ key: string; value: string | undefined }> = [];
   const baseContext = fakeContext(root, { count: 0 }, [], {
     workingMessages,
     widgetEvents,
+    statusEvents,
   });
-  const originalSetWidget = baseContext.ui.setWidget?.bind(baseContext.ui);
-  baseContext.ui.setWidget = (key, content, options) => {
-    if (key === "atelier-phase" && content !== undefined) lifecycle.push("planning-phase-presented");
-    originalSetWidget?.(key, content, options);
+  const originalSetStatus = baseContext.ui.setStatus.bind(baseContext.ui);
+  baseContext.ui.setStatus = (key, value) => {
+    if (key === "atlr-phase" && value !== undefined) lifecycle.push("planning-phase-presented");
+    originalSetStatus(key, value);
   };
   const context = {
     ...baseContext,
@@ -769,6 +778,7 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
     assert.match(sentMessages.at(-1) ?? "", /manual-acceptance/);
     assert.match(sentMessages.at(-1) ?? "", /Do not substitute an unconfigured command such as typecheck/);
     assert.match(sentMessages.at(-1) ?? "", /packages\/core\/src\/version\.ts/);
+    assert.match(sentMessages.at(-1) ?? "", /do not inspect package manifests or start provider search/i);
     assert.ok(
       lifecycle.indexOf("planning-phase-presented") >= 0
         && lifecycle.indexOf("planning-phase-presented") < lifecycle.indexOf("planning-turn-dispatched"),
@@ -821,19 +831,21 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
   const widgets: string[][] = [];
   const workingMessages: Array<string | undefined> = [];
   const widgetEvents: Array<{ key: string; content: string[] | undefined }> = [];
+  const statusEvents: Array<{ key: string; value: string | undefined }> = [];
   const baseContext = fakeContext(root, confirms, [], {
     confirmationBodies,
     notifications,
     widgets,
     workingMessages,
     widgetEvents,
+    statusEvents,
   });
   let waitForIdleObservedPhase = false;
   const context = {
     ...baseContext,
     waitForIdle: async () => {
-      waitForIdleObservedPhase = widgetEvents.some((event) => event.key === "atelier-phase"
-        && event.content?.some((line) => /waiting for Pi to become idle/i.test(line)));
+      waitForIdleObservedPhase = statusEvents.some((event) => event.key === "atlr-phase"
+        && /waiting for Pi to become idle/i.test(event.value ?? ""));
     },
   } as ExtensionCommandContext;
 
@@ -863,8 +875,8 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
     assert.match(approvalSummary, /Full suite: excluded/i);
     assert.match(approvalSummary, /Filesystem approval is decided separately from concrete workspace effects and recoverability/i);
     assert.ok(widgets.some((lines) => lines.join("\n").includes("Atelier exact execution transaction")));
-    assert.ok(widgetEvents.some((event) => event.key === "atelier-phase"
-      && event.content?.some((line) => /preparing exact transaction/i.test(line))));
+    assert.ok(statusEvents.some((event) => event.key === "atlr-phase"
+      && /preparing exact transaction/i.test(event.value ?? "")));
     assert.equal(sentMessages.length, sentBeforeApproval, "approval must remain idle and must not enqueue implementation");
     assert.ok(notifications.some((message) => /Atelier is idle; send an explicit implementation instruction/i.test(message)));
 
@@ -1065,6 +1077,7 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
   const confirmationBodies: string[] = [];
   const notifications: string[] = [];
   const widgets: string[][] = [];
+  const footers: string[] = [];
   let idle = true;
   let abortCount = 0;
   let waitForIdleCount = 0;
@@ -1072,6 +1085,7 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
     confirmationBodies,
     notifications,
     widgets,
+    footers,
     renderCustom: true,
     isIdle: () => idle,
     abort: () => { abortCount += 1; idle = true; },
@@ -1079,6 +1093,7 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
   });
 
   try {
+    await commands.get("status")!.handler("", context);
     for (const command of ["atelier-stop", "atelier-pause", "atelier-resume", "cancel"]) {
       assert.ok(commands.has(command), `missing active-execution control /${command}`);
     }
@@ -1093,10 +1108,14 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
     idle = false;
     await commands.get("atelier-pause")!.handler("manual pause regression", context);
     assert.equal(abortCount, 2, "/atelier-pause must abort an active turn");
+    assert.match(footers.at(-1) ?? "", /mode: paused/, "pause must update the footer synchronously");
     controlLedger = new SqliteLedger(testDatabasePath(root));
     assert.equal(controlLedger.getCurrentWorkflowRun()?.checkpoint, "paused");
     controlLedger.close();
     await commands.get("atelier-resume")!.handler("", context);
+    assert.match(footers.at(-1) ?? "", /mode: act/, "resume must update the footer synchronously");
+    assert.doesNotMatch(footers.at(-1) ?? "", /execution is paused|Resume execution/i,
+      "resume must not retain optimistic paused-state details");
     controlLedger = new SqliteLedger(testDatabasePath(root));
     assert.equal(controlLedger.getCurrentWorkflowRun()?.checkpoint, "executing");
     controlLedger.close();

@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.43
+# Local Acceptance Workflow — 0.14.0-alpha.44
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -22,7 +22,9 @@ failure/interruption and per-operation path evidence, source-only freshness, sco
 Beads initialization, symbol-state convergence, validation staleness, exact diff review, restart,
 multi-repository drift, live footer model/thinking selection, Git/Jujutsu refresh scheduling, source-qualified
 intelligence degradation, external idle drift refresh, macOS/symlink repository-path canonicalization,
-in-flight observation invalidation, canonical-root test expectations under a symlinked temporary directory, model Bash streamed/final lifecycle completion, visible plan/approval phases, durable footer/report evidence, and package metadata.
+in-flight observation invalidation, canonical-root test expectations under a symlinked temporary directory, model Bash streamed/final lifecycle completion, inline plan/approval phases, immediate pause/resume/cancel footer evidence,
+external codesearch selection-state migration, bounded Jujutsu transient-snapshot retry, readable multiline task metadata,
+direct-read planning for exact file-scoped objectives, compact evidence archives, and package metadata.
 
 Fixture conformance is deterministic evidence only. Do not describe it as a live external-provider run.
 
@@ -48,14 +50,17 @@ export VISUAL="\${VISUAL:-hx}"
 export EDITOR="\${EDITOR:-\$VISUAL}"
 
 atlr() {
-  node "\$ATLR_REPO/bin/atlr.mjs" "\$@"
+  (
+    cd "\$ATLR_REPO"
+    mise exec -- node "\$ATLR_REPO/bin/atlr.mjs" "\$@"
+  )
 }
 EOF_ENV
 
 source "$manual_root/env.sh"
 cd "$ATLR_REPO"
-jj git init --colocate
 mise install
+mise exec -- jj git init --colocate
 mise run install
 ```
 
@@ -65,7 +70,8 @@ Resume after reboot or in another terminal:
 manual_root="$(cat "$HOME/.atelier-manual-current")"
 source "$manual_root/env.sh"
 cd "$ATLR_REPO"
-jj status
+mise install
+mise exec -- jj status
 ```
 
 Record the source and tools:

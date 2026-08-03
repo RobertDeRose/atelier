@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.43
+# Atelier Architecture — 0.14.0-alpha.44
 
 The Pi integration owns a session-local `FooterStatusController` and request-scoped observation pipeline. It
 serializes and coalesces status observations, consumes model/thinking and code-index events, invalidates cached
@@ -19,6 +19,14 @@ nearest existing canonical ancestor, so planned new paths and existing paths sha
 
 Each repository provider also versions its observation cache: invalidation detaches any in-flight result so a
 slower pre-mutation observation cannot overwrite newer footer, workflow, or code-intelligence state.
+
+Alpha.44 completes the mutable-state boundary for codesearch: corpus-selection fingerprints live under the
+external repository runtime directory rather than `.atelier/`, with one-way migration from the legacy file.
+Jujutsu retries only the exact legacy temporary-file `ENOENT` snapshot race. Transient interactive phases use
+Pi's native working label during agent turns and a static inline footer status while idle instead of
+transcript-like widgets; pause, resume, and
+cancellation render immediately from durable ledger state. Plan authority is canonical multiline JSON, and an
+exact file-scoped planning objective uses direct reads without semantic discovery unless broader impact is asked.
 
 ## Product boundary
 
@@ -126,8 +134,8 @@ output until both pipes close or become idle for a short bounded grace period; t
 process-group escalation. This prevents a detached descendant holding inherited pipes from leaving Pi's tool
 row and `Working…` indicator permanently active.
 
-Slash-command and approval phases use three surfaces at once: an above-editor widget for idle commands, a footer
-status entry, and Pi's streaming working label. Atelier yields one event-loop turn after installing the phase,
+Slash-command and approval phases use one static inline footer status while Pi is idle and Pi's
+native streaming working label while an agent is active. Atelier yields one event-loop turn after installing the phase,
 so the user sees feedback before repository, provider, or reconciliation I/O begins. Tool-result handlers finish
 durable mutation evidence but do not await a footer refresh; `agent_settled` owns the post-turn observation so
 Pi can finalize the tool row and return to idle first.
@@ -170,10 +178,12 @@ User-owned runtime state:
 ```text
 ${ATLR_STATE_HOME:-${XDG_STATE_HOME:-~/.local/state}}/
   atelier/repositories/<canonical-root-hash>/atelier.db
+  atelier/repositories/<canonical-root-hash>/code/codesearch-index-state.json
   atelier/repositories/<canonical-root-hash>/checkpoints/<checkpoint-id>/
 ```
 
-The runtime database contains plan approvals, execution grants, task mappings, tool evidence, validation
+Mutable code-provider selection state follows the same external runtime boundary; provider atomic writes never
+enter Git or Jujutsu working-copy scans. The runtime database contains plan approvals, execution grants, task mappings, tool evidence, validation
 evidence, retrieval evidence, workflow checkpoints, and Working State inputs. It contains no active
 filesystem permission-grant table. A migration drops obsolete `permission_grants` storage rather than
 reinterpreting old records.

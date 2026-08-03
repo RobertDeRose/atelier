@@ -18,10 +18,28 @@ or:
 ## [ATLR-001] Task title
 ```
 
-The next metadata comment must include the same stable ID plus an `execution` object:
+The next metadata comment must include the same stable ID plus an `execution` object. Atelier formats this authority as a readable multiline block before ManualEdit review:
 
 ```markdown
-<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["packages/core/src/version.ts","tests/version.test.ts"],"allowDependencyChanges":false,"validations":["manual-acceptance"],"allowFullSuite":false,"allowLocalChange":true}} -->
+<!-- atlr:task
+{
+  "id": "ATLR-001",
+  "priority": 1,
+  "type": "task",
+  "execution": {
+    "writePaths": [
+      "packages/core/src/version.ts",
+      "tests/version.test.ts"
+    ],
+    "allowDependencyChanges": false,
+    "validations": [
+      "manual-acceptance"
+    ],
+    "allowFullSuite": false,
+    "allowLocalChange": true
+  }
+}
+-->
 ```
 
 Supported task types are `bug`, `feature`, `task`, `epic`, and `chore`. Priorities are integers from `0`

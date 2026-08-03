@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdtempSync,
   realpathSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -37,6 +38,9 @@ test("an unchanged plan review is durable completed ManualEdit evidence", async 
   try {
     core.beginPlan("Review an unchanged plan");
     const started = core.beginPlanReview({ editor: editor() });
+    const reviewedDraft = readFileSync(planPath, "utf8");
+    assert.match(reviewedDraft, /<!-- atlr:task\n\{[\s\S]*?\n\}\n-->/);
+    assert.doesNotMatch(reviewedDraft, /<!--\s*atlr:task\s+\{[^\n]+\}\s*-->/);
     const completed = core.completePlanReview(started.id, { exitCode: 0 });
 
     assert.equal(completed.status, "completed");

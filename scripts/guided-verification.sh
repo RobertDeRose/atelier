@@ -3,8 +3,8 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="43.1"
-EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.43}"
+HARNESS_VERSION="44.1"
+EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.44}"
 MANUAL_PARENT="${ATELIER_MANUAL_PARENT:-$HOME/workspace/scratch}"
 RUN_PREFIX="atelier-manual-"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
@@ -61,7 +61,7 @@ Environment:
   ATELIER_GUIDED_PURGE_CONFIRM=1
                                   Skip the PURGE confirmation for fresh/purge.
   ATELIER_MANUAL_PARENT           Manual-test parent (default: ~/workspace/scratch).
-  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.43).
+  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.44).
 USAGE
 }
 
@@ -457,7 +457,7 @@ Expected:
 - `intel:` becomes `ready` after indexing.
 - The thinking level uses normal readable text rather than dim text.
 - Every slash-command result remains in transcript scrollback after the next command.
-- `/status` and `/workflow` show an Atelier working phase immediately instead of leaving the UI apparently frozen.
+- `/status` and `/workflow` show an inline Atelier footer status or Pi's native working spinner immediately instead of leaving the UI apparently frozen.
 - The second `/status` reuses the recent repository observation when nothing changed.
 - `/status` and `/code-status` render expandable cards with bold field/value summaries.
 - Default `/workflow` renders a concise ledger/status-only card distinct from `/status`; it does not start semantic retrieval.
@@ -534,7 +534,7 @@ The harness independently verifies that:
 
 Send:
 
-> Use Bash to run exactly: printf 'model read-only output\n'
+> Use Bash to run exactly: printf 'model read-only output\n'. Make exactly one Bash tool call, then stop without restating the command or its output.
 
 Expected:
 
@@ -569,9 +569,29 @@ Run:
 
 When the editor opens, **do not replace or repair the generated plan**. Inspect the task exactly as generated.
 
-It must contain this execution object:
+It must contain this readable multiline execution object:
 
-`<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["packages/core/src/version.ts","tests/version.test.ts"],"allowDependencyChanges":false,"validations":["manual-acceptance"],"allowFullSuite":false,"allowLocalChange":true}} -->`
+```markdown
+<!-- atlr:task
+{
+  "id": "ATLR-001",
+  "priority": 1,
+  "type": "task",
+  "execution": {
+    "writePaths": [
+      "packages/core/src/version.ts",
+      "tests/version.test.ts"
+    ],
+    "allowDependencyChanges": false,
+    "validations": [
+      "manual-acceptance"
+    ],
+    "allowFullSuite": false,
+    "allowLocalChange": true
+  }
+}
+-->
+```
 
 Also verify that the human-readable `### Validation` and `### Completion criteria` sections name `manual-acceptance`, not an invented validation such as `typecheck`.
 
@@ -659,7 +679,7 @@ GUIDE
 
 The harness has verified that `/atelier-stop` left the task and execution active.
 
-1. Run `/atelier-pause manual guided pause`.
+1. Run `/atelier-pause manual guided pause`. The footer must change to `mode: paused` immediately, before another command or model turn is submitted.
 2. Send this exact model message:
 
    > Using only the typed edit tool, add the exact line `// pause-probe` to packages/core/src/version.ts. Do not use Bash or any other tool.
@@ -1014,15 +1034,20 @@ verify_control_approval() {
   ! grep -q 'ATELIER_PRODUCT_NAME' "$repo/packages/core/src/version.ts" \
     || fail "Step 4 mutated version.ts before implementation"
 
-  node --input-type=module - "$out/status.json" "$out/plan.json" "$out/beads.json" "$out/ledger.json" <<'NODE'
+  node --input-type=module - "$out/status.json" "$out/plan.json" "$out/beads.json" "$out/ledger.json" "$repo/.atelier/PLAN.md" <<'NODE'
 import { readFileSync } from "node:fs";
-const [statusFile, planFile, beadsFile, ledgerFile] = process.argv.slice(2);
+const [statusFile, planFile, beadsFile, ledgerFile, planMarkdownFile] = process.argv.slice(2);
 const status = JSON.parse(readFileSync(statusFile, "utf8"));
 const plan = JSON.parse(readFileSync(planFile, "utf8"));
 const beadsRaw = JSON.parse(readFileSync(beadsFile, "utf8"));
 const beads = Array.isArray(beadsRaw) ? beadsRaw : Array.isArray(beadsRaw.data) ? beadsRaw.data : beadsRaw.tasks ?? [];
 const ledger = JSON.parse(readFileSync(ledgerFile, "utf8"));
+const planMarkdown = readFileSync(planMarkdownFile, "utf8");
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
+assert(/<!-- atlr:task\s*\n\{[\s\S]*?\n\}\s*\n-->/m.test(planMarkdown),
+  "reviewed task metadata was not formatted as a readable multiline block");
+assert(!/<!--\s*atlr:task\s+\{[^\n]+\}\s*-->/m.test(planMarkdown),
+  "reviewed task metadata remained compressed onto one line");
 assert(status.workflow?.mode === "act", `expected act mode, got ${status.workflow?.mode}`);
 assert(typeof status.task?.current === "string" && status.task.current !== "none", "approved task is not active");
 assert(status.execution?.grant !== "none", "approved execution grant is missing");
@@ -1196,6 +1221,13 @@ const kinds = new Set(ledger.map((event) => event.kind));
 for (const kind of ["execution.paused", "execution.unpaused", "execution.revoked", "workflow.cancelled"]) {
   assert(kinds.has(kind), `missing ledger event ${kind}`);
 }
+const paused = ledger.find((event) => event.kind === "execution.paused");
+const pausedFooter = ledger.find((event) => event.kind === "ui.footer_presented"
+  && Date.parse(event.occurredAt) >= Date.parse(paused?.occurredAt ?? "")
+  && /mode:\s*paused/.test(event.payload?.rendered?.text ?? ""));
+assert(paused && pausedFooter, "footer never rendered mode: paused after /atelier-pause");
+assert(Date.parse(pausedFooter.occurredAt) - Date.parse(paused.occurredAt) <= 500,
+  `paused footer was delayed by ${Date.parse(pausedFooter.occurredAt) - Date.parse(paused.occurredAt)}ms`);
 assert(!kinds.has("task.closed"), "task was closed during cancellation test");
 NODE
   pass "Step 5 preserved source changes and the open task while revoking execution"
@@ -1599,7 +1631,18 @@ retry_step() {
 archive_evidence() {
   load_run
   local output="$RUN_ROOT/atelier-guided-verification-evidence.tar.xz"
-  tar -C "$RUN_ROOT" -cJf "$output" evidence guided env.sh 2>/dev/null || tar -C "$RUN_ROOT" -cJf "$output" evidence guided
+  local excludes=(
+    --exclude='._*'
+    --exclude='.DS_Store'
+    --exclude='guided/*/repo/node_modules'
+    --exclude='guided/*/repo/dist'
+    --exclude='guided/*/repo/.git'
+    --exclude='guided/*/repo/.jj/repo/store'
+    --exclude='guided/*/repo/.codesearch.db'
+    --exclude='guided/*/repo/.octocode'
+  )
+  COPYFILE_DISABLE=1 tar -C "$RUN_ROOT" "${excludes[@]}" -cJf "$output" evidence guided env.sh 2>/dev/null \
+    || COPYFILE_DISABLE=1 tar -C "$RUN_ROOT" "${excludes[@]}" -cJf "$output" evidence guided
   printf '%s\n' "$output"
 }
 

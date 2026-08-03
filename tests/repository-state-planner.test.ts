@@ -78,6 +78,7 @@ test("known paths produce direct-read decisions instead of semantic searches", (
   }]);
 });
 
+
 test("directory scopes remain semantic filters rather than direct-read decisions", () => {
   const plan = planner.plan({
     mode: "plan",
@@ -111,4 +112,26 @@ test("literal hint and exact-symbol planning reject quoted expressions and non-s
     maximumQueries: 8,
   });
   assert.deepEqual(plan.queries.map((query) => query.text), ["ATELIER_PRODUCT_NAME"]);
+});
+
+test("exact file-scoped planning objectives use direct reads without semantic discovery", () => {
+  const first = "packages/core/src/version.ts";
+  const second = "tests/version.test.ts";
+  const plan = planner.plan({
+    mode: "plan",
+    planObjective: `Add an exported ATELIER_PRODUCT_NAME constant with the value "Atelier" to ${first} and add ${second} verifying ATELIER_PRODUCT_NAME and ATELIER_VERSION. Do not change release metadata or any other behavior.`,
+  });
+
+  assert.deepEqual(plan.queries, []);
+  assert.deepEqual(plan.decisions.map((decision) => decision.path), [first, second]);
+  assert.match(plan.explanation.join(" "), /implementation files explicitly/i);
+});
+
+test("explicit paths do not suppress discovery when the objective asks for broader impact", () => {
+  const path = "packages/core/src/version.ts";
+  const plan = planner.plan({
+    mode: "plan",
+    planObjective: `Update ${path} and determine related architecture impacts across the repository.`,
+  });
+  assert.equal(plan.queries[0]?.operation, "search");
 });

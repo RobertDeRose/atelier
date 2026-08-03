@@ -166,3 +166,50 @@ process.exit(1);
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("Jujutsu observation retries only a transient Atelier runtime-file snapshot race", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atelier-jj-transient-snapshot-"));
+  mkdirSync(join(root, ".atelier"), { recursive: true });
+  const countPath = join(root, "log-count.txt");
+  const executable = join(root, "jj-transient");
+  writeFileSync(executable, `#!/usr/bin/env node
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("jj 0.43.0"); process.exit(0); }
+if (args[0] === "root") { console.log(${JSON.stringify(root)}); process.exit(0); }
+if (args[0] === "workspace" && args[1] === "root") { console.log(${JSON.stringify(root)}); process.exit(0); }
+if (args[0] === "log" && args.includes("@-")) { console.log("parent123"); process.exit(0); }
+if (args[0] === "log") {
+  const count = existsSync(${JSON.stringify(countPath)}) ? Number(readFileSync(${JSON.stringify(countPath)}, "utf8")) : 0;
+  writeFileSync(${JSON.stringify(countPath)}, String(count + 1));
+  if (count === 0) {
+    console.error("Internal error: Failed to snapshot the working copy");
+    console.error("Caused by:");
+    console.error("1: Failed to open file ${root.replaceAll('\\', '\\\\')}/.atelier/codesearch-index-state.json.123.tmp");
+    console.error("2: No such file or directory (os error 2)");
+    process.exit(1);
+  }
+  console.log("change123\\ncommit456");
+  process.exit(0);
+}
+if (args[0] === "op" && args[1] === "log") { console.log("operation789"); process.exit(0); }
+if (args[0] === "bookmark" && args[1] === "list") { console.log("main"); process.exit(0); }
+if (args[0] === "resolve" && args[1] === "--list") { process.exit(0); }
+if (args[0] === "status") { console.log("Working copy clean"); process.exit(0); }
+if (args[0] === "file" && args[1] === "list") { console.log("README.md"); process.exit(0); }
+if (args[0] === "diff" && args.includes("--name-only")) { process.exit(0); }
+if (args[0] === "diff") { process.exit(0); }
+process.exit(1);
+`, "utf8");
+  chmodSync(executable, 0o755);
+  const ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+  try {
+    const provider = new JujutsuRepositoryProvider({ cwd: root, ledger, executable });
+    const observation = await provider.observe({ force: true });
+    assert.equal(observation.snapshot.changeId, "change123");
+    assert.equal(readFileSync(countPath, "utf8"), "2");
+  } finally {
+    ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

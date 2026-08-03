@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import type { TaskExecutionContract } from "../domain/types.ts";
+import { findTaskMetadataBlock, formatTaskMetadataComment } from "./plan-metadata.ts";
 import { parsePlanText } from "./plan-parser.ts";
 
 export interface PlanScopeUpdate {
@@ -58,14 +59,19 @@ export function updatePlanTaskScopeText(text: string, update: PlanScopeUpdate, p
   const nextTask = parsed.tasks.find((candidate) => candidate.source.startLine > task.source.startLine);
   const end = nextTask === undefined ? lines.length : nextTask.source.startLine - 1;
   const taskLines = lines.slice(start, end);
-  const metadataIndex = taskLines.findIndex((line) => /^\s*<!--\s*atlr:task\s+/.test(line));
-  if (metadataIndex === -1) throw new Error(`Task ${task.id} has no atlr:task metadata comment.`);
-  const metadataMatch = /^\s*<!--\s*atlr:task\s+(.+?)\s*-->\s*$/.exec(taskLines[metadataIndex] ?? "");
-  if (metadataMatch?.[1] === undefined) throw new Error(`Task ${task.id} metadata is malformed.`);
-  const metadata = JSON.parse(metadataMatch[1]) as Record<string, unknown>;
+  const metadataBlock = findTaskMetadataBlock(taskLines);
+  if (metadataBlock === undefined) throw new Error(`Task ${task.id} has no atlr:task metadata comment.`);
+  if (metadataBlock.metadata === undefined) {
+    throw new Error(`Task ${task.id} metadata is malformed: ${metadataBlock.error ?? "invalid JSON"}`);
+  }
+  const metadata = { ...metadataBlock.metadata };
   metadata.execution = contract;
-  taskLines[metadataIndex] = `<!-- atlr:task ${JSON.stringify(metadata)} -->`;
-  const updatedTask = updateAuthorizationSection(taskLines, contract);
+  const withMetadata = [
+    ...taskLines.slice(0, metadataBlock.startIndex),
+    ...formatTaskMetadataComment(metadata),
+    ...taskLines.slice(metadataBlock.endIndex + 1),
+  ];
+  const updatedTask = updateAuthorizationSection(withMetadata, contract);
   const output = [...lines.slice(0, start), ...updatedTask, ...lines.slice(end)].join("\n");
   return text.endsWith("\n") && !output.endsWith("\n") ? `${output}\n` : output;
 }

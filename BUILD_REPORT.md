@@ -1,6 +1,30 @@
-# Build Report — Atelier 0.14.0-alpha.43
+# Build Report — Atelier 0.14.0-alpha.44
 
 ## Result
+
+Alpha.44 implements the corrections derived from the completed alpha.43 guided evidence. Mutable codesearch
+selection state no longer enters the working copy, the legacy Jujutsu temporary-file race has one narrow bounded
+retry, transient phases use Pi's native working indicator and a static inline footer status, workflow-control footer state updates
+immediately, and reviewed task authority is canonical multiline JSON. The same evidence also drove exact-file direct-read
+planning, cleaner acceptance archives, early Beads permission hardening, and a one-command model-Bash probe.
+
+## Alpha.44 evidence-driven repository and UI correction
+
+The guided Step 4 exception occurred when codesearch wrote and atomically renamed
+`.atelier/codesearch-index-state.json.<pid>.tmp` while Jujutsu was snapshotting the working copy. Jujutsu
+discovered the temporary entry, then received `ENOENT` when it attempted to open the already-renamed file.
+Alpha.44 moves the mutable selection fingerprint to the repository-specific external runtime directory, uses a
+private unique same-directory temporary file, migrates the former repository-local file after a successful
+index, and keeps compatibility ignores for older writers. Jujutsu retries only the exact working-copy snapshot
+`ENOENT` involving an `.atelier/*.tmp` path, with two short cancellation-aware delays.
+
+The remaining guided comments are addressed without broadening authority. Transient phase text uses Pi's native
+working label while streaming and a static inline footer status while idle; the above-editor widget is removed.
+Pause, resume, and cancellation render immediately from durable ledger state before their normal asynchronous
+status refresh. Valid `atlr:task` metadata is pretty-printed before ManualEdit, while legacy one-line metadata
+remains parseable. Objectives that name every implementation file use direct reads and avoid irrelevant semantic
+retrieval unless they request broader impact or location discovery. Guided/live archives suppress AppleDouble
+files and omit cloned dependencies, build output, nested VCS stores, and provider databases.
 
 ## Alpha.43 aggregate regression determinism correction
 
@@ -284,50 +308,40 @@ bash scripts/smoke.sh
 bash -n scripts/live-acceptance.sh
 bash -n scripts/guided-verification.sh
 bash -n scripts/test-path-alias.sh
+bash scripts/live-acceptance.sh self-check
 git diff --check
 npm pack --dry-run
 ```
 
-The alpha.43 correction working tree passed:
+The alpha.44 correction working tree passed:
 
 ```text
 Release metadata:              passed
 Type-check:                    passed
-Build:                         passed
-Pi extension regressions:      20 passed, 0 failed
-Changed act-mode regression:   passed with 80 ms added to every Git subprocess
-Canonical alias regression:    passed for the changed act-mode test
-Guided regressions:            9 passed, 0 failed
-Interactive perf tests:        3 passed, 0 failed
-Async process tests:           4 passed, 0 failed
+Production build:              passed
+Deterministic tests:           303 passed, 0 failed (four bounded groups: 64 + 91 + 73 + 75)
+Canonical path-alias lane:     78 passed, 0 failed
+Targeted evidence regressions: 82 passed, 0 failed
 CLI smoke workflow:            passed
 Acceptance syntax/self-check:  passed
-git diff --check:              passed
+Git diff validation:           passed
 Package dry-run:               passed
 ```
-
-The supported alpha.42 workstation aggregate reached 295 of 296 passing tests; its sole reported failure was
-this scheduler-sensitive act-mode assertion. Alpha.43 corrects that exact test and preserves the alpha.42
-runtime. The complete supported Node 24 aggregate remains the final workstation gate.
 
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.43
-Files:            488
-Built dist files: 424
-Compressed size:  554,853 bytes
-Unpacked size:    2,585,514 bytes
+Package:          atelier-prototype@0.14.0-alpha.44
+Files:            494
+Built dist files: 428
 ```
 
 ## Verification boundary
 
 The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
-and TypeScript 7 toolchain. Type-checking and production compilation pass. The changed test passes normally,
-through a canonical temporary-directory alias, and with an artificial 80 ms delay on every Git subprocess.
-The complete Pi-extension, guided-verification, interactive-performance, and asynchronous-process test files
-also pass. The all-at-once Node 22 runner can retain process-heavy fixture handles after printing TAP results;
-the pinned Node 24 `mise check` remains authoritative for the complete aggregate and macOS path-alias lane.
+and TypeScript 7 toolchain. The complete 303-test aggregate and the 78-test canonical temporary-path lane pass
+in this environment, together with type-checking, production compilation, smoke, harness self-checks, and the
+package dry-run. The pinned Node 24 `mise check` remains authoritative for the supported macOS toolchain.
 
 The standalone smoke workflow, package dry-run, release metadata check, and script syntax pass. Bundle and
 fresh-checkout verification are performed after the release commit and annotated tag are created. Live Jujutsu, Seatbelt, Bubblewrap,
@@ -336,7 +350,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.43` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.44` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so

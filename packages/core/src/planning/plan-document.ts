@@ -6,7 +6,23 @@ export const DEFAULT_PLAN_TEMPLATE = `# Implementation Plan
 <!-- atlr:plan version="1" -->
 
 ## ATLR-001 — First implementation task
-<!-- atlr:task {"id":"ATLR-001","priority":1,"type":"task","execution":{"writePaths":["src/example.ts","tests/example.test.ts"],"allowDependencyChanges":false,"validations":[],"allowFullSuite":false,"allowLocalChange":true}} -->
+<!-- atlr:task
+{
+  "id": "ATLR-001",
+  "priority": 1,
+  "type": "task",
+  "execution": {
+    "writePaths": [
+      "src/example.ts",
+      "tests/example.test.ts"
+    ],
+    "allowDependencyChanges": false,
+    "validations": [],
+    "allowFullSuite": false,
+    "allowLocalChange": true
+  }
+}
+-->
 
 ### Goal
 
