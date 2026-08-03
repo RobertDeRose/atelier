@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.41
+# Local Acceptance Workflow — 0.14.0-alpha.42
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -22,7 +22,7 @@ failure/interruption and per-operation path evidence, source-only freshness, sco
 Beads initialization, symbol-state convergence, validation staleness, exact diff review, restart,
 multi-repository drift, live footer model/thinking selection, Git/Jujutsu refresh scheduling, source-qualified
 intelligence degradation, external idle drift refresh, macOS/symlink repository-path canonicalization,
-in-flight observation invalidation, canonical-root test expectations under a symlinked temporary directory, and package metadata.
+in-flight observation invalidation, canonical-root test expectations under a symlinked temporary directory, model Bash streamed/final lifecycle completion, visible plan/approval phases, durable footer/report evidence, and package metadata.
 
 Fixture conformance is deterministic evidence only. Do not describe it as a live external-provider run.
 
@@ -213,6 +213,16 @@ scripts/guided-verification.sh guided
 The `guided` command checks every required workspace and guide and prepares them automatically when they are
 missing. Running the script with no command only prints usage. Detailed manual instructions are written under
 the persistent run's `guided/guides/` directory rather than left above the Pi viewport.
+
+The guided objective checks also inspect bounded `ui.*` ledger events. A passing archive must prove:
+
+- `/status` and `/workflow` produced distinct report digests;
+- footer evidence observed Jujutsu/Git identity, code-intelligence readiness, and at least two thinking levels;
+- `/status`, `/workflow`, `/plan`, and every exact-approval phase were presented before their expensive work;
+- the model Bash probe recorded start, streamed output, successful final completion, output bytes/hash, and no failure/interruption; and
+- Pi reached an idle `ui.agent_settled` state after the model Bash result.
+
+These events are diagnostic evidence only. They do not authorize effects, satisfy validation, or close a task.
 
 ## 4. Verify code intelligence
 

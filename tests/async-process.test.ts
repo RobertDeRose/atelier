@@ -40,3 +40,20 @@ test("async process runner force-kills a timed-out process group that ignores SI
   assert.match(result.stderr, /ignoring SIGTERM/);
   assert.ok(Date.now() - startedAt < 4_000, "force termination exceeded the bounded grace period");
 });
+
+test("async process runner completes after parent exit when a detached descendant holds stdio open", { skip: process.platform === "win32" }, async () => {
+  const startedAt = Date.now();
+  const script = [
+    "const { spawn } = require('node:child_process');",
+    "const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { detached: true, stdio: ['ignore', process.stdout, process.stderr] });",
+    "child.unref();",
+    "process.stdout.write('parent complete');",
+  ].join("\n");
+  const result = await runProcess(process.execPath, ["-e", script], {
+    cwd: process.cwd(),
+    timeoutMs: 5_000,
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, "parent complete");
+  assert.ok(Date.now() - startedAt < 2_000, "runner waited for a detached descendant to release inherited stdio");
+});

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0-alpha.42 — 2026-08-03
+
+- Replace the model-facing Bash wrapper with a sequential policy-controlled tool that owns authorization consumption, streamed output updates, a final success result or thrown failure/interruption, and bounded lifecycle evidence.
+- Allow the asynchronous process runner to finish after a parent exits and inherited stdout/stderr become idle, while retaining process-group timeout and cancellation escalation.
+- Remove repository/footer observation from Pi's `tool_result` critical path; post-turn refresh now begins from `agent_settled` after Pi can finalize the tool row and clear its working indicator.
+- Present an above-editor phase widget, status entry, and working label before `/plan`, `/status`, `/workflow`, permission evaluation, model Bash, and each expensive exact-approval phase; yield one event-loop turn before blocking I/O.
+- Persist bounded diagnostic evidence for report cards, footer renders, phase transitions, model Bash output/completion, direct-shell denials, and agent settlement. Model Bash output is represented only by byte counts, truncation state, and SHA-256.
+- Make guided acceptance objectively verify distinct status/workflow reports, footer transitions, visible plan/approval phases, model Bash streamed output and final completion, and the final idle agent state.
+
 ## 0.14.0-alpha.41 — 2026-08-02
 
 - Return a complete Pi `BashResult` from denied `user_bash` events instead of the `tool_call`-only `{ block, reason }` shape. Rejected direct shell commands now render an explicit Atelier denial with exit status 126 and are never executed by Pi's fallback shell path.

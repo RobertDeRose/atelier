@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.41**. Alpha.41 makes direct `!`/`!!` shell denial conform to Pi's `user_bash` replacement-result contract, so a rejected command is never executed and its output cannot leak. It also restores distinct default `/status` and `/workflow` reports without reintroducing provider-backed workflow latency.
+Current release: **0.14.0-alpha.42**. Alpha.42 completes Pi's interactive lifecycle: authorized model Bash streams output and always settles, `/plan` and `/approve` show durable phase feedback before expensive work, and footer/report/phase/tool presentation is recorded as bounded diagnostic evidence for guided acceptance.
 
 ## Current status
 
@@ -35,8 +35,9 @@ Atelier currently provides:
   human-readable task titles, code-index health, and provider-native Jujutsu/Git cleanliness;
 - expandable TUI-only Markdown report cards for status, workflow context, code intelligence, changed paths,
   validation, evidence, and ready-work inspection without adding those reports to model context;
-- approval-only plan activation that leaves Pi idle until the user explicitly requests implementation; and
-- a request-scoped interactive observation pipeline with asynchronous Git/Jujutsu status, bounded provider caches, immediate phase feedback, and `/performance` latency diagnostics.
+- approval-only plan activation that leaves Pi idle until the user explicitly requests implementation;
+- a request-scoped interactive observation pipeline with asynchronous Git/Jujutsu status, bounded provider caches, immediate phase feedback, and `/performance` latency diagnostics; and
+- durable bounded UI evidence for footer renders, report cards, phase transitions, model Bash streaming/completion, direct-shell denials, and final agent settlement.
 
 The fuzzy file palette, project tree, Yazi/skim adapters, and richer Helix-native IDE surfaces remain
 future work. They are intentionally gated on the guarded workflow rather than being treated as current

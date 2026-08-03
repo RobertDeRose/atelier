@@ -92,6 +92,8 @@ for (const path of [
   "apps/pi-extension/src/status-commands.ts",
   "apps/pi-extension/src/working-phase.ts",
   "apps/pi-extension/src/manual-edit-process.ts",
+  "apps/pi-extension/src/model-bash-tool.ts",
+  "apps/pi-extension/src/ui-evidence.ts",
   "apps/pi-extension/src/approval-presentation.ts",
   "apps/pi-extension/src/status-presentation.ts",
   "apps/pi-extension/src/report-presentation.ts",
@@ -111,6 +113,7 @@ for (const path of [
   "docs/ADR-0033-PERSISTENT-MARKDOWN-REPORTS.md",
   "docs/ADR-0036-INTERACTIVE-OBSERVATION-PIPELINE.md",
   "docs/ADR-0037-CANONICAL-PATH-IDENTITY.md",
+  "docs/ADR-0039-PI-UI-LIFECYCLE-AND-EVIDENCE.md",
   "docs/UI_LATENCY_AUDIT_ALPHA29.md",
   "docs/UI_LATENCY_CORRECTIONS_ALPHA30.md",
 ]) {

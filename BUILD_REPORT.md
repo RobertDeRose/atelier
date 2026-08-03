@@ -1,6 +1,26 @@
-# Build Report — Atelier 0.14.0-alpha.41
+# Build Report — Atelier 0.14.0-alpha.42
 
 ## Result
+
+## Alpha.42 Pi UI lifecycle and evidence correction
+
+Alpha.42 addresses the three remaining defects from the completed alpha.41 guided run. The model-facing Bash
+implementation now owns a complete Pi tool lifecycle: it consumes the matching authorization, emits bounded
+streamed updates, returns a final result on success, throws on failure/interruption as required by Pi, and records output metrics
+and hashes without persisting raw command output. The bounded process runner no longer waits indefinitely when a
+short-lived parent exits while a detached descendant retains inherited stdout or stderr; normal output drains
+until close or a short post-exit idle grace, while timeout/cancellation retains process-group escalation.
+
+Pi tool-result handling now completes durable mutation evidence without awaiting a repository/footer
+observation. `agent_settled` owns the final refresh after Pi can finalize the tool row and clear its working
+indicator. Slash commands and exact approval install a visible above-editor phase widget, status entry, and
+working label, then yield before provider or repository work. `/plan` presents feedback before dispatch; exact
+approval presents idle-wait, provider, preparation, revalidation, reconciliation, convergence, activation, and
+status phases.
+
+Atelier persists bounded diagnostic `ui.*` events for report cards, footer renders, phase transitions, model
+Bash lifecycle, direct-shell denials, and agent settlement. The guided verifier now evaluates these events as
+objective acceptance evidence.
 
 ## Alpha.41 direct user-shell denial and workflow-report correction
 
@@ -261,9 +281,9 @@ The final working tree passed:
 Release metadata:     passed
 Type-check:           passed
 Build:                passed
-Deterministic tests:   294 passed, 0 failed
+Deterministic tests:   296 passed, 0 failed in bounded processes
 Path-alias lane:       76 passed, 0 failed
-Guided regressions:    passed in the aggregate suite
+Guided regressions:    9 passed, 0 failed
 Interactive perf tests: 3 passed, 0 failed
 CLI smoke workflow:   passed
 Acceptance syntax:    passed
@@ -274,18 +294,17 @@ Package dry-run:      passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.41
-Files:            479
-Built dist files: 416
-Compressed size:  540,523 bytes
-Unpacked size:    2,529,273 bytes
+Package:          atelier-prototype@0.14.0-alpha.42
+Files:            488
+Built dist files: 424
+Compressed size:  554,670 bytes
+Unpacked size:    2,584,912 bytes
 ```
 
 ## Verification boundary
 
 The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
-and TypeScript 7 toolchain. Type-checking and production compilation pass. All 294 deterministic tests pass through the aggregate eight-way command, and all 76 selected path-sensitive tests pass with `TMPDIR` routed through a symlink alias. The pinned
-Node 24 `mise check` remains authoritative for the supported runtime and macOS path-alias confirmation.
+and TypeScript 7 toolchain. Type-checking and production compilation pass. All 296 deterministic tests pass in bounded processes using the same eight-way test-file concurrency contract, and all 76 selected path-sensitive tests pass with `TMPDIR` routed through a symlink alias. The all-at-once Node 22 runner can stall under process-heavy fixture contention; the pinned Node 24 `mise check` remains authoritative for the supported aggregate runtime and macOS path-alias confirmation.
 
 The standalone smoke workflow, package dry-run, release metadata check, and script syntax pass. Bundle and
 fresh-checkout verification are performed after the release commit and annotated tag are created. Live Jujutsu, Seatbelt, Bubblewrap,
@@ -294,7 +313,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.41` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.42` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so

@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.41 (2026-08-02).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.42 (2026-08-03).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -59,7 +59,16 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.41
+## Implementation Status — v0.14.0-alpha.42
+
+### Pi tool lifecycle, phase feedback, and presentation evidence
+
+- The model-facing Bash tool owns authorization consumption, streamed updates, a success result or thrown failure/interruption, and bounded lifecycle evidence; it no longer depends on a generic wrapper whose completion could remain partial.
+- The asynchronous process runner resolves after the parent exits and inherited pipes become idle, while timeout and cancellation retain process-group termination escalation.
+- `tool_result` completes mutation evidence without awaiting repository/footer work; `agent_settled` performs the post-turn refresh after Pi can finalize the tool row and clear its working indicator.
+- `/plan` presents `plan.command` before dispatching the planning turn. `/approve` presents explicit idle-wait, provider, preparation, revalidation, reconciliation, convergence, activation, and final-status phases before each expensive boundary.
+- `/status`, `/workflow`, footer renders, phase transitions, direct-shell denials, model Bash lifecycle, and final agent settlement emit bounded diagnostic `ui.*` ledger events.
+- Guided acceptance verifies the rendered report digests, footer state changes, visible approval phases, model Bash streamed output/completion, and a final idle agent state from durable evidence rather than tester notes alone.
 
 ### Direct user-shell denial contract and report separation
 

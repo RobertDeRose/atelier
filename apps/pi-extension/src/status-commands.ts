@@ -12,6 +12,7 @@ import {
 } from "./command-reports.ts";
 import { appendAtelierReport } from "./report-presentation.ts";
 import { clearAtelierPhase, showAtelierPhase } from "./working-phase.ts";
+import { recordReportEvidence } from "./ui-evidence.ts";
 
 export interface StatusCommandDependencies {
   getCore(ctx: ExtensionCommandContext): AtelierCore;
@@ -23,10 +24,13 @@ export function registerStatusCommands(pi: ExtensionAPI, dependencies: StatusCom
     description: "Show Atelier workflow, plan, task, and policy state",
     handler: async (_args, ctx) => {
       const core = dependencies.getCore(ctx);
-      await showAtelierPhase(ctx, "reading status");
+      await showAtelierPhase(ctx, "reading status", { core, operation: "/status" });
       try {
         const status = await core.status();
-        appendAtelierReport(pi, ctx, "Atelier status", statusMarkdown(status), statusSummary(status));
+        const markdown = statusMarkdown(status);
+        const summary = statusSummary(status);
+        appendAtelierReport(pi, ctx, "Atelier status", markdown, summary);
+        recordReportEvidence(core, { command: "/status", title: "Atelier status", summary, markdown });
         await dependencies.updateStatus(ctx, core, status);
       } finally {
         clearAtelierPhase(ctx);
@@ -38,28 +42,36 @@ export function registerStatusCommands(pi: ExtensionAPI, dependencies: StatusCom
     const core = dependencies.getCore(ctx);
     const requested = args.trim();
     const full = requested === "--full" || requested === "full" || requested === "refresh";
-    await showAtelierPhase(ctx, full ? "refreshing authoritative workflow state" : "reading durable workflow state");
+    await showAtelierPhase(ctx, full ? "refreshing authoritative workflow state" : "reading durable workflow state", { core, operation: full ? "/workflow full" : "/workflow" });
     try {
       if (full) {
         const state = await core.buildWorkingState();
+        const markdown = core.workingStateBuilder.toMarkdown(state);
+        const summary = workflowSummary(state);
         appendAtelierReport(
           pi,
           ctx,
           "Atelier workflow · full",
-          core.workingStateBuilder.toMarkdown(state),
-          workflowSummary(state),
+          markdown,
+          summary,
         );
+        recordReportEvidence(core, { command: "/workflow full", title: "Atelier workflow · full", summary, markdown });
         await dependencies.updateStatus(ctx, core);
         return;
       }
       const status = await core.status();
+      const markdown = workflowStatusMarkdown(status);
+      const summary = status.currentTaskId === undefined
+        ? `${status.mode} · no active task`
+        : `${status.mode} · task ${status.currentTaskId}`;
       appendAtelierReport(
         pi,
         ctx,
         "Atelier workflow",
-        workflowStatusMarkdown(status),
-        status.currentTaskId === undefined ? `${status.mode} · no active task` : `${status.mode} · task ${status.currentTaskId}`,
+        markdown,
+        summary,
       );
+      recordReportEvidence(core, { command: "/workflow", title: "Atelier workflow", summary, markdown });
       await dependencies.updateStatus(ctx, core, status);
     } finally {
       clearAtelierPhase(ctx);

@@ -28,6 +28,7 @@ declare module "@earendil-works/pi-coding-agent" {
         onData: (chunk: Buffer) => void;
         signal?: AbortSignal;
         timeout?: number;
+        env?: NodeJS.ProcessEnv;
       },
     ): Promise<{ exitCode: number | null }>;
   }
@@ -38,6 +39,7 @@ declare module "@earendil-works/pi-coding-agent" {
     description: string;
     promptSnippet?: string;
     promptGuidelines?: string[];
+    executionMode?: "sequential" | "parallel";
     parameters: unknown;
     execute(
       toolCallId: string,
@@ -145,6 +147,7 @@ declare module "@earendil-works/pi-coding-agent" {
       description: string;
       promptSnippet?: string;
       promptGuidelines?: string[];
+      executionMode?: "sequential" | "parallel";
       parameters: unknown;
       execute(
         toolCallId: string,

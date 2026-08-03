@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.41
+# Atelier Architecture — 0.14.0-alpha.42
 
 The Pi integration owns a session-local `FooterStatusController` and request-scoped observation pipeline. It
 serializes and coalesces status observations, consumes model/thinking and code-index events, invalidates cached
@@ -112,6 +112,33 @@ sequenceDiagram
 `/performance` exposes bounded session-local phase summaries, including duration, subprocess counts, files and
 bytes hashed, cache hits/misses, and SQLite operation/lock-wait observations. The telemetry contains no raw
 provider output or secret material.
+
+## Pi tool and presentation lifecycle
+
+Atelier replaces Pi's model-facing Bash tool with a policy-controlled sequential tool that consumes the exact
+authorization recorded during `tool_call`. It owns the complete start/update/final-settlement lifecycle, streams
+bounded output, returns a final result on success, throws on failure/interruption as required by Pi, and records only output
+metrics and SHA-256 evidence. Direct `!`/`!!` commands continue to use Pi's distinct `user_bash` operations or
+replacement-result contract.
+
+The process runner treats parent exit and stdio lifetime separately. After a parent exits it continues draining
+output until both pipes close or become idle for a short bounded grace period; timeout and abort still retain
+process-group escalation. This prevents a detached descendant holding inherited pipes from leaving Pi's tool
+row and `Working…` indicator permanently active.
+
+Slash-command and approval phases use three surfaces at once: an above-editor widget for idle commands, a footer
+status entry, and Pi's streaming working label. Atelier yields one event-loop turn after installing the phase,
+so the user sees feedback before repository, provider, or reconciliation I/O begins. Tool-result handlers finish
+durable mutation evidence but do not await a footer refresh; `agent_settled` owns the post-turn observation so
+Pi can finalize the tool row and return to idle first.
+
+## Durable presentation evidence
+
+The external ledger stores bounded diagnostic events for `ui.report_presented`, `ui.footer_presented`,
+`ui.phase_changed`, `ui.model_bash`, `ui.user_bash_denied`, and `ui.agent_settled`. Report/footer text is bounded
+and passes through normal redaction. Model Bash output is never persisted as plaintext: evidence contains total
+and captured byte counts, truncation state, update count, exit status, duration, and SHA-256. These records are
+acceptance and troubleshooting evidence only; they cannot grant authority, satisfy validation, or close a task.
 
 ## Persistent Pi report presentation
 

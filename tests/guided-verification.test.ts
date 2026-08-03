@@ -55,6 +55,9 @@ test("guided verification resolves step workspace paths before launching and col
       "03-policy-jj.md",
       "04-approval.md",
       "05-control.md",
+      "05a-control-implementation.md",
+      "05b-control-stop.md",
+      "05c-control-actions.md",
     ]) {
       writeFileSync(join(guidedRoot, "guides", guide), `# ${guide}\n`, "utf8");
     }
@@ -70,8 +73,9 @@ test("guided verification resolves step workspace paths before launching and col
     executable(join(fakeBin, "bd"), 'printf "[]\\n"');
 
     // Starting at step 3 exercises checkpoint collection plus the shared control
-    // workspace used by steps 4 and 5. Each step consumes Enter, PASS, and notes.
-    const input = "\np\n\n\np\n\n\np\n\n";
+    // workspace used by steps 4 and 5. Steps 3 and 4 consume Enter, PASS, and notes.
+    // Step 5 uses three separately launched Pi phases, then one PASS/notes result.
+    const input = "\np\n\n\np\n\n\n\n\np\n\n";
     const result = spawnSync("bash", [script, "guided", "3"], {
       cwd: process.cwd(),
       encoding: "utf8",
@@ -110,11 +114,20 @@ test("guided verification resolves step workspace paths before launching and col
     assert.match(refreshedGuide, /Inside Pi, run `\/status` first\. The footer must use `git:` and `intel: disabled`\./);
     assert.match(refreshedGuide, /typed create and edit are blocked because investigate mode is read-only/i);
     assert.match(refreshedGuide, /dirty tracked, untracked, and ignored deletions each create a verified checkpoint/i);
+    assert.match(refreshedGuide, /Working….*indicator clears/is);
     const approvalGuide = readFileSync(join(guidedRoot, "guides", "04-approval.md"), "utf8");
     assert.match(approvalGuide, /do not replace or repair the generated plan/i);
     assert.match(approvalGuide, /"validations":\["manual-acceptance"\]/);
     const controlGuide = readFileSync(join(guidedRoot, "guides", "05-control.md"), "utf8");
-    assert.match(controlGuide, /Using only the typed edit tool, add the exact line `\/\/ pause-probe`/);
+    assert.match(controlGuide, /three separate Pi sessions/i);
+    const implementationGuide = readFileSync(join(guidedRoot, "guides", "05a-control-implementation.md"), "utf8");
+    assert.match(implementationGuide, /Do not run `\/atelier-stop` during this implementation turn/i);
+    const stopGuide = readFileSync(join(guidedRoot, "guides", "05b-control-stop.md"), "utf8");
+    assert.match(stopGuide, /only the current turn stops/i);
+    const controlsGuide = readFileSync(join(guidedRoot, "guides", "05c-control-actions.md"), "utf8");
+    assert.match(controlsGuide, /Using only the typed edit tool, add the exact line `\/\/ pause-probe`/);
+    assert.equal(existsSync(join(evidence, "guided-control-implementation")), true);
+    assert.equal(existsSync(join(evidence, "guided-control-stop")), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -162,7 +175,8 @@ test("guided verification auto-prepares missing workspaces and does not emit ter
 
     // Starting at step 3 keeps the regression bounded while still exercising
     // automatic preparation, TUI launch, evidence collection, and archiving.
-    const input = "\np\n\n\np\n\n\np\n\n";
+    // Step 5 launches implementation, stop, and control phases separately.
+    const input = "\np\n\n\np\n\n\n\n\np\n\n";
     const result = spawnSync("bash", [script, "guided", "3"], {
       cwd: process.cwd(),
       encoding: "utf8",
@@ -469,4 +483,23 @@ test("live acceptance verifies headless workspace denial from durable policy evi
   assert.match(script, /ledger-headless-shell-block\.json/);
   assert.match(script, /outside_workspace/);
   assert.doesNotMatch(script, /jsonl_assert_string \"\$EVIDENCE_DIR\/pi-headless-shell-block\.jsonl\"/);
+});
+
+test("guided acceptance verifies durable visual and model-Bash lifecycle evidence", () => {
+  const source = readFileSync(script, "utf8");
+  for (const kind of [
+    "ui.report_presented",
+    "ui.footer_presented",
+    "ui.phase_changed",
+    "ui.model_bash",
+    "ui.agent_settled",
+    "ui.user_bash_denied",
+  ]) {
+    assert.match(source, new RegExp(kind.replace(".", "\\.")), `missing durable ${kind} verification`);
+  }
+  assert.match(source, /status\.markdown\.sha256 !== workflow\.markdown\.sha256/);
+  assert.match(source, /thinkingLevels\.size >= 2/);
+  assert.match(source, /event\.payload\?\.hadOutput === true/);
+  assert.match(source, /approve\.prepare/);
+  assert.match(source, /approve\.activate/);
 });

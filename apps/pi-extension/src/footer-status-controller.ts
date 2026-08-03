@@ -9,7 +9,8 @@ import {
   type CodeWorkspace,
   type AtelierStatus,
 } from "../../../packages/core/src/index.ts";
-import { installAtelierFooter, type FooterIntelState } from "./status-presentation.ts";
+import { installAtelierFooter, renderAtelierFooter, type FooterIntelState } from "./status-presentation.ts";
+import { recordFooterEvidence } from "./ui-evidence.ts";
 
 const STATUS_KEY = "atlr";
 const OBSERVATION_REUSE_MS = 250;
@@ -33,9 +34,15 @@ export class FooterStatusController {
   private providerIntel?: FooterIntelState;
   private indexedWorkspaceSourceDigest?: string;
   private lastIndexCompletionKey?: string;
-  private refreshRequested = false;
   private enabled = true;
   private refreshPromise?: Promise<void>;
+  private requestedGeneration = 0;
+  private completedGeneration = 0;
+  private readonly refreshWaiters: Array<{
+    generation: number;
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  }> = [];
   private pendingContext?: ExtensionContext;
   private pendingCore?: AtelierCore;
   private pendingStatus?: AtelierStatus;
@@ -44,6 +51,7 @@ export class FooterStatusController {
   private lastStatus?: AtelierStatus;
   private lastIntel?: FooterIntelState;
   private lastObservedAt = 0;
+  private lastFooterEvidenceKey?: string;
 
   setRuntime(options: { thinkingLevel?: string; modelName?: string }): void {
     if (options.thinkingLevel !== undefined) this.thinkingLevel = options.thinkingLevel;
@@ -56,8 +64,8 @@ export class FooterStatusController {
 
   async disable(): Promise<void> {
     this.enabled = false;
-    this.refreshRequested = false;
     await this.refreshPromise?.catch(() => {});
+    for (const waiter of this.refreshWaiters.splice(0)) waiter.resolve();
     delete this.pendingContext;
     delete this.pendingCore;
     delete this.pendingStatus;
@@ -66,10 +74,12 @@ export class FooterStatusController {
     delete this.lastStatus;
     delete this.lastIntel;
     this.lastObservedAt = 0;
+    delete this.lastFooterEvidenceKey;
   }
 
   resetRepository(): void {
     delete this.providerIntel;
+    delete this.lastFooterEvidenceKey;
     delete this.indexedWorkspaceSourceDigest;
     delete this.lastIndexCompletionKey;
   }
@@ -135,24 +145,49 @@ export class FooterStatusController {
     this.pendingCore = core;
     if (status === undefined) delete this.pendingStatus;
     else this.pendingStatus = status;
-    this.refreshRequested = true;
-    if (this.refreshPromise !== undefined) return this.refreshPromise;
-
-    this.refreshPromise = (async () => {
-      while (this.enabled && this.refreshRequested) {
-        this.refreshRequested = false;
-        const currentContext = this.pendingContext;
-        const currentCore = this.pendingCore;
-        const currentStatus = this.pendingStatus;
-        delete this.pendingStatus;
-        if (currentContext !== undefined && currentCore !== undefined) {
-          await this.refreshNow(currentContext, currentCore, currentStatus);
-        }
-      }
-    })().finally(() => {
-      delete this.refreshPromise;
+    const generation = ++this.requestedGeneration;
+    const completion = new Promise<void>((resolve, reject) => {
+      this.refreshWaiters.push({ generation, resolve, reject });
     });
-    return this.refreshPromise;
+    this.ensureRefreshDrain();
+    return completion;
+  }
+
+  private ensureRefreshDrain(): void {
+    if (!this.enabled || this.refreshPromise !== undefined) return;
+    this.refreshPromise = this.drainRefreshes()
+      .catch((error) => {
+        for (const waiter of this.refreshWaiters.splice(0)) waiter.reject(error);
+      })
+      .finally(() => {
+        delete this.refreshPromise;
+        // A request can arrive after the drain's final loop check but before
+        // this finally callback. Start another drain rather than losing that
+        // request or resolving its caller before the footer was rendered.
+        if (this.enabled && this.completedGeneration < this.requestedGeneration) {
+          this.ensureRefreshDrain();
+        }
+      });
+  }
+
+  private async drainRefreshes(): Promise<void> {
+    while (this.enabled && this.completedGeneration < this.requestedGeneration) {
+      const targetGeneration = this.requestedGeneration;
+      const currentContext = this.pendingContext;
+      const currentCore = this.pendingCore;
+      const currentStatus = this.pendingStatus;
+      delete this.pendingStatus;
+      if (currentContext !== undefined && currentCore !== undefined) {
+        await this.refreshNow(currentContext, currentCore, currentStatus);
+      }
+      this.completedGeneration = targetGeneration;
+      for (let index = this.refreshWaiters.length - 1; index >= 0; index -= 1) {
+        const waiter = this.refreshWaiters[index]!;
+        if (waiter.generation > targetGeneration) continue;
+        this.refreshWaiters.splice(index, 1);
+        waiter.resolve();
+      }
+    }
   }
 
   private effectiveIntelState(core: AtelierCore, status: AtelierStatus): FooterIntelState {
@@ -190,6 +225,45 @@ export class FooterStatusController {
     }
     ctx.ui.setStatus(STATUS_KEY, value);
     installAtelierFooter(ctx, status, intel, this.thinkingLevel, core.config.footer, this.modelName);
+
+    const evidenceWidth = 120;
+    const lines = renderAtelierFooter(
+      ctx,
+      status,
+      intel,
+      evidenceWidth,
+      {},
+      this.thinkingLevel,
+      this.modelName,
+    ).map((line) => line.trimEnd());
+    const contextPercent = ctx.getContextUsage?.()?.percent;
+    const model = this.modelName ?? ctx.model?.id ?? ctx.model?.name;
+    const evidenceKey = JSON.stringify({
+      lines,
+      model,
+      thinkingLevel: this.thinkingLevel,
+      contextPercent,
+      mode: status.mode,
+      taskId: status.currentTaskId,
+      vcs: status.repositoryDisplay.vcs,
+      vcsState: status.repositoryDisplay.state,
+      intel,
+    });
+    if (evidenceKey !== this.lastFooterEvidenceKey) {
+      this.lastFooterEvidenceKey = evidenceKey;
+      recordFooterEvidence(core, {
+        lines,
+        width: evidenceWidth,
+        ...(model === undefined ? {} : { model }),
+        ...(this.thinkingLevel === undefined ? {} : { thinkingLevel: this.thinkingLevel }),
+        ...(contextPercent === undefined ? {} : { contextPercent }),
+        mode: status.mode,
+        ...(status.currentTaskId === undefined ? {} : { taskId: status.currentTaskId }),
+        vcs: status.repositoryDisplay.vcs,
+        vcsState: status.repositoryDisplay.state,
+        intel,
+      });
+    }
   }
 
   private async refreshNow(ctx: ExtensionContext, core: AtelierCore, suppliedStatus?: AtelierStatus): Promise<void> {

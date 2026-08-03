@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   AtelierCore,
   ensurePlanDocument,
@@ -36,6 +32,7 @@ import { runPlanEditorWithPi } from "./manual-edit-process.ts";
 import { planInstruction } from "./plan-instruction.ts";
 import { contextCapsulePrompt, createAuthoritativeContextCapsule } from "./authoritative-context.ts";
 import { createAtelierBashOperations } from "./bash-operations.ts";
+import { createPolicyControlledBashTool } from "./model-bash-tool.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
 import { authorizeShellEffects, authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, recordBlockedWorkspaceConsequence, recordWorkspacePolicyDecision, repositoryObservationPaths, requestForTool } from "./tool-authorization.ts";
 import { effectsForTool, effectsForUserBash } from "./tool-effects.ts";
@@ -57,16 +54,13 @@ import {
   validationResultsMarkdown,
   workflowMarkdown,
 } from "./command-reports.ts";
-import {
-  executionGrantText,
-  planStatusText,
-  vcsStatusText,
-} from "./status-presentation.ts";
+import { executionGrantText, planStatusText, vcsStatusText } from "./status-presentation.ts";
 import { FooterStatusController } from "./footer-status-controller.ts";
 import { registerCodeCommands } from "./code-commands.ts";
 import { registerStatusCommands } from "./status-commands.ts";
 import { clearAtelierPhase as clearPhase, showAtelierPhase as showPhase } from "./working-phase.ts";
 import { deniedUserBashResult } from "./user-bash-result.ts";
+import { recordAgentSettledEvidence, recordUserBashDenial } from "./ui-evidence.ts";
 import {
   ATELIER_COMMIT_TOOL,
   ATELIER_STATE_TOOL,
@@ -85,9 +79,7 @@ const CODE_RETRIEVAL_TOOLS = [
   "atlr_code_symbols",
   "atlr_code_status",
 ] as const;
-export interface AtelierExtensionOptions {
-  openCore?: (repositoryRoot: string) => AtelierCore;
-}
+export interface AtelierExtensionOptions { openCore?: (repositoryRoot: string) => AtelierCore; }
 interface ExtensionSessionState {
   sessionId: string;
   core?: AtelierCore;
@@ -261,76 +253,80 @@ async function approveAndReconcile(
   ctx: ExtensionCommandContext,
   core: AtelierCore,
 ): Promise<void> {
+  await showPhase(ctx, "waiting for Pi to become idle", { core, operation: "approve.wait_idle" });
   await ctx.waitForIdle();
-  await showPhase(ctx, "checking task provider");
-  let providerStatus = await core.taskProvider.status();
-  if (providerStatus.available && !providerStatus.initialized) {
-    const initialize = await ctx.ui.confirm(
-      "Initialize task provider",
-      `Initialize ${providerStatus.provider} as a separate preparation step?`,
-    );
-    if (!initialize) return;
-    await core.execution.initializeProvider(true);
-    providerStatus = await core.taskProvider.status();
-  }
-  if (!providerStatus.available || !providerStatus.initialized) {
-    ctx.ui.notify(providerStatus.reason ?? `${providerStatus.provider} is unavailable or uninitialized.`, "error");
-    return;
-  }
-  let prepared;
   try {
-    await showPhase(ctx, "preparing exact transaction");
-    prepared = await core.execution.prepare();
-  } catch (error) {
-    clearPhase(ctx);
-    ctx.ui.notify(errorMessage(error), "error");
-    return;
-  }
-  if (prepared.reconciliation.conflicts.length > 0) {
-    ctx.ui.notify(`Task reconciliation has ${prepared.reconciliation.conflicts.length} conflict(s).`, "error");
-    return;
-  }
-  const summary = preparationSummary(core, prepared);
-  clearPhase(ctx);
-  ctx.ui.notify(summary, "info");
-  ctx.ui.setWidget?.(
-    "atelier-approval",
-    ["Atelier exact execution transaction", "", ...summary.split("\n")],
-    { placement: "aboveEditor" },
-  );
-  let confirmed: boolean;
-  try {
-    confirmed = await ctx.ui.confirm(
-      "Approve exact execution transaction",
-      "Review the complete transaction and task-constraint summary shown above. Approve and apply exactly this transaction?",
+    await showPhase(ctx, "checking task provider", { core, operation: "approve.provider" });
+    let providerStatus = await core.taskProvider.status();
+    if (providerStatus.available && !providerStatus.initialized) {
+      clearPhase(ctx, { reason: "confirmation" });
+      const initialize = await ctx.ui.confirm(
+        "Initialize task provider",
+        `Initialize ${providerStatus.provider} as a separate preparation step?`,
+      );
+      if (!initialize) return;
+      await showPhase(ctx, "initializing task provider", { core, operation: "approve.provider_initialize" });
+      await core.execution.initializeProvider(true);
+      providerStatus = await core.taskProvider.status();
+    }
+    if (!providerStatus.available || !providerStatus.initialized) {
+      ctx.ui.notify(providerStatus.reason ?? `${providerStatus.provider} is unavailable or uninitialized.`, "error");
+      return;
+    }
+    let prepared;
+    try {
+      await showPhase(ctx, "preparing exact transaction", { core, operation: "approve.prepare" });
+      prepared = await core.execution.prepare();
+    } catch (error) {
+      ctx.ui.notify(errorMessage(error), "error");
+      return;
+    }
+    if (prepared.reconciliation.conflicts.length > 0) {
+      ctx.ui.notify(`Task reconciliation has ${prepared.reconciliation.conflicts.length} conflict(s).`, "error");
+      return;
+    }
+    const summary = preparationSummary(core, prepared);
+    clearPhase(ctx, { reason: "confirmation" });
+    ctx.ui.notify(summary, "info");
+    ctx.ui.setWidget?.(
+      "atelier-approval",
+      ["Atelier exact execution transaction", "", ...summary.split("\n")],
+      { placement: "aboveEditor" },
     );
-  } finally {
-    ctx.ui.setWidget?.("atelier-approval", undefined);
-  }
-  if (!confirmed) {
-    await core.execution.approveAndApply(prepared.approval.id, false);
-    return;
-  }
-  try {
-    const transition = await core.execution.approveAndApply(prepared.approval.id, true, {
-      onPhase: async (phase) => {
-        const labels = {
-          revalidate: "revalidating exact transaction",
-          reconcile: "applying task reconciliation",
-          converge: "verifying reconciliation convergence",
-          activate: "activating approved task",
-        } as const;
-        await showPhase(ctx, labels[phase]);
-      },
-    });
-    core.ledger.setState("planAutoReviewPending", false);
-    ctx.ui.notify(
-      `Approved plan revision ${transition.approval.planHash}. Task ${transition.task?.id ?? "unknown"} is active with execution grant ${transition.executionGrant?.id ?? "unknown"}. ` +
-        "Atelier is idle; send an explicit implementation instruction when you are ready. Only the reviewed task constraints are active.",
-      "info",
-    );
-  } catch (error) {
-    ctx.ui.notify(errorMessage(error), "error");
+    let confirmed: boolean;
+    try {
+      confirmed = await ctx.ui.confirm(
+        "Approve exact execution transaction",
+        "Review the complete transaction and task-constraint summary shown above. Approve and apply exactly this transaction?",
+      );
+    } finally {
+      ctx.ui.setWidget?.("atelier-approval", undefined);
+    }
+    if (!confirmed) {
+      await core.execution.approveAndApply(prepared.approval.id, false);
+      return;
+    }
+    try {
+      const transition = await core.execution.approveAndApply(prepared.approval.id, true, {
+        onPhase: async (phase) => {
+          const labels = {
+            revalidate: "revalidating exact transaction",
+            reconcile: "applying task reconciliation",
+            converge: "verifying reconciliation convergence",
+            activate: "activating approved task",
+          } as const;
+          await showPhase(ctx, labels[phase], { core, operation: `approve.${phase}` });
+        },
+      });
+      core.ledger.setState("planAutoReviewPending", false);
+      ctx.ui.notify(
+        `Approved plan revision ${transition.approval.planHash}. Task ${transition.task?.id ?? "unknown"} is active with execution grant ${transition.executionGrant?.id ?? "unknown"}. ` +
+          "Atelier is idle; send an explicit implementation instruction when you are ready. Only the reviewed task constraints are active.",
+        "info",
+      );
+    } catch (error) {
+      ctx.ui.notify(errorMessage(error), "error");
+    }
   } finally {
     clearPhase(ctx);
   }
@@ -353,51 +349,15 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   registerAtelierReportRenderer(pi);
   registerValidationTool(pi, getCore);
   registerWorkflowTools(pi, getCore);
-  pi.registerTool({
-    name: "bash",
-    label: "bash (Atelier policy-controlled)",
-    description: "Run a shell command through Atelier effect analysis and workspace policy. An OS sandbox is used when available; otherwise the exact command requires an explicit one-operation approval before unsandboxed execution.",
-    promptSnippet: "Use Atelier's policy-controlled shell; prefer typed tools and expect explicit approval when no OS sandbox is available",
-    parameters: objectSchema({
-      command: stringSchema("Shell command to execute."),
-      timeout: { type: "number", description: "Optional timeout in seconds." },
-    }, ["command"]),
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const core = getCore(ctx);
+  pi.registerTool(createPolicyControlledBashTool({
+    getCore,
+    takeAuthorization(ctx, toolCallId) {
       const state = sessionState(ctx);
       const authorization = state.authorizedShellToolCalls.get(toolCallId);
       state.authorizedShellToolCalls.delete(toolCallId);
-      if (authorization === undefined) {
-        return {
-          content: [{ type: "text", text: "Atelier shell execution failed closed because no matching workspace-policy authorization was recorded." }],
-          details: { error: "missing_workspace_authorization" },
-          isError: true,
-        };
-      }
-      const input = params as { command: string; timeout?: number };
-      const chunks: string[] = [];
-      const operations = createAtelierBashOperations({
-        workspace: core.config.workspaceRoot,
-        backend: core.config.sandboxBackend,
-        allowUnsandboxed: authorization.allowUnsandboxed,
-      });
-      try {
-        const result = await operations.exec(input.command, ctx.cwd, {
-          onData(chunk) {
-            const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-            chunks.push(text);
-            onUpdate?.({ content: [{ type: "text", text: chunks.join("") }] });
-          },
-          ...(signal === undefined ? {} : { signal }),
-          ...(input.timeout === undefined ? {} : { timeout: input.timeout }),
-        });
-        const text = chunks.join("").trim() || `Command exited ${result.exitCode ?? 1}.`;
-        return { content: [{ type: "text", text }], details: result, ...(result.exitCode === 0 ? {} : { isError: true }) };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Sandboxed shell failed closed: ${errorMessage(error)}` }], details: { error: errorMessage(error) }, isError: true };
-      }
+      return authorization;
     },
-  });
+  }));
   pi.registerTool({
     name: "atlr_code_status",
     label: "Atelier Code Status",
@@ -434,7 +394,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       }
     },
   });
-
   pi.registerTool({
     name: "atlr_code_search",
     label: "Atelier Code Search",
@@ -511,7 +470,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       }
     },
   });
-
   pi.registerTool({
     name: "atlr_code_symbols",
     label: "Atelier Symbol Search",
@@ -609,7 +567,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       });
     }
   });
-
   pi.on("thinking_level_select", (event, ctx) => {
     const state = sessionState(ctx);
     state.footerStatus.setRuntime({ thinkingLevel: String(event.level) });
@@ -627,6 +584,12 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     await updateStatus(ctx, getCore(ctx));
   });
 
+  pi.on("agent_start", (_event, ctx) => {
+    // Pi's built-in streaming indicator is now visible. Remove any idle-phase
+    // widget that carried feedback through command preparation.
+    clearPhase(ctx, { reason: "agent_started" });
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
     const extensionState = sessionState(ctx);
     await extensionState.footerStatus.disable();
@@ -635,6 +598,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     extensionState.stopIndexStatusUpdates?.();
     delete extensionState.stopIndexStatusUpdates;
     extensionState.core?.interruptPendingExecutionEvidence("Pi session shut down before tool completion.");
+    extensionState.authorizedShellToolCalls.clear();
     extensionState.core?.endRetrievalSession();
     if (extensionState.core !== undefined) await extensionState.core.close();
     delete extensionState.core;
@@ -666,7 +630,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     const turnBlock = turnPolicyBlockReason(String(event.toolName), extensionState.turnPolicy);
     if (turnBlock !== undefined) {
       const effects = effectsForTool(event, ctx, core);
-      await showPhase(ctx, "reading repository state");
+      await showPhase(ctx, "reading repository state", { core, operation: "permission.turn-policy" });
       const observation = await recordBlockedWorkspaceConsequence(effects, ctx, core);
       const taskId = core.ledger.getState<string>("currentTaskId");
       core.ledger.append({
@@ -695,7 +659,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     }
     const effects = effectsForTool(event, ctx, core);
     const signal = contextSignal(ctx);
-    await showPhase(ctx, "reading repository state");
+    await showPhase(ctx, "reading repository state", { core, operation: "permission.tool" });
     const observation = await core.observeRepository({
       paths: repositoryObservationPaths(effects, core),
       ...(signal === undefined ? {} : { signal }),
@@ -760,7 +724,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     const core = getCore(ctx);
     const effects = effectsForUserBash(command, ctx.cwd, core);
     const signal = contextSignal(ctx);
-    await showPhase(ctx, "reading repository state");
+    await showPhase(ctx, "reading repository state", { core, operation: "permission.user-bash" });
     const observation = await core.observeRepository({
       paths: repositoryObservationPaths(effects, core),
       ...(signal === undefined ? {} : { signal }),
@@ -773,7 +737,13 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     });
     clearPhase(ctx);
     if (authorization.response !== undefined) {
-      return deniedUserBashResult(authorization.response.reason);
+      const denied = deniedUserBashResult(authorization.response.reason);
+      recordUserBashDenial(core, {
+        command,
+        exitCode: denied.result?.exitCode ?? 126,
+        output: denied.result?.output ?? "DENIED BY ATELIER",
+      });
+      return denied;
     }
     return { operations: createAtelierBashOperations({
       workspace: core.config.workspaceRoot, backend: core.config.sandboxBackend,
@@ -787,6 +757,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
 
   pi.on("tool_result", async (event, ctx) => {
     const core = getCore(ctx);
+    sessionState(ctx).authorizedShellToolCalls.delete(event.toolCallId);
     core.invalidateRepositoryObservation();
     const pending = core.ledger.getExecutionEvidence(event.toolCallId);
     if (pending !== undefined && pending.status === "started") {
@@ -800,43 +771,55 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         await core.observeTaskClosure();
       }
     }
-    await updateStatus(ctx, core);
+    // Do not start repository/provider presentation work from tool_result. Pi
+    // waits for extension tool-result handlers before it can finalize the tool
+    // row, clear Working, and schedule the next model action. The authoritative
+    // agent_settled event owns the footer refresh after the turn completes.
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     const core = getCore(ctx);
+    await showPhase(ctx, "building authoritative working state", {
+      core,
+      operation: "agent.context",
+    });
     try {
-      await core.execution.resume();
+      try {
+        await core.execution.resume();
+      } catch (error) {
+        ctx.ui.notify(`Execution validation failed closed: ${errorMessage(error)}`, "error");
+      }
+      ensureAtelierToolsActive(pi, core, WORKFLOW_AGENT_TOOLS, CODE_RETRIEVAL_TOOLS);
+      const state = await core.buildWorkingState();
+      const retrieval = core.code.retrievalStatus();
+      const activeContext = core.workingStateBuilder.toMarkdown(state);
+      const retrievalInstruction = core.config.codeProvider === "disabled"
+        ? "Atelier code intelligence is disabled; use exact built-in read/grep/find operations as needed."
+        : "Provider-first retrieval is advisory: prefer current scoped evidence or one focused semantic query, inspect the compact inventory before another request, and read known paths directly. Raw repository inspection remains available when provider evidence is insufficient or the user requests it.";
+      const modeInstruction = core.execution.isPaused()
+        ? `Execution is paused. Repository reads remain available, but agent mutation is denied until the user runs /atelier-resume. Do not continue implementation automatically. ${retrievalInstruction}`
+        : state.mode === "plan"
+        ? `Only ${core.config.planPath} may be modified by the agent. Task-provider and source mutations are prohibited until exact plan approval. Ordinary non-secret reads inside the immutable session workspace are allowed; every structured or shell effect is evaluated for workspace containment and recoverability. ${retrievalInstruction}`
+        : state.mode === "investigate"
+          ? `Investigate only. Any mutation requires a distinct Atelier approval. ${retrievalInstruction}`
+          : `Implement only the selected task and reviewed task constraints. Ordinary contained and recoverable structured or shell effects are allowed by the workspace policy; likely-secret access, privilege escalation, workspace escape, and indeterminate or unrecoverable effects require one concrete approval. Authorization is not an instruction: obey the user's latest constraints, including requests not to run validation, Bash, commit, or continue. An incomplete task may remain paused; completion is enforced only when task closure is requested. ${retrievalInstruction}`;
+      const policyInstruction = turnPolicyInstruction(sessionState(ctx).turnPolicy);
+      const capsule = createAuthoritativeContextCapsule({
+        modeInstruction,
+        turnPolicyInstruction: policyInstruction,
+        workingStateMarkdown: activeContext,
+      });
+      core.ledger.setState("authoritativeContextCapsule", {
+        digest: capsule.digest,
+        workingStateId: state.stateId,
+        createdAt: new Date().toISOString(),
+      });
+      await updateStatus(ctx, core);
+      return { systemPrompt: contextCapsulePrompt(event.systemPrompt, capsule) };
     } catch (error) {
-      ctx.ui.notify(`Execution validation failed closed: ${errorMessage(error)}`, "error");
+      clearPhase(ctx, { reason: "failed" });
+      throw error;
     }
-    ensureAtelierToolsActive(pi, core, WORKFLOW_AGENT_TOOLS, CODE_RETRIEVAL_TOOLS);
-    const state = await core.buildWorkingState();
-    const retrieval = core.code.retrievalStatus();
-    const activeContext = core.workingStateBuilder.toMarkdown(state);
-    const retrievalInstruction = core.config.codeProvider === "disabled"
-      ? "Atelier code intelligence is disabled; use exact built-in read/grep/find operations as needed."
-      : "Provider-first retrieval is advisory: prefer current scoped evidence or one focused semantic query, inspect the compact inventory before another request, and read known paths directly. Raw repository inspection remains available when provider evidence is insufficient or the user requests it.";
-    const modeInstruction = core.execution.isPaused()
-      ? `Execution is paused. Repository reads remain available, but agent mutation is denied until the user runs /atelier-resume. Do not continue implementation automatically. ${retrievalInstruction}`
-      : state.mode === "plan"
-      ? `Only ${core.config.planPath} may be modified by the agent. Task-provider and source mutations are prohibited until exact plan approval. Ordinary non-secret reads inside the immutable session workspace are allowed; every structured or shell effect is evaluated for workspace containment and recoverability. ${retrievalInstruction}`
-      : state.mode === "investigate"
-        ? `Investigate only. Any mutation requires a distinct Atelier approval. ${retrievalInstruction}`
-        : `Implement only the selected task and reviewed task constraints. Ordinary contained and recoverable structured or shell effects are allowed by the workspace policy; likely-secret access, privilege escalation, workspace escape, and indeterminate or unrecoverable effects require one concrete approval. Authorization is not an instruction: obey the user's latest constraints, including requests not to run validation, Bash, commit, or continue. An incomplete task may remain paused; completion is enforced only when task closure is requested. ${retrievalInstruction}`;
-    const policyInstruction = turnPolicyInstruction(sessionState(ctx).turnPolicy);
-    const capsule = createAuthoritativeContextCapsule({
-      modeInstruction,
-      turnPolicyInstruction: policyInstruction,
-      workingStateMarkdown: activeContext,
-    });
-    core.ledger.setState("authoritativeContextCapsule", {
-      digest: capsule.digest,
-      workingStateId: state.stateId,
-      createdAt: new Date().toISOString(),
-    });
-    await updateStatus(ctx, core);
-    return { systemPrompt: contextCapsulePrompt(event.systemPrompt, capsule) };
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
@@ -863,6 +846,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   pi.on("agent_settled", async (_event, ctx) => {
     const core = getCore(ctx);
     const extensionState = sessionState(ctx);
+    clearPhase(ctx, { reason: "agent_settled" });
+    recordAgentSettledEvidence(core, { isIdle: ctx.isIdle(), mode: core.mode() });
     if (core.mode() === "act") {
       const readiness = core.taskClosureReadiness();
       const grant = core.ledger.getActiveExecutionGrant();
@@ -879,16 +864,16 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         delete extensionState.lastCompletionNotice;
       }
       delete extensionState.turnPolicy;
-      await updateStatus(ctx, core);
+      void updateStatus(ctx, core);
       return;
     }
     delete extensionState.turnPolicy;
     if (core.mode() !== "plan" || sessionState(ctx).reviewInProgress) {
-      await updateStatus(ctx, core);
+      void updateStatus(ctx, core);
       return;
     }
     if (core.ledger.getState<boolean>("planAutoReviewPending") !== true || !existsSync(core.config.planPath)) {
-      await updateStatus(ctx, core);
+      void updateStatus(ctx, core);
       return;
     }
     await reviewPlan(ctx, core);
@@ -1004,14 +989,21 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "Enter guarded plan mode; the completed draft opens in the configured editor",
     handler: async (args, ctx) => {
       const core = getCore(ctx);
-      ensureAtelierToolsActive(pi, core, WORKFLOW_AGENT_TOOLS, CODE_RETRIEVAL_TOOLS);
-      ensurePlanDocument(core.config.planPath);
-      const baseline = hashFile(core.config.planPath);
-      core.ledger.setState("planAutoReviewBaselineHash", baseline);
-      core.ledger.setState("planAutoReviewPending", true);
-      core.beginPlan(args.trim(), { metadata: { baseline } });
-      await updateStatus(ctx, core);
-      pi.sendUserMessage(planInstruction(core, args.trim()));
+      await showPhase(ctx, "starting planning", { core, operation: "plan.command" });
+      try {
+        ensureAtelierToolsActive(pi, core, WORKFLOW_AGENT_TOOLS, CODE_RETRIEVAL_TOOLS);
+        ensurePlanDocument(core.config.planPath);
+        const baseline = hashFile(core.config.planPath);
+        core.ledger.setState("planAutoReviewBaselineHash", baseline);
+        core.ledger.setState("planAutoReviewPending", true);
+        core.beginPlan(args.trim(), { metadata: { baseline } });
+        pi.sendUserMessage(planInstruction(core, args.trim()));
+        // Agent start owns status refresh; keep the visible phase until streaming begins.
+        void updateStatus(ctx, core);
+      } catch (error) {
+        clearPhase(ctx, { reason: "failed" });
+        throw error;
+      }
     },
   });
 
@@ -1065,7 +1057,15 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       try {
         await approveAndReconcile(pi, ctx, core);
       } finally {
-        await updateStatus(ctx, core);
+        await showPhase(ctx, "refreshing approved workflow status", {
+          core,
+          operation: "approve.status",
+        });
+        try {
+          await updateStatus(ctx, core);
+        } finally {
+          clearPhase(ctx);
+        }
       }
     },
   });

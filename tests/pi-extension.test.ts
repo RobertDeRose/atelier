@@ -36,6 +36,18 @@ interface RegisteredCommand {
   handler(args: string, ctx: ExtensionCommandContext): Promise<void>;
 }
 
+async function waitForCondition(
+  predicate: () => boolean,
+  message: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(message);
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 function fakeContext(
   cwd: string,
   confirms: { count: number },
@@ -44,7 +56,10 @@ function fakeContext(
     confirmationBodies?: string[];
     notifications?: string[];
     widgets?: string[][];
+    widgetEvents?: Array<{ key: string; content: string[] | undefined }>;
     footers?: string[];
+    workingMessages?: Array<string | undefined>;
+    statusEvents?: Array<{ key: string; value: string | undefined }>;
     onFooter?: (footer: string) => void;
     signal?: AbortSignal;
     isIdle?: () => boolean;
@@ -79,8 +94,16 @@ function fakeContext(
       },
       select: async () => undefined,
       notify: (message: string) => { observations.notifications?.push(message); },
-      setStatus: (_key: string, value: string | undefined) => { if (value !== undefined) statuses.push(value); },
-      setWidget: (_key: string, content: string[] | undefined) => { if (content !== undefined) observations.widgets?.push(content); },
+      setStatus: (key: string, value: string | undefined) => {
+        observations.statusEvents?.push({ key, value });
+        if (value !== undefined) statuses.push(value);
+      },
+      setWorkingMessage: (message?: string) => { observations.workingMessages?.push(message); },
+      setWorkingVisible: (): void => {},
+      setWidget: (key: string, content: string[] | undefined) => {
+        observations.widgetEvents?.push({ key, content });
+        if (content !== undefined) observations.widgets?.push(content);
+      },
       setFooter: (factory: any) => {
         if (factory === undefined) return;
         const component = factory({}, {}, {});
@@ -374,6 +397,13 @@ test("Atelier footer refreshes model and thinking-level selections immediately",
       source: "cycle",
     }, modelContext);
     assert.match(footers.at(-1) ?? "", /Atelier: model-two · off/);
+    const footerLedger = new SqliteLedger(testDatabasePath(root));
+    const footerEvidence = footerLedger.listEvents({ kind: "ui.footer_presented", limit: 20 })
+      .map((event) => event.payload as { model?: string; thinkingLevel?: string; rendered?: { text?: string } });
+    assert.ok(footerEvidence.some((event) => event.model === "model-one" && event.thinkingLevel === "high"));
+    assert.ok(footerEvidence.some((event) => event.model === "model-one" && event.thinkingLevel === "off"));
+    assert.ok(footerEvidence.some((event) => event.model === "model-two" && event.thinkingLevel === "off"));
+    footerLedger.close();
   } finally {
     await events.get("session_shutdown")!({}, highContext);
     rmSync(root, { recursive: true, force: true });
@@ -425,6 +455,11 @@ test("direct user shell refreshes VCS dirtiness and index freshness", async () =
       );
       assert.equal(commit.status, 0, commit.stderr || commit.stdout);
     }
+    await events.get("input")!({ text: "Refresh the clean baseline.", source: "interactive" }, context);
+    await waitForCondition(
+      () => /git: (?:main|master) · ✓ clean/.test(footers.at(-1) ?? ""),
+      `footer did not observe the clean test baseline: ${footers.at(-1) ?? "none"}`,
+    );
     await commands.get("code-index")!.handler("", context);
     assert.match(footers.at(-1) ?? "", /git: (?:main|master) · ✓ clean/);
     assert.match(footers.at(-1) ?? "", /intel: ready/);
@@ -679,13 +714,17 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
   const commands = new Map<string, RegisteredCommand>();
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const sentMessages: string[] = [];
+  const lifecycle: string[] = [];
   const fakePi = {
     on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
     registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
     registerTool(): void {},
     getActiveTools(): string[] { return []; },
     setActiveTools(): void {},
-    sendUserMessage(message: string): void { sentMessages.push(message); },
+    sendUserMessage(message: string): void {
+      lifecycle.push("planning-turn-dispatched");
+      sentMessages.push(message);
+    },
   } as unknown as ExtensionAPI;
   atelierExtension(fakePi);
 
@@ -707,8 +746,19 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
       },
     },
   }));
+  const workingMessages: Array<string | undefined> = [];
+  const widgetEvents: Array<{ key: string; content: string[] | undefined }> = [];
+  const baseContext = fakeContext(root, { count: 0 }, [], {
+    workingMessages,
+    widgetEvents,
+  });
+  const originalSetWidget = baseContext.ui.setWidget?.bind(baseContext.ui);
+  baseContext.ui.setWidget = (key, content, options) => {
+    if (key === "atelier-phase" && content !== undefined) lifecycle.push("planning-phase-presented");
+    originalSetWidget?.(key, content, options);
+  };
   const context = {
-    ...fakeContext(root, { count: 0 }),
+    ...baseContext,
     waitForIdle: () => new Promise<void>(() => {}),
   } as ExtensionCommandContext;
 
@@ -719,6 +769,20 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
     assert.match(sentMessages.at(-1) ?? "", /manual-acceptance/);
     assert.match(sentMessages.at(-1) ?? "", /Do not substitute an unconfigured command such as typecheck/);
     assert.match(sentMessages.at(-1) ?? "", /packages\/core\/src\/version\.ts/);
+    assert.ok(
+      lifecycle.indexOf("planning-phase-presented") >= 0
+        && lifecycle.indexOf("planning-phase-presented") < lifecycle.indexOf("planning-turn-dispatched"),
+      "the visible planning phase must be installed before the planning turn is dispatched",
+    );
+    assert.match(
+      workingMessages.find((message) => /starting planning/i.test(message ?? "")) ?? "",
+      /starting planning/i,
+    );
+    const planLedger = new SqliteLedger(testDatabasePath(root));
+    const planPhases = planLedger.listEvents({ kind: "ui.phase_changed", limit: 20 })
+      .map((event) => event.payload as { state?: string; operation?: string });
+    assert.ok(planPhases.some((phase) => phase.state === "presented" && phase.operation === "plan.command"));
+    planLedger.close();
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });
@@ -755,7 +819,23 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
   const confirmationBodies: string[] = [];
   const notifications: string[] = [];
   const widgets: string[][] = [];
-  const context = fakeContext(root, confirms, [], { confirmationBodies, notifications, widgets });
+  const workingMessages: Array<string | undefined> = [];
+  const widgetEvents: Array<{ key: string; content: string[] | undefined }> = [];
+  const baseContext = fakeContext(root, confirms, [], {
+    confirmationBodies,
+    notifications,
+    widgets,
+    workingMessages,
+    widgetEvents,
+  });
+  let waitForIdleObservedPhase = false;
+  const context = {
+    ...baseContext,
+    waitForIdle: async () => {
+      waitForIdleObservedPhase = widgetEvents.some((event) => event.key === "atelier-phase"
+        && event.content?.some((line) => /waiting for Pi to become idle/i.test(line)));
+    },
+  } as ExtensionCommandContext;
 
   try {
     await events.get("session_start")!({}, context);
@@ -771,6 +851,7 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
 
     const sentBeforeApproval = sentMessages.length;
     await commands.get("approve")!.handler("", context);
+    assert.equal(waitForIdleObservedPhase, true, "approval feedback must render before waiting for Pi idle state");
     assert.equal(confirms.count, 1);
     assert.match(confirmationBodies[0] ?? "", /Review the complete transaction and task-constraint summary shown above/i);
     const approvalSummary = notifications.find((message) => /Plan hash:/i.test(message) && /Provider:/i.test(message)) ?? "";
@@ -782,8 +863,30 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
     assert.match(approvalSummary, /Full suite: excluded/i);
     assert.match(approvalSummary, /Filesystem approval is decided separately from concrete workspace effects and recoverability/i);
     assert.ok(widgets.some((lines) => lines.join("\n").includes("Atelier exact execution transaction")));
+    assert.ok(widgetEvents.some((event) => event.key === "atelier-phase"
+      && event.content?.some((line) => /preparing exact transaction/i.test(line))));
     assert.equal(sentMessages.length, sentBeforeApproval, "approval must remain idle and must not enqueue implementation");
     assert.ok(notifications.some((message) => /Atelier is idle; send an explicit implementation instruction/i.test(message)));
+
+    const approvalLedger = new SqliteLedger(testDatabasePath(root));
+    const approvalPhases = approvalLedger.listEvents({ kind: "ui.phase_changed", limit: 100 })
+      .map((event) => event.payload as { state?: string; operation?: string });
+    for (const operation of [
+      "approve.wait_idle",
+      "approve.provider",
+      "approve.prepare",
+      "approve.revalidate",
+      "approve.reconcile",
+      "approve.converge",
+      "approve.activate",
+      "approve.status",
+    ]) {
+      assert.ok(
+        approvalPhases.some((phase) => phase.state === "presented" && phase.operation === operation),
+        `missing visible approval phase ${operation}`,
+      );
+    }
+    approvalLedger.close();
 
     await commands.get("status")!.handler("", context);
     assert.ok(reportEntries.some((message) => /execution_.*active/i.test(message)));
@@ -1029,6 +1132,7 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
       input: { path: "src/index.ts" },
     }, context), undefined);
     const statusCountBeforeResult = statuses.length;
+    const toolResultStartedAt = Date.now();
     await events.get("tool_result")!({
       toolCallId: "edit-routine",
       toolName: "edit",
@@ -1036,7 +1140,11 @@ test("Pi act mode requires execution-linked permissions and still prompts for de
       content: [{ type: "text", text: "updated" }],
       isError: false,
     }, context);
-    assert.ok(statuses.length > statusCountBeforeResult, "tool results must refresh durable workflow status");
+    assert.ok(Date.now() - toolResultStartedAt < 250, "tool completion must not wait for a full footer observation");
+    // Footer refresh is deliberately detached from the tool-completion
+    // critical path. Dedicated footer tests cover eventual presentation; this
+    // workflow test only requires that tool settlement is not blocked.
+    void statusCountBeforeResult;
     assert.equal(await events.get("tool_call")!({
       toolCallId: "edit-failed",
       toolName: "edit",
@@ -1409,15 +1517,18 @@ test("model Bash and direct user shell share one workspace-policy authorization 
   }), "utf8");
   const confirms = { count: 0 };
   const confirmationBodies: string[] = [];
+  const workingMessages: Array<string | undefined> = [];
   const context = fakeContext(root, confirms, [], {
     confirmationBodies,
-    confirmResults: [true, true, false, false],
+    confirmResults: [true, true, true, false, false],
+    workingMessages,
   });
   const outsideMarker = `${root}-outside-write.txt`;
   try {
     await events.get("session_start")!({}, context);
     const bash = tools.get("bash");
     assert.ok(bash, "Atelier must replace Pi Bash with the workspace-aware implementation");
+    assert.equal((bash as RegisteredTool & { executionMode?: string }).executionMode, "sequential");
 
     const authorized = await events.get("tool_call")!({
       toolCallId: "model-read-shell",
@@ -1427,24 +1538,83 @@ test("model Bash and direct user shell share one workspace-policy authorization 
     assert.equal(authorized, undefined);
     assert.equal(confirms.count, 1, "an unsandboxed parsed read requires exact one-operation approval");
     assert.match(confirmationBodies[0] ?? "", /without OS(?:-level)? confinement/i);
+    const modelUpdates: unknown[] = [];
     const modelResult = await bash!.execute(
       "model-read-shell",
       { command: "printf model-ok" },
       new AbortController().signal,
-      undefined,
+      (update) => { modelUpdates.push(update); },
       context,
     );
     assert.match(modelResult.content.map((item) => item.text).join("\n"), /model-ok/);
+    assert.ok(
+      modelUpdates.some((update) => JSON.stringify(update).includes("model-ok")),
+      "model Bash must emit streamed output before final settlement",
+    );
+    assert.equal(workingMessages.at(-1), undefined, "model Bash must clear the Atelier working phase after completion");
+    await events.get("tool_result")!({
+      toolCallId: "model-read-shell",
+      toolName: "bash",
+      input: { command: "printf model-ok" },
+      content: modelResult.content,
+      details: modelResult.details,
+      isError: false,
+    }, context);
+    await events.get("agent_settled")!({}, context);
 
-    const missingAuthorization = await bash!.execute(
-      "missing-authorization",
-      { command: "printf forbidden" },
-      new AbortController().signal,
-      undefined,
-      context,
-    ) as { isError?: boolean; content: Array<{ text: string }> };
-    assert.equal(missingAuthorization.isError, true);
-    assert.match(missingAuthorization.content[0]?.text ?? "", /no matching workspace-policy authorization/i);
+    const failedCommand = "printf model-fail; grep definitely-not-present README.md";
+    const failedAuthorization = await events.get("tool_call")!({
+      toolCallId: "model-failed-shell",
+      toolName: "bash",
+      input: { command: failedCommand },
+    }, context);
+    assert.equal(failedAuthorization, undefined);
+    assert.equal(confirms.count, 2);
+    await assert.rejects(
+      bash!.execute(
+        "model-failed-shell",
+        { command: failedCommand },
+        new AbortController().signal,
+        undefined,
+        context,
+      ),
+      /model-fail[\s\S]*exited with code 1/i,
+    );
+    assert.equal(workingMessages.at(-1), undefined, "failed model Bash must clear the Atelier working phase");
+    await events.get("agent_settled")!({}, context);
+
+    const lifecycleLedger = new SqliteLedger(testDatabasePath(root));
+    const lifecycle = lifecycleLedger.listEvents({ kind: "ui.model_bash", limit: 10 })
+      .map((event) => event.payload as {
+        state?: string;
+        hadOutput?: boolean;
+        outputBytes?: number;
+        updateCount?: number;
+        output?: { sha256?: string; capturedBytes?: number; truncated?: boolean };
+      });
+    assert.ok(lifecycle.some((event) => event.state === "started"));
+    assert.ok(lifecycle.some((event) => event.state === "succeeded"
+      && event.hadOutput === true
+      && (event.outputBytes ?? 0) > 0
+      && (event.updateCount ?? 0) > 0
+      && /^[a-f0-9]{64}$/.test(event.output?.sha256 ?? "")
+      && (event.output?.capturedBytes ?? 0) > 0
+      && event.output?.truncated === false));
+    assert.ok(lifecycle.some((event) => event.state === "failed" && (event.outputBytes ?? 0) > 0));
+    assert.ok(lifecycleLedger.listEvents({ kind: "ui.agent_settled", limit: 10 })
+      .some((event) => (event.payload as { isIdle?: boolean }).isIdle === true));
+    lifecycleLedger.close();
+
+    await assert.rejects(
+      bash!.execute(
+        "missing-authorization",
+        { command: "printf forbidden" },
+        new AbortController().signal,
+        undefined,
+        context,
+      ),
+      /no matching workspace-policy authorization/i,
+    );
 
     const userRead = await events.get("user_bash")!({ command: "printf user-ok" }, context);
     assert.ok(userRead?.operations);
@@ -1457,8 +1627,8 @@ test("model Bash and direct user shell share one workspace-policy authorization 
     });
     assert.equal(userResult.exitCode, 0);
     assert.match(userOutput, /user-ok/);
-    assert.equal(confirms.count, 2);
-    assert.match(confirmationBodies[1] ?? "", /without OS(?:-level)? confinement/i);
+    assert.equal(confirms.count, 3);
+    assert.match(confirmationBodies[2] ?? "", /without OS(?:-level)? confinement/i);
 
     const deniedModel = await events.get("tool_call")!({
       toolCallId: "model-unknown-shell",
@@ -1467,7 +1637,7 @@ test("model Bash and direct user shell share one workspace-policy authorization 
     }, context);
     assert.equal(deniedModel?.block, true);
     assert.match(deniedModel?.reason ?? "", /investigate mode is read-only/i);
-    assert.equal(confirms.count, 2, "workflow-denied commands must not prompt or create recovery state");
+    assert.equal(confirms.count, 3, "workflow-denied commands must not prompt or create recovery state");
 
     const outsideCommand = `printf denied > ${JSON.stringify(outsideMarker)}`;
     const deniedUser = await events.get("user_bash")!({ command: outsideCommand }, context);
@@ -1482,7 +1652,7 @@ test("model Bash and direct user shell share one workspace-policy authorization 
       spawnSync("/bin/sh", ["-lc", outsideCommand], { cwd: root, encoding: "utf8" });
     }
     assert.equal(existsSync(outsideMarker), false, "a user-denied outside-workspace command must not execute");
-    assert.equal(confirms.count, 3, "every executable unsandboxed command requires one concrete approval");
+    assert.equal(confirms.count, 4, "every executable unsandboxed command requires one concrete approval");
 
     const secret = join(root, ".env.acceptance");
     writeFileSync(secret, "ATELIER_SECRET_MUST_NOT_LEAK\n", "utf8");
@@ -1497,7 +1667,7 @@ test("model Bash and direct user shell share one workspace-policy authorization 
     }
     assert.doesNotMatch(fallbackOutput, /ATELIER_SECRET_MUST_NOT_LEAK/, "a user-denied secret read must not execute or expose output");
     assert.equal(readFileSync(secret, "utf8"), "ATELIER_SECRET_MUST_NOT_LEAK\n");
-    assert.equal(confirms.count, 4);
+    assert.equal(confirms.count, 5);
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(outsideMarker, { force: true });
@@ -1548,6 +1718,15 @@ test("Pi status, workflow, and code commands append expandable persistent report
     const rendered = component?.render(100).join("\n") ?? "";
     assert.match(rendered, /▼ Atelier status/);
     assert.match(rendered, /^─+$/m);
+    const reportLedger = new SqliteLedger(testDatabasePath(root));
+    const reportEvidence = reportLedger.listEvents({ kind: "ui.report_presented", limit: 20 })
+      .map((event) => event.payload as { command?: string; markdown?: { sha256?: string } });
+    const statusEvidence = reportEvidence.find((event) => event.command === "/status");
+    const workflowEvidence = reportEvidence.find((event) => event.command === "/workflow");
+    assert.ok(statusEvidence?.markdown?.sha256);
+    assert.ok(workflowEvidence?.markdown?.sha256);
+    assert.notEqual(statusEvidence?.markdown?.sha256, workflowEvidence?.markdown?.sha256);
+    reportLedger.close();
   } finally {
     await events.get("session_shutdown")!({}, context);
     rmSync(root, { recursive: true, force: true });

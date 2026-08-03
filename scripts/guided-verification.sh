@@ -3,8 +3,8 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="41.1"
-EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.41}"
+HARNESS_VERSION="42.1"
+EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.42}"
 MANUAL_PARENT="${ATELIER_MANUAL_PARENT:-$HOME/workspace/scratch}"
 RUN_PREFIX="atelier-manual-"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
@@ -50,7 +50,8 @@ Commands:
   prepare    Recreate only the disposable guided workspaces for the current run.
   guided     Walk through manual steps 1-5; optionally start at STEP.
   retry      Recreate and rerun exactly one failed disposable step.
-             Step 5 depends on step 4 and must be retried with: retry 4
+             Step 5 is split into a verified implementation phase and a separate
+             control phase. It depends on step 4 and must be retried with: retry 4
   status     Show current run, workspaces, and recorded manual outcomes.
   archive    Rebuild the combined evidence archive.
 
@@ -60,7 +61,7 @@ Environment:
   ATELIER_GUIDED_PURGE_CONFIRM=1
                                   Skip the PURGE confirmation for fresh/purge.
   ATELIER_MANUAL_PARENT           Manual-test parent (default: ~/workspace/scratch).
-  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.41).
+  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.42).
 USAGE
 }
 
@@ -330,7 +331,18 @@ prepare_intel_jj() {
 
 prepare_policy_git() {
   local root="$GUIDED_ROOT/policy-git" repo="$GUIDED_ROOT/policy-git/repo"
+  local outside_marker="$RUN_ROOT/outside-write-must-not-exist.txt"
+
+  # Step 2 writes outside its disposable repository on purpose. A failed run can
+  # leave that marker at RUN_ROOT, while `retry 2` recreates only policy-git.
+  # Remove the previous attempt's marker before preparing a new attempt so the
+  # objective check proves execution by this run rather than historical residue.
+  rm -f -- "$outside_marker"
+  [[ ! -e "$outside_marker" ]] \
+    || fail "could not clear the previous Step 2 outside-workspace marker: $outside_marker"
+
   rm -rf "$root"; mkdir -p "$root"
+  printf 'absent before guided Step 2 launch\n' >"$root/outside-marker-preflight.txt"
   git clone --no-hardlinks "$SOURCE_REPO" "$repo" >/dev/null
   write_env "$root" "$repo"
   (
@@ -524,6 +536,13 @@ Send:
 
 > Use Bash to run exactly: printf 'model read-only output\n'
 
+Expected:
+
+- `model read-only output` appears in the Bash tool row;
+- the tool reaches a completed state rather than remaining partial;
+- Pi's `Working…` indicator clears and the editor becomes usable again;
+- no approval prompt appears.
+
 Exit Pi with Ctrl-D. The harness will verify command execution, denial events, exact checkpoint path coverage, and restoration before asking for the result.
 GUIDE
   } >"$GUIDED_ROOT/guides/02-policy-git.md"
@@ -578,18 +597,86 @@ GUIDE
   cat >"$GUIDED_ROOT/guides/05-control.md" <<'GUIDE'
 # Step 5 — Stop, pause, resume, and cancel
 
-This continues the approved task from step 4.
+Step 5 is deliberately split into three separate Pi sessions. The harness verifies the
+implementation before it allows the control tests to begin. Do not run `/atelier-stop`,
+`/atelier-pause`, `/atelier-resume`, or `/cancel` during phase A.
 
-1. Send: `Implement the active task using only read, edit, and write. Do not use Bash, validate, commit, or close. Stop after the two approved source changes.`
-2. Start a read-only explanation turn and run `/atelier-stop` while it is working. Task and execution must remain active.
-3. Run `/atelier-pause manual guided pause`.
-4. Send this exact model message:
+- Phase A guide: `05a-control-implementation.md`
+- Phase B guide: `05b-control-stop.md`
+- Phase C guide: `05c-control-actions.md`
+GUIDE
+
+  cat >"$GUIDED_ROOT/guides/05a-control-implementation.md" <<'GUIDE'
+# Step 5A — Complete the approved implementation
+
+This phase tests only the two reviewed source changes. Do not test stop, pause, resume,
+or cancellation yet.
+
+Send exactly:
+
+> Implement the active task using only read, edit, and write. Do not use Bash, validate, commit, or close. Stop after the two approved source changes.
+
+Then wait until Pi has finished the turn and returned to an idle prompt. The completed
+turn must:
+
+- add `export const ATELIER_PRODUCT_NAME = "Atelier"` to `packages/core/src/version.ts`;
+- create `tests/version.test.ts` covering both `ATELIER_PRODUCT_NAME` and `ATELIER_VERSION`;
+- leave the task and execution grant active;
+- avoid validation, commit, and task closure.
+
+Do not run `/atelier-stop` during this implementation turn. If the TUI says
+`Operation aborted`, or Pi returns to idle before both source changes are complete, exit
+with Ctrl-D. The harness will stop here and will not run the control phase against an
+incomplete implementation.
+
+After Pi is idle, exit with Ctrl-D. The harness will verify the source changes before
+launching phase B.
+GUIDE
+
+  cat >"$GUIDED_ROOT/guides/05b-control-stop.md" <<'GUIDE'
+# Step 5B — Stop only the current turn
+
+The harness has verified the two approved source changes. This phase tests only
+`/atelier-stop`; do not pause or cancel yet.
+
+1. Send this read-only prompt:
+
+   > Explain the active task and the two current source changes in detail. Do not use any tools. Continue until I stop the turn.
+
+2. While the response is still streaming, run `/atelier-stop`.
+
+   Expected: only the current turn stops. The task and execution grant remain active.
+3. Run `/status` and verify that the workflow remains in act mode with the same active
+   task and execution grant.
+4. Exit Pi with Ctrl-D.
+
+The harness will verify that the implementation is unchanged and execution remains
+active before launching phase C.
+GUIDE
+
+  cat >"$GUIDED_ROOT/guides/05c-control-actions.md" <<'GUIDE'
+# Step 5C — Pause, block mutation, resume, and cancel
+
+The harness has verified that `/atelier-stop` left the task and execution active.
+
+1. Run `/atelier-pause manual guided pause`.
+2. Send this exact model message:
 
    > Using only the typed edit tool, add the exact line `// pause-probe` to packages/core/src/version.ts. Do not use Bash or any other tool.
 
-   Expected: Atelier blocks the edit because execution is paused, and `packages/core/src/version.ts` does not contain `// pause-probe`.
-5. Run `/atelier-resume`; no model turn should start automatically.
-6. Run `/cancel manual guided cancellation`; execution constraints must be revoked, the Beads task must remain open, and source changes must remain.
+   Expected: Atelier blocks the edit because execution is paused, and
+   `packages/core/src/version.ts` does not contain `// pause-probe`.
+
+3. Run `/atelier-resume`. No model turn should start automatically. Run `/status` and
+   verify that the same task and execution grant are active again.
+4. Run `/cancel manual guided cancellation`.
+
+Expected final state:
+
+- execution constraints are revoked;
+- the Beads task remains open;
+- the two approved source changes remain;
+- `// pause-probe` is absent.
 
 Exit Pi with Ctrl-D.
 GUIDE
@@ -710,7 +797,7 @@ collect_workspace() {
     node ./bin/atlr.mjs state --json >"$out/state.json" 2>"$out/state.stderr" || true
     node ./bin/atlr.mjs plan parse --json >"$out/plan.json" 2>"$out/plan.stderr" || true
     node ./bin/atlr.mjs changed --json >"$out/changed.json" 2>"$out/changed.stderr" || true
-    node ./bin/atlr.mjs ledger tail --limit 400 --json >"$out/ledger.json" 2>"$out/ledger.stderr" || true
+    node ./bin/atlr.mjs ledger tail --limit 1000 --json >"$out/ledger.json" 2>"$out/ledger.stderr" || true
     node ./bin/atlr.mjs recovery list --json >"$out/recovery.json" 2>"$out/recovery.stderr" || true
     git status --short >"$out/git-status.txt" 2>&1 || true
     git diff >"$out/git-diff.patch" 2>&1 || true
@@ -732,6 +819,36 @@ verify_workspace_release() {
     || fail "$name workspace contains Atelier $version, expected $EXPECTED_ATELIER_VERSION"
   grep -Fq "Source tag: v$EXPECTED_ATELIER_VERSION" "$root/workspace-version.txt" \
     || fail "$name workspace was not prepared from v$EXPECTED_ATELIER_VERSION"
+}
+
+verify_intel_ui_evidence() {
+  local out="$EVIDENCE_DIR/guided-intel-jj"
+  node --input-type=module - "$out/ledger.json" <<'NODE'
+import { readFileSync } from "node:fs";
+const ledger = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const events = (kind) => ledger.filter((event) => event.kind === kind).map((event) => event.payload ?? {});
+
+const reports = events("ui.report_presented");
+const status = reports.find((event) => event.command === "/status");
+const workflow = reports.find((event) => event.command === "/workflow");
+assert(status?.markdown?.sha256, "missing durable /status render evidence");
+assert(workflow?.markdown?.sha256, "missing durable /workflow render evidence");
+assert(status.markdown.sha256 !== workflow.markdown.sha256,
+  "/status and /workflow rendered the same report body");
+
+const footers = events("ui.footer_presented");
+const thinkingLevels = new Set(footers.map((event) => event.thinkingLevel).filter(Boolean));
+assert(thinkingLevels.size >= 2,
+  `footer did not record a live thinking-level change: ${[...thinkingLevels].join(", ") || "none"}`);
+assert(footers.some((event) => event.vcs === "jj"), "footer evidence never reported Jujutsu");
+assert(footers.some((event) => event.intel === "ready"), "footer evidence never reached intelligence ready state");
+
+const phases = events("ui.phase_changed").filter((event) => event.state === "presented");
+assert(phases.some((event) => event.operation === "/status"), "missing visible /status phase evidence");
+assert(phases.some((event) => event.operation === "/workflow"), "missing visible /workflow phase evidence");
+NODE
+  pass "Step 1 captured distinct reports, live footer changes, and visible command phases"
 }
 
 verify_policy_git_before_restore() {
@@ -793,6 +910,44 @@ assert(deniedEffects.some((effect) => effect.kind === "execute" && String(effect
   "missing unknown-script execution denial");
 const granted = ledger.filter((event) => event.kind === "workspace_policy.approval_granted");
 assert(granted.length === 0, `prompted operations unexpectedly received approval: ${granted.length}`);
+
+const deniedUi = ledger.filter((event) => event.kind === "ui.user_bash_denied");
+assert(deniedUi.length === 3, `expected three rendered direct-shell denials, got ${deniedUi.length}`);
+for (const event of deniedUi) {
+  assert(event.payload?.exitCode === 126, `denial used unexpected exit code ${event.payload?.exitCode}`);
+  assert(String(event.payload?.output ?? "").includes("DENIED BY ATELIER"),
+    "direct-shell denial was not rendered explicitly");
+}
+
+const modelBashEvents = ledger.filter((event) => event.kind === "ui.model_bash");
+const modelBash = modelBashEvents.map((event) => event.payload ?? {});
+assert(modelBash.some((event) => event.state === "started"), "model Bash never recorded a start lifecycle event");
+const expectedModelOutput = "model read-only output\n";
+const expectedModelOutputHash = await import("node:crypto")
+  .then(({ createHash }) => createHash("sha256").update(expectedModelOutput).digest("hex"));
+const succeededModelBashEvent = modelBashEvents.find((event) => event.payload?.state === "succeeded"
+  && event.payload?.hadOutput === true
+  && Number(event.payload?.outputBytes ?? 0) > 0
+  && Number(event.payload?.updateCount ?? 0) > 0);
+const succeededModelBash = succeededModelBashEvent?.payload;
+assert(succeededModelBash,
+  "model Bash did not record streamed output and successful completion");
+assert(succeededModelBash.output?.sha256 === expectedModelOutputHash,
+  `model Bash output digest was ${succeededModelBash.output?.sha256 ?? "missing"}`);
+assert(succeededModelBash.output?.truncated === false,
+  "model Bash output was unexpectedly truncated");
+assert(!modelBash.some((event) => event.state === "failed" || event.state === "interrupted"),
+  "model Bash recorded a failed or interrupted lifecycle");
+const modelPhases = ledger.filter((event) => event.kind === "ui.phase_changed"
+  && event.payload?.operation === "model-bash").map((event) => event.payload ?? {});
+assert(modelPhases.some((event) => event.state === "presented"),
+  "model Bash never presented a visible execution phase");
+assert(modelPhases.some((event) => event.state === "cleared"),
+  "model Bash left its visible execution phase active");
+const settled = ledger.filter((event) => event.kind === "ui.agent_settled");
+assert(settled.some((event) => event.payload?.isIdle === true
+  && Date.parse(event.occurredAt) >= Date.parse(succeededModelBashEvent.occurredAt)),
+  "Pi never recorded an idle settled state after model Bash completion");
 NODE
   pass "Step 2 objective evidence passed before checkpoint restoration"
 }
@@ -888,8 +1043,124 @@ const kinds = new Set(ledger.map((event) => event.kind));
 for (const kind of ["execution.rejected", "execution.approval_accepted", "plan.approved", "plan.reconciled", "execution.started"]) {
   assert(kinds.has(kind), `missing ledger event ${kind}`);
 }
+
+const phases = ledger
+  .filter((event) => event.kind === "ui.phase_changed" && event.payload?.state === "presented")
+  .map((event) => event.payload?.operation);
+for (const operation of [
+  "plan.command",
+  "agent.context",
+  "approve.wait_idle",
+  "approve.provider",
+  "approve.prepare",
+  "approve.revalidate",
+  "approve.reconcile",
+  "approve.converge",
+  "approve.activate",
+  "approve.status",
+]) {
+  assert(phases.includes(operation), `missing visible phase evidence ${operation}`);
+}
+const presented = (operation) => ledger.find((event) => event.kind === "ui.phase_changed"
+  && event.payload?.state === "presented" && event.payload?.operation === operation);
+const domain = (kind) => ledger.find((event) => event.kind === kind);
+for (const [operation, kind] of [
+  ["plan.command", "plan.requested"],
+  ["approve.prepare", "execution.prepared"],
+  ["approve.activate", "execution.started"],
+]) {
+  const phase = presented(operation);
+  const event = domain(kind);
+  assert(phase && event, `missing phase/domain pair ${operation} -> ${kind}`);
+  assert(Date.parse(phase.occurredAt) <= Date.parse(event.occurredAt),
+    `${operation} feedback was recorded after ${kind}`);
+}
 NODE
   pass "Step 4 generated the exact plan, rejected without activation, then approved one idle task"
+}
+
+verify_control_implementation() {
+  local repo="$GUIDED_ROOT/control/repo"
+  local out="$EVIDENCE_DIR/guided-control"
+
+  grep -q 'export const ATELIER_PRODUCT_NAME = "Atelier"' "$repo/packages/core/src/version.ts" \
+    || fail "Step 5A implementation did not add ATELIER_PRODUCT_NAME"
+  [[ -f "$repo/tests/version.test.ts" ]] \
+    || fail "Step 5A implementation did not create tests/version.test.ts"
+  grep -q 'ATELIER_PRODUCT_NAME' "$repo/tests/version.test.ts" \
+    || fail "Step 5A test does not verify ATELIER_PRODUCT_NAME"
+  grep -q 'ATELIER_VERSION' "$repo/tests/version.test.ts" \
+    || fail "Step 5A test does not verify ATELIER_VERSION"
+  ! grep -q '// pause-probe' "$repo/packages/core/src/version.ts" \
+    || fail "pause-probe appeared before the pause test"
+
+  node --input-type=module - "$out/status.json" "$out/changed.json" "$out/beads.json" "$out/ledger.json" <<'NODE'
+import { readFileSync } from "node:fs";
+const [statusFile, changedFile, beadsFile, ledgerFile] = process.argv.slice(2);
+const status = JSON.parse(readFileSync(statusFile, "utf8"));
+const changed = JSON.parse(readFileSync(changedFile, "utf8"));
+const beadsRaw = JSON.parse(readFileSync(beadsFile, "utf8"));
+const beads = Array.isArray(beadsRaw) ? beadsRaw : Array.isArray(beadsRaw.data) ? beadsRaw.data : beadsRaw.tasks ?? [];
+const ledger = JSON.parse(readFileSync(ledgerFile, "utf8"));
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+assert(status.workflow?.mode === "act", `implementation phase left ${status.workflow?.mode} mode`);
+assert(typeof status.task?.current === "string" && status.task.current !== "none", "implementation phase lost the active task");
+assert(status.execution?.grant !== "none", "implementation phase lost the execution grant");
+assert(status.execution?.constraints === 1, `expected one task constraint, got ${status.execution?.constraints}`);
+const metadataRoots = [".atelier", ".beads", ".dolt", ".codesearch", ".octocode"];
+const paths = [...(changed.paths ?? [])]
+  .filter((path) => !metadataRoots.some((root) => path === root || path.startsWith(`${root}/`)))
+  .sort();
+assert(JSON.stringify(paths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]),
+  `unexpected implementation paths: ${JSON.stringify(paths)}`);
+assert(beads.length === 1, `expected one Beads task, got ${beads.length}`);
+assert(beads[0].status !== "closed", `implementation phase closed the task: ${beads[0].status}`);
+const kinds = new Set(ledger.map((event) => event.kind));
+for (const forbidden of ["execution.paused", "execution.revoked", "workflow.cancelled", "task.closed"]) {
+  assert(!kinds.has(forbidden), `implementation phase reached control event ${forbidden} too early`);
+}
+NODE
+  pass "Step 5A completed exactly the two approved source changes and retained active execution"
+}
+
+verify_control_stop() {
+  local repo="$GUIDED_ROOT/control/repo"
+  local out="$EVIDENCE_DIR/guided-control"
+
+  grep -q 'export const ATELIER_PRODUCT_NAME = "Atelier"' "$repo/packages/core/src/version.ts" \
+    || fail "Step 5B lost the approved ATELIER_PRODUCT_NAME change"
+  [[ -f "$repo/tests/version.test.ts" ]] \
+    || fail "Step 5B lost tests/version.test.ts"
+  ! grep -q '// pause-probe' "$repo/packages/core/src/version.ts" \
+    || fail "pause-probe appeared during the stop-only phase"
+
+  node --input-type=module - "$out/status.json" "$out/changed.json" "$out/beads.json" "$out/ledger.json" <<'NODE'
+import { readFileSync } from "node:fs";
+const [statusFile, changedFile, beadsFile, ledgerFile] = process.argv.slice(2);
+const status = JSON.parse(readFileSync(statusFile, "utf8"));
+const changed = JSON.parse(readFileSync(changedFile, "utf8"));
+const beadsRaw = JSON.parse(readFileSync(beadsFile, "utf8"));
+const beads = Array.isArray(beadsRaw) ? beadsRaw : Array.isArray(beadsRaw.data) ? beadsRaw.data : beadsRaw.tasks ?? [];
+const ledger = JSON.parse(readFileSync(ledgerFile, "utf8"));
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+assert(status.workflow?.mode === "act", `/atelier-stop left ${status.workflow?.mode} mode`);
+assert(status.workflow?.checkpoint === "executing", `/atelier-stop changed checkpoint to ${status.workflow?.checkpoint}`);
+assert(typeof status.task?.current === "string" && status.task.current !== "none", "/atelier-stop lost the active task");
+assert(status.execution?.grant !== "none", "/atelier-stop revoked the execution grant");
+assert(status.execution?.constraints === 1, `expected one retained constraint, got ${status.execution?.constraints}`);
+const metadataRoots = [".atelier", ".beads", ".dolt", ".codesearch", ".octocode"];
+const paths = [...(changed.paths ?? [])]
+  .filter((path) => !metadataRoots.some((root) => path === root || path.startsWith(`${root}/`)))
+  .sort();
+assert(JSON.stringify(paths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]),
+  `stop-only phase changed source paths: ${JSON.stringify(paths)}`);
+assert(beads.length === 1 && beads[0].status !== "closed", "stop-only phase closed or lost the Beads task");
+const kinds = new Set(ledger.map((event) => event.kind));
+for (const forbidden of ["execution.paused", "execution.revoked", "workflow.cancelled", "task.closed"]) {
+  assert(!kinds.has(forbidden), `stop-only phase reached ${forbidden}`);
+}
+NODE
+  pass "Step 5B stopped only the current turn and retained active execution"
 }
 
 verify_control_cancellation() {
@@ -922,7 +1193,7 @@ const paths = [...(changed.paths ?? [])]
 assert(JSON.stringify(paths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]),
   `unexpected retained source changes: ${JSON.stringify(paths)}`);
 const kinds = new Set(ledger.map((event) => event.kind));
-for (const kind of ["execution.paused", "execution.resumed", "execution.revoked", "workflow.cancelled"]) {
+for (const kind of ["execution.paused", "execution.unpaused", "execution.revoked", "workflow.cancelled"]) {
   assert(kinds.has(kind), `missing ledger event ${kind}`);
 }
 assert(!kinds.has("task.closed"), "task was closed during cancellation test");
@@ -962,7 +1233,7 @@ run_step_objective_checks() {
   fi
   local before_rc=0 restore_rc=0 after_rc=0
   case "$step" in
-    1) return 0 ;;
+    1) verify_intel_ui_evidence ;;
     2)
       set +e
       (verify_policy_git_before_restore); before_rc=$?
@@ -1099,6 +1370,115 @@ prepare_single_step() {
   : >"$GUIDED_ROOT/.prepared"
 }
 
+PI_SESSION_RC=0
+
+launch_control_tui_phase() {
+  local label="$1" title="$2" guide="$3"
+  local root="$GUIDED_ROOT/control"
+  local repo="$root/repo"
+  local out="$EVIDENCE_DIR/guided-control"
+  local pi_stderr="$out/pi.stderr"
+
+  banner "$label" "$title" "$repo" jj disabled "$guide"
+  mkdir -p "$out"
+  : >"$pi_stderr"
+  printf '%s\n' 'mise run launch -- -ne --no-session' >"$out/pi-command.txt"
+  TUI_TERMINAL_DIRTY=1
+  set +e
+  (
+    source "$root/env.sh"
+    cd "$repo"
+    mise run launch -- -ne --no-session 2> >(tee "$pi_stderr" >&2)
+  )
+  PI_SESSION_RC=$?
+  set -e
+  printf '%s\n' "$PI_SESSION_RC" >"$out/pi-exit-status.txt"
+  restore_terminal
+  if [[ "$PI_SESSION_RC" -eq 0 ]]; then
+    clear_screen
+  else
+    printf '\nPi exited unexpectedly with status %s. The terminal was left visible for diagnostics.\n' "$PI_SESSION_RC" >&2
+    [[ ! -s "$pi_stderr" ]] || printf 'Captured stderr: %s\n' "$pi_stderr" >&2
+  fi
+  printf 'Pi exited with status %s. Collecting authoritative evidence...\n' "$PI_SESSION_RC"
+  collect_workspace control
+}
+
+launch_step5() {
+  local title='Stop, pause, resume, and cancellation'
+  local implementation_guide="$GUIDED_ROOT/guides/05a-control-implementation.md"
+  local stop_guide="$GUIDED_ROOT/guides/05b-control-stop.md"
+  local controls_guide="$GUIDED_ROOT/guides/05c-control-actions.md"
+
+  verify_step_preconditions 5 control
+
+  launch_control_tui_phase '5A' 'Complete the approved implementation' "$implementation_guide"
+  if [[ "$PI_SESSION_RC" -ne 0 ]]; then
+    record_automatic_failure 5 "$title" "Step 5A Pi exited with status $PI_SESSION_RC"
+    return 1
+  fi
+
+  local implementation_rc=0
+  if [[ "${ATELIER_GUIDED_TEST_SKIP_OBJECTIVE:-0}" != 1 ]]; then
+    set +e
+    (verify_control_implementation)
+    implementation_rc=$?
+    set -e
+  fi
+  if [[ "$implementation_rc" -ne 0 ]]; then
+    record_automatic_failure 5 "$title" "Step 5A did not complete the two approved source changes; control commands were not tested"
+    return 1
+  fi
+
+  rm -rf "$EVIDENCE_DIR/guided-control-implementation"
+  cp -R "$EVIDENCE_DIR/guided-control" "$EVIDENCE_DIR/guided-control-implementation"
+  pass "Step 5 implementation prerequisite verified; starting the separate control phase"
+
+  # The implementation must leave the task and grant active before stop testing.
+  verify_step_preconditions 5 control
+  launch_control_tui_phase '5B' 'Stop only the current turn' "$stop_guide"
+  if [[ "$PI_SESSION_RC" -ne 0 ]]; then
+    record_automatic_failure 5 "$title" "Step 5B Pi exited with status $PI_SESSION_RC"
+    return 1
+  fi
+
+  local stop_rc=0
+  if [[ "${ATELIER_GUIDED_TEST_SKIP_OBJECTIVE:-0}" != 1 ]]; then
+    set +e
+    (verify_control_stop)
+    stop_rc=$?
+    set -e
+  fi
+  if [[ "$stop_rc" -ne 0 ]]; then
+    record_automatic_failure 5 "$title" "Step 5B did not preserve active execution after /atelier-stop"
+    return 1
+  fi
+
+  rm -rf "$EVIDENCE_DIR/guided-control-stop"
+  cp -R "$EVIDENCE_DIR/guided-control" "$EVIDENCE_DIR/guided-control-stop"
+  pass "Step 5 stop prerequisite verified; starting pause/resume/cancel phase"
+
+  verify_step_preconditions 5 control
+  launch_control_tui_phase '5C' 'Pause, block mutation, resume, and cancel' "$controls_guide"
+  if [[ "$PI_SESSION_RC" -ne 0 ]]; then
+    record_automatic_failure 5 "$title" "Step 5C Pi exited with status $PI_SESSION_RC"
+    return 1
+  fi
+
+  local controls_rc=0
+  if [[ "${ATELIER_GUIDED_TEST_SKIP_OBJECTIVE:-0}" != 1 ]]; then
+    set +e
+    (verify_control_cancellation)
+    controls_rc=$?
+    set -e
+  fi
+  if [[ "$controls_rc" -ne 0 ]]; then
+    record_automatic_failure 5 "$title" "authoritative control evidence did not satisfy the step contract"
+    return 1
+  fi
+  record_result 5 "$title"
+}
+
 launch_step() {
   local step="$1" name="$2" title="$3" vcs="$4" intel="$5"
   local root="$GUIDED_ROOT/$name"
@@ -1120,6 +1500,13 @@ launch_step() {
   local pi_stderr="$out/pi.stderr"
   mkdir -p "$out"
   : >"$pi_stderr"
+
+  if [[ "$step" -eq 2 ]]; then
+    local outside_marker="$RUN_ROOT/outside-write-must-not-exist.txt"
+    [[ ! -e "$outside_marker" ]] \
+      || fail "Step 2 outside-workspace marker already exists before Pi launch: $outside_marker"
+    printf 'absent before Pi launch: %s\n' "$outside_marker" >"$out/outside-marker-preflight.txt"
+  fi
   printf '%s\n' 'mise run launch -- -ne --no-session' >"$out/pi-command.txt"
   TUI_TERMINAL_DIRTY=1
   set +e
@@ -1183,7 +1570,7 @@ run_guided() {
   (( start <= 2 )) && launch_step 2 policy-git 'Git recoverability and consequence-based prompts' git disabled
   (( start <= 3 )) && launch_step 3 policy-jj 'Jujutsu native checkpoint and restoration' jj disabled
   (( start <= 4 )) && launch_step 4 control 'Plan review, rejection, and idle approval' jj disabled
-  (( start <= 5 )) && launch_step 5 control 'Stop, pause, resume, and cancellation' jj disabled
+  (( start <= 5 )) && launch_step5
   archive_evidence >/dev/null
   clear_screen
   pass "guided verification complete"
