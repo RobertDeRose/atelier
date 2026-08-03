@@ -68,7 +68,13 @@ declare module "@earendil-works/pi-coding-agent" {
     setWorkingMessage?(message?: string): void;
     setWidget?(
       key: string,
-      content: string[] | undefined,
+      content:
+        | string[]
+        | ((
+            tui: { requestRender(force?: boolean): void },
+            theme: { fg?(color: string, text: string): string },
+          ) => { render(width: number): string[]; invalidate(): void; dispose?(): void })
+        | undefined,
       options?: { placement?: "aboveEditor" | "belowEditor" },
     ): void;
     setFooter?(

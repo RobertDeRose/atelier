@@ -43,6 +43,7 @@ export interface RepositoryStatePlanRequest {
   activeTask?: TaskRecord;
   planTask?: PlanTask;
   plan?: ParsedPlan;
+  planReviewed?: boolean;
   evidence?: RepositoryStateEvidence;
   maximumQueries?: number;
 }
@@ -79,7 +80,9 @@ export class RepositoryStatePlanner {
       .filter((source) => {
         if (source.purpose !== "plan_objective") return true;
         if (!objectiveIsFullyScopedByKnownPaths(source.text, knownPaths)) return true;
-        explanation.push("The planning objective names its implementation files explicitly; semantic discovery is unnecessary.");
+        explanation.push(
+          "The planning objective names its implementation files explicitly; semantic discovery is unnecessary.",
+        );
         return false;
       })
       .map((source) => ({ ...source, text: removeKnownPaths(source.text, knownPaths) }))
@@ -100,7 +103,9 @@ export class RepositoryStatePlanner {
         focus: inferCodeSearchFocus(semanticText),
         literalHints: extractLiteralHints(semanticText),
         limit: Math.max(...searchableSources.map((source) => source.limit)),
-        evidenceRequirements: ["Locate relevant implementation, tests, and documentation before exact identifier resolution."],
+        evidenceRequirements: [
+          "Locate relevant implementation, tests, and documentation before exact identifier resolution.",
+        ],
         reason: "Run one broad semantic discovery query before considering exact symbol lookups.",
       });
       explanation.push(
@@ -152,7 +157,12 @@ export class RepositoryStatePlanner {
       sources.push({ purpose: "plan_objective", text: objective, limit: 6 });
     }
 
-    if (request.mode === "plan" && request.plan !== undefined && request.plan.tasks.length > 0) {
+    if (
+      request.mode === "plan"
+      && request.planReviewed === true
+      && request.plan !== undefined
+      && request.plan.tasks.length > 0
+    ) {
       const text = normalizeText([
         request.plan.title,
         ...request.plan.tasks.slice(0, 4).flatMap((task) => [task.title, task.goal, ...task.scope.slice(0, 2)]),
@@ -264,7 +274,8 @@ function hasSearchableText(text: string): boolean {
 
 function mergeSourceText(sources: QuerySource[]): string | undefined {
   const distinct = unique(sources.map((source) => source.text));
-  return normalizeText(distinct.join(" "));
+  const semanticText = distinct.join(" ").replace(/`([^`]+)`/gu, "$1");
+  return normalizeText(semanticText);
 }
 
 function normalizeText(value: string | undefined): string | undefined {

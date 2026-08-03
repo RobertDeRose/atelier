@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0-alpha.45 — 2026-08-03
+
+- Keep the footer's `mode:` field durable and move idle slash-command/approval progress into one animated above-editor status line; use Pi's native working indicator during agent and tool turns.
+- Record whether each transient phase used the single-line spinner or native working-indicator surface without adding progress text to transcript scrollback.
+- Treat generated or edited-but-unreviewed plan scaffolds as non-authoritative retrieval input; only a plan matching `reviewedPlanHash` can contribute `reviewed_plan` queries.
+- Preserve direct-read planning for objectives that name every implementation path and normalize Markdown backticks out of semantic query text when discovery is actually required.
+- Suppress macOS extended attributes, ACLs, file flags, AppleDouble files, and macOS metadata from guided/live evidence archives through executable tar capability probes and copyfile environment controls.
+- Require the automated version test to import both constants from the exact TypeScript source specifier `../packages/core/src/version.ts`; reject `.js`, extensionless, or package-export imports before focused validation.
+- Prefer GNU tar as `gtar` for evidence archives when available, with a configurable tar override and a feature-probed BSD/POSIX tar fallback.
+- Add integration regressions proving the exact two-file planning objective performs no semantic provider call after Atelier generates its initial unreviewed plan scaffold.
+
 ## 0.14.0-alpha.44 — 2026-08-03
 
 - Move mutable codesearch corpus-selection state from `.atelier/` into the repository-specific external runtime directory, migrate the former file after a successful index, and retain compatibility ignores for old temporary writers.

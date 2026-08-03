@@ -1,6 +1,6 @@
 # Atelier Implementation Plan
 
-> **Current release: 0.14.0-alpha.44 (2026-08-03).** The canonical startup directory, or one explicit
+> **Current release: 0.14.0-alpha.45 (2026-08-03).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
 > trust command, permission profiles, remembered approvals, or active permission-grant table. Reviewed
 > plan metadata constrains the active task; the independent workspace evaluator decides whether each
@@ -59,7 +59,17 @@
 
 # Atelier — Agentic Development Environment Implementation Plan
 
-## Implementation Status — v0.14.0-alpha.44
+## Implementation Status — v0.14.0-alpha.45
+
+### Transient progress, reviewed retrieval authority, and evidence archives
+
+- Durable footer mode, task, VCS, and intelligence fields never contain transient phase text.
+- Idle `/plan`, `/approve`, status, permission, checkpoint, and provider work uses one animated above-editor line; agent and tool turns use Pi's native working indicator.
+- Phase evidence records the selected surface and remains ordered before the corresponding expensive domain operation.
+- `reviewed_plan` retrieval is available only when the plan hash equals durable `reviewedPlanHash`; generated and edited-but-unreviewed scaffolds cannot broaden code retrieval.
+- Exact file-scoped objectives continue to produce direct reads with zero semantic provider calls unless broader discovery is explicitly requested.
+- Semantic query text removes Markdown backtick wrappers before provider dispatch.
+- Guided/live archives probe tar suppression capabilities and omit xattrs, macOS metadata, ACLs, file flags, AppleDouble files, and the existing excluded build/VCS/provider stores.
 
 ### External provider state and repository-observation resilience
 
@@ -69,14 +79,14 @@
 
 ### Inline progress, immediate workflow state, and reviewable plan authority
 
-- Transient `/plan`, `/approve`, permission, checkpoint, and provider phases use Pi's native working label during agent turns plus a static inline footer status while idle, rather than an above-editor widget.
+- Alpha.44 introduced inline footer phases; ADR-0042 supersedes that surface with a separate one-line spinner while idle and Pi's native working indicator while streaming.
 - Pause, resume, and cancellation render immediately from durable workflow state before the asynchronous repository/provider refresh.
 - Valid `atlr:task` metadata is canonicalized to multiline indented JSON before ManualEdit; legacy one-line comments remain parseable.
 - Planning objectives that explicitly name every writable file produce direct-read decisions and skip semantic discovery unless they also ask for an unknown location or broader impact.
 
 ### Acceptance-evidence hygiene
 
-- Guided and live archives suppress macOS AppleDouble files and exclude cloned dependencies, build output, nested Git/Jujutsu stores, and provider databases.
+- Guided and live archives suppress AppleDouble files and supported macOS extended metadata, and exclude cloned dependencies, build output, nested Git/Jujutsu stores, and provider databases.
 - Guided workspace setup hardens `.beads` permissions before version/status probes.
 - The read-only model-Bash probe requests exactly one command and no redundant narration, while lifecycle evidence remains authoritative.
 

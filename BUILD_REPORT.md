@@ -1,12 +1,31 @@
-# Build Report — Atelier 0.14.0-alpha.44
+# Build Report — Atelier 0.14.0-alpha.45
 
 ## Result
 
-Alpha.44 implements the corrections derived from the completed alpha.43 guided evidence. Mutable codesearch
-selection state no longer enters the working copy, the legacy Jujutsu temporary-file race has one narrow bounded
-retry, transient phases use Pi's native working indicator and a static inline footer status, workflow-control footer state updates
-immediately, and reviewed task authority is canonical multiline JSON. The same evidence also drove exact-file direct-read
-planning, cleaner acceptance archives, early Beads permission hardening, and a one-command model-Bash probe.
+Alpha.45 implements the remaining corrections from the completed alpha.44 guided evidence. Durable footer mode is no
+longer replaced by transient work: idle slash commands and approvals use one animated above-editor status line, while
+agent and tool turns use Pi's native working indicator. Exact file-scoped planning no longer regresses into semantic
+retrieval after Atelier generates an unreviewed plan scaffold, semantic query text is normalized for providers, and
+guided/live evidence archives explicitly omit macOS extended metadata.
+
+## Alpha.45 progress, retrieval-authority, and archive correction
+
+The alpha.44 guided run passed all five objective steps but reported that placing transient progress beside `mode:` made
+the durable footer harder to read. Alpha.45 restores the prior visual separation without returning to transcript-like
+plain text: one animated row above the editor exists only while an idle operation is active, is replaced in place between
+phases, and disappears on completion. During streaming turns, Pi's native working indicator remains the sole progress
+surface. `ui.phase_changed` evidence identifies which surface was used.
+
+The same archive proved that the exact Step 4 objective still consumed one irrelevant codesearch query. The objective
+named both writable files, but Atelier's generated plan scaffold contributed a `reviewed_plan` retrieval source before
+ManualEdit had reviewed it. Alpha.45 gates that source on the durable `reviewedPlanHash`; an unreviewed scaffold cannot
+broaden retrieval. Semantic discovery remains available for unknown locations and broader-impact requests, and provider
+query text removes Markdown backtick wrappers when discovery is needed.
+
+The compact archive omitted AppleDouble files but retained libarchive extended-attribute records such as
+`LIBARCHIVE.xattr.com.apple.provenance`. Archive creation now probes the installed tar executable for xattr, macOS
+metadata, ACL, and file-flag suppression options, combines every supported option with both copyfile-disable environment
+controls, and retains the existing build/VCS/provider exclusions.
 
 ## Alpha.44 evidence-driven repository and UI correction
 
@@ -313,15 +332,15 @@ git diff --check
 npm pack --dry-run
 ```
 
-The alpha.44 correction working tree passed:
+The alpha.45 correction working tree passed:
 
 ```text
 Release metadata:              passed
 Type-check:                    passed
 Production build:              passed
-Deterministic tests:           303 passed, 0 failed (four bounded groups: 64 + 91 + 73 + 75)
+Deterministic tests:           305 passed, 0 failed (four bounded groups: 65 + 91 + 75 + 74)
 Canonical path-alias lane:     78 passed, 0 failed
-Targeted evidence regressions: 82 passed, 0 failed
+Targeted final-delta tests:   32 passed, 0 failed
 CLI smoke workflow:            passed
 Acceptance syntax/self-check:  passed
 Git diff validation:           passed
@@ -331,15 +350,15 @@ Package dry-run:               passed
 The package dry-run reports:
 
 ```text
-Package:          atelier-prototype@0.14.0-alpha.44
-Files:            494
+Package:          atelier-prototype@0.14.0-alpha.45
+Files:            495
 Built dist files: 428
 ```
 
 ## Verification boundary
 
 The correction environment provides Node 22.16.0 and TypeScript 5.8.3 rather than the supported Node 24.18.0
-and TypeScript 7 toolchain. The complete 303-test aggregate and the 78-test canonical temporary-path lane pass
+and TypeScript 7 toolchain. The complete 305-test suite in four bounded groups and the 78-test canonical temporary-path lane pass
 in this environment, together with type-checking, production compilation, smoke, harness self-checks, and the
 package dry-run. The pinned Node 24 `mise check` remains authoritative for the supported macOS toolchain.
 
@@ -350,7 +369,7 @@ environments.
 
 ## Release classification
 
-`0.14.0-alpha.44` remains an interactive alpha. Footer status is event-driven and provider-neutral:
+`0.14.0-alpha.45` remains an interactive alpha. Footer status is event-driven and provider-neutral:
 model and thinking selections update immediately; workflow, task, closure, Git/Jujutsu, and intelligence
 state refresh after authoritative lifecycle events; and source drift degrades stale index readiness until a
 current index completes. Atelier deliberately does not poll continuously while Pi is completely idle, so
@@ -358,3 +377,14 @@ changes made by an unrelated external process appear on the next Pi input, comma
 lifecycle event. Arbitrary interpreters, scripts, build systems, and dynamically computed shell effects
 remain intentionally conservative and require one concrete approval unless their effects can be bounded
 and recovered.
+
+## Additional alpha.45 acceptance contracts
+
+- The live implementation prompt requires the exact local TypeScript source import
+  `../packages/core/src/version.ts`.
+- The harness rejects `.js`, extensionless, and package-export imports before the
+  first focused validation and covers the contract in `self-check`.
+- Evidence archival prefers `gtar` when available and otherwise uses a
+  capability-probed tar with xattr/macOS metadata suppression flags and copyfile
+  controls.
+- Idle progress renders in one transient line above the editor and never replaces durable footer semantics.

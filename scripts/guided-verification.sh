@@ -3,8 +3,8 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
-HARNESS_VERSION="44.1"
-EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.44}"
+HARNESS_VERSION="45.1"
+EXPECTED_ATELIER_VERSION="${ATELIER_GUIDED_EXPECTED_VERSION:-0.14.0-alpha.45}"
 MANUAL_PARENT="${ATELIER_MANUAL_PARENT:-$HOME/workspace/scratch}"
 RUN_PREFIX="atelier-manual-"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
@@ -61,7 +61,8 @@ Environment:
   ATELIER_GUIDED_PURGE_CONFIRM=1
                                   Skip the PURGE confirmation for fresh/purge.
   ATELIER_MANUAL_PARENT           Manual-test parent (default: ~/workspace/scratch).
-  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.44).
+  ATELIER_ARCHIVE_TAR             Override the archive tar executable; gtar is preferred when available.
+  ATELIER_GUIDED_EXPECTED_VERSION Expected Atelier version (default: 0.14.0-alpha.45).
 USAGE
 }
 
@@ -457,7 +458,7 @@ Expected:
 - `intel:` becomes `ready` after indexing.
 - The thinking level uses normal readable text rather than dim text.
 - Every slash-command result remains in transcript scrollback after the next command.
-- `/status` and `/workflow` show an inline Atelier footer status or Pi's native working spinner immediately instead of leaving the UI apparently frozen.
+- `/status` and `/workflow` show one animated Atelier progress line while idle or Pi's native working indicator while streaming; the footer `mode:` value remains durable and unchanged by transient phases.
 - The second `/status` reuses the recent repository observation when nothing changed.
 - `/status` and `/code-status` render expandable cards with bold field/value summaries.
 - Default `/workflow` renders a concise ledger/status-only card distinct from `/status`; it does not start semantic retrieval.
@@ -634,13 +635,13 @@ or cancellation yet.
 
 Send exactly:
 
-> Implement the active task using only read, edit, and write. Do not use Bash, validate, commit, or close. Stop after the two approved source changes.
+> Implement the active task using only read, edit, and write. In `tests/version.test.ts`, import both constants from the exact TypeScript source specifier `../packages/core/src/version.ts`; do not use `.js`, an extensionless specifier, or a package export. Do not use Bash, validate, commit, or close. Stop after the two approved source changes.
 
 Then wait until Pi has finished the turn and returned to an idle prompt. The completed
 turn must:
 
 - add `export const ATELIER_PRODUCT_NAME = "Atelier"` to `packages/core/src/version.ts`;
-- create `tests/version.test.ts` covering both `ATELIER_PRODUCT_NAME` and `ATELIER_VERSION`;
+- create `tests/version.test.ts` covering both `ATELIER_PRODUCT_NAME` and `ATELIER_VERSION` and importing them from `../packages/core/src/version.ts`;
 - leave the task and execution grant active;
 - avoid validation, commit, and task closure.
 
@@ -865,8 +866,14 @@ assert(footers.some((event) => event.vcs === "jj"), "footer evidence never repor
 assert(footers.some((event) => event.intel === "ready"), "footer evidence never reached intelligence ready state");
 
 const phases = events("ui.phase_changed").filter((event) => event.state === "presented");
-assert(phases.some((event) => event.operation === "/status"), "missing visible /status phase evidence");
-assert(phases.some((event) => event.operation === "/workflow"), "missing visible /workflow phase evidence");
+const statusPhase = phases.find((event) => event.operation === "/status");
+const workflowPhase = phases.find((event) => event.operation === "/workflow");
+assert(statusPhase, "missing visible /status phase evidence");
+assert(workflowPhase, "missing visible /workflow phase evidence");
+assert(statusPhase.surface === "single_line_spinner_and_working",
+  `/status used unexpected progress surface: ${statusPhase.surface ?? "missing"}`);
+assert(workflowPhase.surface === "single_line_spinner_and_working",
+  `/workflow used unexpected progress surface: ${workflowPhase.surface ?? "missing"}`);
 NODE
   pass "Step 1 captured distinct reports, live footer changes, and visible command phases"
 }
@@ -962,6 +969,9 @@ const modelPhases = ledger.filter((event) => event.kind === "ui.phase_changed"
   && event.payload?.operation === "model-bash").map((event) => event.payload ?? {});
 assert(modelPhases.some((event) => event.state === "presented"),
   "model Bash never presented a visible execution phase");
+assert(modelPhases.some((event) => event.state === "presented"
+  && event.surface === "native_working_indicator"),
+  "model Bash did not use Pi's native working indicator");
 assert(modelPhases.some((event) => event.state === "cleared"),
   "model Bash left its visible execution phase active");
 const settled = ledger.filter((event) => event.kind === "ui.agent_settled");
@@ -1069,9 +1079,10 @@ for (const kind of ["execution.rejected", "execution.approval_accepted", "plan.a
   assert(kinds.has(kind), `missing ledger event ${kind}`);
 }
 
-const phases = ledger
+const presentedPhases = ledger
   .filter((event) => event.kind === "ui.phase_changed" && event.payload?.state === "presented")
-  .map((event) => event.payload?.operation);
+  .map((event) => event.payload ?? {});
+const phases = presentedPhases.map((event) => event.operation);
 for (const operation of [
   "plan.command",
   "agent.context",
@@ -1086,6 +1097,16 @@ for (const operation of [
 ]) {
   assert(phases.includes(operation), `missing visible phase evidence ${operation}`);
 }
+for (const phase of presentedPhases) {
+  assert(["single_line_spinner_and_working", "native_working_indicator"].includes(phase.surface),
+    `unexpected progress surface for ${phase.operation ?? "unknown"}: ${phase.surface ?? "missing"}`);
+}
+assert(presentedPhases.some((event) => event.operation === "plan.command"
+  && event.surface === "single_line_spinner_and_working"),
+  "idle /plan command did not use the single-line spinner");
+assert(presentedPhases.some((event) => event.operation === "agent.context"
+  && event.surface === "native_working_indicator"),
+  "planning turn did not use Pi's native working indicator");
 const presented = (operation) => ledger.find((event) => event.kind === "ui.phase_changed"
   && event.payload?.state === "presented" && event.payload?.operation === operation);
 const domain = (kind) => ledger.find((event) => event.kind === kind);
@@ -1116,6 +1137,24 @@ verify_control_implementation() {
     || fail "Step 5A test does not verify ATELIER_PRODUCT_NAME"
   grep -q 'ATELIER_VERSION' "$repo/tests/version.test.ts" \
     || fail "Step 5A test does not verify ATELIER_VERSION"
+  if ! node --input-type=module - "$repo/tests/version.test.ts" <<'NODE'
+import { readFileSync } from "node:fs";
+const source = readFileSync(process.argv[2], "utf8");
+const expectedSpecifier = "../packages/core/src/version.ts";
+const required = ["ATELIER_PRODUCT_NAME", "ATELIER_VERSION"];
+const imports = [...source.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*["']([^"']+)["']/gu)]
+  .map((entry) => ({
+    bindings: entry[1].split(",").map((value) => value.trim().split(/\s+as\s+/u)[0]?.trim()).filter(Boolean),
+    specifier: entry[2],
+  }));
+const relevant = imports.filter(({ bindings }) => bindings.some((binding) => required.includes(binding)));
+if (relevant.some(({ specifier }) => specifier !== expectedSpecifier)) process.exit(2);
+const imported = new Set(relevant.flatMap(({ bindings }) => bindings));
+if (required.some((name) => !imported.has(name))) process.exit(2);
+NODE
+  then
+    fail 'Step 5A test must import both constants from "../packages/core/src/version.ts"'
+  fi
   ! grep -q '// pause-probe' "$repo/packages/core/src/version.ts" \
     || fail "pause-probe appeared before the pause test"
 
@@ -1628,6 +1667,50 @@ retry_step() {
   fi
 }
 
+archive_tar_setup() {
+  ARCHIVE_TAR_FLAGS=()
+  if [[ -n "${ATELIER_ARCHIVE_TAR:-}" ]]; then
+    command -v "$ATELIER_ARCHIVE_TAR" >/dev/null 2>&1 \
+      || fail "configured evidence tar is unavailable: $ATELIER_ARCHIVE_TAR"
+    ARCHIVE_TAR_BIN="$(command -v "$ATELIER_ARCHIVE_TAR")"
+  elif command -v gtar >/dev/null 2>&1; then
+    # GNU tar does not archive xattrs unless explicitly requested. Prefer the
+    # user's gtar on macOS, while still probing supported negative flags.
+    ARCHIVE_TAR_BIN="$(command -v gtar)"
+  else
+    ARCHIVE_TAR_BIN="$(command -v tar)"
+  fi
+
+  local flag
+  for flag in --no-xattrs --no-mac-metadata --no-acls --no-fflags; do
+    if "$ARCHIVE_TAR_BIN" "$flag" -cf /dev/null -T /dev/null >/dev/null 2>&1; then
+      ARCHIVE_TAR_FLAGS+=("$flag")
+    fi
+  done
+  return 0
+}
+
+write_archive_tar_evidence() {
+  local evidence_file="$1"
+  local version_line
+  version_line="$("$ARCHIVE_TAR_BIN" --version 2>/dev/null | sed -n '1p' || true)"
+  {
+    printf 'binary=%s\n' "$ARCHIVE_TAR_BIN"
+    printf 'version=%s\n' "${version_line:-unknown}"
+    printf 'flags='
+    if [[ ${#ARCHIVE_TAR_FLAGS[@]} -gt 0 ]]; then
+      printf '%s' "${ARCHIVE_TAR_FLAGS[0]}"
+      local flag
+      for flag in "${ARCHIVE_TAR_FLAGS[@]:1}"; do
+        printf ' %s' "$flag"
+      done
+    fi
+    printf '\n'
+    printf 'copyfile_disabled=1\n'
+    printf 'extended_attributes_disabled=1\n'
+  } >"$evidence_file"
+}
+
 archive_evidence() {
   load_run
   local output="$RUN_ROOT/atelier-guided-verification-evidence.tar.xz"
@@ -1641,8 +1724,12 @@ archive_evidence() {
     --exclude='guided/*/repo/.codesearch.db'
     --exclude='guided/*/repo/.octocode'
   )
-  COPYFILE_DISABLE=1 tar -C "$RUN_ROOT" "${excludes[@]}" -cJf "$output" evidence guided env.sh 2>/dev/null \
-    || COPYFILE_DISABLE=1 tar -C "$RUN_ROOT" "${excludes[@]}" -cJf "$output" evidence guided
+  archive_tar_setup
+  write_archive_tar_evidence "$EVIDENCE_DIR/archive-tar.txt"
+  COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 \
+    "$ARCHIVE_TAR_BIN" "${ARCHIVE_TAR_FLAGS[@]}" -C "$RUN_ROOT" "${excludes[@]}" -cJf "$output" evidence guided env.sh 2>/dev/null \
+    || COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 \
+      "$ARCHIVE_TAR_BIN" "${ARCHIVE_TAR_FLAGS[@]}" -C "$RUN_ROOT" "${excludes[@]}" -cJf "$output" evidence guided
   printf '%s\n' "$output"
 }
 

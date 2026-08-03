@@ -58,6 +58,7 @@ export class WorkingStateBuilder {
     const omissions: string[] = [];
     const retrievalExplanation: string[] = [];
     const approvedPlanHash = this.ledger.getState<string>("approvedPlanHash");
+    const reviewedPlanHash = this.ledger.getState<string>("reviewedPlanHash");
     const planObjective = normalizeOptional(this.ledger.getState<string>("planObjective"));
     const providerReadyTasks = await this.readyTasks(request.maximumReadyTasks ?? 10, omissions);
     const readyTasks = this.scopeReadyTasks(providerReadyTasks, request.plan, approvedPlanHash);
@@ -134,7 +135,10 @@ export class WorkingStateBuilder {
       ...(planObjective === undefined ? {} : { planObjective }),
       ...(activeTask === undefined ? {} : { activeTask }),
       ...(planTask === undefined ? {} : { planTask }),
-      ...(request.plan === undefined ? {} : { plan: request.plan }),
+      ...(request.plan === undefined ? {} : {
+        plan: request.plan,
+        planReviewed: reviewedPlanHash === request.plan.hash,
+      }),
       ...(planningRetrieval === undefined ? {} : {
         evidence: {
           semanticDiscoveryComplete,
@@ -143,7 +147,9 @@ export class WorkingStateBuilder {
             .filter((item) => item.workspaceId === request.workspace?.id
               && item.repositoryIds.some((repositoryId) => planningRepositoryIds.has(repositoryId)))
             .map((item) => item.symbol),
-          knownPaths: scopedPlanningEvidence.flatMap((item) => item.kind === "hit" ? [(item.value as { path: string }).path] : []),
+          knownPaths: scopedPlanningEvidence.flatMap((item) =>
+            item.kind === "hit" ? [(item.value as { path: string }).path] : [],
+          ),
         },
       }),
     });

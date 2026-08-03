@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-08-03
+Accepted — 2026-08-03. The transient inline-footer phase surface in decision 4 is superseded by ADR-0042; the model-Bash lifecycle, tool-settlement, and durable evidence decisions remain current.
 
 ## Context
 

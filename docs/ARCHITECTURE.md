@@ -1,4 +1,4 @@
-# Atelier Architecture — 0.14.0-alpha.44
+# Atelier Architecture — 0.14.0-alpha.45
 
 The Pi integration owns a session-local `FooterStatusController` and request-scoped observation pipeline. It
 serializes and coalesces status observations, consumes model/thinking and code-index events, invalidates cached
@@ -22,11 +22,14 @@ slower pre-mutation observation cannot overwrite newer footer, workflow, or code
 
 Alpha.44 completes the mutable-state boundary for codesearch: corpus-selection fingerprints live under the
 external repository runtime directory rather than `.atelier/`, with one-way migration from the legacy file.
-Jujutsu retries only the exact legacy temporary-file `ENOENT` snapshot race. Transient interactive phases use
-Pi's native working label during agent turns and a static inline footer status while idle instead of
-transcript-like widgets; pause, resume, and
-cancellation render immediately from durable ledger state. Plan authority is canonical multiline JSON, and an
-exact file-scoped planning objective uses direct reads without semantic discovery unless broader impact is asked.
+Jujutsu retries only the exact legacy temporary-file `ENOENT` snapshot race. Plan authority is canonical multiline
+JSON, and exact file-scoped planning objectives use direct reads unless broader impact is requested.
+
+Alpha.45 separates transient and durable presentation. Idle slash commands and approvals render one animated
+above-editor progress line; active agent/tool turns use Pi's native working indicator; neither replaces the footer's
+durable mode, task, VCS, or intelligence state. Only a plan whose hash matches `reviewedPlanHash` contributes
+`reviewed_plan` retrieval input, so a generated scaffold cannot reintroduce semantic discovery after an exact-file
+objective selected direct reads. Evidence archives probe tar capabilities and omit supported macOS extended metadata.
 
 ## Product boundary
 
@@ -134,9 +137,10 @@ output until both pipes close or become idle for a short bounded grace period; t
 process-group escalation. This prevents a detached descendant holding inherited pipes from leaving Pi's tool
 row and `Working…` indicator permanently active.
 
-Slash-command and approval phases use one static inline footer status while Pi is idle and Pi's
-native streaming working label while an agent is active. Atelier yields one event-loop turn after installing the phase,
-so the user sees feedback before repository, provider, or reconciliation I/O begins. Tool-result handlers finish
+Slash-command and approval phases use one animated above-editor progress row while Pi is idle and Pi's native
+streaming working indicator while an agent or tool turn is active. The footer remains reserved for durable mode, task,
+VCS, and intelligence state. Atelier yields one event-loop turn after installing the phase, so the user sees feedback
+before repository, provider, or reconciliation I/O begins. Tool-result handlers finish
 durable mutation evidence but do not await a footer refresh; `agent_settled` owns the post-turn observation so
 Pi can finalize the tool row and return to idle first.
 

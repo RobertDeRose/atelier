@@ -45,15 +45,38 @@ test("interactive status yields to the event loop and reuses one cached reposito
 
 test("interactive phase feedback is visible before delayed work starts", async () => {
   const messages: Array<string | undefined> = [];
+  const widgets: Array<{
+    key: string;
+    content: unknown;
+    placement?: "aboveEditor" | "belowEditor";
+  }> = [];
   const context = {
+    mode: "tui",
+    isIdle: () => true,
     ui: {
       setWorkingMessage(message?: string): void { messages.push(message); },
+      setWidget(key: string, content: unknown, options?: { placement?: "aboveEditor" | "belowEditor" }): void {
+        widgets.push({ key, content, ...(options?.placement === undefined ? {} : { placement: options.placement }) });
+      },
     },
   } as unknown as ExtensionContext;
 
   const pending = showAtelierPhase(context, "reading repository state");
   assert.equal(messages[0], "Atelier: reading repository state…",
     "the first feedback must be installed synchronously before provider work begins");
+  assert.equal(widgets[0]?.key, "atelier-phase");
+  assert.equal(widgets[0]?.placement, "aboveEditor");
+  assert.equal(typeof widgets[0]?.content, "function");
+  const component = (widgets[0]!.content as (
+    tui: { requestRender(): void },
+    theme: unknown,
+  ) => { render(width: number): string[]; dispose?(): void })(
+    { requestRender(): void {} },
+    {},
+  );
+  assert.match(component.render(120)[0] ?? "", /Atelier: reading repository state…/);
+  assert.equal(component.render(120).length, 1, "the idle phase must occupy exactly one transient line");
+  component.dispose?.();
   await pending;
 });
 

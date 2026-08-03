@@ -3,7 +3,9 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AtelierCore } from "../../../packages/core/src/index.ts";
 import { recordPhaseEvidence } from "./ui-evidence.ts";
 
-export const ATELIER_PHASE_STATUS_KEY = "atlr-phase";
+const PHASE_WIDGET_KEY = "atelier-phase";
+const SPINNER_INTERVAL_MS = 80;
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
 interface ActivePhase {
   id: string;
@@ -11,6 +13,21 @@ interface ActivePhase {
   operation?: string;
   startedAt: number;
   core?: AtelierCore;
+  widgetVisible: boolean;
+}
+
+interface PhaseWidgetTui {
+  requestRender(force?: boolean): void;
+}
+
+interface PhaseWidgetTheme {
+  fg?(color: string, text: string): string;
+}
+
+interface PhaseWidgetComponent {
+  render(width: number): string[];
+  invalidate(): void;
+  dispose(): void;
 }
 
 const ACTIVE_PHASES = new WeakMap<object, ActivePhase>();
@@ -25,6 +42,39 @@ export interface AtelierPhaseOptions {
   operation?: string;
 }
 
+function truncateLine(value: string, width: number): string {
+  if (width <= 0) return "";
+  const chars = Array.from(value);
+  if (chars.length <= width) return value;
+  if (width === 1) return "…";
+  return `${chars.slice(0, width - 1).join("")}…`;
+}
+
+function phaseWidgetFactory(message: string) {
+  return (tui: PhaseWidgetTui, theme: PhaseWidgetTheme): PhaseWidgetComponent => {
+    let frame = 0;
+    let disposed = false;
+    const timer = setInterval(() => {
+      if (disposed) return;
+      frame = (frame + 1) % SPINNER_FRAMES.length;
+      tui.requestRender();
+    }, SPINNER_INTERVAL_MS);
+    timer.unref?.();
+
+    return {
+      render(width: number): string[] {
+        const line = truncateLine(`${SPINNER_FRAMES[frame]} Atelier: ${message}…`, width);
+        return [theme.fg?.("muted", line) ?? line];
+      },
+      invalidate(): void {},
+      dispose(): void {
+        disposed = true;
+        clearInterval(timer);
+      },
+    };
+  };
+}
+
 function recordCleared(phase: ActivePhase, reason: string): void {
   if (phase.core === undefined) return;
   recordPhaseEvidence(phase.core, {
@@ -33,16 +83,19 @@ function recordCleared(phase: ActivePhase, reason: string): void {
     phaseId: phase.id,
     ...(phase.operation === undefined ? {} : { operation: phase.operation }),
     durationMs: Date.now() - phase.startedAt,
-    surface: "inline_status_and_working",
+    surface: phase.widgetVisible ? "single_line_spinner_and_working" : "native_working_indicator",
     reason,
   });
 }
 
 /**
- * Show one inline phase message while Pi is idle and use Pi's own working
- * spinner while an agent turn is streaming. Atelier deliberately avoids an
- * above-editor widget because transient phase text should not enter the
- * transcript-like message area or flash as plain text before being cleared.
+ * Present one transient progress line without replacing durable footer state.
+ *
+ * Idle slash commands do not activate Pi's built-in streaming loader, so
+ * Atelier installs one animated above-editor line that updates in place. Agent
+ * and tool turns use Pi's native working indicator instead. The dedicated row
+ * never enters the message transcript and never replaces the footer's mode,
+ * task, VCS, or intelligence fields.
  */
 export async function showAtelierPhase(
   ctx: ExtensionContext,
@@ -51,12 +104,17 @@ export async function showAtelierPhase(
 ): Promise<string> {
   const key = phaseKey(ctx);
   const prior = ACTIVE_PHASES.get(key);
-  if (prior !== undefined) recordCleared(prior, "replaced");
+  if (prior !== undefined) {
+    ctx.ui.setWidget?.(PHASE_WIDGET_KEY, undefined, { placement: "aboveEditor" });
+    recordCleared(prior, "replaced");
+  }
 
+  const widgetVisible = ctx.mode === "tui" && ctx.isIdle();
   const phase: ActivePhase = {
     id: `phase-${randomUUID()}`,
     message,
     startedAt: Date.now(),
+    widgetVisible,
     ...(options.operation === undefined ? {} : { operation: options.operation }),
     ...(options.core === undefined ? {} : { core: options.core }),
   };
@@ -64,10 +122,12 @@ export async function showAtelierPhase(
 
   const workingText = `Atelier: ${message}…`;
   ctx.ui.setWorkingMessage?.(workingText);
-  (ctx.ui as typeof ctx.ui & { setStatus?: (key: string, text: string | undefined) => void })
-    .setStatus?.(ATELIER_PHASE_STATUS_KEY, `${message}…`);
+  if (widgetVisible) {
+    ctx.ui.setWidget?.(PHASE_WIDGET_KEY, phaseWidgetFactory(message), { placement: "aboveEditor" });
+  }
 
-  // Give Pi a chance to paint the inline footer status or spinner before expensive work starts.
+  // Give Pi a chance to paint the spinner or native working indicator before
+  // repository/provider work starts.
   await new Promise<void>((resolve) => setImmediate(resolve));
   if (phase.core !== undefined) {
     recordPhaseEvidence(phase.core, {
@@ -75,7 +135,7 @@ export async function showAtelierPhase(
       message,
       phaseId: phase.id,
       ...(phase.operation === undefined ? {} : { operation: phase.operation }),
-      surface: "inline_status_and_working",
+      surface: widgetVisible ? "single_line_spinner_and_working" : "native_working_indicator",
     });
   }
   return phase.id;
@@ -88,8 +148,7 @@ export function clearAtelierPhase(
   const key = phaseKey(ctx);
   const phase = ACTIVE_PHASES.get(key);
   ACTIVE_PHASES.delete(key);
+  ctx.ui.setWidget?.(PHASE_WIDGET_KEY, undefined, { placement: "aboveEditor" });
   ctx.ui.setWorkingMessage?.();
-  (ctx.ui as typeof ctx.ui & { setStatus?: (key: string, text: string | undefined) => void })
-    .setStatus?.(ATELIER_PHASE_STATUS_KEY, undefined);
   if (phase !== undefined) recordCleared(phase, options.reason ?? "completed");
 }

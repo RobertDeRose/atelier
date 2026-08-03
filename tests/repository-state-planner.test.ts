@@ -13,6 +13,7 @@ test("repository state planner derives one semantic discovery from durable objec
   assert.equal(plan.queries[0]?.phase, "semantic_discovery");
   assert.equal(plan.queries[0]?.purpose, "plan_objective");
   assert.equal(plan.queries[0]?.focus, "mixed");
+  assert.equal(plan.queries[0]?.text, "Implement WorkingStateBuilder and add regression tests");
   assert.ok(plan.queries[0]?.literalHints.includes("WorkingStateBuilder"));
   assert.match(plan.queries[0]?.reason ?? "", /broad semantic discovery/i);
 });
@@ -119,7 +120,10 @@ test("exact file-scoped planning objectives use direct reads without semantic di
   const second = "tests/version.test.ts";
   const plan = planner.plan({
     mode: "plan",
-    planObjective: `Add an exported ATELIER_PRODUCT_NAME constant with the value "Atelier" to ${first} and add ${second} verifying ATELIER_PRODUCT_NAME and ATELIER_VERSION. Do not change release metadata or any other behavior.`,
+    planObjective:
+      `Add an exported ATELIER_PRODUCT_NAME constant with the value "Atelier" to ${first} `
+      + `and add ${second} verifying ATELIER_PRODUCT_NAME and ATELIER_VERSION. `
+      + "Do not change release metadata or any other behavior.",
   });
 
   assert.deepEqual(plan.queries, []);
@@ -134,4 +138,42 @@ test("explicit paths do not suppress discovery when the objective asks for broad
     planObjective: `Update ${path} and determine related architecture impacts across the repository.`,
   });
   assert.equal(plan.queries[0]?.operation, "search");
+});
+
+test("an unreviewed plan scaffold cannot reintroduce semantic discovery for an exact file-scoped objective", () => {
+  const first = "packages/core/src/version.ts";
+  const second = "tests/version.test.ts";
+  const plan = planner.plan({
+    mode: "plan",
+    planObjective:
+      `Add an exported ATELIER_PRODUCT_NAME constant with the value "Atelier" to ${first} `
+      + `and add ${second} verifying ATELIER_PRODUCT_NAME and ATELIER_VERSION. `
+      + "Do not change release metadata or any other behavior.",
+    planReviewed: false,
+    plan: {
+      path: ".atelier/PLAN.md",
+      title: "Implementation Plan",
+      hash: "draft-plan",
+      diagnostics: [],
+      tasks: [{
+        id: "ATLR-001",
+        title: "First implementation task",
+        goal: "Describe the outcome this task must produce.",
+        description: "Name every writable repository-relative source path from execution.writePaths.",
+        scope: [],
+        outOfScope: [],
+        dependencies: [],
+        validation: [],
+        completionCriteria: [],
+        notes: [],
+        priority: 1,
+        type: "task",
+        source: { startLine: 1, endLine: 10 },
+      }],
+    },
+  });
+
+  assert.deepEqual(plan.queries, []);
+  assert.deepEqual(plan.decisions.map((decision) => decision.path), [first, second]);
+  assert.match(plan.explanation.join(" "), /implementation files explicitly/i);
 });

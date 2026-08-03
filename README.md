@@ -5,7 +5,7 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
-Current release: **0.14.0-alpha.44**. Alpha.44 isolates mutable codesearch state from the working copy, recovers narrowly from the legacy Jujutsu temporary-file race, presents transient work through a static inline footer status and Pi's native working indicator, renders workflow transitions immediately, and makes reviewed task authority readable as canonical multiline JSON.
+Current release: **0.14.0-alpha.45**. Alpha.45 keeps durable workflow mode separate from transient progress, presents idle work as one animated status line, uses Pi's native working indicator during agent turns, prevents an unreviewed plan scaffold from triggering semantic retrieval for exact file-scoped objectives, and strips macOS extended metadata from acceptance archives.
 
 ## Current status
 

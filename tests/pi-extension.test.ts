@@ -56,7 +56,7 @@ function fakeContext(
     confirmationBodies?: string[];
     notifications?: string[];
     widgets?: string[][];
-    widgetEvents?: Array<{ key: string; content: string[] | undefined }>;
+    widgetEvents?: Array<{ key: string; content: unknown; placement?: "aboveEditor" | "belowEditor" }>;
     footers?: string[];
     workingMessages?: Array<string | undefined>;
     statusEvents?: Array<{ key: string; value: string | undefined }>;
@@ -105,9 +105,28 @@ function fakeContext(
       },
       setWorkingMessage: (message?: string) => { observations.workingMessages?.push(message); },
       setWorkingVisible: (): void => {},
-      setWidget: (key: string, content: string[] | undefined) => {
-        observations.widgetEvents?.push({ key, content });
-        if (content !== undefined) observations.widgets?.push(content);
+      setWidget: (
+        key: string,
+        content:
+          | string[]
+          | ((tui: { requestRender(): void }, theme: unknown) => {
+              render(width: number): string[];
+              dispose?(): void;
+            })
+          | undefined,
+        options?: { placement?: "aboveEditor" | "belowEditor" },
+      ) => {
+        observations.widgetEvents?.push({
+          key,
+          content,
+          ...(options?.placement === undefined ? {} : { placement: options.placement }),
+        });
+        if (Array.isArray(content)) observations.widgets?.push(content);
+        else if (typeof content === "function") {
+          const component = content({ requestRender(): void {} }, {});
+          observations.widgets?.push(component.render(240));
+          component.dispose?.();
+        }
       },
       setFooter: (factory: any) => {
         if (factory === undefined) return;
@@ -754,17 +773,17 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
     },
   }));
   const workingMessages: Array<string | undefined> = [];
-  const widgetEvents: Array<{ key: string; content: string[] | undefined }> = [];
+  const widgetEvents: Array<{ key: string; content: unknown; placement?: "aboveEditor" | "belowEditor" }> = [];
   const statusEvents: Array<{ key: string; value: string | undefined }> = [];
   const baseContext = fakeContext(root, { count: 0 }, [], {
     workingMessages,
     widgetEvents,
     statusEvents,
   });
-  const originalSetStatus = baseContext.ui.setStatus.bind(baseContext.ui);
-  baseContext.ui.setStatus = (key, value) => {
-    if (key === "atlr-phase" && value !== undefined) lifecycle.push("planning-phase-presented");
-    originalSetStatus(key, value);
+  const originalSetWidget = baseContext.ui.setWidget?.bind(baseContext.ui);
+  baseContext.ui.setWidget = (key, content, options) => {
+    if (key === "atelier-phase" && content !== undefined) lifecycle.push("planning-phase-presented");
+    originalSetWidget?.(key, content, options);
   };
   const context = {
     ...baseContext,
@@ -830,7 +849,7 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
   const notifications: string[] = [];
   const widgets: string[][] = [];
   const workingMessages: Array<string | undefined> = [];
-  const widgetEvents: Array<{ key: string; content: string[] | undefined }> = [];
+  const widgetEvents: Array<{ key: string; content: unknown; placement?: "aboveEditor" | "belowEditor" }> = [];
   const statusEvents: Array<{ key: string; value: string | undefined }> = [];
   const baseContext = fakeContext(root, confirms, [], {
     confirmationBodies,
@@ -844,8 +863,7 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
   const context = {
     ...baseContext,
     waitForIdle: async () => {
-      waitForIdleObservedPhase = statusEvents.some((event) => event.key === "atlr-phase"
-        && /waiting for Pi to become idle/i.test(event.value ?? ""));
+      waitForIdleObservedPhase = widgets.some((lines) => /waiting for Pi to become idle/i.test(lines.join("\n")));
     },
   } as ExtensionCommandContext;
 
@@ -875,8 +893,9 @@ test("Pi automatic ManualEdit review presents exact approval and supports cancel
     assert.match(approvalSummary, /Full suite: excluded/i);
     assert.match(approvalSummary, /Filesystem approval is decided separately from concrete workspace effects and recoverability/i);
     assert.ok(widgets.some((lines) => lines.join("\n").includes("Atelier exact execution transaction")));
-    assert.ok(statusEvents.some((event) => event.key === "atlr-phase"
-      && /preparing exact transaction/i.test(event.value ?? "")));
+    assert.ok(widgets.some((lines) => /preparing exact transaction/i.test(lines.join("\n"))));
+    assert.equal(statusEvents.some((event) => event.key === "atlr-phase"), false,
+      "transient phases must not replace the durable footer mode field");
     assert.equal(sentMessages.length, sentBeforeApproval, "approval must remain idle and must not enqueue implementation");
     assert.ok(notifications.some((message) => /Atelier is idle; send an explicit implementation instruction/i.test(message)));
 

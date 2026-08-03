@@ -1,4 +1,4 @@
-# Local Acceptance Workflow — 0.14.0-alpha.44
+# Local Acceptance Workflow — 0.14.0-alpha.45
 
 This is the maintainer gate for Atelier's workspace-bound plan-to-commit workflow. The deterministic suite is
 mandatory. Live acceptance is separate because it depends on installed Jujutsu, Beads, codesearch, Pi,
@@ -22,7 +22,7 @@ failure/interruption and per-operation path evidence, source-only freshness, sco
 Beads initialization, symbol-state convergence, validation staleness, exact diff review, restart,
 multi-repository drift, live footer model/thinking selection, Git/Jujutsu refresh scheduling, source-qualified
 intelligence degradation, external idle drift refresh, macOS/symlink repository-path canonicalization,
-in-flight observation invalidation, canonical-root test expectations under a symlinked temporary directory, model Bash streamed/final lifecycle completion, inline plan/approval phases, immediate pause/resume/cancel footer evidence,
+in-flight observation invalidation, canonical-root test expectations under a symlinked temporary directory, model Bash streamed/final lifecycle completion, single-line idle progress and native streaming phases, immediate pause/resume/cancel footer evidence,
 external codesearch selection-state migration, bounded Jujutsu transient-snapshot retry, readable multiline task metadata,
 direct-read planning for exact file-scoped objectives, compact evidence archives, and package metadata.
 
@@ -94,7 +94,7 @@ In Pi, run `/performance clear`, then run `/status` twice, `/workflow`, and `/pe
 
 Pass conditions:
 
-- each command displays an Atelier phase message before repository/provider work begins;
+- each idle command displays one animated Atelier progress line before repository/provider work begins, without replacing durable footer mode;
 - the second `/status` reuses the recent repository observation when no source mutation occurred;
 - default `/workflow` does not initiate semantic retrieval or a code-provider refresh;
 - `/workflow full` remains available for explicit authoritative reconstruction;
@@ -224,7 +224,7 @@ The guided objective checks also inspect bounded `ui.*` ledger events. A passing
 
 - `/status` and `/workflow` produced distinct report digests;
 - footer evidence observed Jujutsu/Git identity, code-intelligence readiness, and at least two thinking levels;
-- `/status`, `/workflow`, `/plan`, and every exact-approval phase were presented before their expensive work;
+- `/status`, `/workflow`, `/plan`, and every exact-approval phase were presented on the single-line spinner or native working-indicator surface before their expensive work;
 - the model Bash probe recorded start, streamed output, successful final completion, output bytes/hash, and no failure/interruption; and
 - Pi reached an idle `ui.agent_settled` state after the model Bash result.
 

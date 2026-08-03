@@ -69,7 +69,7 @@ test("Atelier footer applies bold headings and semantic state colors", () => {
 });
 
 
-test("Atelier footer renders transient phases as inline status instead of a transcript widget", () => {
+test("Atelier footer keeps durable mode state separate from transient progress", () => {
   const lines = renderAtelierFooter(
     context(),
     status(),
@@ -78,9 +78,9 @@ test("Atelier footer renders transient phases as inline status instead of a tran
     {},
     "medium",
     "gpt-test",
-    "preparing exact transaction…",
   );
-  assert.match(lines[0] ?? "", /mode: investigate · preparing exact transaction…/);
+  assert.match(lines[0] ?? "", /mode: investigate/);
+  assert.doesNotMatch(lines[0] ?? "", /preparing|reading|refreshing/);
 });
 test("status-only and disabled footer modes release Pi footer ownership", () => {
   const values: unknown[] = [];

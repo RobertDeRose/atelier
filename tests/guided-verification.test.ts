@@ -24,6 +24,31 @@ test("guided verification help renders without executing Markdown-style commands
   assert.match(result.stdout, /retried with: retry 4/);
 });
 
+test("evidence archive setup prefers GNU tar when gtar is available", () => {
+  const root = mkdtempSync(join(tmpdir(), "atelier-guided-gtar-"));
+  const fakeBin = join(root, "bin");
+  try {
+    mkdirSync(fakeBin, { recursive: true });
+    executable(join(fakeBin, "gtar"), "exit 0");
+    executable(join(fakeBin, "tar"), "exit 99");
+
+    const result = spawnSync(
+      "bash",
+      ["-c", 'source "$1"; archive_tar_setup; printf "%s\n" "$ARCHIVE_TAR_BIN"', "bash", script],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`, TERM: "dumb" },
+      },
+    );
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.equal(result.stdout.trim(), join(fakeBin, "gtar"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("guided verification resolves step workspace paths before launching and collecting evidence", () => {
   const root = mkdtempSync(join(tmpdir(), "atelier-guided-paths-"));
   const runRoot = join(root, "run");
@@ -125,6 +150,7 @@ test("guided verification resolves step workspace paths before launching and col
     assert.match(controlGuide, /three separate Pi sessions/i);
     const implementationGuide = readFileSync(join(guidedRoot, "guides", "05a-control-implementation.md"), "utf8");
     assert.match(implementationGuide, /Do not run `\/atelier-stop` during this implementation turn/i);
+    assert.match(implementationGuide, /exact TypeScript source specifier `\.\.\/packages\/core\/src\/version\.ts`/i);
     const stopGuide = readFileSync(join(guidedRoot, "guides", "05b-control-stop.md"), "utf8");
     assert.match(stopGuide, /only the current turn stops/i);
     assert.equal((stopGuide.match(/task and execution grant/g) ?? []).length, 2);
@@ -479,7 +505,10 @@ test("live acceptance treats only correlated in-workspace EISDIR reads as benign
 
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(readFileSync(live, "utf8"), /resume implementation/);
-  assert.match(readFileSync(live, "utf8"), /do not read "\." or any directory/);
+  const liveSource = readFileSync(live, "utf8");
+  assert.match(liveSource, /do not read "\." or any directory/);
+  assert.match(liveSource, /from \"\.\.\/packages\/core\/src\/version\.ts\"/);
+  assert.match(liveSource, /version_test_import_contract/);
 });
 
 test("live acceptance verifies headless workspace denial from durable policy evidence", async () => {
@@ -507,7 +536,21 @@ test("guided acceptance verifies durable visual and model-Bash lifecycle evidenc
   assert.match(source, /event\.payload\?\.hadOutput === true/);
   assert.match(source, /approve\.prepare/);
   assert.match(source, /approve\.activate/);
-  assert.match(source, /COPYFILE_DISABLE=1 tar/);
+  assert.match(source, /COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1/);
+  assert.match(source, /command -v gtar/);
+  assert.match(source, /ARCHIVE_TAR_BIN/);
+  assert.match(source, /--no-xattrs/);
+  assert.match(source, /--no-mac-metadata/);
+  assert.match(source, /--no-acls/);
+  assert.match(source, /--no-fflags/);
+  assert.match(source, /single_line_spinner_and_working/);
+  assert.match(source, /native_working_indicator/);
   assert.match(source, /--exclude='guided\/\*\/repo\/node_modules'/);
-  assert.doesNotMatch(source, /setWidget\?\.\(PHASE_WIDGET_KEY/);
+  const phaseSource = readFileSync(join(process.cwd(), "apps/pi-extension/src/working-phase.ts"), "utf8");
+  const footerSource = readFileSync(join(process.cwd(), "apps/pi-extension/src/status-presentation.ts"), "utf8");
+  assert.match(phaseSource, /PHASE_WIDGET_KEY = "atelier-phase"/);
+  assert.match(phaseSource, /placement: "aboveEditor"/);
+  assert.match(phaseSource, /SPINNER_FRAMES/);
+  assert.doesNotMatch(phaseSource, /setStatus\?\.\(ATELIER_PHASE_STATUS_KEY/);
+  assert.doesNotMatch(footerSource, /atlr-phase|phaseStatus/);
 });

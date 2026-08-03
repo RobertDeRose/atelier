@@ -4,9 +4,9 @@ IFS=$'\n\t'
 
 PROGRAM="$(basename "$0")"
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
-HARNESS_VERSION="44.1"
-EXPECTED_ATELIER_VERSION="0.14.0-alpha.44"
-EXPECTED_ATELIER_TAG="v0.14.0-alpha.44"
+HARNESS_VERSION="45.1"
+EXPECTED_ATELIER_VERSION="0.14.0-alpha.45"
+EXPECTED_ATELIER_TAG="v0.14.0-alpha.45"
 POINTER_FILE="${ATELIER_ACCEPTANCE_POINTER:-$HOME/.atelier-manual-current}"
 PI_TIMEOUT_SECONDS="${ATELIER_PI_TIMEOUT_SECONDS:-600}"
 SOURCE_REPO=""
@@ -51,6 +51,7 @@ Environment:
   ATELIER_ACCEPTANCE_POINTER   Pointer file (default: ~/.atelier-manual-current).
   ATELIER_PI_TIMEOUT_SECONDS   Timeout for each Pi headless run (default: 600).
   ATELIER_MODEL                Optional Pi --model value for headless prompts.
+  ATELIER_ARCHIVE_TAR          Override the archive tar executable; gtar is preferred when available.
 EOF
 }
 
@@ -985,11 +986,117 @@ verify_current_validation() {
   '
 }
 
+version_test_import_contract() {
+  local test_file="${1:-tests/version.test.ts}"
+  [[ -f "$test_file" ]] || return 1
+  node --input-type=module - "$test_file" <<'NODE'
+import { readFileSync } from "node:fs";
+
+const file = process.argv[2];
+const source = readFileSync(file, "utf8");
+const expectedSpecifier = "../packages/core/src/version.ts";
+const importPattern = /import\s*\{([\s\S]*?)\}\s*from\s*["']([^"']+)["']/gu;
+const imports = [...source.matchAll(importPattern)].map((match) => ({
+  bindings: match[1]
+    .split(",")
+    .map((binding) => binding.trim().split(/\s+as\s+/u)[0]?.trim())
+    .filter(Boolean),
+  specifier: match[2],
+}));
+const required = ["ATELIER_PRODUCT_NAME", "ATELIER_VERSION"];
+const relevantImports = imports.filter(({ bindings }) =>
+  bindings.some((binding) => required.includes(binding)),
+);
+const importedFromExpected = new Set(
+  relevantImports
+    .filter(({ specifier }) => specifier === expectedSpecifier)
+    .flatMap(({ bindings }) => bindings),
+);
+
+if (relevantImports.some(({ specifier }) => specifier !== expectedSpecifier)) {
+  console.error(
+    `tests/version.test.ts must import the local source module exactly from ${JSON.stringify(expectedSpecifier)}; `
+      + `found ${relevantImports.map(({ specifier }) => JSON.stringify(specifier)).join(", ")}`,
+  );
+  process.exit(2);
+}
+if (required.some((name) => !importedFromExpected.has(name))) {
+  console.error(
+    `tests/version.test.ts must import ${required.join(" and ")} from ${JSON.stringify(expectedSpecifier)}`,
+  );
+  process.exit(2);
+}
+NODE
+}
+
+version_test_import_contract_self_check() {
+  local root valid invalid
+  root="$(mktemp -d "${TMPDIR:-/tmp}/atlr-version-import-self-check.XXXXXX")"
+  valid="$root/valid.ts"
+  invalid="$root/invalid.ts"
+  cat >"$valid" <<'EOF'
+import {
+  ATELIER_PRODUCT_NAME,
+  ATELIER_VERSION,
+} from "../packages/core/src/version.ts";
+EOF
+  cat >"$invalid" <<'EOF'
+import { ATELIER_PRODUCT_NAME, ATELIER_VERSION } from "../packages/core/src/version.js";
+EOF
+  version_test_import_contract "$valid"
+  if version_test_import_contract "$invalid" >/dev/null 2>&1; then
+    rm -rf "$root"
+    fail "version-test import self-check accepted a .js source specifier"
+  fi
+  rm -rf "$root"
+}
+
+archive_metadata_self_check() {
+  local root file archive status
+  root="$(mktemp -d "${TMPDIR:-/tmp}/atlr-archive-metadata-self-check.XXXXXX")"
+  file="$root/probe.txt"
+  archive="$root/probe.tar"
+  printf 'archive metadata probe\n' >"$file"
+
+  set +e
+  python3 - "$file" <<'PY_XATTR'
+import os
+import sys
+
+path = sys.argv[1]
+name = b"com.openai.atelier-archive-xattr" if sys.platform == "darwin" else b"user.atelier-archive-xattr"
+try:
+    os.setxattr(path, name, b"must-not-be-archived")
+except (AttributeError, OSError):
+    raise SystemExit(77)
+PY_XATTR
+  status=$?
+  set -e
+  if [[ "$status" -eq 77 ]]; then
+    rm -rf "$root"
+    return 0
+  fi
+  [[ "$status" -eq 0 ]] || {
+    rm -rf "$root"
+    fail "archive metadata self-check could not create an extended attribute"
+  }
+
+  archive_tar_setup
+  COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 \
+    "$ARCHIVE_TAR_BIN" "${ARCHIVE_TAR_FLAGS[@]}" -C "$root" -cf "$archive" "$(basename "$file")"
+  if LC_ALL=C grep -a -q 'atelier-archive-xattr' "$archive"; then
+    rm -rf "$root"
+    fail "selected evidence tar preserved an extended attribute"
+  fi
+  rm -rf "$root"
+}
+
 implementation_is_complete() {
   [[ "$(grep -Fc 'export const ATELIER_PRODUCT_NAME = "Atelier"' packages/core/src/version.ts 2>/dev/null || true)" == "1" ]] || return 1
   [[ -f tests/version.test.ts ]] || return 1
   grep -q 'ATELIER_PRODUCT_NAME' tests/version.test.ts || return 1
   grep -q 'ATELIER_VERSION' tests/version.test.ts || return 1
+  version_test_import_contract tests/version.test.ts >/dev/null 2>&1 || return 1
 
   local changed_file="$EVIDENCE_DIR/changed-implementation-completeness.json"
   "${ATLR_BIN[@]}" changed --json >"$changed_file"
@@ -1010,7 +1117,7 @@ run_headless_implementation() {
   version="$(node -p "require('./package.json').version")"
   local implementation_prompt
   implementation_prompt=$(cat <<EOF
-Implement or finish the active Atelier task now. Make the result idempotent: packages/core/src/version.ts must contain exactly one exported constant named ATELIER_PRODUCT_NAME with value "Atelier", and tests/version.test.ts must verify ATELIER_PRODUCT_NAME and ATELIER_VERSION equal "Atelier" and "$version". Use only read, edit, write, and atlr_state. Read only the two exact file paths packages/core/src/version.ts and tests/version.test.ts; do not read "." or any directory. If tests/version.test.ts does not exist, create it directly. Do not use Bash, do not run validation, do not commit, and do not close the task. Stop after those two approved source changes.
+Implement or finish the active Atelier task now. Make the result idempotent: packages/core/src/version.ts must contain exactly one exported constant named ATELIER_PRODUCT_NAME with value "Atelier", and tests/version.test.ts must verify ATELIER_PRODUCT_NAME and ATELIER_VERSION equal "Atelier" and "$version". Use only read, edit, write, and atlr_state. Read only the two exact file paths packages/core/src/version.ts and tests/version.test.ts; do not read "." or any directory. If tests/version.test.ts does not exist, create it directly. In that test, import ATELIER_PRODUCT_NAME and ATELIER_VERSION using the exact TypeScript source specifier from "../packages/core/src/version.ts"; do not use a .js specifier, an extensionless specifier, or a package export. Do not use Bash, do not run validation, do not commit, and do not close the task. Stop after those two approved source changes.
 EOF
 )
   run_pi_json "$EVIDENCE_DIR/pi-implementation.jsonl" "read,edit,write,atlr_state" "$implementation_prompt"
@@ -1025,6 +1132,8 @@ EOF
   [[ -f tests/version.test.ts ]] || fail "Pi did not create tests/version.test.ts"
   grep -q 'ATELIER_PRODUCT_NAME' tests/version.test.ts || fail "version test does not check product name"
   grep -q 'ATELIER_VERSION' tests/version.test.ts || fail "version test does not check release version"
+  version_test_import_contract tests/version.test.ts \
+    || fail 'tests/version.test.ts must import both version constants from "../packages/core/src/version.ts"'
 
   "${ATLR_BIN[@]}" changed --json >"$EVIDENCE_DIR/changed-after-implementation.json"
   json_assert "$EVIDENCE_DIR/changed-after-implementation.json" '
@@ -1066,6 +1175,8 @@ continue_headless_after_shell() {
   [[ "$close_status" -ne 0 ]] || fail "task closed before validation, diff review, and local change"
 
   log "deterministic focused validation"
+  version_test_import_contract tests/version.test.ts \
+    || fail 'refusing validation: tests/version.test.ts does not use the required .ts source import'
   "${ATLR_BIN[@]}" validate plan --json >"$EVIDENCE_DIR/validation-plan-first.json"
   "${ATLR_BIN[@]}" validate focused --json >"$EVIDENCE_DIR/validation-focused-first.json"
   "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-current-first.json"
@@ -1228,6 +1339,50 @@ EOF
   pass "prepared TUI-only workspaces under $tui_root"
 }
 
+archive_tar_setup() {
+  ARCHIVE_TAR_FLAGS=()
+  if [[ -n "${ATELIER_ARCHIVE_TAR:-}" ]]; then
+    command -v "$ATELIER_ARCHIVE_TAR" >/dev/null 2>&1 \
+      || fail "configured evidence tar is unavailable: $ATELIER_ARCHIVE_TAR"
+    ARCHIVE_TAR_BIN="$(command -v "$ATELIER_ARCHIVE_TAR")"
+  elif command -v gtar >/dev/null 2>&1; then
+    # GNU tar does not archive xattrs unless explicitly requested. Prefer the
+    # user's gtar on macOS, while still probing supported negative flags.
+    ARCHIVE_TAR_BIN="$(command -v gtar)"
+  else
+    ARCHIVE_TAR_BIN="$(command -v tar)"
+  fi
+
+  local flag
+  for flag in --no-xattrs --no-mac-metadata --no-acls --no-fflags; do
+    if "$ARCHIVE_TAR_BIN" "$flag" -cf /dev/null -T /dev/null >/dev/null 2>&1; then
+      ARCHIVE_TAR_FLAGS+=("$flag")
+    fi
+  done
+  return 0
+}
+
+write_archive_tar_evidence() {
+  local evidence_file="$1"
+  local version_line
+  version_line="$("$ARCHIVE_TAR_BIN" --version 2>/dev/null | sed -n '1p' || true)"
+  {
+    printf 'binary=%s\n' "$ARCHIVE_TAR_BIN"
+    printf 'version=%s\n' "${version_line:-unknown}"
+    printf 'flags='
+    if [[ ${#ARCHIVE_TAR_FLAGS[@]} -gt 0 ]]; then
+      printf '%s' "${ARCHIVE_TAR_FLAGS[0]}"
+      local flag
+      for flag in "${ARCHIVE_TAR_FLAGS[@]:1}"; do
+        printf ' %s' "$flag"
+      done
+    fi
+    printf '\n'
+    printf 'copyfile_disabled=1\n'
+    printf 'extended_attributes_disabled=1\n'
+  } >"$evidence_file"
+}
+
 archive_evidence() {
   load_current_workspace allow-stale
   local output="$ATELIER_MANUAL_ROOT/atelier-live-acceptance-evidence.tar.xz"
@@ -1241,9 +1396,13 @@ archive_evidence() {
     --exclude='tui/*/repo/.codesearch.db'
     --exclude='tui/*/repo/.octocode'
   )
-  COPYFILE_DISABLE=1 tar -C "$ATELIER_MANUAL_ROOT" "${excludes[@]}" -cJf "$output" \
-    evidence env.sh tui 2>/dev/null || \
-    COPYFILE_DISABLE=1 tar -C "$ATELIER_MANUAL_ROOT" "${excludes[@]}" -cJf "$output" evidence env.sh
+  archive_tar_setup
+  write_archive_tar_evidence "$EVIDENCE_DIR/archive-tar.txt"
+  COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 \
+    "$ARCHIVE_TAR_BIN" "${ARCHIVE_TAR_FLAGS[@]}" -C "$ATELIER_MANUAL_ROOT" "${excludes[@]}" -cJf "$output" \
+      evidence env.sh tui 2>/dev/null || \
+    COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 \
+      "$ARCHIVE_TAR_BIN" "${ARCHIVE_TAR_FLAGS[@]}" -C "$ATELIER_MANUAL_ROOT" "${excludes[@]}" -cJf "$output" evidence env.sh
   printf '%s\n' "$output"
 }
 
@@ -1458,6 +1617,8 @@ main() {
       ;;
     self-check)
       jsonl_parser_self_check
+      version_test_import_contract_self_check
+      archive_metadata_self_check
       ;;
     -h|--help|help|"")
       usage

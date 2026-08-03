@@ -4,6 +4,15 @@ import { rmSync } from "node:fs";
 import { AtelierCore, MockCodeProvider } from "../packages/core/src/index.ts";
 import { createTemporaryRepository } from "./fixtures.ts";
 
+class CountingMockCodeProvider extends MockCodeProvider {
+  searchCalls = 0;
+
+  override async search(query: Parameters<MockCodeProvider["search"]>[0]) {
+    this.searchCalls += 1;
+    return super.search(query);
+  }
+}
+
 class DeferredIndexProvider extends MockCodeProvider {
   indexCalls = 0;
   searchCalls = 0;
@@ -168,6 +177,35 @@ test("planning mode retrieves code from the durable objective before a task exis
     assert.equal(state.retrievalQueries[0]?.purpose, "plan_objective");
     assert.equal(state.codeEvidence[0]?.queryPurpose, "plan_objective");
     assert.equal(state.codeEvidence[0]?.path, "packages/core/src/state/working-state-builder.ts");
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("file-scoped planning ignores the unreviewed plan scaffold and performs no semantic provider call", async () => {
+  const root = createTemporaryRepository("atlr-plan-direct-read-");
+  const provider = new CountingMockCodeProvider([]);
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: provider });
+  try {
+    core.initialize();
+    await provider.ensureIndex(core.codeWorkspace());
+    core.beginPlan(
+      'Add an exported ATELIER_PRODUCT_NAME constant with the value "Atelier" to packages/core/src/version.ts '
+      + "and add tests/version.test.ts verifying ATELIER_PRODUCT_NAME and ATELIER_VERSION. "
+      + "Do not change release metadata or any other behavior.",
+    );
+
+    const state = await core.buildWorkingState();
+
+    assert.equal(
+      provider.searchCalls,
+      0,
+      "the generated but unreviewed plan scaffold must not trigger semantic retrieval",
+    );
+    assert.deepEqual(state.retrievalQueries, []);
+    assert.ok(state.retrievalExplanation.some((item) => /implementation files explicitly/i.test(item)));
+    assert.ok(state.retrievalExplanation.some((item) => /Suppressed provider retrieval for 2 known path/i.test(item)));
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });

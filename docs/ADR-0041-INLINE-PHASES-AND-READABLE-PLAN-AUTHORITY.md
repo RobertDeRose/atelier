@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. The inline-footer phase surface is superseded by ADR-0042; the immediate workflow-state, plan-format, and exact-file direct-read decisions remain current.
 
 ## Date
 
