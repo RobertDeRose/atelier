@@ -1,0 +1,201 @@
+amends "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Builtins.pkl"
+
+local commit_message_beads = new Step {
+  check =
+    #"""
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      /^(Refs?|Tasks?|Issues?):/ {
+        printf "use the canonical Beads: footer instead of: %s\n", $0 > "/dev/stderr"
+        failed = 1
+      }
+      /^Beads:/ {
+        beads += 1
+        if ($0 !~ /^Beads: [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*(, [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*)*$/) {
+          printf "invalid Beads footer: %s\n", $0 > "/dev/stderr"
+          failed = 1
+        }
+      }
+      NF { last = $0 }
+      END {
+        if (beads > 1) {
+          print "commit message must contain at most one Beads: footer" > "/dev/stderr"
+          failed = 1
+        }
+        if (beads == 1 && last !~ /^Beads:/) {
+          print "Beads: must be the final nonblank line" > "/dev/stderr"
+          failed = 1
+        }
+        exit failed
+      }
+    ' {{commit_msg_file}}
+    """#
+}
+
+local commit_message_length = new Step {
+  check =
+    #"""
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      {
+        line += 1
+        limit = line == 1 ? 72 : 100
+        if (length($0) > limit) {
+          printf "commit message line %d is %d characters; maximum is %d\n", line, length($0), limit > "/dev/stderr"
+          failed = 1
+        }
+      }
+      END { exit failed }
+    ' {{commit_msg_file}}
+    """#
+}
+
+local commit_message_scope = new Step {
+  check =
+    #"""
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      NF {
+        if ($0 ~ /^(feat|fix|perf|refactor)!?: /) {
+          print "changelog-visible commit subject must use type(scope): summary" > "/dev/stderr"
+          exit 1
+        }
+        exit 0
+      }
+    ' {{commit_msg_file}}
+    """#
+}
+
+local harper_commit_message = (Builtins.harper_commit_message) {
+  check =
+    #"""
+    output=$(mktemp)
+    trap 'rm -f "$output"' EXIT
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      /^Beads: [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*(, [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*)*$/ { next }
+      {
+        line = $0
+        if (!seen_subject && NF) {
+          seen_subject = 1
+          if (line ~ /^release: v[0-9]+\.[0-9]+\.[0-9]+$/) { next }
+          sub(/^[a-z]+(\([^)]+\))?!?: /, "", line)
+        }
+        print line
+      }
+    ' {{commit_msg_file}} | harper-cli lint --quiet --no-color --user-dict-path .config/harper-dictionary.txt 2>"$output"
+    status=$?
+    awk '!/^Note: Using user dictionary at /' "$output" >&2
+    exit "$status"
+    """#
+}
+
+local ruff = new Step {
+  glob = List("**/*.py", "**/*.pyi")
+  check = "ruff check --force-exclude --config line-length=120 {{ files }}"
+  fix = "ruff check --force-exclude --config line-length=120 --fix {{ files }}"
+}
+
+local ruff_format = new Step {
+  glob = List("**/*.py", "**/*.pyi")
+  check_diff = "ruff format --quiet --force-exclude --config line-length=120 --diff {{ files }}"
+  fix = "ruff format --quiet --force-exclude --config line-length=120 {{ files }}"
+}
+
+local ty = new Step {
+  glob = List("**/*.py", "**/*.pyi")
+  check = "ty check {{ files }}"
+}
+
+local biome = new Step {
+  glob = List("**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts")
+  check = "biome check --no-errors-on-unmatched {{ files }}"
+  fix = "biome check --write --no-errors-on-unmatched {{ files }}"
+}
+
+local rustfmt = new Step {
+  glob = List("**/*.rs")
+  check = "rustfmt --check --edition 2024 {{ files }}"
+  fix = "rustfmt --edition 2024 {{ files }}"
+}
+
+local linters = new Mapping<String, Step> {
+  ["byte_order_marker"] = Builtins.byte_order_marker
+  ["check_case_conflict"] = Builtins.check_case_conflict
+  ["check_executables_have_shebangs"] = Builtins.check_executables_have_shebangs
+  ["check_merge_conflict"] = Builtins.check_merge_conflict
+  ["contextlint"] = new Step {
+    glob = List("README.md", "docs/**/*.md", "contextlint.config.json")
+    check = "contextlint"
+  }
+  ["detect_private_key"] = Builtins.detect_private_key
+  ["docs"] = new Step {
+    glob = List("docs/src/**/*.md", "docs/book.toml", "scripts/check-docs.py")
+    check = "uv run scripts/check-docs.py && mdbook build docs"
+  }
+  ["fix_smart_quotes"] = Builtins.fix_smart_quotes
+  ["markdown-table-formatter"] = new Step {
+    glob = List("**/*.md", "**/*.markdown")
+    check_diff = "markdown-table-formatter --check {{ files }}"
+    fix = "markdown-table-formatter {{ files }}"
+  }
+  ["mise"] = Builtins.mise
+  ["newlines"] = Builtins.newlines
+  ["rumdl"] = new Step {
+    glob = List("**/*.md", "**/*.markdown")
+    check = "rumdl check {{ files }}"
+    fix = "rumdl check --fix {{ files }}"
+  }
+  ["trailing_whitespace"] = Builtins.trailing_whitespace
+
+
+
+
+
+
+
+
+  ["typos"] = Builtins.typos
+}
+
+hooks {
+  ["commit-msg"] {
+    steps {
+      ["cocogitto_commit_msg"] = Builtins.cocogitto_commit_msg
+      ["harper_commit_message"] = harper_commit_message
+      ["commit_message_beads"] = commit_message_beads
+      ["commit_message_length"] = commit_message_length
+      ["commit_message_scope"] = commit_message_scope
+    }
+  }
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = linters
+  }
+  ["check"] {
+    steps = (linters) {
+
+
+
+
+
+
+    }
+  }
+  ["fix"] {
+    fix = true
+    steps = (linters) {
+
+    }
+  }
+}

@@ -1,0 +1,10 @@
+[global]
+disable = ["MD009", "MD013", "MD033", "MD036"]
+
+[MD007]
+indent = 2
+
+[MD013]
+line-length = 120
+reflow = true
+reflow-mode = "normalize"

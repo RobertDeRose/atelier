@@ -40,9 +40,53 @@ url = "https://github.com/jdx/aube/releases/download/v1.29.1/aube-v1.29.1-x86_64
 url_api = "https://api.github.com/repos/jdx/aube/releases/assets/479769257"
 provenance = "github-attestations"
 
+[[tools.cocogitto]]
+version = "7.0.0"
+backend = "aqua:cocogitto/cocogitto"
+
+[tools.cocogitto."platforms.linux-arm64"]
+checksum = "sha256:379949f50c4f8245ef9532913e83f351c048b55e40ebd52ed8a850642c07a753"
+url = "https://github.com/cocogitto/cocogitto/releases/download/7.0.0/cocogitto-7.0.0-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/cocogitto/cocogitto/releases/assets/366659384"
+
+[tools.cocogitto."platforms.linux-x64"]
+checksum = "sha256:e03938ff2c4c86d71c00c0f3284dbbe95c5ca76fe34a51f33e945c23010d59bb"
+url = "https://github.com/cocogitto/cocogitto/releases/download/7.0.0/cocogitto-7.0.0-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/cocogitto/cocogitto/releases/assets/366659350"
+
+[tools.cocogitto."platforms.macos-arm64"]
+checksum = "sha256:429303b6d68c6461aa221ab4de82b26d0bbcdee7127947ea9c7c411ab9bc574c"
+url = "https://github.com/cocogitto/cocogitto/releases/download/7.0.0/cocogitto-7.0.0-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/cocogitto/cocogitto/releases/assets/366659431"
+
+[tools.cocogitto."platforms.macos-x64"]
+checksum = "sha256:591dcd462e2e35ecc21caf41a15a65d464b7ce1ce8a5c299fa0d46a7798dddb0"
+url = "https://github.com/cocogitto/cocogitto/releases/download/7.0.0/cocogitto-7.0.0-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/cocogitto/cocogitto/releases/assets/366659418"
+
 [[tools."github:Muvon/octocode"]]
 version = "0.14.0"
 backend = "github:Muvon/octocode"
+
+[tools."github:Muvon/octocode"."platforms.linux-arm64"]
+checksum = "sha256:de8d94be17d6612e5167c89ab6c10e6b1e0200f55a32cadf7f0242d4ea1077f8"
+url = "https://github.com/Muvon/octocode/releases/download/0.14.0/octocode-0.14.0-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/Muvon/octocode/releases/assets/395611519"
+
+[tools."github:Muvon/octocode"."platforms.linux-x64"]
+checksum = "sha256:a8e563647ebb6c64fcfae23d35d7f7ded12bd3afd052a447b2cfc109c5053758"
+url = "https://github.com/Muvon/octocode/releases/download/0.14.0/octocode-0.14.0-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/Muvon/octocode/releases/assets/395614610"
+
+[tools."github:Muvon/octocode"."platforms.macos-arm64"]
+checksum = "sha256:b9eac0e485183f76f47a467edcb759a663be61a604219dec2786a636baecbb85"
+url = "https://github.com/Muvon/octocode/releases/download/0.14.0/octocode-0.14.0-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/Muvon/octocode/releases/assets/395624108"
+
+[tools."github:Muvon/octocode"."platforms.macos-x64"]
+checksum = "sha256:774328cd4f72f9e909e12e04331ba19c062dae1ed1d2e0ee668cf4c9c18ae172"
+url = "https://github.com/Muvon/octocode/releases/download/0.14.0/octocode-0.14.0-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/Muvon/octocode/releases/assets/395624071"
 
 [[tools."github:flupkede/codesearch"]]
 version = "1.1.30"
@@ -67,6 +111,49 @@ url_api = "https://api.github.com/repos/flupkede/codesearch/releases/assets/4723
 checksum = "sha256:b2722117c160a541bab715883af55aa17c3cdf95a17818868e3a1aab17c0c221"
 url = "https://github.com/flupkede/codesearch/releases/download/v1.1.30/codesearch-windows-x86_64.zip"
 url_api = "https://api.github.com/repos/flupkede/codesearch/releases/assets/472386838"
+
+[[tools.harper-cli]]
+version = "2.6.0"
+backend = "aqua:Automattic/harper/harper-cli"
+
+[tools.harper-cli."platforms.linux-arm64"]
+checksum = "sha256:e95271b44eafd5883878f49f231bbc2a4639a7cc4c3f5554039942dbbb9ec71d"
+url = "https://github.com/Automattic/harper/releases/download/v2.6.0/harper-cli-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/Automattic/harper/releases/assets/456745232"
+
+[tools.harper-cli."platforms.linux-x64"]
+checksum = "sha256:4c7706869d57e05861b08f1e0750835d6ac3eb16b9c333538ba425d05757725f"
+url = "https://github.com/Automattic/harper/releases/download/v2.6.0/harper-cli-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/Automattic/harper/releases/assets/456744965"
+
+[tools.harper-cli."platforms.macos-arm64"]
+checksum = "sha256:4ff0a0aa1e845a7295d85ce70877cdd8bd9e917a7a0027b0ed57acd2bf13808f"
+url = "https://github.com/Automattic/harper/releases/download/v2.6.0/harper-cli-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/Automattic/harper/releases/assets/456745684"
+
+[tools.harper-cli."platforms.macos-x64"]
+checksum = "sha256:23d03f4482d11a72fa370b186322962e49093e88d7b13f3c9d43f5bb29ff9b43"
+url = "https://github.com/Automattic/harper/releases/download/v2.6.0/harper-cli-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/Automattic/harper/releases/assets/456744844"
+
+[[tools.hk]]
+version = "1.49.0"
+backend = "aqua:jdx/hk"
+
+[tools.hk."platforms.linux-arm64"]
+checksum = "sha256:9d1b59d01d88a663b532230f718fb03fc244c41495a9eecc044ca0b47819a9d8"
+url = "https://github.com/jdx/hk/releases/download/v1.49.0/hk-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/463689401"
+
+[tools.hk."platforms.linux-x64"]
+checksum = "sha256:409c24b22c7f0c2f32be9330defbef54adf71aa53ec13853e20ac0ea952061d6"
+url = "https://github.com/jdx/hk/releases/download/v1.49.0/hk-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/463689407"
+
+[tools.hk."platforms.macos-arm64"]
+checksum = "sha256:2a5b302b97107c036bc7362cd6d8d0501dbb1b735db07c70bc1231a6fe90df44"
+url = "https://github.com/jdx/hk/releases/download/v1.49.0/hk-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/463689399"
 
 [[tools.jj]]
 version = "0.43.0"
@@ -146,6 +233,25 @@ checksum = "sha256:7003d23db7165dcf6a7b05dae14f90d578e3609a755d0d316f85657132d3c
 url = "https://github.com/idursun/jjui/releases/download/v0.10.8/jjui-0.10.8-windows-amd64.zip"
 url_api = "https://api.github.com/repos/idursun/jjui/releases/assets/466661598"
 
+[[tools.mdbook]]
+version = "0.5.2"
+backend = "aqua:rust-lang/mdBook"
+
+[tools.mdbook."platforms.linux-x64"]
+checksum = "sha256:8e9d802bbecea34380aabfc65bec4fdba23c07453ef2c7e06fa34c282082e2c4"
+url = "https://github.com/rust-lang/mdBook/releases/download/v0.5.2/mdbook-v0.5.2-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/rust-lang/mdBook/releases/assets/327545066"
+
+[tools.mdbook."platforms.macos-arm64"]
+checksum = "sha256:17cc64478ec279a73881420e850bd8f9d460552e56b50159ff465bc97eb90d6c"
+url = "https://github.com/rust-lang/mdBook/releases/download/v0.5.2/mdbook-v0.5.2-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/rust-lang/mdBook/releases/assets/327545156"
+
+[tools.mdbook."platforms.macos-x64"]
+checksum = "sha256:17cc64478ec279a73881420e850bd8f9d460552e56b50159ff465bc97eb90d6c"
+url = "https://github.com/rust-lang/mdBook/releases/download/v0.5.2/mdbook-v0.5.2-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/rust-lang/mdBook/releases/assets/327545156"
+
 [[tools.node]]
 version = "24.18.0"
 backend = "core:node"
@@ -177,3 +283,94 @@ url = "https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-x64.tar.gz"
 [tools.node."platforms.windows-x64"]
 checksum = "sha256:0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821"
 url = "https://nodejs.org/dist/v24.18.0/node-v24.18.0-win-x64.zip"
+
+[[tools."npm:@contextlint/cli"]]
+version = "1.1.1"
+backend = "npm:@contextlint/cli"
+
+[tools."npm:@contextlint/cli".options]
+aube_args = "--allow-low-downloads"
+
+[[tools."npm:markdown-table-formatter"]]
+version = "1.7.0"
+backend = "npm:markdown-table-formatter"
+
+[[tools.rumdl]]
+version = "0.2.43"
+backend = "aqua:rvben/rumdl"
+
+[tools.rumdl."platforms.linux-arm64"]
+checksum = "sha256:d5388225fa5e87c558c8d9bdc78dba515ce5ac2cbf8213fcc56ecdeabe534776"
+url = "https://github.com/rvben/rumdl/releases/download/v0.2.43/rumdl-v0.2.43-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/488745474"
+provenance = "github-attestations"
+
+[tools.rumdl."platforms.linux-x64"]
+checksum = "sha256:e74e580aaf32698f61081ef1f6b9748f5c3fc1df311c14ab47ad3548a6a62f81"
+url = "https://github.com/rvben/rumdl/releases/download/v0.2.43/rumdl-v0.2.43-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/488745475"
+provenance = "github-attestations"
+
+[tools.rumdl."platforms.macos-arm64"]
+checksum = "sha256:43b19e0783b68135029b4f58dcb5bb7bf571f498107f6dae107e08bc6fe07214"
+url = "https://github.com/rvben/rumdl/releases/download/v0.2.43/rumdl-v0.2.43-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/488745481"
+provenance = "github-attestations"
+
+[tools.rumdl."platforms.macos-x64"]
+checksum = "sha256:9ae902fa12b095911a7568457afdcde73a5295b168a063cdf8d478a3728d6411"
+url = "https://github.com/rvben/rumdl/releases/download/v0.2.43/rumdl-v0.2.43-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/488745471"
+provenance = "github-attestations"
+
+[[tools.typos]]
+version = "1.48.0"
+backend = "aqua:crate-ci/typos"
+
+[tools.typos."platforms.linux-arm64"]
+checksum = "sha256:2960ae07bc1ffe19e4895e4359394dd349c9c31de78aac3a124b6e4aeb206698"
+url = "https://github.com/crate-ci/typos/releases/download/v1.48.0/typos-v1.48.0-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/462429655"
+
+[tools.typos."platforms.linux-x64"]
+checksum = "sha256:72a930c9a94fc3914aa56835c5b859c892a797d40c1c42638b98d93f16ff519c"
+url = "https://github.com/crate-ci/typos/releases/download/v1.48.0/typos-v1.48.0-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/462429902"
+
+[tools.typos."platforms.macos-arm64"]
+checksum = "sha256:7dcaf386ec255995dcbaf629641f961574b7e8785203921115eab75cbf1ca107"
+url = "https://github.com/crate-ci/typos/releases/download/v1.48.0/typos-v1.48.0-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/462430254"
+
+[tools.typos."platforms.macos-x64"]
+checksum = "sha256:f4335c255db3d57374484e0e96505c8910c0e2fa6d8813b15de529c98f93b1a9"
+url = "https://github.com/crate-ci/typos/releases/download/v1.48.0/typos-v1.48.0-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/462431306"
+
+[[tools.uv]]
+version = "0.11.32"
+backend = "aqua:astral-sh/uv"
+
+[tools.uv."platforms.linux-arm64"]
+checksum = "sha256:d70cdae687feb6aad9a09fe8d686df8c8efaf69a1007fa581379a2025adc10a5"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/487747547"
+provenance = "github-attestations"
+
+[tools.uv."platforms.linux-x64"]
+checksum = "sha256:1fd052f196108d87e61fc3d98fe06b4ec758c9a1eb1466a6fd1a436fe45885f2"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/487747669"
+provenance = "github-attestations"
+
+[tools.uv."platforms.macos-arm64"]
+checksum = "sha256:ed336d0ba49db8ef89b2b41fffa372ce63bd032f22a56f001c265891aec32829"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/487747526"
+provenance = "github-attestations"
+
+[tools.uv."platforms.macos-x64"]
+checksum = "sha256:77f5ca26c0de20e992a3677a174fe1121ee25c36f9b1434a863f75bf077a05eb"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/487747646"
+provenance = "github-attestations"

@@ -1,3 +1,5 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
 [tools]
 node = "24.18.0"
 aube = "1.29.1"
@@ -5,6 +7,19 @@ jj = "0.43.0"
 jjui = "0.10.8"
 "github:flupkede/codesearch" = "1.1.30"
 "github:Muvon/octocode" = "0.14.0"
+hk = "1.49.0"
+cocogitto = "latest"
+harper-cli = "latest"
+"npm:@contextlint/cli" = { version = "latest", aube_args = "--allow-low-downloads" }
+mdbook = "latest"
+uv = "latest"
+rumdl = "latest"
+typos = "latest"
+"npm:markdown-table-formatter" = "latest"
+
+[env]
+GIT_CONFIG_PARAMETERS = "'merge.ff=only'"
+HK_MISE = 1
 
 [tasks.install]
 description = "Install Atelier development dependencies"
@@ -36,7 +51,33 @@ run = "aubr test:coverage"
 
 [tasks.check]
 description = "Run all repository checks"
-run = "aubr check"
+run = "aubr check && hk check -a"
+
+[tasks.fix]
+description = "Apply deterministic repository fixes"
+run = "hk fix -a"
+
+[tasks."docs:check"]
+description = "Validate and build the documentation"
+depends = ["docs:build"]
+run = "uv run scripts/check-docs.py"
+
+[tasks."docs:build"]
+description = "Build the documentation site"
+run = "mdbook build docs"
+
+[tasks."docs:deployment:enable"]
+description = "Enable GitHub Pages deployment"
+run = "python3 scripts/enable-docs-deployment.py"
+
+[tasks."docs:serve"]
+description = "Serve the documentation site locally"
+usage = 'arg "[port]" help="Port to serve on" default="3000"'
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+mdbook serve docs --port "${usage_port:-3000}"
+'''
 
 [tasks."test:codesearch"]
 description = "Alias for the explicit live codesearch test"

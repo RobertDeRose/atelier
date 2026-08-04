@@ -245,9 +245,9 @@ Generated: `2026-08-04T03:38:29+00:00`
         ✔ plan review records canonical configured paths through repository aliases (6892.947334ms)
         ✔ block
   - stderr:
-        [test] $ aubr test
-        Auto-installing: install state not found
-        devDependencies:
+    [test] $ aubr test
+    Auto-installing: install state not found
+    devDependencies:
         + @types/node@24.13.3
         + typescript@7.0.2
 

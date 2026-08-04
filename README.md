@@ -5,6 +5,66 @@ Atelier owns reviewed-plan execution, task reconciliation, authorization, durabl
 validation closure, Working State, and code-provider orchestration. Editors, Jujutsu/Git, Beads,
 codesearch, Octocode, and validation commands retain their native responsibilities.
 
+<!-- dstack:generated-readme -->
+## dstack workflow
+
+This repository uses the dstack documentation-first, Beads-backed development workflow.
+
+### Getting started
+
+Install the workflow skills:
+
+```bash
+npx --yes skills@1.5.16 add RobertDeRose/dstack
+```
+
+The setup workflow validates the scaffold and initializes Beads when `bd` is available. Start a session with:
+
+```bash
+bd prime
+bd ready --type epic --label workflow:feature --json --limit 0
+bd ready --json
+```
+
+Use the installed lifecycle skills:
+
+```text
+/plan-features
+/start-feature <slug>
+/implement-feature <slug>
+/implement-task <task-selector>
+/close-feature <slug>
+/audit-project
+```
+
+Install the locked developer tools, then validate or serve the documentation:
+
+```bash
+mise install --locked
+mise run docs:check
+mise run docs:serve
+```
+
+Run the complete quality contract with `mise run check`; apply deterministic fixes with `mise run fix`.
+
+### Commit scopes
+
+Changelog-visible `feat`, `fix`, `perf`, and `refactor` commits require a semantic subsystem scope. Generated projects
+initially accept any syntactically valid scope because project boundaries are not known to the template.
+
+When the stable subsystems are known:
+
+1. Add a `scopes = ["..."]` allowlist to `cog.toml`.
+2. Replace this guidance with a short table describing when each scope applies.
+3. Update the Commit messages section in `AGENTS.md` so agents use the same taxonomy.
+
+Prefer stable ownership boundaries over feature numbers, ticket identifiers, action names, or incidental files. Run
+`cog check` after changing the allowlist.
+
+The project was generated from `RobertDeRose/dstack` with Copier. Commit the scaffold before applying future template
+updates with `/update-project`. Updates preserve the recorded `stable` or `unstable` channel and always record the exact
+template commit used.
+
 Current release: **0.14.0-alpha.46**. Alpha.46 makes agent-turn progress surface selection lifecycle-explicit, so `before_agent_start` always uses Pi's native working indicator even while Pi still reports idle, and makes guided pause evidence chronological so later paused footer refreshes cannot create false latency failures.
 
 ## Current status
@@ -380,9 +440,9 @@ atlr_commit
 atlr_task_close
 ```
 
-Explicit user prohibitions such as “do not use Bash”, “do not validate”, “do not commit”, or “do not
-close” form a temporary turn policy that blocks those tools before an exceptional approval prompt. A
-“stop after” instruction is also injected into the current-turn prompt, while `/atelier-stop` is the
+Explicit user prohibitions such as "do not use Bash", "do not validate", "do not commit", or "do not
+close" form a temporary turn policy that blocks those tools before an exceptional approval prompt. A
+"stop after" instruction is also injected into the current-turn prompt, while `/atelier-stop` is the
 enforceable active-turn control. A reviewed task constraint permits a bounded workflow operation; it never instructs the model to use it.
 
 Each Pi session owns its own Atelier Core, repository root, review state, retrieval session, and index

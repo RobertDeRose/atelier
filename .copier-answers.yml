@@ -1,0 +1,75 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# This file is managed by Copier. Do not edit it manually.
+_commit: v0.8.0
+_src_path: gh:RobertDeRose/dstack
+language_profiles:
+- other
+project_boundaries: Atelier does not replace editors, VCS, Beads task storage, provider
+    indexing/retrieval, configured validation commands, or OS sandboxing. It does
+    not provide unattended privileged execution, persistent filesystem trust, or the
+    deferred fuzzy-palette/project-tree/IDE surfaces.
+project_kind: application
+project_name: Atelier
+project_purpose: Provide a local-first, policy-aware workflow control plane for Pi
+    with reviewed-plan execution, task reconciliation, authorization, durable evidence,
+    validation closure, Working State, and code-provider orchestration.
+project_scope: The atlr CLI and Pi extension for local session-workspace policy, reviewed-plan
+    execution, task reconciliation, exact authorization and recovery, durable evidence,
+    validation closure, Working State, and provider-neutral codesearch/Octocode orchestration,
+    integrated with Jujutsu/Git and Beads.
+project_slug: atelier
+project_users: Developers and coding agents using Pi who need local, reviewable, and
+    recoverable workflow execution.
+repository_default_branch: main
+repository_layout: single-package

@@ -1,0 +1,12 @@
+[book]
+title = "Atelier"
+description = "Provide a local-first, policy-aware workflow control plane for Pi with reviewed-plan execution, task reconciliation, authorization, durable evidence, validation closure, Working State, and code-provider orchestration."
+authors = []
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]

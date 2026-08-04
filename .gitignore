@@ -37,3 +37,25 @@ coverage/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# BEGIN DSTACK WORKFLOW
+# Generated mdBook output
+docs/book/
+
+# Local tooling and secret overrides
+mise.local.toml
+.mise.local.toml
+.env
+.env.local
+.env.*.local
+.rumdl_cache/
+
+
+
+
+
+
+
+# Local editor and OS files
+.DS_Store
+# END DSTACK WORKFLOW
