@@ -3,4 +3,3 @@ atlr: octocode index failed for <REPOSITORY_ROOT>: error: unexpected argument '-
 Usage: octocode index [OPTIONS]
 
 For more information, try '--help'.
-

@@ -190,4 +190,3 @@ function manualEditText(event: LedgerEvent): string {
   const changed = typeof record.changed === "boolean" ? record.changed : undefined;
   return `${path}${changed === undefined ? "" : changed ? " changed" : " reviewed without textual change"}`;
 }
-
