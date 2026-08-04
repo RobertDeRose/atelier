@@ -683,7 +683,7 @@ test("codesearch overfetches and reranks implementation searches toward diverse 
   const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-focus-"));
   const fake = fakeCodesearch(root);
   const rows = [
-    { chunk_id: 1, path: "docs/src/development/code-intelligence/index.md", start_line: 1, end_line: 4, score: 0.99 },
+    { chunk_id: 1, path: "docs/src/features/canonical-retrieval-planning/code-intelligence/index.md", start_line: 1, end_line: 4, score: 0.99 },
     { chunk_id: 2, path: "tests/codesearch-provider.test.ts", start_line: 1, end_line: 4, score: 0.98 },
     { chunk_id: 3, path: "scripts/probe-codesearch-mcp.ts", start_line: 1, end_line: 4, score: 0.97 },
     { chunk_id: 4, path: "packages/core/src/core.ts", start_line: 1, end_line: 4, score: 0.96 },
@@ -740,7 +740,7 @@ test("codesearch fuses bounded literal identifiers into focused automatic retrie
   const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-fusion-"));
   const fake = fakeCodesearch(root);
   const semanticRows = [
-    { chunk_id: 1, path: "docs/src/development/code-intelligence/index.md", start_line: 1, end_line: 4, score: 0.99 },
+    { chunk_id: 1, path: "docs/src/features/canonical-retrieval-planning/code-intelligence/index.md", start_line: 1, end_line: 4, score: 0.99 },
     { chunk_id: 2, path: "packages/core/src/core.ts", start_line: 1, end_line: 4, score: 0.95 },
     { chunk_id: 3, path: "README.md", start_line: 1, end_line: 4, score: 0.90 },
   ];

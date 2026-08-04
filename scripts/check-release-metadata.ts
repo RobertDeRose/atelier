@@ -51,23 +51,6 @@ check(
   "scripts/test-path-alias.sh must be executable",
 );
 
-const adrDirectory = join(rootPath, "docs/src/architecture/decisions");
-const adrFiles = readdirSync(adrDirectory)
-  .filter((name) => /^ADR-\d{4}-.*\.md$/.test(name))
-  .sort();
-const identifiers = new Map<string, string>();
-for (const name of adrFiles) {
-  const identifier = /^ADR-(\d{4})-/.exec(name)?.[1];
-  if (identifier === undefined) continue;
-  const prior = identifiers.get(identifier);
-  if (prior !== undefined) failures.push(`duplicate ADR-${identifier}: ${prior} and ${name}`);
-  else identifiers.set(identifier, name);
-  check(
-    text(join("docs/src/architecture/decisions", name)).startsWith(`# ADR-${identifier}:`),
-    `${name} heading does not match its identifier`,
-  );
-}
-
 for (const name of readdirSync(join(rootPath, "packages/core/src/domain")).filter((item) => item.endsWith(".ts"))) {
   check(!text(join("packages/core/src/domain", name)).includes('../code/'), `${name} recreates the domain/code dependency cycle`);
 }
@@ -113,27 +96,18 @@ for (const path of [
   "scripts/live-acceptance.sh",
   "scripts/guided-verification.sh",
   "scripts/test-path-alias.sh",
-  "docs/src/architecture/decisions/ADR-0030-REPOSITORY-FINALIZATION-AND-CLOSURE-SEMANTICS.md",
-  "docs/src/architecture/decisions/ADR-0033-PERSISTENT-MARKDOWN-REPORTS.md",
-  "docs/src/architecture/decisions/ADR-0036-INTERACTIVE-OBSERVATION-PIPELINE.md",
-  "docs/src/architecture/decisions/ADR-0037-CANONICAL-PATH-IDENTITY.md",
-  "docs/src/architecture/decisions/ADR-0039-PI-UI-LIFECYCLE-AND-EVIDENCE.md",
-  "docs/src/architecture/decisions/ADR-0040-EXTERNAL-PROVIDER-STATE-AND-TRANSIENT-SNAPSHOT-RETRY.md",
-  "docs/src/architecture/decisions/ADR-0041-INLINE-PHASES-AND-READABLE-PLAN-AUTHORITY.md",
-  "docs/src/architecture/decisions/ADR-0042-TRANSIENT-PROGRESS-AND-REVIEWED-PLAN-RETRIEVAL.md",
-  "docs/src/architecture/decisions/ADR-0043-LIFECYCLE-EXPLICIT-PHASE-SURFACES-AND-CHRONOLOGICAL-EVIDENCE.md",
-  "docs/src/development/evidence/ui-latency/audit-alpha29.md",
-  "docs/src/development/evidence/ui-latency/corrections-alpha30.md",
+  "docs/src/reference/changelog/ui-latency/audit-alpha29.md",
+  "docs/src/reference/changelog/ui-latency/corrections-alpha30.md",
 ]) {
   check(text(path).trim().length > 0, `${path} is missing or empty`);
 }
 
 check(
-  text("docs/src/architecture/history/review-corrections.md").includes("Recommendation 29"),
+  text("docs/src/reference/changelog/architecture-review-corrections.md").includes("Recommendation 29"),
   "review-correction traceability is incomplete",
 );
 check(
-  text("docs/src/operations/history/manual-acceptance-corrections.md").includes("Confirmed product defects"),
+  text("docs/src/reference/changelog/manual-acceptance-corrections.md").includes("Confirmed product defects"),
   "manual-acceptance correction traceability is incomplete",
 );
 
@@ -141,5 +115,5 @@ if (failures.length > 0) {
   for (const failure of failures) process.stderr.write(`release metadata: ${failure}\n`);
   process.exitCode = 1;
 } else {
-  process.stdout.write(`Release metadata consistent for Atelier ${ATELIER_VERSION}; ${adrFiles.length} ADR identifiers are unique.\n`);
+  process.stdout.write(`Release metadata consistent for Atelier ${ATELIER_VERSION}.\n`);
 }

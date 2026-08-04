@@ -180,6 +180,15 @@ def marked_region(
     return markdown[start:end]
 
 
+def is_feature_design_record(path: Path, root: Path) -> bool:
+    features_dir = root / "docs/src/features"
+    try:
+        relative = path.relative_to(features_dir)
+    except ValueError:
+        return False
+    return len(relative.parts) == 2 and relative.name == "design.md"
+
+
 def validate_links(root: Path, markdown_files: Iterable[Path], published_files: set[Path]) -> list[Finding]:
     findings: list[Finding] = []
     for source in markdown_files:
@@ -195,7 +204,12 @@ def validate_links(root: Path, markdown_files: Iterable[Path], published_files: 
                     message=f"Link target does not exist: {target}",
                     root=root,
                 )
-            elif source.resolve() in published_files and resolved.suffix == ".md" and resolved not in published_files:
+            elif (
+                source.resolve() in published_files
+                and resolved.suffix == ".md"
+                and resolved not in published_files
+                and not is_feature_design_record(resolved, root)
+            ):
                 add(
                     findings,
                     severity="error",

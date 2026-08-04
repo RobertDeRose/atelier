@@ -64,7 +64,7 @@ registered in `docs/src/SUMMARY.md`.
 |----------------------------|-------------------------------------------------|------------------------------------|-------------------------------------|-------------------|
 | Introduction               |                                                 |                                    |                                     |                   |
 | Architecture               |                                                 |                                    |                                     |                   |
-| Usage / Operations         |                                                 |                                    |                                     |                   |
+| User Guide                 |                                                 |                                    |                                     |                   |
 | Development                |                                                 |                                    |                                     |                   |
 | Reference                  |                                                 |                                    |                                     |                   |
 | Navigation                 | `docs/src/SUMMARY.md`                           | Update if pages are added or moved |                                     |                   |
