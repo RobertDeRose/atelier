@@ -325,7 +325,7 @@ prepare_intel_jj() {
     mise install >/dev/null
     jj git init --colocate >/dev/null
     chmod 700 .beads 2>/dev/null || true
-    mise run install >/dev/null
+    mise run init >/dev/null
   )
   write_workspace_metadata intel-jj "$root" "$repo"
 }
@@ -351,7 +351,7 @@ prepare_policy_git() {
     cd "$ATLR_REPO"
     chmod 700 .beads 2>/dev/null || true
     mise install >/dev/null
-    mise run install >/dev/null
+    mise run init >/dev/null
     configure_repo "$ATLR_REPO" git none disabled
     mkdir -p manual-policy
     printf 'clean read\n' > manual-policy/clean-read.txt
@@ -384,7 +384,7 @@ prepare_policy_jj() {
     mise install >/dev/null
     jj git init --colocate >/dev/null
     chmod 700 .beads 2>/dev/null || true
-    mise run install >/dev/null
+    mise run init >/dev/null
     configure_repo "$ATLR_REPO" jj none disabled
     mkdir -p manual-policy
     printf 'jj dirty original\n' > manual-policy/dirty-delete.txt
@@ -405,7 +405,7 @@ prepare_control() {
     mise install >/dev/null
     jj git init --colocate >/dev/null
     chmod 700 .beads 2>/dev/null || true
-    mise run install >/dev/null
+    mise run init >/dev/null
     node ./bin/atlr.mjs init --beads >/dev/null
     cat >.atelier/validation.json <<'JSON'
 {

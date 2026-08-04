@@ -562,7 +562,7 @@ create_automated_workspace() {
   chmod 700 .beads 2>/dev/null || true
   jj git init --colocate
   mise install
-  mise run install
+  mise run init
 
   {
     printf 'Repository: %s\n' "$ATLR_REPO"
@@ -581,7 +581,7 @@ create_automated_workspace() {
 verify_workspace_policy() {
   log "observational doctor and startup workspace policy"
   find .atelier -type f -print 2>/dev/null | LC_ALL=C sort >"$EVIDENCE_DIR/files-before-doctor.txt"
-  "${ATLR_BIN[@]}" doctor >"$EVIDENCE_DIR/doctor.json"
+  "${ATLR_BIN[@]}" doctor --json >"$EVIDENCE_DIR/doctor.json"
   find .atelier -type f -print 2>/dev/null | LC_ALL=C sort >"$EVIDENCE_DIR/files-after-doctor.txt"
   diff -u "$EVIDENCE_DIR/files-before-doctor.txt" "$EVIDENCE_DIR/files-after-doctor.txt" >"$EVIDENCE_DIR/doctor-file-diff.txt" || {
     cat "$EVIDENCE_DIR/doctor-file-diff.txt" >&2
@@ -1285,7 +1285,7 @@ prepare_tui_workspaces() {
     cd "$ATLR_REPO"
     jj git init --colocate
     mise install
-    mise run install
+    mise run init
   )
 
   log "prepare workflow-control TUI workspace"
@@ -1297,7 +1297,7 @@ prepare_tui_workspaces() {
     cd "$ATLR_REPO"
     jj git init --colocate
     mise install
-    mise run install
+    mise run init
     node "$ATLR_REPO/bin/atlr.mjs" init --beads >/dev/null
     cat >.atelier/validation.json <<'JSON'
 {
@@ -1334,7 +1334,7 @@ TUI workflow/control smoke:
   cd "\$ATLR_REPO"
   mise run launch -- -ne
 
-See docs/src/operations/local-acceptance.md in the current repository for the interactive checklist.
+See docs/src/development/local-acceptance.md in the current repository for the interactive checklist.
 EOF
   pass "prepared TUI-only workspaces under $tui_root"
 }

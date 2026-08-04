@@ -21,57 +21,145 @@ typos = "latest"
 GIT_CONFIG_PARAMETERS = "'merge.ff=only'"
 HK_MISE = 1
 
-[tasks.install]
-description = "Install Atelier development dependencies"
+[tasks.init]
+description = "Initialize Atelier development dependencies"
+quiet = true
 run = "aube install --frozen-lockfile && aubr setup:octocode && aubr build"
 
 [tasks.atlr]
 description = "Run the Atelier CLI"
+quiet = true
 run = "aubr atlr --"
 
+[tasks.workspace-init]
+description = "Initialize the current workspace when its Atelier files are missing or stale"
+quiet = true
+hide = true
+dir = "{{cwd}}"
+sources = [
+  "bin/atlr.mjs",
+  "package.json",
+  "apps/cli/src/**/*.ts",
+  "packages/core/src/**/*.ts",
+]
+outputs = [
+  ".atelier/config.json",
+  ".atelier/PLAN.md",
+  ".atelier/validation.json",
+]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n "${ATELIER_REPOSITORY:-}" ]]; then
+  project_root="$ATELIER_REPOSITORY"
+elif [[ -n "${MISE_CONFIG_FILE:-}" ]]; then
+  project_root="$(cd -- "$(dirname -- "$MISE_CONFIG_FILE")" && pwd -P)"
+else
+  project_root="${MISE_PROJECT_ROOT:-$PWD}"
+fi
+aubr --dir "$project_root" atlr -- --root "$(pwd -P)" init >/dev/null
+'''
+
 [tasks.launch]
-description = "Launch Pi with the Atelier extension"
-run = "aubr launch --"
+description = "Launch Pi with the Atelier extension in a selected workspace"
+quiet = true
+depends = ["workspace-init"]
+usage = '''
+arg "[workspace_path]" help="Workspace directory to open (defaults to the current directory)" default="{{cwd}}"
+arg "[pi_args]..." help="Additional arguments passed to Pi"
+'''
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+caller_directory="$(cd -- "${MISE_ORIGINAL_CWD:-$PWD}" && pwd -P)"
+workspace_path="${usage_workspace_path:-$caller_directory}"
+pi_args="${usage_pi_args:-}"
+if [[ "$workspace_path" == -* ]]; then
+  pi_args="$workspace_path${pi_args:+ $pi_args}"
+  workspace_path="."
+fi
+if [[ "$workspace_path" != /* ]]; then
+  workspace_path="$caller_directory/$workspace_path"
+fi
+if [[ ! -d "$workspace_path" ]]; then
+  printf 'launch: workspace directory does not exist: %s\n' "$workspace_path" >&2
+  exit 2
+fi
+workspace_path="$(cd -- "$workspace_path" && pwd -P)"
+if [[ ! -f "$workspace_path/.atelier/config.json" || ! -f "$workspace_path/.atelier/PLAN.md" || ! -f "$workspace_path/.atelier/validation.json" ]]; then
+  if [[ -n "${ATELIER_REPOSITORY:-}" ]]; then
+    project_root="$ATELIER_REPOSITORY"
+  elif [[ -n "${MISE_CONFIG_FILE:-}" ]]; then
+    project_root="$(cd -- "$(dirname -- "$MISE_CONFIG_FILE")" && pwd -P)"
+  else
+    project_root="${MISE_PROJECT_ROOT:-$caller_directory}"
+  fi
+  aubr --dir "$project_root" atlr -- --root "$workspace_path" init >/dev/null
+fi
+if [[ -n "${ATELIER_REPOSITORY:-}" ]]; then
+  project_root="$ATELIER_REPOSITORY"
+elif [[ -n "${MISE_CONFIG_FILE:-}" ]]; then
+  project_root="$(cd -- "$(dirname -- "$MISE_CONFIG_FILE")" && pwd -P)"
+else
+  project_root="${MISE_PROJECT_ROOT:-$caller_directory}"
+fi
+aubr --dir "$project_root" launch -- --root "$workspace_path" $pi_args
+'''
+
+[tasks.install_wrapper]
+description = "Install an atlr shim for launching Atelier from any workspace"
+quiet = true
+run = "bash ./scripts/install-atlr-wrapper.sh"
 
 [tasks.doctor]
 description = "Run Atelier diagnostics"
+quiet = true
 run = "aubr doctor"
 
 [tasks.typecheck]
 description = "Run TypeScript static analysis"
+quiet = true
 run = "aubr typecheck"
 
 [tasks.test]
 description = "Run the test suite"
+quiet = true
 run = "aubr test"
 
 [tasks."test:coverage"]
 description = "Run tests with coverage"
+quiet = true
 run = "aubr test:coverage"
 
 [tasks.check]
 description = "Run all repository checks"
+quiet = true
 run = "aubr check && hk check -a"
 
 [tasks.fix]
 description = "Apply deterministic repository fixes"
+quiet = true
 run = "hk fix -a"
 
 [tasks."docs:check"]
 description = "Validate and build the documentation"
+quiet = true
 depends = ["docs:build"]
 run = "uv run scripts/check-docs.py"
 
 [tasks."docs:build"]
 description = "Build the documentation site"
+quiet = true
 run = "mdbook build docs"
 
 [tasks."docs:deployment:enable"]
 description = "Enable GitHub Pages deployment"
+quiet = true
 run = "python3 scripts/enable-docs-deployment.py"
 
 [tasks."docs:serve"]
 description = "Serve the documentation site locally"
+quiet = true
 usage = 'arg "[port]" help="Port to serve on" default="3000"'
 run = '''
 #!/usr/bin/env bash
@@ -81,36 +169,45 @@ mdbook serve docs --port "${usage_port:-3000}"
 
 [tasks."test:codesearch"]
 description = "Alias for the explicit live codesearch test"
+quiet = true
 run = "aubr test:codesearch:live"
 
 [tasks."test:codesearch:live"]
 description = "Probe a real codesearch installation and capture conformance data"
+quiet = true
 run = "aubr test:codesearch:live"
 
 [tasks."evaluate:code"]
 description = "Run the code-intelligence evaluation task set"
+quiet = true
 run = "aubr evaluate:code"
 
 [tasks."fixtures:codesearch"]
 description = "Normalize a real codesearch probe into portable fixtures"
+quiet = true
 run = "aubr fixtures:codesearch"
 
 [tasks."collect:codesearch"]
 description = "Collect all remaining real-provider knowledge on this machine"
+quiet = true
 run = "aubr collect:codesearch"
 
 [tasks."test:octocode:live"]
 description = "Probe a real Octocode installation and capture conformance data"
+quiet = true
 run = "aubr test:octocode:live"
 
 [tasks."collect:octocode"]
 description = "Collect Octocode provider knowledge on this machine"
+quiet = true
 run = "aubr collect:octocode"
 
 [tasks."evaluate:code:octocode"]
 description = "Run the code-intelligence evaluation with Octocode"
+quiet = true
 run = "aubr evaluate:code:octocode"
 
 [tasks."evaluate:code:all"]
 description = "Compare baseline, codesearch, and Octocode"
+quiet = true
 run = "aubr evaluate:code:all"
