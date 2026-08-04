@@ -9,7 +9,7 @@ import { isPathWithin } from "../security/path-boundary.ts";
 import { nowIso } from "../util/ids.ts";
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
-import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
+import { UnsupportedCodeCapabilityError, type CodeCloseOptions, type CodeIndexOptions, type CodeProvider } from "./provider.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, rankCodePathsByFocus, resolveCodeSearchFocus } from "./focus.ts";
 import { ATELIER_VERSION } from "../version.ts";
 import { minimalEnvironment } from "../process/environment.ts";
@@ -139,16 +139,18 @@ export class CodesearchProvider implements CodeProvider {
     }
   }
 
-  async ensureIndex(workspace: CodeWorkspace): Promise<CodeIndexState> {
+  async ensureIndex(workspace: CodeWorkspace, options: CodeIndexOptions = {}): Promise<CodeIndexState> {
     this.workspace = workspace;
+    if (options.signal?.aborted) throw new Error("codesearch index cancelled before starting");
     const version = this.detectVersion();
     if (version === undefined) throw new Error(`codesearch executable not found: ${this.command}`);
+    if (options.signal?.aborted) throw new Error("codesearch index cancelled after version probe");
     const databasesPresentBeforeStartup = new Set(
       workspace.repositories
         .map((repository) => canonicalRepositoryRoot(repository.root))
         .filter((repositoryRoot) => existsSync(repositoryPathTarget(repositoryRoot, ".codesearch.db", "read").absolute)),
     );
-    await this.connect();
+    await this.connect(options.signal);
     this.indexState = "building";
     this.localIndexWarnings = [];
     const routedThroughServe = this.routingMode === "client" || this.mode === "client";
@@ -156,7 +158,7 @@ export class CodesearchProvider implements CodeProvider {
     // A self-contained codesearch MCP process keeps Tantivy's FTS writer open.
     // Running the CLI indexer while that subprocess is alive fails with LockBusy,
     // so local repair must stop MCP completely before invoking `codesearch index`.
-    if (!routedThroughServe) await this.close();
+    if (!routedThroughServe) await this.close({ signal: options.signal });
 
     const selectionState = readIndexSelectionState(
       this.indexSelectionStatePath,
@@ -165,7 +167,7 @@ export class CodesearchProvider implements CodeProvider {
     for (const repository of workspace.repositories) {
       if (routedThroughServe) {
         const repositoryRoot = canonicalRepositoryRoot(repository.root);
-        await this.runIndexCommand(["index", "add", repositoryRoot], repositoryRoot, "index add");
+        await this.runIndexCommand(["index", "add", repositoryRoot], repositoryRoot, "index add", options.signal);
       } else {
         // `index add` returns early when a local database already exists. The bare
         // `index <path>` command is the repair/update path and rebuilds a missing
@@ -187,6 +189,7 @@ export class CodesearchProvider implements CodeProvider {
           ["index", repositoryRoot, ...(force ? ["--force"] : [])],
           repositoryRoot,
           force ? "index --force" : "index",
+          options.signal,
         );
         const health = this.readLocalVectorHealth(repositoryRoot);
         if (health.state !== "ready") {
@@ -214,12 +217,12 @@ export class CodesearchProvider implements CodeProvider {
 
     this.lastIndexedAt = nowIso();
     for (const repository of workspace.repositories) this.indexedSnapshots.set(repository.id, snapshotIdentity(repository.snapshot));
-    await this.reconnect();
-    return this.waitForReady(workspace);
+    await this.reconnect(options.signal);
+    return this.waitForReady(workspace, options.signal);
   }
 
 
-  private async runIndexCommand(args: string[], repositoryRoot: string, operation: string): Promise<void> {
+  private async runIndexCommand(args: string[], repositoryRoot: string, operation: string, signal?: AbortSignal): Promise<void> {
     let result: ProcessResult;
     try {
       result = await runProcess(this.command, args, {
@@ -227,6 +230,7 @@ export class CodesearchProvider implements CodeProvider {
         environment: minimalEnvironment({ overrides: this.environment }),
         timeoutMs: this.indexTimeoutMs,
         maxOutputBytes: 256 * 1024,
+        signal,
       });
     } catch (error) {
       this.indexState = "failed";
@@ -529,25 +533,25 @@ export class CodesearchProvider implements CodeProvider {
     return output;
   }
 
-  async close(): Promise<void> {
-    await this.client?.close();
+  async close(options: CodeCloseOptions = {}): Promise<void> {
+    await this.client?.close(options);
     this.client = undefined;
   }
 
-  private async connect(): Promise<void> {
+  private async connect(signal?: AbortSignal): Promise<void> {
     if (this.client !== undefined && this.tools.length > 0) return;
     this.client = new McpStdioClient(this.command, mcpArgs(this.mode), {
       cwd: this.cwd,
       timeoutMs: this.timeoutMs,
       ...(this.environment === undefined ? {} : { environment: this.environment }),
     });
-    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: ATELIER_VERSION });
+    const initialized = await this.client.initialize({ clientName: "atelier", clientVersion: ATELIER_VERSION, signal });
     this.identity = {
       name: "codesearch",
       ...(initialized.serverInfo.version === undefined ? {} : { version: initialized.serverInfo.version }),
       instanceId: `${initialized.serverInfo.name}:${this.mode}`,
     };
-    this.tools = await this.client.listTools();
+    this.tools = await this.client.listTools({ signal });
     if (initialized.instructions !== undefined) {
       this.detail = initialized.instructions;
       this.routingMode = inferRoutingMode(initialized.instructions, this.mode);
@@ -556,34 +560,36 @@ export class CodesearchProvider implements CodeProvider {
     }
   }
 
-  private async reconnect(): Promise<void> {
-    await this.close();
+  private async reconnect(signal?: AbortSignal): Promise<void> {
+    await this.close({ signal });
     this.tools = [];
-    await this.connect();
+    await this.connect(signal);
   }
 
 
-  private async readIndexState(workspace?: CodeWorkspace): Promise<CodeIndexState> {
+  private async readIndexState(workspace?: CodeWorkspace, signal?: AbortSignal): Promise<CodeIndexState> {
     const scope = workspace === undefined ? {} : this.scopeArguments(workspace);
-    const result = await this.call("status", { kind: "index", ...scope });
+    const result = await this.call("status", { kind: "index", ...scope }, signal);
     return inferIndexState(extractData(result), inferIndexState(this.detail, this.indexState));
   }
 
-  private async waitForReady(workspace: CodeWorkspace): Promise<CodeIndexState> {
+  private async waitForReady(workspace: CodeWorkspace, signal?: AbortSignal): Promise<CodeIndexState> {
+    if (signal?.aborted) throw new Error("codesearch index cancelled while waiting for readiness");
     if (!this.hasTool("status")) {
       this.indexState = "ready";
       return this.indexState;
     }
 
     const deadline = Date.now() + this.indexTimeoutMs;
-    let state = await this.readIndexState(workspace);
+    let state = await this.readIndexState(workspace, signal);
     while (state === "building" || state === "unknown") {
+      if (signal?.aborted) throw new Error("codesearch index cancelled while waiting for readiness");
       if (Date.now() >= deadline) {
         this.indexState = state;
         throw new Error(`codesearch index did not become ready within ${this.indexTimeoutMs} ms for workspace ${workspace.name} (state: ${state})`);
       }
-      await delay(this.pollIntervalMs);
-      state = await this.readIndexState(workspace);
+      await delay(this.pollIntervalMs, signal);
+      state = await this.readIndexState(workspace, signal);
     }
 
     this.indexState = state;
@@ -606,10 +612,10 @@ export class CodesearchProvider implements CodeProvider {
     return {};
   }
 
-  private async call(name: string, args: Record<string, unknown>): Promise<McpToolCallResult> {
-    await this.connect();
+  private async call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<McpToolCallResult> {
+    await this.connect(signal);
     if (!this.hasTool(name)) throw new Error(`codesearch MCP server does not advertise tool: ${name}`);
-    return this.client!.callTool(name, args);
+    return this.client!.callTool(name, args, { signal });
   }
 
   private async requireTool(name: string, capability: CodeCapability): Promise<void> {
@@ -1121,8 +1127,20 @@ function inferRoutingMode(instructions: string, configured: "auto" | "local" | "
   return configured === "client" ? "client" : configured === "local" ? "local" : "unknown";
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(new Error("codesearch index cancelled while waiting for readiness"));
+  return new Promise((resolveDelay, rejectDelay) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolveDelay();
+    }, milliseconds);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      rejectDelay(new Error("codesearch index cancelled while waiting for readiness"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function snapshotIdentity(snapshot: CodeWorkspace["repositories"][number]["snapshot"]): string {

@@ -1,4 +1,4 @@
-import type { CodeProvider } from "./provider.ts";
+import type { CodeCloseOptions, CodeProvider } from "./provider.ts";
 import type { CodeProviderStatus, CodeWorkspace } from "./types.ts";
 
 export class CodeProviderRegistry {
@@ -24,7 +24,7 @@ export class CodeProviderRegistry {
     return Promise.all(this.names().map((name) => this.get(name).status(workspace)));
   }
 
-  async close(): Promise<void> {
-    await Promise.all(this.names().map((name) => this.get(name).close()));
+  async close(options: CodeCloseOptions = {}): Promise<void> {
+    await Promise.all(this.names().map((name) => this.get(name).close(options)));
   }
 }

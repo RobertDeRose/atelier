@@ -4,7 +4,7 @@ import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/rep
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus, type ResolvedCodeSearchFocus } from "./focus.ts";
-import { UnsupportedCodeCapabilityError, type CodeIndexOptions, type CodeProvider } from "./provider.ts";
+import { UnsupportedCodeCapabilityError, type CodeCloseOptions, type CodeIndexOptions, type CodeProvider } from "./provider.ts";
 import { ATELIER_VERSION } from "../version.ts";
 import { minimalEnvironment } from "../process/environment.ts";
 import { runProcess, type ProcessResult } from "../process/async-process.ts";
@@ -160,7 +160,7 @@ export class OctocodeProvider implements CodeProvider {
         `octocode version probe failed for ${this.command}: ${versionProbe.error ?? "unknown error"}`,
       );
     }
-    await this.close();
+    await this.close({ signal: options.signal });
     for (const repository of workspace.repositories) {
       const repositoryRoot = canonicalRepositoryRoot(repository.root);
       if (options.signal?.aborted) throw new Error(`octocode index cancelled before ${repositoryRoot}`);
@@ -188,7 +188,7 @@ export class OctocodeProvider implements CodeProvider {
       if (after.totalBlocks <= 0) {
         throw new Error(`Octocode index completed for ${repositoryRoot} but produced no searchable blocks. ${this.embeddingConfigurationIssue(after) ?? "Run octocode stats and octocode clear before retrying if the existing index is unrecoverable."}`);
       }
-      await this.clientFor(repository.id, repositoryRoot);
+      await this.clientFor(repository.id, repositoryRoot, options.signal);
       if (options.signal?.aborted) throw new Error(`octocode index cancelled after ${repositoryRoot}`);
     }
     if (options.signal?.aborted) throw new Error("octocode index cancelled before completion");
@@ -330,11 +330,11 @@ export class OctocodeProvider implements CodeProvider {
     );
   }
 
-  async close(): Promise<void> {
+  async close(options: CodeCloseOptions = {}): Promise<void> {
     const states = [...this.clients.values()];
     this.clients.clear();
     this.workspaceIds.clear();
-    await Promise.all(states.map((state) => state.client.close()));
+    await Promise.all(states.map((state) => state.client.close(options)));
   }
 
   private roots = new Map<string, string>();
@@ -343,19 +343,24 @@ export class OctocodeProvider implements CodeProvider {
     for (const repository of workspace.repositories) this.workspaceIds.set(repository.id, workspace.id);
   }
 
-  private async clientFor(repositoryId: string, root: string): Promise<OctocodeClientState> {
+  private async clientFor(repositoryId: string, root: string, signal?: AbortSignal): Promise<OctocodeClientState> {
     const existing = this.clients.get(repositoryId);
     if (existing) return existing;
     const repositoryRoot = canonicalRepositoryRoot(root);
     const client = new McpStdioClient(this.command, ["mcp", "--path", repositoryRoot], { cwd: repositoryRoot, timeoutMs: this.timeoutMs, environment: this.environment });
-    const initialized = await client.initialize({ clientVersion: ATELIER_VERSION });
-    const version = initialized.serverInfo.version ?? (await this.probeVersion()).version;
-    this.identity = { name: "octocode", instanceId: "octocode:experimental", ...(version ? { version } : {}) };
-    const tools = new Map((await client.listTools()).map((tool) => [tool.name, tool]));
-    const state = { client, tools };
-    this.clients.set(repositoryId, state);
-    this.roots.set(repositoryId, repositoryRoot);
-    return state;
+    try {
+      const initialized = await client.initialize({ clientVersion: ATELIER_VERSION, signal });
+      const version = initialized.serverInfo.version ?? (await this.probeVersion(signal)).version;
+      this.identity = { name: "octocode", instanceId: "octocode:experimental", ...(version ? { version } : {}) };
+      const tools = new Map((await client.listTools({ signal })).map((tool) => [tool.name, tool]));
+      const state = { client, tools };
+      this.clients.set(repositoryId, state);
+      this.roots.set(repositoryId, repositoryRoot);
+      return state;
+    } catch (error) {
+      await client.close({ signal });
+      throw error;
+    }
   }
 
   private repositoryRoot(repositoryId: string): string | undefined { return this.roots.get(repositoryId); }

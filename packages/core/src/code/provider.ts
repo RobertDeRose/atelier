@@ -24,6 +24,10 @@ export interface CodeIndexOptions {
   signal?: AbortSignal;
 }
 
+export interface CodeCloseOptions {
+  signal?: AbortSignal | undefined;
+}
+
 export interface CodeProvider {
   readonly name: string;
   status(workspace?: CodeWorkspace): Promise<CodeProviderStatus>;
@@ -32,5 +36,5 @@ export interface CodeProvider {
   read(reference: CodeSearchHit["reference"]): Promise<CodeChunk>;
   symbols(query: CodeSymbolQuery): Promise<CodeSearchHit[]>;
   relationships(query: CodeRelationshipQuery): Promise<CodeRelationship[]>;
-  close(): Promise<void>;
+  close(options?: CodeCloseOptions): Promise<void>;
 }

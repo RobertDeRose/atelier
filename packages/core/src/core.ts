@@ -141,6 +141,7 @@ export class AtelierCore {
   private codeWorkspacePromise?: Promise<CodeWorkspace>;
   private repositoryObservationGeneration = 0;
   private cachedTaskClosure?: { executionGrantId: string; readiness: TaskClosureReadiness };
+  private closePromise: Promise<void> | undefined;
 
   private constructor(
     config: AtelierConfig,
@@ -1417,8 +1418,15 @@ export class AtelierCore {
   }
 
   async close(): Promise<void> {
-    await this.code.close();
-    this.ledger.close();
+    if (this.closePromise !== undefined) return this.closePromise;
+    this.closePromise = (async () => {
+      try {
+        await this.code.close();
+      } finally {
+        this.ledger.close();
+      }
+    })();
+    return this.closePromise;
   }
 
   async evaluateWorkspaceEffectsAsync(

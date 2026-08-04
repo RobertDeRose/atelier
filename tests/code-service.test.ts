@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { AtelierCore, MockCodeProvider } from "../packages/core/src/index.ts";
-import { createTemporaryRepository } from "./fixtures.ts";
+import type { CodeIndexOptions } from "../packages/core/src/code/provider.ts";
+import { AtelierCore, MockCodeProvider, SqliteLedger } from "../packages/core/src/index.ts";
+import { createTemporaryRepository, testDatabasePath } from "./fixtures.ts";
 
 class CountingMockCodeProvider extends MockCodeProvider {
   searchCalls = 0;
@@ -32,6 +33,78 @@ class DeferredIndexProvider extends MockCodeProvider {
     return super.search(query);
   }
 }
+
+class ShutdownIndexProvider extends MockCodeProvider {
+  aborted = false;
+  closed = false;
+  private releaseIndex!: () => void;
+  private readonly startedPromise: Promise<void>;
+  private resolveStarted!: () => void;
+
+  constructor() {
+    super([]);
+    this.startedPromise = new Promise<void>((resolve) => { this.resolveStarted = resolve; });
+  }
+
+  get started(): Promise<void> { return this.startedPromise; }
+
+  release(): void { this.releaseIndex?.(); }
+
+  override async ensureIndex(
+    workspace: Parameters<MockCodeProvider["ensureIndex"]>[0],
+    options: CodeIndexOptions = {},
+  ) {
+    this.resolveStarted();
+    await new Promise<void>((resolve, reject) => {
+      const abort = (): void => {
+        this.aborted = true;
+        options.signal?.removeEventListener("abort", abort);
+        reject(new Error("index cancelled"));
+      };
+      this.releaseIndex = () => {
+        options.signal?.removeEventListener("abort", abort);
+        resolve();
+      };
+      if (options.signal?.aborted) abort();
+      else options.signal?.addEventListener("abort", abort, { once: true });
+    });
+    return super.ensureIndex(workspace);
+  }
+
+  override async close(): Promise<void> {
+    this.closed = true;
+  }
+}
+
+test("closing Core cancels and awaits active indexing before closing the ledger", async () => {
+  const root = createTemporaryRepository("atlr-code-shutdown-");
+  const provider = new ShutdownIndexProvider();
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: provider });
+  let closed = false;
+  const indexing = core.code.ensureIndex(core.codeWorkspace());
+  try {
+    await provider.started;
+    await core.close();
+    closed = true;
+    assert.equal(provider.aborted, true);
+    assert.equal(provider.closed, true);
+    await assert.rejects(indexing, /cancel/i);
+
+    const reopened = new SqliteLedger(testDatabasePath(root));
+    try {
+      const eventsAfterClose = reopened.listEvents();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.deepEqual(reopened.listEvents(), eventsAfterClose, "shutdown must not append events after Core.close resolves");
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    provider.release();
+    await indexing.catch(() => undefined);
+    if (!closed) await core.close().catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("code indexing coordinator coalesces requests and makes search wait for the active writer", async () => {
   const root = createTemporaryRepository("atlr-code-coordinator-");

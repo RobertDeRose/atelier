@@ -7,7 +7,7 @@ import {
   decideCanonicalQueryReuse,
   type CanonicalQueryInput,
 } from "./canonical-query.ts";
-import type { CodeIndexOptions, CodeProvider } from "./provider.ts";
+import type { CodeCloseOptions, CodeIndexOptions, CodeProvider } from "./provider.ts";
 import type { CodeProviderRegistry } from "./registry.ts";
 import {
   bindingDifference,
@@ -132,6 +132,7 @@ export class CodeService {
   private retrievedBytes = 0;
   private providerRequests = 0;
   private activeIndex: Promise<CodeIndexState> | undefined;
+  private activeIndexController: AbortController | undefined; private closePromise: Promise<void> | undefined; private closing = false;
   private indexStatus: CodeIndexCoordinatorStatus = { state: "unknown", active: false };
   private readonly indexListeners = new Set<CodeIndexStatusListener>();
   private readonly hitQueries = new Map<string, CachedHitQuery>();
@@ -324,36 +325,27 @@ export class CodeService {
   }
 
   async ensureIndex(workspace: CodeWorkspace, provider?: string, options: CodeIndexOptions = {}) {
+    if (this.closePromise !== undefined) throw new Error("Code service is closed.");
     if (this.activeIndex !== undefined) return this.activeIndex;
     const selected = this.registry.get(provider);
+    const controller = new AbortController(); const callerAbort = (): void => controller.abort(options.signal?.reason);
+    if (options.signal?.aborted) callerAbort(); else options.signal?.addEventListener("abort", callerAbort, { once: true });
+    this.activeIndexController = controller;
     this.invalidateStatus(selected.name);
-    this.setIndexStatus({
-      state: "building",
-      active: true,
-      provider: selected.name,
-      workspaceId: workspace.id,
-      startedAt: nowIso(),
-    });
+    this.setIndexStatus({ state: "building", active: true, provider: selected.name, workspaceId: workspace.id, startedAt: nowIso() });
     const operation = (async () => {
       try {
-        const state = await selected.ensureIndex(workspace, options);
-        const { error: _previousError, ...statusWithoutError } = this.indexStatus;
-        this.setIndexStatus({ ...statusWithoutError, state, active: false, completedAt: nowIso() });
+        const state = await selected.ensureIndex(workspace, { ...options, signal: controller.signal }); if (this.closing) throw new Error("Code index cancelled during shutdown.");
+        const { error: _previousError, ...statusWithoutError } = this.indexStatus; this.setIndexStatus({ ...statusWithoutError, state, active: false, completedAt: nowIso() });
         this.ledger.append({ kind: "code.index_completed", actor: "system", payload: { provider: selected.name, workspaceId: workspace.id, state } });
         return state;
       } catch (error) {
-        const message = errorMessage(error);
-        this.setIndexStatus({ ...this.indexStatus, state: "failed", active: false, completedAt: nowIso(), error: message });
-        this.ledger.append({ kind: "code.index_failed", actor: "system", payload: { provider: selected.name, workspaceId: workspace.id, error: message } });
-        throw error;
+        const message = errorMessage(error); this.setIndexStatus({ ...this.indexStatus, state: "failed", active: false, completedAt: nowIso(), error: message }); if (!this.closing) this.ledger.append({ kind: "code.index_failed", actor: "system", payload: { provider: selected.name, workspaceId: workspace.id, error: message } }); throw error;
       } finally {
-        this.activeIndex = undefined;
-        this.invalidateStatus(selected.name);
+        options.signal?.removeEventListener("abort", callerAbort); if (this.activeIndexController === controller) this.activeIndexController = undefined; this.activeIndex = undefined; this.invalidateStatus(selected.name);
       }
     })();
-    this.activeIndex = operation;
-    this.ledger.append({ kind: "code.index_requested", actor: "system", payload: { provider: selected.name, workspaceId: workspace.id } });
-    return operation;
+    this.activeIndex = operation; this.ledger.append({ kind: "code.index_requested", actor: "system", payload: { provider: selected.name, workspaceId: workspace.id } }); return operation;
   }
 
   async search(options: {
@@ -679,7 +671,12 @@ export class CodeService {
     return output;
   }
 
-  close() { return this.registry.close(); }
+  async close(options: CodeCloseOptions = {}): Promise<void> {
+    if (this.closePromise !== undefined) return this.closePromise; this.closing = true;
+    const active = this.activeIndex; const controller = this.activeIndexController; controller?.abort(new Error("Code service is closing.")); const providerCloseOptions = controller === undefined ? options : { signal: controller.signal };
+    const operation = (async () => { if (active !== undefined) await active.catch(() => undefined); await this.registry.close(providerCloseOptions); })();
+    this.closePromise = operation; return operation;
+  }
 
   private canonicalQuery(input: {
     operation: CanonicalQueryInput["operation"];
