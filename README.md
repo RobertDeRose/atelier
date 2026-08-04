@@ -384,6 +384,12 @@ available when provider evidence is incomplete, wrong, excluded, or budget-limit
 Retrieval evidence is isolated by provider, workspace, repository scope, source revision, and provider
 index revision. Equivalent current evidence can be reused; revision drift invalidates it.
 
+When Octocode uses a cloud embedding model, Core forwards only the documented provider credentials from
+its own process environment: `VOYAGE_API_KEY`, `JINA_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`,
+`OCTOHUB_API_KEY`, and `TOGETHER_API_KEY`. For example, set `VOYAGE_API_KEY` before running
+`atlr code index --provider octocode`. Repository configuration cannot select credential names or values;
+unrelated environment secrets remain excluded from provider subprocesses.
+
 ## Pi integration
 
 Launch the supported interactive path with:

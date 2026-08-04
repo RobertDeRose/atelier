@@ -3,11 +3,63 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OctocodeProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
+import { AtelierCore, OctocodeProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
+import { createTemporaryRepository } from "./fixtures.ts";
 
 const TEST_TOOL_TIMEOUT_MS = 10_000;
 
-function fakeOctocode(root: string): { command: string; log: string } {
+test("Core forwards documented Octocode credentials without unrelated secrets", async () => {
+  const root = createTemporaryRepository("atlr-octocode-core-env-");
+  const command = join(root, "octocode-env");
+  const log = join(root, "environment.json");
+  const userConfig = join(root, "user-config.json");
+  writeFileSync(command, String.raw`#!${process.execPath}
+import fs from 'node:fs';
+fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({
+  VOYAGE_API_KEY: process.env.VOYAGE_API_KEY,
+  JINA_API_KEY: process.env.JINA_API_KEY,
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+  UNRELATED_SECRET: process.env.UNRELATED_SECRET,
+}));
+if (process.argv[2] === '--version') console.log('octocode 0.14.0');
+`, "utf8");
+  chmodSync(command, 0o755);
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "none",
+    repositoryProvider: "git",
+    codeProvider: "octocode",
+  }), "utf8");
+  writeFileSync(userConfig, JSON.stringify({ octocodeCommand: command }), "utf8");
+  const names = ["VOYAGE_API_KEY", "JINA_API_KEY", "GITHUB_TOKEN", "UNRELATED_SECRET"] as const;
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  const previousUserConfig = process.env.ATLR_USER_CONFIG;
+  process.env.VOYAGE_API_KEY = "voyage-test";
+  process.env.JINA_API_KEY = "jina-test";
+  process.env.GITHUB_TOKEN = "unrelated-token";
+  process.env.UNRELATED_SECRET = "unrelated-secret";
+  process.env.ATLR_USER_CONFIG = userConfig;
+  let core: AtelierCore | undefined;
+  try {
+    core = AtelierCore.open(root, { taskProvider: "none" });
+    const status = await core.code.status("octocode");
+    assert.equal(status.available, true);
+    assert.deepEqual(JSON.parse(readFileSync(log, "utf8")), {
+      VOYAGE_API_KEY: "voyage-test",
+      JINA_API_KEY: "jina-test",
+    });
+  } finally {
+    if (core !== undefined) await core.close();
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+    if (previousUserConfig === undefined) delete process.env.ATLR_USER_CONFIG;
+    else process.env.ATLR_USER_CONFIG = previousUserConfig;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function fakeOctocode(root: string, codeModel = "voyage:voyage-code-3"): { command: string; log: string } {
   const command = join(root, "octocode");
   const log = join(root, "calls.jsonl");
   writeFileSync(command, `#!${process.execPath}
@@ -16,7 +68,7 @@ import path from 'node:path';
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), args }) + '\\n');
 if (args[0] === '--version') { console.log('octocode 0.14.0'); process.exit(0); }
-if (args[0] === 'stats') { console.log(['Index Status', '  Files indexed: 3', '  Code blocks: 12', '  Text blocks: 0', '  Document blocks: 0', '  Commit blocks: 0', '', 'Configuration', '  Code model: voyage:voyage-code-3', '  Text model: voyage:voyage-3.5-lite'].join('\\n')); process.exit(0); }
+if (args[0] === 'stats') { console.log(['Index Status', '  Files indexed: 3', '  Code blocks: 12', '  Text blocks: 0', '  Document blocks: 0', '  Commit blocks: 0', '', 'Configuration', '  Code model: ${codeModel}', '  Text model: voyage:voyage-3.5-lite'].join('\\n')); process.exit(0); }
 if (args[0] === 'index') { console.log('Indexed 12 blocks'); process.exit(0); }
 if (args[0] !== 'mcp') process.exit(2);
 let buffer = '';
@@ -312,6 +364,25 @@ test("Octocode rejects cloud embedding configuration without the required API ke
   }
 });
 
+
+test("Octocode accepts Jina cloud credentials during embedding preflight", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-octocode-jina-key-"));
+  const repo = join(root, "repo");
+  mkdirSync(repo, { recursive: true });
+  const fake = fakeOctocode(root, "jina:jina-code-1");
+  const provider = new OctocodeProvider({
+    command: fake.command,
+    cwd: root,
+    timeoutMs: TEST_TOOL_TIMEOUT_MS,
+    environment: { JINA_API_KEY: "jina-test-key" },
+  });
+  try {
+    assert.equal(await provider.ensureIndex(workspace([{ id: "repo", root: repo }])), "ready");
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("Octocode retries a zero-block project with the supported bare index command", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-octocode-empty-"));

@@ -11,6 +11,15 @@ const BASE_ENVIRONMENT_NAMES = new Set([
 
 const SECRET_NAME = /(TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIAL|AUTH|COOKIE|SESSION|SSH_AUTH_SOCK|AWS_|AZURE_|GCP_|GOOGLE_APPLICATION_CREDENTIALS|GITHUB_|GITLAB_|NPM_TOKEN|PYPI_TOKEN)/i;
 
+const OCTOCODE_CREDENTIAL_NAMES = [
+  "VOYAGE_API_KEY",
+  "JINA_API_KEY",
+  "GOOGLE_API_KEY",
+  "OPENAI_API_KEY",
+  "OCTOHUB_API_KEY",
+  "TOGETHER_API_KEY",
+] as const;
+
 export interface MinimalEnvironmentOptions {
   source?: NodeJS.ProcessEnv | undefined;
   allow?: readonly string[] | undefined;
@@ -19,6 +28,14 @@ export interface MinimalEnvironmentOptions {
 
 export function isSecretEnvironmentName(name: string): boolean {
   return SECRET_NAME.test(name);
+}
+
+/** Return only credentials explicitly supported by Octocode's embedding providers. */
+export function octocodeCredentialEnvironment(source: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  return Object.fromEntries(OCTOCODE_CREDENTIAL_NAMES.flatMap((name) => {
+    const value = source[name];
+    return value === undefined ? [] : [[name, value]];
+  }));
 }
 
 export function minimalEnvironment(options: MinimalEnvironmentOptions = {}): NodeJS.ProcessEnv {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isSecretEnvironmentName, minimalEnvironment } from "../packages/core/src/process/environment.ts";
+import { isSecretEnvironmentName, minimalEnvironment, octocodeCredentialEnvironment } from "../packages/core/src/process/environment.ts";
 
 test("minimal subprocess environments exclude host credentials and preserve runtime essentials", () => {
   const source: NodeJS.ProcessEnv = {
@@ -24,6 +24,27 @@ test("minimal subprocess environments exclude host credentials and preserve runt
   assert.equal(environment.GIT_TERMINAL_PROMPT, "0");
   assert.equal(environment.GITHUB_TOKEN, undefined);
   assert.equal(environment.SSH_AUTH_SOCK, undefined);
+});
+
+test("Octocode credential handoff allows only supported provider keys", () => {
+  const environment = octocodeCredentialEnvironment({
+    VOYAGE_API_KEY: "voyage",
+    JINA_API_KEY: "jina",
+    GOOGLE_API_KEY: "google",
+    OPENAI_API_KEY: "openai",
+    OCTOHUB_API_KEY: "octohub",
+    TOGETHER_API_KEY: "together",
+    GITHUB_TOKEN: "unrelated",
+    UNRELATED_SECRET: "unrelated",
+  });
+  assert.deepEqual(environment, {
+    VOYAGE_API_KEY: "voyage",
+    JINA_API_KEY: "jina",
+    GOOGLE_API_KEY: "google",
+    OPENAI_API_KEY: "openai",
+    OCTOHUB_API_KEY: "octohub",
+    TOGETHER_API_KEY: "together",
+  });
 });
 
 test("secret-shaped environment names cannot be explicitly allowlisted", () => {

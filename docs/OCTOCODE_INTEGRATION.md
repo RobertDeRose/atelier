@@ -2,17 +2,16 @@
 
 Atelier includes an experimental adapter for Muvon Octocode. It launches one local MCP process per repository, allowing an Atelier multi-repository workspace to remain provider-neutral even though each Octocode MCP process is rooted at one project.
 
-
 ## Evaluation decision
 
 The v0.9.7 comparative run completed four retrieval tasks through the same public `atlr code
 search` contract:
 
-| Path | Weighted recall | MRR | nDCG@10 | Total task time |
-|---|---:|---:|---:|---:|
-| Baseline | 1.0000 | 0.5833 | 0.7093 | 169 ms |
-| codesearch | 1.0000 | 1.0000 | 0.9082 | 2,276 ms |
-| Octocode | 0.2009 | 0.3750 | 0.2323 | 17,434 ms |
+| Path       | Weighted recall |    MRR | nDCG@10 | Total task time |
+|------------|----------------:|-------:|--------:|----------------:|
+| Baseline   |          1.0000 | 0.5833 |  0.7093 |          169 ms |
+| codesearch |          1.0000 | 1.0000 |  0.9082 |        2,276 ms |
+| Octocode   |          0.2009 | 0.3750 |  0.2323 |       17,434 ms |
 
 Octocode is rejected for Atelier's default general retrieval path. The provider returned valid,
 non-degraded evidence and passed its full MCP contract, but it missed most expected source and
@@ -75,8 +74,13 @@ octocode config \
   --text-embedding-model "voyage:voyage-3.5-lite"
 ```
 
-Atelier does not rewrite the user-level Octocode configuration. The collector records model names and API-key presence booleans, never secret values, and preserves all stdout, stderr, exit statuses, MCP tool schemas, and an attachable `atelier-octocode-knowledge.tar.xz` archive. Octocode 0.14.0 returns its MCP evidence as formatted text; the adapter normalizes semantic result blocks, signature sections, and GraphRAG relationship lines into Atelier domain records.
+When Octocode runs through Atelier, Core forwards only the documented provider keys
+`VOYAGE_API_KEY`, `JINA_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `OCTOHUB_API_KEY`, and
+`TOGETHER_API_KEY` to the provider subprocess. Unrelated host secrets are not forwarded, and repository
+configuration cannot choose additional credential names. Use `atlr code index --provider octocode` to
+run the guarded provider path.
 
+Atelier does not rewrite the user-level Octocode configuration. The collector records model names and API-key presence booleans, never secret values, and preserves all stdout, stderr, exit statuses, MCP tool schemas, and an attachable `atelier-octocode-knowledge.tar.xz` archive. Octocode 0.14.0 returns its MCP evidence as formatted text; the adapter normalizes semantic result blocks, signature sections, and GraphRAG relationship lines into Atelier domain records.
 
 ## Development configuration
 

@@ -69,6 +69,7 @@ import {
 import { WorkspacePolicyEvaluator, type FilesystemEffect, type WorkspacePolicyDecision } from "./policy/workspace-policy.ts";
 import { RecoveryManager, type RecoveryCheckpoint } from "./recovery/recovery-manager.ts";
 import { PerformanceRecorder } from "./performance/performance-recorder.ts";
+import { octocodeCredentialEnvironment } from "./process/environment.ts";
 
 export interface AtelierStatus {
   repositoryRoot: string;
@@ -1497,7 +1498,10 @@ function createCodeProviders(config: AtelierConfig): { providers: CodeProvider[]
     command: config.octocodeCommand,
     cwd: config.repositoryRoot,
     timeoutMs: config.codeTimeoutMs,
-    environment: { OCTOCODE_CONFIG_PATH: config.octocodeConfigPath },
+    environment: {
+      OCTOCODE_CONFIG_PATH: config.octocodeConfigPath,
+      ...octocodeCredentialEnvironment(),
+    },
   });
   return {
     providers: [codesearch, octocode],
