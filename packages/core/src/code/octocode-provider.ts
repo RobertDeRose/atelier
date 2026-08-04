@@ -100,17 +100,39 @@ export class OctocodeProvider implements CodeProvider {
       const indexRevision = this.currentIndexRevision();
       if (indexRevision !== undefined) capabilities.push("index.revision_aware");
       const indexed = stats.every(({ stats: value }) => value.totalBlocks > 0);
+      const indexedRevisionKnown = workspace.repositories.every((repository) => this.indexedRevisions[repository.id] !== undefined);
+      const sourceChanged = workspace.repositories.some((repository) => {
+        const indexedRevision = this.indexedRevisions[repository.id];
+        return indexedRevision !== undefined && indexedRevision !== sourceRevisionIdentity(repository.snapshot);
+      });
+      const indexState: CodeIndexState = !indexed
+        ? "missing"
+        : sourceChanged
+          ? "stale"
+          : indexedRevisionKnown
+            ? "ready"
+            : "unknown";
+      const revisionWarnings = sourceChanged
+        ? ["One or more repositories changed after indexing; reindex Octocode before using semantic evidence."]
+        : indexedRevisionKnown
+          ? []
+          : ["The indexed source revision is unknown; reindex Octocode before using semantic evidence."];
+      const warnings = [...configurationWarnings, ...revisionWarnings];
       return {
         identity: this.identity,
         available: true,
         healthy: configurationWarnings.length === 0,
         capabilities,
-        indexState: indexed ? "ready" : "missing",
+        indexState,
         ...(indexRevision === undefined ? {} : { indexRevision }),
-        detail: indexed
+        detail: indexState === "ready"
           ? `Octocode MCP available for ${states.length} repository process(es); searchable blocks verified.`
-          : `Octocode MCP available for ${states.length} repository process(es), but one or more repositories have no searchable blocks.`,
-        ...(configurationWarnings.length ? { degraded: true, warnings: configurationWarnings } : {}),
+          : indexState === "stale"
+            ? `Octocode MCP available for ${states.length} repository process(es), but source revisions changed after indexing.`
+            : indexState === "unknown"
+              ? `Octocode MCP available for ${states.length} repository process(es), but the indexed source revision is unknown.`
+              : `Octocode MCP available for ${states.length} repository process(es), but one or more repositories have no searchable blocks.`,
+        ...(warnings.length ? { degraded: true, warnings } : {}),
         ...(this.lastIndexedAt ? { lastIndexedAt: this.lastIndexedAt } : {}),
         ...(this.lastQueryAt ? { lastQueryAt: this.lastQueryAt } : {}),
         ...(Object.keys(this.indexedRevisions).length ? { indexedRevisions: this.indexedRevisions } : {}),
@@ -180,7 +202,7 @@ export class OctocodeProvider implements CodeProvider {
       const result = await state.client.callTool("semantic_search", input);
       const error = toolResponseError(result);
       if (error) throw new Error(`Octocode semantic search failed: ${error}`);
-      all.push(...normalizeHits(result, query, repository.id, repository.name, repository.root, this.identity));
+      all.push(...normalizeHits(result, query, repository.id, repository.name, repository.root, this.identity, this.indexedRevisions[repository.id]));
     }
     this.lastQueryAt = new Date().toISOString();
     const providerRanked = all
@@ -218,7 +240,7 @@ export class OctocodeProvider implements CodeProvider {
       ...(data.startLine === undefined ? {} : { startLine: data.startLine }),
       ...(data.endLine === undefined ? {} : { endLine: data.endLine }),
       content,
-      provenance: provenance(this.identity, repository, "", "semantic", this.indexedRevisions[repository]),
+      provenance: provenance(this.identity, repository, "", "semantic", this.indexedRevisions[repository], undefined),
     };
   }
 
@@ -248,7 +270,7 @@ export class OctocodeProvider implements CodeProvider {
       const result = await state.client.callTool("semantic_search", input);
       const error = toolResponseError(result);
       if (error) throw new Error(`Octocode symbol search failed: ${error}`);
-      all.push(...normalizeHits(result, searchQuery, repository.id, repository.name, repository.root, this.identity));
+      all.push(...normalizeHits(result, searchQuery, repository.id, repository.name, repository.root, this.identity, this.indexedRevisions[repository.id]));
     }
     this.lastQueryAt = new Date().toISOString();
     const needle = query.text.toLowerCase();
@@ -270,7 +292,14 @@ export class OctocodeProvider implements CodeProvider {
     if (!tool) throw new UnsupportedCodeCapabilityError("graph.relationships", this.name);
     const input = buildRelationshipInput(tool, query.reference.path, query.limit, query.depth);
     const result = await state.client.callTool("graphrag", input);
-    return normalizeRelationships(result, query, repository.root, this.identity);
+    return normalizeRelationships(
+      result,
+      query,
+      repository.root,
+      this.identity,
+      this.indexedRevisions[repository.id],
+      sourceRevisionIdentity(repository.snapshot),
+    );
   }
 
   async close(): Promise<void> {
@@ -468,7 +497,15 @@ function candidateObjects(value: unknown): Record<string, unknown>[] {
   return direct;
 }
 
-function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, repositoryId: string, repositoryName: string, root: string, identity: CodeProviderIdentity): CodeSearchHit[] {
+function normalizeHits(
+  result: McpToolCallResult,
+  query: CodeSearchQuery,
+  repositoryId: string,
+  repositoryName: string,
+  root: string,
+  identity: CodeProviderIdentity,
+  indexedRevision?: string,
+): CodeSearchHit[] {
   const seen = new Set<string>();
   const hits: CodeSearchHit[] = [];
   const candidates = candidateObjects(payload(result));
@@ -486,6 +523,7 @@ function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, reposi
     const opaqueId = encodeReference({ repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }), ...(content ? { content } : {}) });
     const repository = query.workspace.repositories.find((repo) => repo.id === repositoryId);
     const sourceRevision = repository === undefined ? undefined : sourceSnapshotBase(repository.snapshot);
+    const currentRevision = repository === undefined ? undefined : sourceRevisionIdentity(repository.snapshot);
     hits.push({
       rank: hits.length + 1,
       providerRank: hits.length + 1,
@@ -500,13 +538,20 @@ function normalizeHits(result: McpToolCallResult, query: CodeSearchQuery, reposi
       ...(numberValue(item, ["score", "similarity", "relevance"]) === undefined ? {} : { providerScore: numberValue(item, ["score", "similarity", "relevance"])! }),
       ...(content ? { preview: content } : {}),
       reference: { provider: "octocode", opaqueId, repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }) },
-      provenance: provenance(identity, repositoryId, query.text, query.mode, sourceRevision),
+      provenance: provenance(identity, repositoryId, query.text, query.mode, indexedRevision, currentRevision),
     });
   }
   return hits;
 }
 
-function normalizeRelationships(result: McpToolCallResult, query: CodeRelationshipQuery, root: string, identity: CodeProviderIdentity): CodeRelationship[] {
+function normalizeRelationships(
+  result: McpToolCallResult,
+  query: CodeRelationshipQuery,
+  root: string,
+  identity: CodeProviderIdentity,
+  indexedRevision?: string,
+  currentRevision?: string,
+): CodeRelationship[] {
   const relationships: CodeRelationship[] = [];
   const candidates = candidateObjects(payload(result));
   candidates.push(...parseOctocodeRelationshipText(responseText(result)));
@@ -516,7 +561,13 @@ function normalizeRelationships(result: McpToolCallResult, query: CodeRelationsh
     const path = normalizeOctocodePath(root, rawPath);
     const kind = relationshipKind(stringValue(item, ["relationship", "kind", "type", "edge"]));
     const target: CodeReference = { provider: "octocode", opaqueId: encodeReference({ repositoryId: query.reference.repositoryId, path }), repositoryId: query.reference.repositoryId, path };
-    relationships.push({ kind, source: query.reference, target, ...(stringValue(item, ["label", "description", "name"]) ? { label: stringValue(item, ["label", "description", "name"])! } : {}), provenance: provenance(identity, query.reference.repositoryId, query.reference.path, "semantic") });
+    relationships.push({
+      kind,
+      source: query.reference,
+      target,
+      ...(stringValue(item, ["label", "description", "name"]) ? { label: stringValue(item, ["label", "description", "name"])! } : {}),
+      provenance: provenance(identity, query.reference.repositoryId, query.reference.path, "semantic", indexedRevision, currentRevision),
+    });
     if (relationships.length >= query.limit) break;
   }
   return relationships;
@@ -612,7 +663,19 @@ function relationshipKind(value?: string): CodeRelationship["kind"] {
   return "references";
 }
 
-function provenance(identity: CodeProviderIdentity, repositoryId: string, query: string, mode: "auto" | "lexical" | "semantic" | "hybrid", revision?: string) {
+function provenance(
+  identity: CodeProviderIdentity,
+  repositoryId: string,
+  query: string,
+  mode: "auto" | "lexical" | "semantic" | "hybrid",
+  indexedRevision?: string,
+  currentRevision?: string,
+) {
+  const freshness = indexedRevision === undefined || currentRevision === undefined
+    ? "unknown" as const
+    : indexedRevision === currentRevision
+      ? "current" as const
+      : "known_stale" as const;
   return {
     provider: identity,
     workspaceId: "octocode",
@@ -621,12 +684,14 @@ function provenance(identity: CodeProviderIdentity, repositoryId: string, query:
     actualMode: "semantic" as const,
     query,
     retrievedAt: new Date().toISOString(),
-    indexState: "ready" as const,
+    indexState: freshness === "known_stale" ? "stale" as const : "ready" as const,
     requestedFilters: {},
     enforcedFilters: ["repository process"],
     postProcessing: ["normalized by Atelier Octocode adapter"],
     reranked: false,
-    ...(revision ? { freshness: "current" as const, indexedRevision: revision, currentRevision: revision } : { freshness: "unknown" as const }),
+    freshness,
+    ...(indexedRevision === undefined ? {} : { indexedRevision }),
+    ...(currentRevision === undefined ? {} : { currentRevision }),
   };
 }
 

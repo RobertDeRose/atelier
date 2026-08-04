@@ -117,6 +117,48 @@ test("Octocode adapter indexes and searches multiple repositories through isolat
   }
 });
 
+test("Octocode marks results stale when source changes after indexing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-octocode-stale-"));
+  const repo = join(root, "repo");
+  mkdirSync(join(repo, "src"), { recursive: true });
+  writeFileSync(join(repo, "src", "auth.ts"), "export function refreshToken() {}\n", "utf8");
+  const fake = fakeOctocode(root);
+  const provider = new OctocodeProvider({
+    command: fake.command,
+    cwd: root,
+    timeoutMs: TEST_TOOL_TIMEOUT_MS,
+    environment: { VOYAGE_API_KEY: "test-key" },
+  });
+  const indexedWorkspace = workspace([{ id: "repo", root: repo }]);
+  const changedWorkspace = workspace([{ id: "repo", root: repo }]);
+  changedWorkspace.repositories[0]!.snapshot = {
+    ...changedWorkspace.repositories[0]!.snapshot,
+    dirtyFingerprint: "changed-after-index",
+  };
+  try {
+    assert.equal(await provider.ensureIndex(indexedWorkspace), "ready");
+    const status = await provider.status(changedWorkspace);
+    assert.equal(status.indexState, "stale");
+    assert.equal(status.indexedRevisions?.repo, "git:repo-head:clean");
+
+    const hits = await provider.search({
+      workspace: changedWorkspace,
+      text: "refresh token",
+      mode: "semantic",
+      limit: 5,
+      includeTests: true,
+      includeGenerated: false,
+    });
+    assert.equal(hits[0]?.provenance.indexedRevision, "git:repo-head:clean");
+    assert.equal(hits[0]?.provenance.currentRevision, "git:repo-head:changed-after-index");
+    assert.equal(hits[0]?.provenance.freshness, "known_stale");
+    assert.equal(hits[0]?.provenance.indexState, "stale");
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Octocode canonicalizes aliased repository roots and absolute result paths", { skip: process.platform === "win32" }, async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-octocode-canonical-"));
   const repositoryRoot = join(root, "repository");
