@@ -24,6 +24,7 @@ import type {
 } from "./types.ts";
 
 interface OctocodeReferenceData {
+  workspaceId?: string;
   repositoryId: string;
   path: string;
   startLine?: number;
@@ -56,6 +57,7 @@ export class OctocodeProvider implements CodeProvider {
   private readonly indexTimeoutMs: number;
   private readonly environment: Record<string, string>;
   private readonly clients = new Map<string, OctocodeClientState>();
+  private readonly workspaceIds = new Map<string, string>();
   private identity: CodeProviderIdentity = { name: "octocode", instanceId: "octocode:experimental" };
   private indexedRevisions: Record<string, string> = {};
   private lastIndexedAt: string | undefined;
@@ -89,6 +91,7 @@ export class OctocodeProvider implements CodeProvider {
     if (workspace === undefined || workspace.repositories.length === 0) {
       return { identity: this.identity, available: true, healthy: true, capabilities: [], indexState: "unknown", detail: "Experimental provider; workspace capability discovery has not run." };
     }
+    this.rememberWorkspace(workspace);
     try {
       const stats = workspace.repositories.map((repository) => ({ repository, stats: this.inspectStats(repository.root) }));
       const configurationWarnings = stats.flatMap(({ repository, stats: value }) => {
@@ -143,6 +146,7 @@ export class OctocodeProvider implements CodeProvider {
   }
 
   async ensureIndex(workspace: CodeWorkspace): Promise<CodeIndexState> {
+    this.rememberWorkspace(workspace);
     const versionProbe = this.probeVersion();
     const version = versionProbe.version;
     if (version === undefined) {
@@ -184,6 +188,7 @@ export class OctocodeProvider implements CodeProvider {
   }
 
   async search(query: CodeSearchQuery): Promise<CodeSearchHit[]> {
+    this.rememberWorkspace(query.workspace);
     const repositories = selectedRepositories(query.workspace, query.repositoryIds);
     for (const repository of repositories) {
       const stats = this.inspectStats(repository.root);
@@ -240,11 +245,20 @@ export class OctocodeProvider implements CodeProvider {
       ...(data.startLine === undefined ? {} : { startLine: data.startLine }),
       ...(data.endLine === undefined ? {} : { endLine: data.endLine }),
       content,
-      provenance: provenance(this.identity, repository, "", "semantic", this.indexedRevisions[repository], undefined),
+      provenance: provenance(
+        this.identity,
+        data.workspaceId ?? this.workspaceIds.get(repository) ?? "unknown",
+        repository,
+        "",
+        "semantic",
+        this.indexedRevisions[repository],
+        undefined,
+      ),
     };
   }
 
   async symbols(query: CodeSymbolQuery): Promise<CodeSearchHit[]> {
+    this.rememberWorkspace(query.workspace);
     const repositories = selectedRepositories(query.workspace, query.repositoryIds);
     const all: CodeSearchHit[] = [];
     for (const repository of repositories) {
@@ -285,6 +299,7 @@ export class OctocodeProvider implements CodeProvider {
   }
 
   async relationships(query: CodeRelationshipQuery): Promise<CodeRelationship[]> {
+    this.rememberWorkspace(query.workspace);
     const repository = query.workspace.repositories.find((candidate) => candidate.id === query.reference.repositoryId);
     if (!repository) throw new Error(`Unknown repository: ${query.reference.repositoryId}`);
     const state = await this.clientFor(repository.id, repository.root);
@@ -305,10 +320,15 @@ export class OctocodeProvider implements CodeProvider {
   async close(): Promise<void> {
     const states = [...this.clients.values()];
     this.clients.clear();
+    this.workspaceIds.clear();
     await Promise.all(states.map((state) => state.client.close()));
   }
 
   private roots = new Map<string, string>();
+
+  private rememberWorkspace(workspace: CodeWorkspace): void {
+    for (const repository of workspace.repositories) this.workspaceIds.set(repository.id, workspace.id);
+  }
 
   private async clientFor(repositoryId: string, root: string): Promise<OctocodeClientState> {
     const existing = this.clients.get(repositoryId);
@@ -520,7 +540,7 @@ function normalizeHits(
     const key = `${path}:${startLine ?? ""}:${endLine ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const opaqueId = encodeReference({ repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }), ...(content ? { content } : {}) });
+    const opaqueId = encodeReference({ workspaceId: query.workspace.id, repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }), ...(content ? { content } : {}) });
     const repository = query.workspace.repositories.find((repo) => repo.id === repositoryId);
     const sourceRevision = repository === undefined ? undefined : sourceSnapshotBase(repository.snapshot);
     const currentRevision = repository === undefined ? undefined : sourceRevisionIdentity(repository.snapshot);
@@ -538,7 +558,7 @@ function normalizeHits(
       ...(numberValue(item, ["score", "similarity", "relevance"]) === undefined ? {} : { providerScore: numberValue(item, ["score", "similarity", "relevance"])! }),
       ...(content ? { preview: content } : {}),
       reference: { provider: "octocode", opaqueId, repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }) },
-      provenance: provenance(identity, repositoryId, query.text, query.mode, indexedRevision, currentRevision),
+      provenance: provenance(identity, query.workspace.id, repositoryId, query.text, query.mode, indexedRevision, currentRevision),
     });
   }
   return hits;
@@ -560,13 +580,18 @@ function normalizeRelationships(
     if (!rawPath || rawPath === query.reference.path) continue;
     const path = normalizeOctocodePath(root, rawPath);
     const kind = relationshipKind(stringValue(item, ["relationship", "kind", "type", "edge"]));
-    const target: CodeReference = { provider: "octocode", opaqueId: encodeReference({ repositoryId: query.reference.repositoryId, path }), repositoryId: query.reference.repositoryId, path };
+    const target: CodeReference = {
+      provider: "octocode",
+      opaqueId: encodeReference({ workspaceId: query.workspace.id, repositoryId: query.reference.repositoryId, path }),
+      repositoryId: query.reference.repositoryId,
+      path,
+    };
     relationships.push({
       kind,
       source: query.reference,
       target,
       ...(stringValue(item, ["label", "description", "name"]) ? { label: stringValue(item, ["label", "description", "name"])! } : {}),
-      provenance: provenance(identity, query.reference.repositoryId, query.reference.path, "semantic", indexedRevision, currentRevision),
+      provenance: provenance(identity, query.workspace.id, query.reference.repositoryId, query.reference.path, "semantic", indexedRevision, currentRevision),
     });
     if (relationships.length >= query.limit) break;
   }
@@ -665,6 +690,7 @@ function relationshipKind(value?: string): CodeRelationship["kind"] {
 
 function provenance(
   identity: CodeProviderIdentity,
+  workspaceId: string,
   repositoryId: string,
   query: string,
   mode: "auto" | "lexical" | "semantic" | "hybrid",
@@ -678,7 +704,7 @@ function provenance(
       : "known_stale" as const;
   return {
     provider: identity,
-    workspaceId: "octocode",
+    workspaceId,
     repositoryId,
     requestedMode: mode,
     actualMode: "semantic" as const,

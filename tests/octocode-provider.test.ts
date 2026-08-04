@@ -131,6 +131,10 @@ test("Octocode marks results stale when source changes after indexing", async ()
   });
   const indexedWorkspace = workspace([{ id: "repo", root: repo }]);
   const changedWorkspace = workspace([{ id: "repo", root: repo }]);
+  indexedWorkspace.id = "actual-workspace";
+  indexedWorkspace.name = "actual-workspace";
+  changedWorkspace.id = "actual-workspace";
+  changedWorkspace.name = "actual-workspace";
   changedWorkspace.repositories[0]!.snapshot = {
     ...changedWorkspace.repositories[0]!.snapshot,
     dirtyFingerprint: "changed-after-index",
@@ -149,10 +153,13 @@ test("Octocode marks results stale when source changes after indexing", async ()
       includeTests: true,
       includeGenerated: false,
     });
+    assert.equal(hits[0]?.provenance.workspaceId, "actual-workspace");
     assert.equal(hits[0]?.provenance.indexedRevision, "git:repo-head:clean");
     assert.equal(hits[0]?.provenance.currentRevision, "git:repo-head:changed-after-index");
     assert.equal(hits[0]?.provenance.freshness, "known_stale");
     assert.equal(hits[0]?.provenance.indexState, "stale");
+    const chunk = await provider.read(hits[0]!.reference);
+    assert.equal(chunk.provenance.workspaceId, "actual-workspace");
   } finally {
     await provider.close();
     rmSync(root, { recursive: true, force: true });
