@@ -1,15 +1,23 @@
 import { createHash } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
+  constants,
   copyFileSync,
   existsSync,
+  fchmodSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
+  openSync,
   readFileSync,
   readlinkSync,
   readdirSync,
+  renameSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -170,20 +178,40 @@ export class RecoveryManager {
       throw new Error("Recovery checkpoint belongs to a different Atelier workspace.");
     }
 
-    for (const path of [...manifest.paths].sort((left, right) => right.length - left.length)) {
-      if (lexicalExists(path)) rmSync(path, { force: true, recursive: true });
-    }
-    for (const entry of [...manifest.entries].sort((left, right) => left.path.length - right.path.length)) {
-      this.restoreEntry(entry, directory);
+    // Validate the complete manifest before creating the quarantine directory,
+    // then repeat the validation immediately before each filesystem mutation.
+    // The second check closes the common symlink-parent replacement window.
+    for (const path of [...manifest.paths, ...manifest.entries.map((entry) => entry.path)]) {
+      this.validateRestorePath(path);
     }
 
-    // Git restores the exact index after copied worktree contents. Jujutsu
-    // restores the captured operation, which becomes authoritative for tracked
-    // paths while copied ignored/untracked paths remain intact.
-    this.repository.restoreRecoveryState?.(manifest.repositoryState, manifest.paths);
-    this.verifyRestored(manifest);
-    this.repository.verifyRecoveryState?.(manifest.repositoryState, manifest.paths);
-    return manifest.paths;
+    const quarantine = mkdtempSync(join(this.root, ".atlr-restore-"));
+    try {
+      let quarantineEntry = 0;
+      for (const path of [...manifest.paths].sort((left, right) => right.length - left.length)) {
+        const target = this.validateRestorePath(path);
+        if (lexicalStat(target) === undefined) continue;
+        // renameSync atomically detaches the named entry and does not follow a
+        // final symlink. Keep the quarantine on the workspace filesystem so
+        // the operation cannot degrade into a copy-and-delete.
+        renameSync(target, join(quarantine, String(quarantineEntry)));
+        quarantineEntry += 1;
+      }
+      for (const entry of [...manifest.entries].sort((left, right) => left.path.length - right.path.length)) {
+        this.restoreEntry(entry, directory);
+      }
+      this.removeRestoreQuarantine(quarantine);
+
+      // Git restores the exact index after copied worktree contents. Jujutsu
+      // restores the captured operation, which becomes authoritative for tracked
+      // paths while copied ignored/untracked paths remain intact.
+      this.repository.restoreRecoveryState?.(manifest.repositoryState, manifest.paths);
+      this.verifyRestored(manifest);
+      this.repository.verifyRecoveryState?.(manifest.repositoryState, manifest.paths);
+      return manifest.paths;
+    } finally {
+      this.removeRestoreQuarantine(quarantine);
+    }
   }
 
   private checkpointRecord(directory: string, manifest: RecoveryManifest): RecoveryCheckpoint {
@@ -262,22 +290,116 @@ export class RecoveryManager {
   }
 
   private restoreEntry(entry: SnapshotEntry, directory: string): void {
+    const path = this.validateRestorePath(entry.path);
     if (entry.kind === "missing") return;
+    this.ensureRestoreParent(path);
+
     if (entry.kind === "directory") {
-      mkdirSync(entry.path, { recursive: true });
-      if (entry.mode !== undefined) chmodSync(entry.path, entry.mode & 0o7777);
+      this.validateRestorePath(path);
+      if (lexicalStat(path) !== undefined) {
+        throw new Error(`Recovery restore expected ${path} to be absent before directory creation.`);
+      }
+      mkdirSync(path, { mode: 0o700 });
+      if (entry.mode !== undefined) this.chmodRestoreEntry(path, entry.mode, true);
       return;
     }
 
-    mkdirSync(dirname(entry.path), { recursive: true });
     if (entry.kind === "symlink") {
-      symlinkSync(entry.target ?? "", entry.path);
+      this.validateRestorePath(path);
+      if (lexicalStat(path) !== undefined) {
+        throw new Error(`Recovery restore expected ${path} to be absent before symlink creation.`);
+      }
+      symlinkSync(entry.target ?? "", path);
       return;
     }
 
-    const rel = repositoryRelativePath(this.root, entry.path, "write");
-    copyFileSync(join(directory, "files", rel), entry.path);
-    if (entry.mode !== undefined) chmodSync(entry.path, entry.mode & 0o7777);
+    const rel = repositoryRelativePath(this.root, path, "write");
+    const stored = join(directory, "files", rel);
+    const temporary = join(dirname(path), `.atlr-restore-${newId("file")}`);
+    let temporaryPath: string | undefined = temporary;
+    try {
+      this.validateRestorePath(temporary);
+      copyFileSync(stored, temporary, constants.COPYFILE_EXCL);
+      this.validateRestorePath(path);
+      if (lexicalStat(path) !== undefined) {
+        throw new Error(`Recovery restore expected ${path} to be absent before file creation.`);
+      }
+      // A same-directory rename makes the destination replacement atomic and
+      // never follows a final symlink at the destination.
+      renameSync(temporary, path);
+      temporaryPath = undefined;
+    } finally {
+      if (temporaryPath !== undefined) this.removeRestoreTemporary(temporaryPath);
+    }
+    if (entry.mode !== undefined) this.chmodRestoreEntry(path, entry.mode, false);
+  }
+
+  private validateRestorePath(path: string): string {
+    const target = repositoryPathTarget(this.root, path, "write");
+    if (target.entry === this.root) {
+      throw new Error(`Recovery restore cannot mutate the workspace root: ${path}`);
+    }
+    return target.entry;
+  }
+
+  private ensureRestoreParent(path: string): void {
+    const parent = dirname(path);
+    const relative = repositoryRelativePath(this.root, parent, "write");
+    if (relative === ".") return;
+
+    let current = this.root;
+    for (const segment of relative.split("/")) {
+      current = join(current, segment);
+      const target = this.validateRestorePath(current);
+      const stat = lexicalStat(target);
+      if (stat === undefined) {
+        mkdirSync(target, { mode: 0o700 });
+      } else if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new Error(`Recovery restore requires a non-symlink directory at ${target}.`);
+      }
+    }
+  }
+
+  private removeRestoreTemporary(path: string): void {
+    try {
+      const target = this.validateRestorePath(path);
+      if (lexicalStat(target) !== undefined) unlinkSync(target);
+    } catch {
+      // An uncertain path is deliberately left untouched rather than risking
+      // cleanup through a replaced parent directory.
+    }
+  }
+
+  private removeRestoreQuarantine(path: string): void {
+    const target = this.validateRestorePath(path);
+    if (lexicalStat(target) !== undefined) rmSync(target, { force: true, recursive: true });
+  }
+
+  private chmodRestoreEntry(path: string, mode: number, directory: boolean): void {
+    const target = this.validateRestorePath(path);
+    const noFollow = constants.O_NOFOLLOW;
+    if (noFollow === undefined) {
+      const stat = lexicalStat(target);
+      if (stat === undefined || stat.isSymbolicLink()) {
+        throw new Error(`Recovery restore cannot safely apply the mode at ${target}.`);
+      }
+      chmodSync(target, mode & 0o7777);
+      return;
+    }
+
+    const flags = constants.O_RDONLY
+      | noFollow
+      | (directory ? (constants.O_DIRECTORY ?? 0) : 0);
+    const fd = openSync(target, flags);
+    try {
+      const stat = fstatSync(fd);
+      if (directory ? !stat.isDirectory() : !stat.isFile()) {
+        throw new Error(`Recovery restore found the wrong entry type at ${target}.`);
+      }
+      fchmodSync(fd, mode & 0o7777);
+    } finally {
+      closeSync(fd);
+    }
   }
 
   private verifyCheckpoint(directory: string, manifest: RecoveryManifest): void {

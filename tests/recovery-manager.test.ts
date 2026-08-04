@@ -138,6 +138,36 @@ test("Git recovery restores exact staged, unstaged, rename, mode, symlink, ignor
   }
 });
 
+test("Recovery restore rejects symlinked manifest parents before deleting outside files", () => {
+  const root = createTemporaryRepository("atlr-recovery-restore-boundary-");
+  const runtime = mkdtempSync(join(tmpdir(), "atlr-recovery-restore-boundary-runtime-"));
+  const outside = mkdtempSync(join(tmpdir(), "atlr-recovery-restore-boundary-outside-"));
+  const ledger = new SqliteLedger(testDatabasePath(root));
+  try {
+    const parent = join(root, "checkpointed");
+    const checkpointed = join(parent, "payload.txt");
+    const outsideFile = join(outside, "payload.txt");
+    mkdirSync(parent);
+    writeFileSync(checkpointed, "checkpoint contents\n", "utf8");
+    writeFileSync(outsideFile, "outside contents\n", "utf8");
+
+    const provider = new GitRepositoryProvider({ cwd: root, ledger });
+    const recovery = new RecoveryManager({ workspaceRoot: root, runtimeDirectory: runtime, repository: provider });
+    const checkpoint = recovery.checkpoint([checkpointEffect(checkpointed)]);
+
+    rmSync(parent, { recursive: true, force: true });
+    symlinkSync(outside, parent, "dir");
+
+    assert.throws(() => recovery.restore(checkpoint.id), /outside the worktree/);
+    assert.equal(readFileSync(outsideFile, "utf8"), "outside contents\n");
+  } finally {
+    ledger.close();
+    rmSync(outside, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+    rmSync(runtime, { recursive: true, force: true });
+  }
+});
+
 test("Recovery checkpoints preserve broken symlinks and clean up atomically when limits fail", () => {
   const root = createTemporaryRepository("atlr-recovery-limit-");
   const runtime = mkdtempSync(join(tmpdir(), "atlr-recovery-limit-runtime-"));
