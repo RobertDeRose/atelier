@@ -39,6 +39,35 @@ test("validation evidence is asynchronous, snapshot-qualified, and explains stal
   } finally { await core.close(); }
 });
 
+test("validation freshness includes allowlisted environment values", async () => {
+  const root = validationRoot("atelier-validation-environment-", {
+    pass: {
+      command: [process.execPath, "-e", "process.exit(0)"],
+      environment: ["FOO"],
+      focused: true,
+      required: true,
+    },
+  });
+  const previous = process.env.FOO;
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
+  try {
+    process.env.FOO = "one";
+    const snapshot = core.currentValidationSnapshot();
+    const evidence = await core.validation.run("pass", snapshot);
+    assert.equal(core.validation.list({ currentSnapshot: snapshot })[0]?.stale, false);
+
+    process.env.FOO = "two";
+    const stale = core.validation.list({ currentSnapshot: snapshot })[0];
+    assert.equal(stale?.stale, true);
+    assert.match(stale?.staleReason ?? "", /environment changed/i);
+    assert.equal(stale?.environmentFingerprint, evidence.environmentFingerprint);
+  } finally {
+    if (previous === undefined) delete process.env.FOO;
+    else process.env.FOO = previous;
+    await core.close();
+  }
+});
+
 test("validation persists failed and interrupted outcomes with bounded output and no child process", async () => {
   const pidPath = join(tmpdir(), "atlr-validation-child-pid");
   const root = validationRoot("atelier-validation-process-", {

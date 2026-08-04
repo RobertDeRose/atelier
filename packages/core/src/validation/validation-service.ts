@@ -485,7 +485,9 @@ export class ValidationService {
       node: process.version,
       platform: platform(),
       arch: arch(),
-      path: environment.PATH ?? "",
+      environment: Object.entries(environment)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, value]) => [key, value ?? ""]),
       lockfiles,
     }));
   }
