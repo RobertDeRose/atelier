@@ -48,7 +48,7 @@ record late presentation evidence never fails the underlying user operation.
 
 ## Consequences
 
-- Authorized model Bash output reaches Pi through both streamed updates and a final success result; failure/interruption is thrown into Pi’s normal error-finalization path, so every tool invocation settles explicitly.
+- Authorized model Bash output reaches Pi through both streamed updates and a final success result; failure/interruption is thrown into Pi's normal error-finalization path, so every tool invocation settles explicitly.
 - Repository/provider refreshes no longer delay tool-row completion or keep Pi's working state active.
 - `/plan`, `/approve`, `/status`, and `/workflow` expose visible progress before blocking I/O.
 - Guided evidence can verify distinct report bodies, footer state transitions, approval phases, model Bash

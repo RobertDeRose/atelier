@@ -49,13 +49,13 @@ through `4`; lower values are selected first when dependency state is otherwise 
 
 The execution object is mandatory before ManualEdit review can advance to approval.
 
-| Field | Meaning |
-|---|---|
-| `writePaths` | Non-empty repository-relative source files or directories the task may modify. Absolute paths and `..` escapes are rejected. |
+| Field                    | Meaning                                                                                                                                                             |
+|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `writePaths`             | Non-empty repository-relative source files or directories the task may modify. Absolute paths and `..` escapes are rejected.                                        |
 | `allowDependencyChanges` | Whether dependency manifests/locks named in `writePaths` are included in the reviewed task constraint. Ordinary source-path scope never implies dependency changes. |
-| `validations` | Exact names from `.atelier/validation.json` that this task may run. Unknown names are rejected. |
-| `allowFullSuite` | Whether named validations whose category is `full` may run. Naming one while this is false is rejected. |
-| `allowLocalChange` | Whether Atelier may create one path-scoped local Git commit or Jujutsu change for the task. |
+| `validations`            | Exact names from `.atelier/validation.json` that this task may run. Unknown names are rejected.                                                                     |
+| `allowFullSuite`         | Whether named validations whose category is `full` may run. Naming one while this is false is rejected.                                                             |
+| `allowLocalChange`       | Whether Atelier may create one path-scoped local Git commit or Jujutsu change for the task.                                                                         |
 
 When closure policy requires validation and the manifest contains required checks, the task must name at
 least one configured required validation. A plan cannot approve an execution that has no possible closure

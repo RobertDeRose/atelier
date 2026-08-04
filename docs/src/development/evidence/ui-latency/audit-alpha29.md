@@ -1,4 +1,7 @@
-# Atelier UI Latency Audit — 0.14.0-alpha.29
+# Historical UI Latency Audit — 0.14.0-alpha.29
+
+> This dated audit is retained as evidence. Current lifecycle and presentation
+contracts are defined by the architecture pages and ADRs.
 
 ## Scope
 
@@ -33,38 +36,38 @@ The result is a UI that appears frozen even when Atelier is actively doing work.
 
 I wrapped Git and Beads so that every external process took only 100 ms, then exercised alpha.29 with a clean Git repository, Beads enabled, code intelligence disabled, and no active task.
 
-| Operation | Time | Child processes |
-|---|---:|---:|
-| One `core.status()` | 1.31 s | 12: 9 Git + 3 Beads |
-| A `/status`-like three-status sequence | 3.99 s | 36: 27 Git + 9 Beads |
+| Operation                                            |   Time |      Child processes |
+|------------------------------------------------------|-------:|---------------------:|
+| One `core.status()`                                  | 1.31 s |  12: 9 Git + 3 Beads |
+| A `/status`-like three-status sequence               | 3.99 s | 36: 27 Git + 9 Beads |
 | `buildWorkingState()` plus one footer status refresh | 3.63 s | 34: 30 Git + 4 Beads |
 
 This deliberately simple model reproduces the reported delay. With Jujutsu, codesearch enabled, an active task, a multi-repository workspace, filesystem contention, or a slow provider, the path is heavier.
 
 ## Findings
 
-| ID | Severity | Finding | User-visible effect |
-|---|---|---|---|
-| LAT-01 | Critical | `/status` computes status directly and then recomputes it for the footer. The global input hook also requests a refresh before slash-command dispatch. | Two to three full observations for one command. |
-| LAT-02 | Critical | Git and Jujutsu providers use synchronous child processes. | Pi cannot repaint, animate, accept input, or show a prompt while VCS observation is running. |
-| LAT-03 | Critical | Every repository snapshot hashes the complete source inventory synchronously. | Repeated disk reads on every status, footer refresh, authorization event, and evidence transition. |
-| LAT-04 | Critical | Active-task status invokes `taskClosureReadiness()` three times. | Status cost increases dramatically once a task is active. |
-| LAT-05 | Critical | `taskClosureReadiness()` repeatedly reconstructs workspace providers, snapshots repositories, computes diffs, checks local changes, checks cleanliness, and reads metadata state. | Dozens of VCS calls for one status request. |
-| LAT-06 | Critical | `/workflow` calls `buildWorkingState()`, which can contact Beads, codesearch, and execute semantic/symbol retrieval. | A supposedly observational command may wait on external providers and indexing locks. |
-| LAT-07 | Critical | Permission prompts are displayed only after classification and multiple full snapshots. | Long blank pause before the confirmation dialog appears. |
-| LAT-08 | Critical | After permission approval, Atelier performs more snapshots, starts durable evidence, and awaits a full footer refresh before returning control to the tool. | Long blank pause after clicking Approve. |
-| LAT-09 | High | Exact `/approve` performs repeated provider status/list/reconciliation passes before and after confirmation. | Approval can take several seconds before the summary and again after approval. |
-| LAT-10 | High | `/approve` refreshes status inside `approveAndReconcile()` and again in the command's `finally`. | Two expensive post-approval refreshes, plus the input-triggered refresh. |
-| LAT-11 | High | Footer refreshes are serialized but not debounced or cached. New requests force another loop pass. | Refresh storms during tool, agent, model, thinking, index, and command events. |
-| LAT-12 | High | Thinking-level and model changes trigger a complete repository/task/provider status refresh. | A cosmetic footer update pays the full status cost. |
-| LAT-13 | High | With code intelligence enabled, every footer refresh computes a new workspace source digest through `core.codeWorkspace()`. | One additional full repository snapshot and tree hash per footer refresh. |
-| LAT-14 | High | Beads `status()` launches `bd version`, `bd where --json`, and `bd list --json` every time, with no session cache. | Three subprocesses for every status observation before reading the current task. |
-| LAT-15 | High | Repository-provider auto-selection is repeated for secondary repositories. | Each workspace reconstruction can run Jujutsu and Git detection again. |
-| LAT-16 | Medium | Codesearch `status()` synchronously probes `--version`, may start/connect MCP, and reads provider status. | `/workflow` can pay process startup and IPC costs. |
-| LAT-17 | Medium | Recovery checkpoints use synchronous recursive filesystem copying and VCS capture/verification. | Checkpoint-based approvals can appear frozen, especially for directories or large files. |
-| LAT-18 | Medium | SQLite is synchronous and configured with `busy_timeout = 5000`. | A competing writer can produce an exact multi-second pause; likely secondary, but worth tracing. |
-| LAT-19 | Medium | Git/Jujutsu synchronous process calls have no timeout. | A provider lock or hung command can freeze Pi indefinitely. |
-| LAT-20 | Medium | There is no phase timing or subprocess-count telemetry for interactive operations. | Slow phases are invisible and regressions are difficult to localize. |
+| ID     | Severity | Finding                                                                                                                                                                           | User-visible effect                                                                                |
+|--------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
+| LAT-01 | Critical | `/status` computes status directly and then recomputes it for the footer. The global input hook also requests a refresh before slash-command dispatch.                            | Two to three full observations for one command.                                                    |
+| LAT-02 | Critical | Git and Jujutsu providers use synchronous child processes.                                                                                                                        | Pi cannot repaint, animate, accept input, or show a prompt while VCS observation is running.       |
+| LAT-03 | Critical | Every repository snapshot hashes the complete source inventory synchronously.                                                                                                     | Repeated disk reads on every status, footer refresh, authorization event, and evidence transition. |
+| LAT-04 | Critical | Active-task status invokes `taskClosureReadiness()` three times.                                                                                                                  | Status cost increases dramatically once a task is active.                                          |
+| LAT-05 | Critical | `taskClosureReadiness()` repeatedly reconstructs workspace providers, snapshots repositories, computes diffs, checks local changes, checks cleanliness, and reads metadata state. | Dozens of VCS calls for one status request.                                                        |
+| LAT-06 | Critical | `/workflow` calls `buildWorkingState()`, which can contact Beads, codesearch, and execute semantic/symbol retrieval.                                                              | A supposedly observational command may wait on external providers and indexing locks.              |
+| LAT-07 | Critical | Permission prompts are displayed only after classification and multiple full snapshots.                                                                                           | Long blank pause before the confirmation dialog appears.                                           |
+| LAT-08 | Critical | After permission approval, Atelier performs more snapshots, starts durable evidence, and awaits a full footer refresh before returning control to the tool.                       | Long blank pause after clicking Approve.                                                           |
+| LAT-09 | High     | Exact `/approve` performs repeated provider status/list/reconciliation passes before and after confirmation.                                                                      | Approval can take several seconds before the summary and again after approval.                     |
+| LAT-10 | High     | `/approve` refreshes status inside `approveAndReconcile()` and again in the command's `finally`.                                                                                  | Two expensive post-approval refreshes, plus the input-triggered refresh.                           |
+| LAT-11 | High     | Footer refreshes are serialized but not debounced or cached. New requests force another loop pass.                                                                                | Refresh storms during tool, agent, model, thinking, index, and command events.                     |
+| LAT-12 | High     | Thinking-level and model changes trigger a complete repository/task/provider status refresh.                                                                                      | A cosmetic footer update pays the full status cost.                                                |
+| LAT-13 | High     | With code intelligence enabled, every footer refresh computes a new workspace source digest through `core.codeWorkspace()`.                                                       | One additional full repository snapshot and tree hash per footer refresh.                          |
+| LAT-14 | High     | Beads `status()` launches `bd version`, `bd where --json`, and `bd list --json` every time, with no session cache.                                                                | Three subprocesses for every status observation before reading the current task.                   |
+| LAT-15 | High     | Repository-provider auto-selection is repeated for secondary repositories.                                                                                                        | Each workspace reconstruction can run Jujutsu and Git detection again.                             |
+| LAT-16 | Medium   | Codesearch `status()` synchronously probes `--version`, may start/connect MCP, and reads provider status.                                                                         | `/workflow` can pay process startup and IPC costs.                                                 |
+| LAT-17 | Medium   | Recovery checkpoints use synchronous recursive filesystem copying and VCS capture/verification.                                                                                   | Checkpoint-based approvals can appear frozen, especially for directories or large files.           |
+| LAT-18 | Medium   | SQLite is synchronous and configured with `busy_timeout = 5000`.                                                                                                                  | A competing writer can produce an exact multi-second pause; likely secondary, but worth tracing.   |
+| LAT-19 | Medium   | Git/Jujutsu synchronous process calls have no timeout.                                                                                                                            | A provider lock or hung command can freeze Pi indefinitely.                                        |
+| LAT-20 | Medium   | There is no phase timing or subprocess-count telemetry for interactive operations.                                                                                                | Slow phases are invisible and regressions are difficult to localize.                               |
 
 ## Detailed call paths
 
@@ -333,14 +336,14 @@ Include:
 
 ## Proposed latency budgets
 
-| Interaction | First visible indication | Cached completion | Uncached completion |
-|---|---:|---:|---:|
-| `/status` | < 50 ms | < 100 ms | < 500 ms |
-| `/workflow` default | < 50 ms | < 150 ms | < 500 ms |
-| Permission prompt for one path | < 50 ms | < 250 ms | < 500 ms |
-| Post-approval tool start without checkpoint | < 50 ms | < 150 ms | < 300 ms |
-| Checkpoint-based approval | < 50 ms | n/a | visible progress throughout |
-| Exact plan approval | < 50 ms | n/a | visible phase updates; no silent interval > 250 ms |
+| Interaction                                 | First visible indication | Cached completion |                                Uncached completion |
+|---------------------------------------------|-------------------------:|------------------:|---------------------------------------------------:|
+| `/status`                                   |                  < 50 ms |          < 100 ms |                                           < 500 ms |
+| `/workflow` default                         |                  < 50 ms |          < 150 ms |                                           < 500 ms |
+| Permission prompt for one path              |                  < 50 ms |          < 250 ms |                                           < 500 ms |
+| Post-approval tool start without checkpoint |                  < 50 ms |          < 150 ms |                                           < 300 ms |
+| Checkpoint-based approval                   |                  < 50 ms |               n/a |                        visible progress throughout |
+| Exact plan approval                         |                  < 50 ms |               n/a | visible phase updates; no silent interval > 250 ms |
 
 ## Regression tests to add
 

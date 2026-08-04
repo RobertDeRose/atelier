@@ -1,0 +1,52 @@
+# Architecture decisions
+
+These ADRs record durable architectural choices and their consequences. They
+are historical decisions, not an independent source of executable workflow
+state. When an ADR is superseded, the replacement decision and current code,
+tests, and reader-facing pages determine supported behavior.
+
+## Decisions
+
+- [ADR-0001 — Use Jujutsu as the Primary Repository Model](ADR-0001-JUJUTSU-FIRST.md)
+- [ADR-0002 — Integrate Code Intelligence Before Building It](ADR-0002-EXTERNAL-CODE-PROVIDERS.md)
+- [ADR-0003 — Use codesearch as the Default Code Provider](ADR-0003-CODESEARCH-DEFAULT.md)
+- [ADR-0004 — Preserve Code Retrieval During Semantic Provider Failure](ADR-0004-DEGRADED-CODESEARCH-FALLBACK.md)
+- [ADR-0005 — Verify Codesearch Vector Index Readiness](ADR-0005-VERIFY-CODESEARCH-VECTOR-INDEX.md)
+- [ADR-0006 — Release MCP Before Local Codesearch Indexing](ADR-0006-RELEASE-MCP-BEFORE-LOCAL-INDEX.md)
+- [ADR-0007 — Exclude Captured Provider Evidence from Code Retrieval](ADR-0007-CODESEARCH-CORPUS-SELECTION.md)
+- [ADR-0008 — Apply Workflow Focus After Provider Retrieval](ADR-0008-FOCUSED-CODE-RETRIEVAL.md)
+- [ADR-0009 — Fuse Semantic and Literal Evidence for Focused Retrieval](ADR-0009-SEMANTIC-LITERAL-RETRIEVAL-FUSION.md)
+- [ADR-0010 — Exact Identifier Retrieval Hints](ADR-0010-EXACT-IDENTIFIER-RETRIEVAL-HINTS.md)
+- [ADR-0011 — Accept codesearch as the default Code provider](ADR-0011-CODESEARCH-POC-ACCEPTED.md)
+- [ADR-0012 — Capability-gate Octocode against its live MCP contract](ADR-0012-OCTOCODE-LIVE-CONTRACT.md)
+- [ADR-0013 — Build Repository Evidence from Durable Workflow State](ADR-0013-TASK-BACKED-WORKING-STATE-RETRIEVAL.md)
+- [ADR-0014 — Resolve SQLite dynamically for Pi extension compatibility](ADR-0014-PI-SQLITE-RUNTIME-COMPATIBILITY.md)
+- [ADR-0015 — Support Node and Bun SQLite runtimes at the ledger boundary](ADR-0015-DUAL-RUNTIME-SQLITE.md)
+- [ADR-0016 — Normalize SQLite missing rows at the runtime boundary](ADR-0016-SQLITE-MISSING-ROW-CONTRACT.md)
+- [ADR-0017 — Plan reads and provider-first code tools](ADR-0017-PLAN-READS-AND-PROVIDER-FIRST-TOOLS.md)
+- [ADR-0018 — Default approved repository execution](ADR-0018-APPROVED-REPOSITORY-EXECUTION.md)
+- [ADR-0019 — Exact Reviewed-Plan Approval and Task-Scoped Execution](ADR-0019-EXACT-PLAN-EXECUTION.md)
+- [ADR-0020 — Verify Octocode embedding prerequisites and searchable blocks](ADR-0020-OCTOCODE-EMBEDDING-PREFLIGHT.md)
+- [ADR-0021 — Reject Octocode for default repository retrieval](ADR-0021-OCTOCODE-DEFAULT-RETRIEVAL-REJECTED.md)
+- [ADR-0022 — Coordinate background code indexing](ADR-0022-BACKGROUND-CODE-INDEX-COORDINATOR.md)
+- [ADR-0023 — Explicitly activate Atelier code tools in Pi](ADR-0023-PI-ACTIVE-CODE-TOOLS.md)
+- [ADR-0024 — Trust projects before loading executable configuration](ADR-0024-PROJECT-TRUST-AND-RUNTIME-STATE.md)
+- [ADR-0025 — Approve typed task constraints and treat shell as unconfined](ADR-0025-TYPED-TASK-CAPABILITIES-AND-UNCONFINED-SHELL.md)
+- [ADR-0026 — Use one authoritative task-completion predicate](ADR-0026-AUTHORITATIVE-TASK-COMPLETION.md)
+- [ADR-0027 — Bind exact approval to every workspace repository and retrieval revision](ADR-0027-WORKSPACE-REVISION-BINDINGS.md)
+- [ADR-0028 — Preserve user control while tasks remain incomplete](ADR-0028-USER-CONTROL-AND-TYPED-VALIDATION.md)
+- [ADR-0029 — Derive exact capabilities and source evidence from structured task scope](ADR-0029-EXACT-TASK-SCOPE-AND-SOURCE-ISOLATION.md)
+- [ADR-0030 — Repository finalization and closure semantics](ADR-0030-REPOSITORY-FINALIZATION-AND-CLOSURE-SEMANTICS.md)
+- [ADR-0031 — TUI approval, status, and VCS identity](ADR-0031-TUI-APPROVAL-STATUS-AND-VCS-IDENTITY.md)
+- [ADR-0032 — Session workspace recoverability policy](ADR-0032-WORKSPACE-RECOVERABILITY-POLICY.md)
+- [ADR-0033 — Persistent Markdown Reports for Atelier Commands](ADR-0033-PERSISTENT-MARKDOWN-REPORTS.md)
+- [ADR-0034 — Expandable Report Cards and Workflow Command Naming](ADR-0034-EXPANDABLE-REPORT-CARDS.md)
+- [ADR-0035 — User-Owned Executables, Fail-Closed Shell Fallback, and Workspace Finalization](ADR-0035-EXECUTION-BOUNDARY-AND-WORKSPACE-FINALIZATION.md)
+- [ADR-0036 — Interactive observation pipeline](ADR-0036-INTERACTIVE-OBSERVATION-PIPELINE.md)
+- [ADR-0037 — Canonical Path Identity and Filesystem Entry Semantics](ADR-0037-CANONICAL-PATH-IDENTITY.md)
+- [ADR-0038 — Direct User Bash Denial Uses Pi's Replacement-Result Contract](ADR-0038-DIRECT-USER-BASH-DENIAL-CONTRACT.md)
+- [ADR-0039 — Pi UI Lifecycle and Durable Presentation Evidence](ADR-0039-PI-UI-LIFECYCLE-AND-EVIDENCE.md)
+- [ADR-0040 — Keep Mutable Provider State Outside the Working Copy](ADR-0040-EXTERNAL-PROVIDER-STATE-AND-TRANSIENT-SNAPSHOT-RETRY.md)
+- [ADR-0041 — Present Transient Work Inline and Format Plan Authority for Review](ADR-0041-INLINE-PHASES-AND-READABLE-PLAN-AUTHORITY.md)
+- [ADR-0042 — Separate Transient Progress from Durable Status and Gate Plan Retrieval on Review](ADR-0042-TRANSIENT-PROGRESS-AND-REVIEWED-PLAN-RETRIEVAL.md)
+- [ADR-0043 — Make Phase Surfaces Lifecycle-Explicit and Verify UI Evidence Chronologically](ADR-0043-LIFECYCLE-EXPLICIT-PHASE-SURFACES-AND-CHRONOLOGICAL-EVIDENCE.md)

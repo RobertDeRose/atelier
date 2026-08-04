@@ -17,13 +17,13 @@ test("code search focus infers source, tests, mixed, docs, and neutral queries",
 test("code path classification separates product source from tests, docs, and tooling", () => {
   assert.equal(classifyCodePath("packages/core/src/core.ts"), "source");
   assert.equal(classifyCodePath("tests/core.test.ts"), "tests");
-  assert.equal(classifyCodePath("docs/ARCHITECTURE.md"), "docs");
+  assert.equal(classifyCodePath("docs/src/architecture/index.md"), "docs");
   assert.equal(classifyCodePath("scripts/probe.ts"), "tooling");
 });
 
 test("focused path ranking preserves provider order within each path class", () => {
   const input = [
-    "docs/ARCHITECTURE.md",
+    "docs/src/architecture/index.md",
     "scripts/probe.ts",
     "packages/core/src/core.ts",
     "tests/core.test.ts",
@@ -34,7 +34,7 @@ test("focused path ranking preserves provider order within each path class", () 
     "packages/core/src/code/service.ts",
     "scripts/probe.ts",
     "tests/core.test.ts",
-    "docs/ARCHITECTURE.md",
+    "docs/src/architecture/index.md",
   ]);
   assert.deepEqual(rankCodePathsByFocus(input, "tests", "tests").paths.slice(0, 2), [
     "tests/core.test.ts",

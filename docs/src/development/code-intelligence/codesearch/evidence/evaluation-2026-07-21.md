@@ -32,13 +32,13 @@ compatibility.
 
 ## Results
 
-| Task | Baseline expected paths | Codesearch expected paths | Baseline time | Codesearch time |
-|---|---:|---:|---:|---:|
-| Locate provider selection | 2 / 2 | 0 / 2 | 30 ms | 407 ms |
-| Trace the code-search command | 2 / 2 | 0 / 2 | 27 ms | 412 ms |
-| Find normalization tests | 2 / 2 | 2 / 2 | 26 ms | 394 ms |
-| Find Working State evidence integration | 1 / 2 | 1 / 2 | 25 ms | 401 ms |
-| **Total** | **7 / 8** | **3 / 8** | **108 ms** | **1,614 ms** |
+| Task                                    | Baseline expected paths | Codesearch expected paths | Baseline time | Codesearch time |
+|-----------------------------------------|------------------------:|--------------------------:|--------------:|----------------:|
+| Locate provider selection               |                   2 / 2 |                     0 / 2 |         30 ms |          407 ms |
+| Trace the code-search command           |                   2 / 2 |                     0 / 2 |         27 ms |          412 ms |
+| Find normalization tests                |                   2 / 2 |                     2 / 2 |         26 ms |          394 ms |
+| Find Working State evidence integration |                   1 / 2 |                     1 / 2 |         25 ms |          401 ms |
+| **Total**                               |               **7 / 8** |                 **3 / 8** |    **108 ms** |    **1,614 ms** |
 
 Total serialized output was similar: 49,407 bytes for the baseline and 50,638 bytes for
 codesearch.

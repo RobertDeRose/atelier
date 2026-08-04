@@ -6,7 +6,7 @@ This report evaluates Atelier's bounded retrieval orchestration against the obse
 
 ## Baseline
 
-The reference planning session made 39 repository-intelligence calls: 19 semantic or hybrid searches and 20 symbol searches. It returned 339 results across 58 unique paths. Repetition was concentrated in `docs/IMPLEMENTATION_PLAN.md` (63 appearances), `packages/core/src/core.ts` (46), and the Pi extension and CLI (28 each).
+The reference planning session made 39 repository-intelligence calls: 19 semantic or hybrid searches and 20 symbol searches. It returned 339 results across 58 unique paths. Repetition was concentrated in `docs/src/development/history/implementation-plan.md` (63 appearances), `packages/core/src/core.ts` (46), and the Pi extension and CLI (28 each).
 
 The portable scenario is `evaluation/fixtures/self-hosting-retrieval-economy.json`.
 
@@ -14,14 +14,14 @@ The portable scenario is `evaluation/fixtures/self-hosting-retrieval-economy.jso
 
 `tests/self-hosting-retrieval-acceptance.test.ts` uses a provider-independent fake and the production CodeService, Working State builder, and SQLite ledger.
 
-| Measurement | Result |
-|---|---:|
-| Repository-intelligence calls | 8 |
-| Provider calls | 6 |
-| Equivalent canonical provider redispatches | 0 |
-| Symbol calls before semantic discovery | 0 |
-| Cross-repository leaks | 0 |
-| Stale evidence reported current after invalidation | 0 |
+| Measurement                                        | Result |
+|----------------------------------------------------|-------:|
+| Repository-intelligence calls                      |      8 |
+| Provider calls                                     |      6 |
+| Equivalent canonical provider redispatches         |      0 |
+| Symbol calls before semantic discovery             |      0 |
+| Cross-repository leaks                             |      0 |
+| Stale evidence reported current after invalidation |      0 |
 
 The eight-call sequence covers one semantic discovery, one unresolved-symbol lookup, one equivalent Unicode/whitespace query, one known-path direct-read decision, two isolated repository scopes, repository revision invalidation, and index revision invalidation. Repeated Working State construction and ledger reopen add no provider call.
 
@@ -37,17 +37,17 @@ The ordinary automated suite validates the gate with portable CLI fixtures and d
 
 The final read-only run used the supported `mise run launch` entry point with only the Atelier extension enabled. It made one focused semantic search, inspected the included inventory, read two returned paths directly, and repeated the query with only leading and trailing ordinary whitespace. It used no shell or broad repository scan and did not call symbols because the inventory listed no unresolved identifier.
 
-| Measurement | Result |
-|---|---:|
-| Total tool calls, including direct reads | 4 |
-| Repository-intelligence calls | 2 |
-| Provider calls | 1 |
-| Exact cache hits | 1 |
-| Unique paths | 10 |
-| Bytes returned | 122 |
-| Duplicate results removed | 0 |
-| Truncated | false |
-| Invalidations | 0 |
+| Measurement                              | Result |
+|------------------------------------------|-------:|
+| Total tool calls, including direct reads |      4 |
+| Repository-intelligence calls            |      2 |
+| Provider calls                           |      1 |
+| Exact cache hits                         |      1 |
+| Unique paths                             |     10 |
+| Bytes returned                           |    122 |
+| Duplicate results removed                |      0 |
+| Truncated                                |  false |
+| Invalidations                            |      0 |
 
 The second search decision was `exact_reuse` with reason `complete cached result covers requested limit 10`. The provider remained codesearch, the index was ready, inventory freshness was current, and the repository scope contained only `atelier`. Original codesearch provenance remained attached.
 

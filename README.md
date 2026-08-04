@@ -203,7 +203,7 @@ Every approvable task includes a structured execution contract in its `atlr:task
 ```
 
 Free-form Scope and Out-of-scope sections remain human context; the `execution` object is the reviewed task-constraint source. Missing, unknown, inconsistent, absolute, out-of-root, or non-source entries fail preparation. See
-`docs/PLAN_FORMAT.md` for the complete contract.
+`docs/src/reference/plan-format.md` for the complete contract.
 
 A normal CLI workflow is:
 

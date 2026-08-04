@@ -68,7 +68,7 @@ class SelfHostingProvider implements CodeProvider {
       { repositoryId: "atelier", path: "packages/core/src/code/service.ts", symbol: "DuplicateCodeService" },
       { repositoryId: "atelier", path: "packages/core/src/state/working-state-builder.ts", symbol: "WorkingStateBuilder" },
       { repositoryId: "atelier", path: "apps/pi-extension/src/index.ts", symbol: "atelierExtension" },
-      { repositoryId: "docs", path: "docs/CODE_INTELLIGENCE.md", symbol: "CodeIntelligenceGuide" },
+      { repositoryId: "docs", path: "docs/src/development/code-intelligence/index.md", symbol: "CodeIntelligenceGuide" },
     ].filter((document) => repositories.has(document.repositoryId));
     return documents.map((document, index) => this.hit(query, document.repositoryId, document.path, document.symbol, index));
   }
@@ -173,7 +173,7 @@ test("self-hosting planning stays within eight intelligence calls without stale 
   assert.ok(expectedPaths.has("tests/working-state-retrieval-persistence.test.ts"));
   assert.ok(expectedPaths.has("apps/pi-extension/src/index.ts"));
   assert.ok(expectedPaths.has("scripts/evaluate-code.ts"));
-  assert.ok(expectedPaths.has("docs/CODESEARCH_EVALUATION.md"));
+  assert.ok(expectedPaths.has("docs/src/development/code-intelligence/codesearch/evaluation.md"));
 
   const root = createTemporaryRepository("atlr-self-hosting-retrieval-");
   const ledgerPath = join(root, ".atelier", "self-hosting.db");

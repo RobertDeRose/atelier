@@ -7,7 +7,7 @@
 
 Atelier needs one workflow that is safe through both the CLI and Pi. A valid Markdown plan alone is insufficient authority: the user must review its exact revision, inspect the exact provider projection, and explicitly decide whether provider mutation and task activation may occur.
 
-Applying reconciliation directly from a fresh preview creates time-of-check/time-of-use risk. Treating task claim, act mode, or routine permissions as implied by a conversational “approve” loses the repository, workspace, provider, and task boundaries needed for safe restart. Conversely, prompting independently for every routine local edit makes approved implementation impractical.
+Applying reconciliation directly from a fresh preview creates time-of-check/time-of-use risk. Treating task claim, act mode, or routine permissions as implied by a conversational "approve" loses the repository, workspace, provider, and task boundaries needed for safe restart. Conversely, prompting independently for every routine local edit makes approved implementation impractical.
 
 ## Decision
 
@@ -85,4 +85,4 @@ SQLite, repository identity, and `TaskProvider` state reconstruct workflow check
 
 ## Validation
 
-`tests/acceptance-workflow.test.ts` proves semantic outcomes through a temporary Git repository, real foreground fake editor process, persistent fake Beads CLI, configured focused validation, and fake Pi harness. Focused unit/integration suites cover drift, conflicts, partial reconciliation, crash recovery, policy, tool evidence, validation cancellation/staleness, shutdown, and resume. The manual Jujutsu-first gate is documented in `LOCAL_ACCEPTANCE.md`.
+`tests/acceptance-workflow.test.ts` proves semantic outcomes through a temporary Git repository, real foreground fake editor process, persistent fake Beads CLI, configured focused validation, and fake Pi harness. Focused unit/integration suites cover drift, conflicts, partial reconciliation, crash recovery, policy, tool evidence, validation cancellation/staleness, shutdown, and resume. The manual Jujutsu-first gate is documented in `docs/src/operations/local-acceptance.md`.

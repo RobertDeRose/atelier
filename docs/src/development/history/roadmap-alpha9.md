@@ -1,4 +1,7 @@
-# Atelier Remaining Issues and Roadmap — Revised
+# Historical Atelier Remaining Issues and Roadmap — Alpha.9
+
+> This page is retained as historical planning evidence. It is not the current
+roadmap; use Beads and [Planned features](../../planned-features.md) instead.
 
 Against alpha.9, these are the remaining issues worth addressing. Some are confirmed implementation risks; others are unfinished product areas already acknowledged in the repository.
 
@@ -6,13 +9,13 @@ Against alpha.9, these are the remaining issues worth addressing. Some are confi
 
 ### 1. Replace the permission and trust system with a workspace-boundary and recoverability policy
 
-Convert Atelier’s current permission system into a minimal, deterministic, workspace-boundary and recoverability policy.
+Convert Atelier's current permission system into a minimal, deterministic, workspace-boundary and recoverability policy.
 
 ### Objective
 
-Replace Atelier’s current granular permission, trust, and approval system with a predictable policy that asks the user only before operations Atelier cannot reliably recover.
+Replace Atelier's current granular permission, trust, and approval system with a predictable policy that asks the user only before operations Atelier cannot reliably recover.
 
-Remove Atelier’s `/atelier-trust` command and its associated trust-management model.
+Remove Atelier's `/atelier-trust` command and its associated trust-management model.
 
 Do not replace it with another trust command, trust database, permission matrix, command allowlist, or machine-learning classifier.
 
@@ -20,7 +23,7 @@ The core rule is:
 
 > Automatically allow operations whose effects remain inside the Atelier workspace and are either read-only or recoverable. Ask only before operations that may cause irreversible loss, expose likely secrets, require privilege escalation, or escape the workspace boundary.
 
-This should behave similarly to OpenCode’s workspace-oriented defaults, strengthened by VCS-backed recoverability.
+This should behave similarly to OpenCode's workspace-oriented defaults, strengthened by VCS-backed recoverability.
 
 ### Workspace definition
 
@@ -66,24 +69,24 @@ The user explicitly chooses the workspace by choosing the directory from which A
 
 ### Relationship to Pi `/trust`
 
-Pi’s `/trust` command governs whether Pi loads project-local configuration, extensions, skills, prompts, themes, and packages.
+Pi's `/trust` command governs whether Pi loads project-local configuration, extensions, skills, prompts, themes, and packages.
 
-It is not Atelier’s filesystem permission system.
+It is not Atelier's filesystem permission system.
 
 Atelier must not:
 
-* override Pi’s `/trust`;
-* alias `/atelier-trust` to Pi’s `/trust`;
+* override Pi's `/trust`;
+* alias `/atelier-trust` to Pi's `/trust`;
 * treat Pi project trust as permission to modify files;
-* write Atelier permission state into Pi’s trust database;
-* require Pi project trust before applying Atelier’s workspace policy;
-* add a second trust UI that duplicates Pi’s project trust.
+* write Atelier permission state into Pi's trust database;
+* require Pi project trust before applying Atelier's workspace policy;
+* add a second trust UI that duplicates Pi's project trust.
 
-Remove Atelier’s `/atelier-trust` command because it is no longer needed.
+Remove Atelier's `/atelier-trust` command because it is no longer needed.
 
-Pi `/trust` remains available for Pi’s own project-resource loading behavior.
+Pi `/trust` remains available for Pi's own project-resource loading behavior.
 
-Atelier’s workspace is selected automatically from its startup directory regardless of Pi’s trust state.
+Atelier's workspace is selected automatically from its startup directory regardless of Pi's trust state.
 
 Document the distinction succinctly:
 
@@ -96,7 +99,7 @@ Atelier workspace policy:
   The workspace defaults to the directory where Atelier was started.
 ```
 
-Investigate whether Atelier currently hooks Pi’s `project_trust` event.
+Investigate whether Atelier currently hooks Pi's `project_trust` event.
 
 Remove that integration if it exists solely to implement Atelier filesystem permissions.
 
@@ -159,7 +162,7 @@ A path identified by explicit path rules as likely containing credentials or sen
 Implement this policy.
 
 | Operation                       | Target or state                                     | Default                                                                 |
-| ------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------- |
+|---------------------------------|-----------------------------------------------------|-------------------------------------------------------------------------|
 | Read                            | Non-secret path inside workspace                    | Allow                                                                   |
 | Read                            | Potential-secret path inside workspace              | Ask                                                                     |
 | Read                            | Path outside workspace                              | Ask                                                                     |
@@ -282,7 +285,7 @@ enum PermissionDecision {
 }
 ```
 
-Adapt these names to Atelier’s existing conventions where appropriate.
+Adapt these names to Atelier's existing conventions where appropriate.
 
 Do not introduce parallel abstractions when suitable ones already exist.
 
@@ -357,7 +360,7 @@ It is still a mutation and may require effect-specific handling, but it does not
 
 ### VCS recoverability
 
-Use Atelier’s VCS abstraction instead of embedding Git-specific assumptions in the policy evaluator.
+Use Atelier's VCS abstraction instead of embedding Git-specific assumptions in the policy evaluator.
 
 Support at least Git and Jujutsu through provider interfaces.
 
@@ -374,7 +377,7 @@ The policy layer needs operations equivalent to:
 * verify checkpoint success;
 * describe or execute restoration.
 
-Do not assume that “tracked” means “recoverable.”
+Do not assume that "tracked" means "recoverable."
 
 A tracked file with uncommitted changes is not fully recoverable from `HEAD`.
 
@@ -431,7 +434,7 @@ Avoid leaving the worktree or index in a different state merely because a checkp
 
 Prefer native working-copy snapshot and operation-log semantics.
 
-Use Jujutsu’s recoverability model where it provides stronger guarantees than a custom snapshot.
+Use Jujutsu's recoverability model where it provides stronger guarantees than a custom snapshot.
 
 ### Untracked and ignored files
 
@@ -461,7 +464,7 @@ Use configurable limits and ask when checkpointing is impractical.
 
 Use explicit path-based classification.
 
-Do not inspect a file’s contents merely to decide whether reading it requires approval.
+Do not inspect a file's contents merely to decide whether reading it requires approval.
 
 Initial likely-secret patterns should include:
 
@@ -549,7 +552,7 @@ For each structured tool call:
 7. evaluate the complete operation;
 8. execute only after the policy decision.
 
-Use Pi’s `tool_call` extension event where it provides reliable pre-execution interception.
+Use Pi's `tool_call` extension event where it provides reliable pre-execution interception.
 
 Override or replace Pi built-in tools only when the event API cannot provide the precision or enforcement required.
 
@@ -591,7 +594,7 @@ However, without runtime enforcement, classify potentially persistent unknown ef
 Intercept both:
 
 * model-issued Bash tool calls;
-* direct user shell execution exposed through Pi’s `user_bash` event.
+* direct user shell execution exposed through Pi's `user_bash` event.
 
 ### Runtime sandboxing
 
@@ -698,7 +701,7 @@ For operations involving multiple paths:
 * ask once for the complete operation;
 * do not prompt separately for every path.
 
-Do not provide “always allow this command” or “trust this directory” choices.
+Do not provide "always allow this command" or "trust this directory" choices.
 
 Approvals should be one-time decisions for concrete operations.
 
@@ -914,11 +917,11 @@ Repository-controlled providers and validations commonly inherit `process.env`. 
 
 Correction:
 
-- Use a minimal environment allowlist by default.
-- Allow explicit environment variables per provider or validation.
-- Never pass secret-shaped variables automatically.
-- Show environment access in the trust and approval UI.
-- Add tests proving a repository validator cannot see unrelated host secrets.
+* Use a minimal environment allowlist by default.
+* Allow explicit environment variables per provider or validation.
+* Never pass secret-shaped variables automatically.
+* Show environment access in the trust and approval UI.
+* Add tests proving a repository validator cannot see unrelated host secrets.
 
 ### 3. Add secret redaction and retention controls
 
@@ -926,39 +929,39 @@ Atelier persists tool errors, validation output, command output, retrieval data,
 
 Correction:
 
-- Redact tokens, passwords, private keys, authorization headers, and known credential formats before persistence.
-- Keep raw output only in memory unless explicitly requested.
-- Add configurable retention for:
-  - Execution evidence
-  - Validation evidence
-  - Retrieval evidence
-  - Completed workflow runs
-- Add `atlr data inspect`, `atlr data prune`, and `atlr data delete`.
-- Add a safe evidence export command.
+* Redact tokens, passwords, private keys, authorization headers, and known credential formats before persistence.
+* Keep raw output only in memory unless explicitly requested.
+* Add configurable retention for:
+  * Execution evidence
+  * Validation evidence
+  * Retrieval evidence
+  * Completed workflow runs
+* Add `atlr data inspect`, `atlr data prune`, and `atlr data delete`.
+* Add a safe evidence export command.
 
 This matters before wider dogfooding.
 
 ### 4. Replace synchronous subprocesses in the TUI path
 
-The current implementation still uses `spawnSync()` for Jujutsu, Git, Beads, codesearch, Octocode, editor launch, and some CLI operations. A slow or wedged external command can freeze Pi’s event loop.
+The current implementation still uses `spawnSync()` for Jujutsu, Git, Beads, codesearch, Octocode, editor launch, and some CLI operations. A slow or wedged external command can freeze Pi's event loop.
 
 Relevant implementations include:
 
-- `packages/core/src/tasks/beads-cli-provider.ts`
-- `packages/core/src/repository/jujutsu-repository-provider.ts`
-- `packages/core/src/repository/git-repository-provider.ts`
-- `packages/core/src/code/codesearch-provider.ts`
-- `packages/core/src/code/octocode-provider.ts`
-- `apps/pi-extension/src/index.ts`
+* `packages/core/src/tasks/beads-cli-provider.ts`
+* `packages/core/src/repository/jujutsu-repository-provider.ts`
+* `packages/core/src/repository/git-repository-provider.ts`
+* `packages/core/src/code/codesearch-provider.ts`
+* `packages/core/src/code/octocode-provider.ts`
+* `apps/pi-extension/src/index.ts`
 
 Correction:
 
-- Move provider operations to asynchronous `spawn()`.
-- Support `AbortSignal`.
-- Stream bounded progress.
-- Kill process groups on cancellation.
-- Apply separate startup, idle, and total timeouts.
-- Distinguish timeout, cancellation, signal termination, and nonzero exit.
+* Move provider operations to asynchronous `spawn()`.
+* Support `AbortSignal`.
+* Stream bounded progress.
+* Kill process groups on cancellation.
+* Apply separate startup, idle, and total timeouts.
+* Distinguish timeout, cancellation, signal termination, and nonzero exit.
 
 This will materially improve responsiveness and user control.
 
@@ -975,43 +978,43 @@ Atelier currently parses both complete JSON and a final JSON line after warnings
 
 Correction:
 
-- Set `BD_JSON_ENVELOPE=1` for Beads subprocesses.
-- Normalize both legacy and envelope forms during a migration period.
-- Add fixtures from the actual v2 envelope.
-- Detect unsupported Beads versions clearly.
-- Add a supported-version range to `doctor`.
+* Set `BD_JSON_ENVELOPE=1` for Beads subprocesses.
+* Normalize both legacy and envelope forms during a migration period.
+* Add fixtures from the actual v2 envelope.
+* Detect unsupported Beads versions clearly.
+* Add a supported-version range to `doctor`.
 
 This is a predictable future breakage and should be addressed early.
 
 ### 6. Make the custom footer composable
 
-The alpha.9 footer fixes the misleading `detached` display, but it replaces Pi’s entire footer through `setFooter()`.
+The alpha.9 footer fixes the misleading `detached` display, but it replaces Pi's entire footer through `setFooter()`.
 
 The current implementation displays:
 
-- Model
-- Jujutsu or Git identity
-- Atelier status
-- Context percentage
+* Model
+* Jujutsu or Git identity
+* Atelier status
+* Context percentage
 
 It may omit or conflict with:
 
-- Pi cost information
-- Input/output token counts
-- Session indicators
-- Other extension footer customizations
-- Future Pi footer fields
+* Pi cost information
+* Input/output token counts
+* Session indicators
+* Other extension footer customizations
+* Future Pi footer fields
 
 Correction:
 
-- Preserve all useful built-in footer data where exposed.
-- Detect an existing custom footer before replacing it.
-- Offer a configuration option:
-  - `footer = "atelier"`
-  - `footer = "status-only"`
-  - `footer = "disabled"`
-- Prefer an upstream Pi API for replacing only the VCS segment.
-- Add narrow-width rendering tests.
+* Preserve all useful built-in footer data where exposed.
+* Detect an existing custom footer before replacing it.
+* Offer a configuration option:
+  * `footer = "atelier"`
+  * `footer = "status-only"`
+  * `footer = "disabled"`
+* Prefer an upstream Pi API for replacing only the VCS segment.
+* Add narrow-width rendering tests.
 
 ### 7. Consolidate CLI and Pi presentation
 
@@ -1019,22 +1022,22 @@ Several manual-test errors came from CLI text, CLI JSON, slash-command output, a
 
 Correction:
 
-- Create one typed presentation model for:
-  - Plan status
-  - Execution status
-  - Task state
-  - Repository identity
-  - Closure readiness
-  - Next action
-- Render that model to:
-  - CLI text
-  - CLI JSON
-  - Pi `/status`
-  - Pi footer
-  - Working State
-- Add contract tests asserting semantic equivalence across all surfaces.
+* Create one typed presentation model for:
+  * Plan status
+  * Execution status
+  * Task state
+  * Repository identity
+  * Closure readiness
+  * Next action
+* Render that model to:
+  * CLI text
+  * CLI JSON
+  * Pi `/status`
+  * Pi footer
+  * Working State
+* Add contract tests asserting semantic equivalence across all surfaces.
 
-This will prevent another cycle of “the state is correct internally, but the UI says something else.”
+This will prevent another cycle of "the state is correct internally, but the UI says something else."
 
 ## Safety and execution work
 
@@ -1044,19 +1047,19 @@ The workspace-boundary and recoverability policy should be the immediate replace
 
 Correction options:
 
-- macOS Seatbelt profiles.
-- Linux Landlock or Bubblewrap.
-- Container-backed execution where appropriate.
+* macOS Seatbelt profiles.
+* Linux Landlock or Bubblewrap.
+* Container-backed execution where appropriate.
 
 The initial sandbox should enforce:
 
-- Workspace read-write access.
-- External filesystem read-only or unavailable.
-- Secret locations hidden or approval-gated.
-- A minimal environment.
-- Process, CPU, memory, file-size, and time limits.
-- Network policy handled separately.
-- No access to SSH agents or host credential stores unless explicitly authorized.
+* Workspace read-write access.
+* External filesystem read-only or unavailable.
+* Secret locations hidden or approval-gated.
+* A minimal environment.
+* Process, CPU, memory, file-size, and time limits.
+* Network policy handled separately.
+* No access to SSH agents or host credential stores unless explicitly authorized.
 
 Until this exists, arbitrary shell analysis must remain conservative when persistent effects cannot be bounded reliably.
 
@@ -1066,12 +1069,12 @@ The core stop, pause, resume, and cancel transitions exist, but recovery from ca
 
 Correction:
 
-- Show canceled tasks as resumable work.
-- Add `/atelier-resume-task [id]`.
-- Explain whether the previous reviewed plan and capabilities can be safely reused.
-- Revalidate the source baseline before reactivation.
-- Show retained changes and stale evidence before resuming.
-- Avoid forcing users through complete plan approval when nothing relevant changed.
+* Show canceled tasks as resumable work.
+* Add `/atelier-resume-task [id]`.
+* Explain whether the previous reviewed plan and capabilities can be safely reused.
+* Revalidate the source baseline before reactivation.
+* Show retained changes and stale evidence before resuming.
+* Avoid forcing users through complete plan approval when nothing relevant changed.
 
 ### 10. Make approval a dedicated interactive surface
 
@@ -1079,14 +1082,14 @@ The workspace-recoverability policy should remove most routine approval prompts.
 
 A dedicated approval component should support:
 
-- Scrolling.
-- Grouping affected paths by reason.
-- Clear explanations of irreversible loss, secret access, privilege escalation, or workspace escape.
-- Representative paths with expandable complete lists.
-- Recovery checkpoint details when available.
-- Keyboard shortcuts for approve, reject, and inspect.
-- Copying operation details.
-- One-time approval only; no remembered command or directory trust.
+* Scrolling.
+* Grouping affected paths by reason.
+* Clear explanations of irreversible loss, secret access, privilege escalation, or workspace escape.
+* Representative paths with expandable complete lists.
+* Recovery checkpoint details when available.
+* Keyboard shortcuts for approve, reject, and inspect.
+* Copying operation details.
+* One-time approval only; no remembered command or directory trust.
 
 This would make rare approvals precise and consequence-based.
 
@@ -1098,13 +1101,13 @@ Codesearch is functional, but earlier acceptance runs showed weak ranking and pr
 
 Further improvements:
 
-- Prefer exact declarations over references.
-- Separate source definitions, references, tests, docs, and generated files.
-- Render snippets rather than opaque provider labels.
-- Make paths selectable and openable.
-- Explain semantic versus lexical contribution.
-- Avoid retrieval churn during passive status reconstruction.
-- Add query-quality benchmarks using actual Atelier planning tasks.
+* Prefer exact declarations over references.
+* Separate source definitions, references, tests, docs, and generated files.
+* Render snippets rather than opaque provider labels.
+* Make paths selectable and openable.
+* Explain semantic versus lexical contribution.
+* Avoid retrieval churn during passive status reconstruction.
+* Add query-quality benchmarks using actual Atelier planning tasks.
 
 ### 12. Make multi-repository execution usable, not merely correct
 
@@ -1112,13 +1115,13 @@ Multi-repository snapshot and freshness correctness is implemented, but the UX r
 
 Correction:
 
-- Show repository ownership for every approved path.
-- Make the session workspace boundary explicit for each repository.
-- Require explicit workspace expansion rather than silently treating VCS roots as trusted.
-- Coordinate one task transaction across multiple local changes.
-- Show which repository blocked resume.
-- Provide per-repository validation and diff review.
-- Support partial failure and recovery without losing evidence.
+* Show repository ownership for every approved path.
+* Make the session workspace boundary explicit for each repository.
+* Require explicit workspace expansion rather than silently treating VCS roots as trusted.
+* Coordinate one task transaction across multiple local changes.
+* Show which repository blocked resume.
+* Provide per-repository validation and diff review.
+* Support partial failure and recovery without losing evidence.
 
 ## Product UX work
 
@@ -1126,13 +1129,13 @@ Correction:
 
 The project still does not implement:
 
-- `Ctrl-P` file palette.
-- `Ctrl-B` project tree.
-- Yazi navigation.
-- skim/fzf selection.
-- Clickable source references.
-- Helix-native opening.
-- Dedicated diff review.
+* `Ctrl-P` file palette.
+* `Ctrl-B` project tree.
+* Yazi navigation.
+* skim/fzf selection.
+* Clickable source references.
+* Helix-native opening.
+* Dedicated diff review.
 
 These should begin only after the remaining safety work, but they are what will make Atelier feel like an ADE rather than a Pi workflow extension.
 
@@ -1151,14 +1154,14 @@ The machine-readable `execution` object is necessary for exact task authority, b
 
 Correction:
 
-- Generate execution metadata from a guided editor.
-- Add `atlr plan scope`.
-- Validate paths interactively.
-- Offer completion for configured validations.
-- Format metadata canonically.
-- Show a readable authorization section in Markdown while retaining machine-readable data.
-- Prevent the model from producing invalid or overly broad scope silently.
-- Keep task authority separate from the workspace recoverability policy: the plan defines what the task should change, while the workspace policy determines whether each concrete operation is recoverable.
+* Generate execution metadata from a guided editor.
+* Add `atlr plan scope`.
+* Validate paths interactively.
+* Offer completion for configured validations.
+* Format metadata canonically.
+* Show a readable authorization section in Markdown while retaining machine-readable data.
+* Prevent the model from producing invalid or overly broad scope silently.
+* Keep task authority separate from the workspace recoverability policy: the plan defines what the task should change, while the workspace policy determines whether each concrete operation is recoverable.
 
 ## Architectural work
 
@@ -1168,23 +1171,23 @@ Atelier reconstructs Working State during `session_before_compact`, but Pi still
 
 Correction:
 
-- Keep the session transcript disposable.
-- Start every agent turn from authoritative Working State plus a bounded recent tail.
-- Disable or bypass Pi compaction where its API permits.
-- Verify that restart and long-session behavior are equivalent.
-- Add tests with intentionally corrupted or irrelevant conversation history.
+* Keep the session transcript disposable.
+* Start every agent turn from authoritative Working State plus a bounded recent tail.
+* Disable or bypass Pi compaction where its API permits.
+* Verify that restart and long-session behavior are equivalent.
+* Add tests with intentionally corrupted or irrelevant conversation history.
 
 ### 16. Split the local core from the Pi process
 
 Each Pi session currently opens its own Core instance and providers. Longer term, a small local Atelier service would improve:
 
-- Concurrent sessions.
-- Provider process reuse.
-- Index coordination.
-- Ledger serialization.
-- Editor integrations.
-- Non-Pi clients.
-- Crash recovery.
+* Concurrent sessions.
+* Provider process reuse.
+* Index coordination.
+* Ledger serialization.
+* Editor integrations.
+* Non-Pi clients.
+* Crash recovery.
 
 This should come after the subprocess, workspace-policy, and host-isolation work, not before.
 
@@ -1204,18 +1207,18 @@ This should come after the subprocess, workspace-policy, and host-isolation work
 
 ### Alpha.11 — runtime containment and recovery
 
-- Add macOS and Linux runtime sandbox backends.
-- Improve canceled-task recovery and task resumption.
-- Add a dedicated consequence-based approval UI.
-- Add provider process supervision.
-- Expand automatic checkpoint recovery and inspection tooling.
+* Add macOS and Linux runtime sandbox backends.
+* Improve canceled-task recovery and task resumption.
+* Add a dedicated consequence-based approval UI.
+* Add provider process supervision.
+* Expand automatic checkpoint recovery and inspection tooling.
 
 ### Alpha.12 — ADE interaction
 
-- Clickable paths.
-- Helix integration.
-- Dedicated diff UI.
-- Palette and tree.
-- Multi-repository navigator.
+* Clickable paths.
+* Helix integration.
+* Dedicated diff UI.
+* Palette and tree.
+* Multi-repository navigator.
 
 The workspace-boundary and recoverability policy, minimal host environment, and durable checkpointing are the highest-priority changes before broader daily use.

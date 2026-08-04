@@ -4,7 +4,7 @@
 
 Atelier provides a repeatable live conformance workflow, a ranked comparative retrieval benchmark, and a deterministic provider-independent self-hosting economy scenario.
 
-The first evidence report is in `docs/CODESEARCH_EVALUATION_REPORT_2026-07-21.md`. The bounded self-hosting result and live-run diagnostics are in `docs/CODESEARCH_RETRIEVAL_ECONOMY_REPORT_2026-07-27.md`.
+The first evidence report is in [the evaluation report](evidence/evaluation-2026-07-21.md). The bounded self-hosting result and live-run diagnostics are in [the retrieval economy report](evidence/retrieval-economy-2026-07-27.md).
 
 ## Test isolation
 
@@ -127,11 +127,9 @@ optional symbol indexers are warnings, including providers that set MCP `isError
 returning the actionable installation message. Attach the generated archive to the next
 development session.
 
-
 ## Vector-index repair gate
 
 The live collection now records `codesearch stats` before and after `atlr code index`. Conformance requires a non-empty vector store with `Indexed: Yes`; MCP `ready` alone is insufficient. A transition from unbuilt to built is recorded as `vector_index_repaired`.
-
 
 ## v0.8.9 rerun requirement
 

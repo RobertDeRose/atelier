@@ -18,11 +18,11 @@ retained as an experimental structural provider.
 
 ## Aggregate results
 
-| Path | Weighted recall | MRR | nDCG@10 | Duration | Bytes |
-|---|---:|---:|---:|---:|---:|
-| Baseline | 1.0000 | 0.5833 | 0.7093 | 169 ms | 67,036 |
-| codesearch | 1.0000 | 1.0000 | 0.9082 | 2,276 ms | 77,624 |
-| Octocode | 0.2009 | 0.3750 | 0.2323 | 17,434 ms | 25,360 |
+| Path       | Weighted recall |    MRR | nDCG@10 |  Duration |  Bytes |
+|------------|----------------:|-------:|--------:|----------:|-------:|
+| Baseline   |          1.0000 | 0.5833 |  0.7093 |    169 ms | 67,036 |
+| codesearch |          1.0000 | 1.0000 |  0.9082 |  2,276 ms | 77,624 |
+| Octocode   |          0.2009 | 0.3750 |  0.2323 | 17,434 ms | 25,360 |
 
 Octocode returned valid evidence and no degraded results, but its candidate set was too narrow
 and frequently centered on the Octocode adapter, probe scripts, or captured provider fixtures.

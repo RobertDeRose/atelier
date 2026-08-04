@@ -8,7 +8,7 @@
     "results": 339,
     "uniquePaths": 58,
     "repeatedPaths": {
-      "docs/IMPLEMENTATION_PLAN.md": 63,
+      "docs/src/development/history/implementation-plan.md": 63,
       "packages/core/src/core.ts": 46,
       "apps/pi-extension/src/index.ts": 28,
       "apps/cli/src/main.ts": 28
@@ -61,8 +61,8 @@
     ],
     "documentation": [
       "README.md",
-      "docs/CODE_INTELLIGENCE.md",
-      "docs/CODESEARCH_EVALUATION.md",
+      "docs/src/development/code-intelligence/index.md",
+      "docs/src/development/code-intelligence/codesearch/evaluation.md",
       "CHANGELOG.md"
     ]
   }

@@ -4,7 +4,6 @@
 > 29 recommendations. Alpha.11 removes the policy engine, permission grants, trust gates, and universally
 > unconfined-shell model described in older entries. ADR-0032 is the current filesystem authority.
 
-
 ## Alpha.19 correction to the historical disposition
 
 The alpha.18 follow-up review found that recommendations 1–6 and 24 were not fully closed by the historical alpha.10 implementation. Alpha.19 corrects the active implementation rather than relying on the superseded descriptions below:
@@ -343,11 +342,10 @@ and evidence. Future IDE surfaces must consume these boundaries rather than bypa
 
 **Documentation:** README, architecture, implementation plan, and this traceability document.
 
-
 ## Alpha.6 manual-acceptance corrections
 
 The complete live alpha.5 evidence exposed additional user-control, static over-authorization, capability
 disclosure, typed-tool reachability, cancellation lifecycle, execution-evidence, source-freshness, scoped
 commit, Beads-idempotency, code-intelligence, and acceptance-procedure defects. Their evidence, 22
 corrections, non-findings, and retained passes are documented in
-`docs/MANUAL_ACCEPTANCE_CORRECTIONS.md`.
+`docs/src/operations/history/manual-acceptance-corrections.md`.

@@ -13,11 +13,11 @@ without degradation or stale-index warnings.
 The same four retrieval tasks were then run through baseline direct tools, accepted codesearch,
 and Octocode using the public `atlr code search` path.
 
-| Path | Weighted recall | MRR | nDCG@10 | Total task time |
-|---|---:|---:|---:|---:|
-| Baseline | 1.0000 | 0.5833 | 0.7093 | 169 ms |
-| codesearch | 1.0000 | 1.0000 | 0.9082 | 2,276 ms |
-| Octocode | 0.2009 | 0.3750 | 0.2323 | 17,434 ms |
+| Path       | Weighted recall |    MRR | nDCG@10 | Total task time |
+|------------|----------------:|-------:|--------:|----------------:|
+| Baseline   |          1.0000 | 0.5833 |  0.7093 |          169 ms |
+| codesearch |          1.0000 | 1.0000 |  0.9082 |        2,276 ms |
+| Octocode   |          0.2009 | 0.3750 |  0.2323 |       17,434 ms |
 
 Octocode frequently returned related Octocode adapter and probe files instead of the expected
 provider-selection, CLI, codesearch implementation, and normalization-test evidence.

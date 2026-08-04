@@ -24,3 +24,7 @@ selection.
 | Feature                   | Beads root | Roadmap state | Dependencies | Design |
 |---------------------------|------------|---------------|--------------|--------|
 | _No features planned yet_ | —          | —             | —            | —      |
+
+The pre-dstack alpha.9 roadmap and implementation record remain available as
+[historical development evidence](development/history/index.md). They are not
+live planning state.

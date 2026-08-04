@@ -156,7 +156,7 @@
         "rationale": "Reports retrieval quality and economy through one evaluation contract."
       },
       {
-        "path": "docs/CODESEARCH_EVALUATION.md",
+        "path": "docs/src/development/code-intelligence/codesearch/evaluation.md",
         "relevance": 1,
         "rationale": "Documents the accepted recall gate and self-hosting procedure."
       }

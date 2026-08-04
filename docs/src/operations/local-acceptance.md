@@ -87,7 +87,6 @@ Record the source and tools:
 } | tee "$ATELIER_MANUAL_ROOT/tool-versions.txt"
 ```
 
-
 ## Interactive latency checks
 
 In Pi, run `/performance clear`, then run `/status` twice, `/workflow`, and `/performance`.

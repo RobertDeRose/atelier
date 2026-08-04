@@ -1,4 +1,7 @@
-# Atelier Implementation Plan
+# Historical Atelier Implementation Plan
+
+<!-- This page preserves the alpha.46 implementation record. Beads, current code,
+     tests, and reader-facing pages are authoritative for present work and behavior. -->
 
 > **Current release: 0.14.0-alpha.46 (2026-08-03).** The canonical startup directory, or one explicit
 > `--workspace` override, is the immutable session workspace. Atelier has no project-trust database,
@@ -38,26 +41,26 @@
 > **Historical permission sections below are non-normative.** ADR-0032 and the delivered-status section
 > supersede every older design involving trusted projects, permission grants, capability bundles,
 > repository grants, remembered shell approval, or an independently authorized generic Bash boundary.
-
-> **v0.13.0 local acceptance:** The delivered CLI/Pi workflow now uses exact reviewed-plan approval, convergent provider reconciliation, task-scoped execution grants, post-tool mutation evidence, focused-validation freshness, deterministic restart reconstruction, and a portable end-to-end acceptance fixture. See ADR-0019 and `LOCAL_ACCEPTANCE.md`.
-
+>
+> **v0.13.0 local acceptance:** The delivered CLI/Pi workflow now uses exact reviewed-plan approval, convergent provider reconciliation, task-scoped execution grants, post-tool mutation evidence, focused-validation freshness, deterministic restart reconstruction, and a portable end-to-end acceptance fixture. See ADR-0019 and `docs/src/operations/local-acceptance.md`.
+>
 > **v0.10.4 plan investigation:** Read-only shell compounds are now classified segment by segment, and Pi exposes provider-first code search and symbol tools directly to the agent. Broad raw discovery is an explicit provider fallback. See ADR-0017.
-
+>
 > **v0.10.3 SQLite result normalization:** Bun returns `null` for a missing `Statement.get()` row while Node returns `undefined`. Atelier now normalizes this at the runtime boundary so fresh Pi sessions can read empty durable state. See ADR-0016.
-
+>
 > **v0.10.2 Pi runtime correction:** Pi executes extensions inside Bun, so Atelier now selects `bun:sqlite` in the Pi shell and `node:sqlite` in Node consumers behind one ledger interface. Existing roots are canonicalized before launch. See ADR-0015.
-
+>
 > **v0.10.6 background indexing:** Pi now starts one coordinated background code-index operation. Concurrent index requests coalesce, retrieval waits for the active operation, and the Pi footer shows index lifecycle state without reconnecting MCP during local writer ownership. See ADR-0022.
-
+>
 > **Historical v0.11.0 note (superseded by ADR-0025 and ADR-0026):** the former classifier-driven approval-free model and advisory completion guard are no longer current behavior.
-
+>
 > **v0.10.1 shell launch:** Atelier now provides `atlr launch` and `mise run launch`. The Pi extension dependency graph no longer contains a static `node:sqlite` import; SQLite is resolved at runtime through `process.getBuiltinModule()` to remain compatible with Pi's jiti extension loader. See ADR-0014.
-
+>
 > **v0.8.9 retrieval policy:** The external provider remains authoritative for semantic and literal retrieval. Atelier now augments healthy semantic results only with exact identifier hints or code-shaped query tokens, balances mixed source/test evidence, preserves provider rank, and reserves broad literal extraction for degraded fallback. See ADR-0010.
+>
+> **v0.5.0 architectural correction:** Atelier no longer owns a native source, FTS5, Tree-sitter, embedding, vector, or code-graph implementation by default. The accepted design is external provider integration behind the Atelier-owned CodeProvider contract. `codesearch` is the first planned provider and Octocode the second experimental provider. See `docs/src/development/code-intelligence/provider-contract.md` and ADR-0002.
 
-> **v0.5.0 architectural correction:** Atelier no longer owns a native source, FTS5, Tree-sitter, embedding, vector, or code-graph implementation by default. The accepted design is external provider integration behind the Atelier-owned CodeProvider contract. `codesearch` is the first planned provider and Octocode the second experimental provider. See `CODE_INTELLIGENCE.md` and ADR-0002.
-
-# Atelier — Agentic Development Environment Implementation Plan
+## Atelier — Agentic Development Environment Implementation Plan
 
 ## Implementation Status — v0.14.0-alpha.46
 
@@ -121,7 +124,6 @@
 - `npm run check` includes a second path-sensitive test lane with `TMPDIR` routed through a symlink alias, reproducing macOS `/var` versus `/private/var` semantics on any Unix host.
 - The alias lane covers canonical repository helpers, codesearch, Jujutsu, task constraints, workspace policy, and end-to-end Core authorization.
 
-
 ### Canonical path identity correction
 
 - One shared path-boundary layer resolves lexical inputs against explicit repository/workspace bases, canonicalizes every existing ancestor, and separately preserves the final filesystem entry.
@@ -156,7 +158,7 @@ The current prototype delivers the guarded local workflow:
 - guided verification that restores every recovery checkpoint, verifies generated validation scope, and exercises approval → retrieval → implementation → pause → resume → cancellation.; and
 - an asynchronous request-scoped observation pipeline that removes duplicate interactive status/provider work, keeps default workflow display ledger-only, bounds exact-approval inventories, and records performance telemetry.
 
-The portable acceptance fixtures in `tests/acceptance-workflow.test.ts`, `tests/workspace-policy.test.ts`, and `tests/recovery-manager.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `LOCAL_ACCEPTANCE.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their “planned” wording does not override this delivered-status section.
+The portable acceptance fixtures in `tests/acceptance-workflow.test.ts`, `tests/workspace-policy.test.ts`, and `tests/recovery-manager.test.ts` runs without live optional services. The live `mise run launch` walkthrough is maintained in `docs/src/operations/local-acceptance.md` and must be performed only from a disposable Jujutsu workspace. Historical roadmap sections below are design history; their "planned" wording does not override this delivered-status section.
 
 ---
 
@@ -195,7 +197,6 @@ Additional clients and parallel agents
 ```
 
 ---
-
 
 ## 2. Project Identity and Naming
 
@@ -2593,25 +2594,25 @@ A feature is complete only when:
 
 ## 15. Recommended Technology Choices
 
-| Area | Initial choice | Upgrade trigger |
-|---|---|---|
-| Shell | Pi extensions | Required hook unavailable or UI constraints become dominant |
-| Core runtime | TypeScript on Node.js 24+ | Profiling shows sustained performance or memory failure |
-| Database | SQLite + FTS5 | Large repositories exceed latency or size targets |
-| Task provider | Beads through `bd --json` adapter | Replace only through the provider contract |
-| Plan format | Human-readable Markdown with stable task IDs | Add richer metadata only when reconciliation requires it |
-| Code intelligence | External providers through CodeProvider/MCP | Build native components only after evaluation |
-| Semantics | LSP adapters | Add SCIP where batch indexing is more reliable |
-| VCS | Jujutsu default, Git compatibility | No replacement planned |
-| Picker | Adapter for skim and fzf | Select default after benchmark |
-| Navigator | Yazi | Replace only if integration is insufficient |
-| Editor | Helix default through adapter | User-configurable |
-| Diff | delta or difftastic adapter | User-configurable |
-| Protocol | JSON-RPC locally, MCP read-only externally | Add gRPC/HTTP only with demonstrated need |
-| Tool lifecycle | Wrapped Framers AgentOS initially | Replace if security, stability, or lifecycle tests fail |
-| Linux isolation | Bubblewrap or container | Stronger substrate if adversarial tests fail |
-| macOS isolation | Seatbelt-compatible profile or maintained alternative | Container/VM if limits are inadequate |
-| Build orchestration | mise | Replace only if repository requirements change |
+| Area                | Initial choice                                        | Upgrade trigger                                             |
+|---------------------|-------------------------------------------------------|-------------------------------------------------------------|
+| Shell               | Pi extensions                                         | Required hook unavailable or UI constraints become dominant |
+| Core runtime        | TypeScript on Node.js 24+                             | Profiling shows sustained performance or memory failure     |
+| Database            | SQLite + FTS5                                         | Large repositories exceed latency or size targets           |
+| Task provider       | Beads through `bd --json` adapter                     | Replace only through the provider contract                  |
+| Plan format         | Human-readable Markdown with stable task IDs          | Add richer metadata only when reconciliation requires it    |
+| Code intelligence   | External providers through CodeProvider/MCP           | Build native components only after evaluation               |
+| Semantics           | LSP adapters                                          | Add SCIP where batch indexing is more reliable              |
+| VCS                 | Jujutsu default, Git compatibility                    | No replacement planned                                      |
+| Picker              | Adapter for skim and fzf                              | Select default after benchmark                              |
+| Navigator           | Yazi                                                  | Replace only if integration is insufficient                 |
+| Editor              | Helix default through adapter                         | User-configurable                                           |
+| Diff                | delta or difftastic adapter                           | User-configurable                                           |
+| Protocol            | JSON-RPC locally, MCP read-only externally            | Add gRPC/HTTP only with demonstrated need                   |
+| Tool lifecycle      | Wrapped Framers AgentOS initially                     | Replace if security, stability, or lifecycle tests fail     |
+| Linux isolation     | Bubblewrap or container                               | Stronger substrate if adversarial tests fail                |
+| macOS isolation     | Seatbelt-compatible profile or maintained alternative | Container/VM if limits are inadequate                       |
+| Build orchestration | mise                                                  | Replace only if repository requirements change              |
 
 ---
 
@@ -2705,7 +2706,6 @@ Pi commands already run inside Atelier and therefore use concise verbs:
 ```
 
 Every slash command must have a clear command-palette description. Product prefixes such as `/atlr-plan` are prohibited unless a future host requires namespacing to resolve a real collision.
-
 
 ---
 
@@ -2810,11 +2810,9 @@ mode remains strict. Further codesearch decisions must use the separated semanti
 hybrid, literal, direct-CLI, doctor, statistics, and store-metadata evidence produced by
 `mise run collect:codesearch`.
 
-
 ## v0.8.4 verified local index repair
 
 The third live codesearch run demonstrated that MCP status may report `ready` while the LMDB store contains chunks but the HNSW index is not built. Local and auto-local `ensureIndex` operations now run `codesearch index <repository-root>`, which is the codesearch repair and incremental update path. They then parse `codesearch stats` and require a non-empty vector store with `Indexed: Yes`. Serve-backed client mode continues to register repositories with `index add` and relies on routed status. Automatic lexical fallback remains available for provider failures, but no longer substitutes for a successful indexing operation.
-
 
 ## v0.8.5 MCP writer-lock lifecycle correction
 
@@ -2854,7 +2852,6 @@ Exit evidence required from the next live run:
 - semantic and hybrid health remain operational;
 - weighted retrieval metrics rerun against the corrected corpus.
 
-
 ## v0.8.7 workflow-focused retrieval
 
 Implemented:
@@ -2876,7 +2873,6 @@ Exit evidence required from the next live run:
 - no provider fixture paths re-enter the selected corpus;
 - semantic and hybrid retrieval remain non-degraded;
 - provider rank remains available for audit beside Atelier's final rank.
-
 
 ## v0.8.8 semantic-literal focused fusion
 
@@ -2900,7 +2896,6 @@ Exit evidence required from the next live run:
 - implementation source remains within the first three results;
 - bounded augmentation does not materially inflate retrieval bytes or latency.
 
-
 ## v0.8.9 exact identifier hints and mixed evidence
 
 Implemented:
@@ -2922,7 +2917,6 @@ Exit evidence required from the next live run:
 - mixed normalization queries retain both adapter source and tests in the top ten;
 - weighted recall remains at or above the v0.8.8 value of 0.8571;
 - semantic health remains operational and no results are degraded.
-
 
 ## v0.9.0 — Second provider evaluation
 
@@ -2957,7 +2951,6 @@ The corrected stage:
 The next machine run of `mise run collect:octocode` will determine the exact
 result payload shapes and whether additional normalization work is required.
 
-
 ## v0.9.3 Octocode embedding and index verification
 
 The second live Octocode 0.14.0 run established that the default release configuration uses Voyage cloud embeddings. Without `VOYAGE_API_KEY`, `octocode index` can exit successfully while `octocode stats` still reports zero searchable blocks, and MCP semantic search fails when it attempts to embed the query.
@@ -2975,7 +2968,6 @@ The adapter therefore now:
 The live collector captures `config --show`, model discovery, redacted key presence, tool schemas, and all partial results before returning the retained conformance status.
 
 - [x] Isolate Octocode development configuration and use local FastEmbed models.
-
 
 ## v0.9.6 Octocode text-result normalization
 
@@ -2995,7 +2987,6 @@ Exit evidence required from the next live run:
 - `atlr code symbols --provider octocode` returns at least one normalized hit;
 - GraphRAG direct probing completes without a parameter-schema error;
 - conformance reports zero required failures.
-
 
 ## v0.9.7 Octocode comparative evaluation
 
@@ -3017,7 +3008,6 @@ Exit evidence required from the next live run:
 - baseline, codesearch, and Octocode aggregate metrics are present;
 - no provider result is degraded or stale;
 - Octocode weighted recall, reciprocal rank, and nDCG@10 are sufficient to decide whether it remains experimental, becomes an optional graph provider, or should be rejected for default retrieval.
-
 
 ## v0.9.8 Octocode provider decision
 
@@ -3060,7 +3050,6 @@ This advances ATLR-0510 and ATLR-0512. The next state-focused work should add in
 retrieval by stable ID/path/symbol and a bounded recent-conversation tail, then measure exploratory
 tool-call reduction in live planning and implementation sessions.
 
-
 ## v0.10.3 — SQLite missing-row compatibility
 
 A real v0.10.2 launch loaded the correct Bun SQLite implementation but failed on the first empty state
@@ -3075,7 +3064,6 @@ Implemented:
 - add a focused regression for the empty-row behavior.
 
 The next live gate is a successful interactive `mise run launch` from the existing repository state.
-
 
 ## v0.10.4 — Approval-free reads and provider-first agent tools
 
@@ -3095,7 +3083,6 @@ Implemented:
 
 The next live gate is a planning session in which provider search occurs before broad scanning and all
 read-only investigation proceeds without approval prompts.
-
 
 ## v0.10.5 — Pi active code-tool convergence
 

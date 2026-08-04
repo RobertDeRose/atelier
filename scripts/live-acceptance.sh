@@ -1334,7 +1334,7 @@ TUI workflow/control smoke:
   cd "\$ATLR_REPO"
   mise run launch -- -ne
 
-See docs/LOCAL_ACCEPTANCE.md in the current repository for the interactive checklist.
+See docs/src/operations/local-acceptance.md in the current repository for the interactive checklist.
 EOF
   pass "prepared TUI-only workspaces under $tui_root"
 }
