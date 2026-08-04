@@ -616,6 +616,7 @@ test("Pi code tools retain one retrieval session and enforce inventory-first dec
   } as unknown as ExtensionAPI;
 
   const root = createTemporaryRepository("atlr-pi-retrieval-session-");
+  let openedCore: AtelierCore | undefined;
   writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
     taskProvider: "none",
     repositoryProvider: "git",
@@ -658,6 +659,7 @@ test("Pi code tools retain one retrieval session and enforce inventory-first dec
     openCore: (repositoryRoot) => {
       const core = AtelierCore.open(repositoryRoot, { taskProvider: "none", codeProvider: provider });
       core.setMode("plan");
+      openedCore = core;
       return core;
     },
   });
@@ -708,11 +710,13 @@ test("Pi code tools retain one retrieval session and enforce inventory-first dec
     assert.match(knownPath.content[0]?.text ?? "", /built-in read/i);
 
     provider.revision = "index-2";
+    openedCore!.code.invalidateStatus();
     const invalidated = await execute("atlr_code_search", { query: "Locate KnownSymbol and MissingSymbol", mode: "semantic" });
     assert.equal((invalidated.details as any).retrieval.lastDecision.kind, "invalidated");
     assert.ok((invalidated.details as any).retrieval.invalidations.length >= 1);
 
     provider.degraded = true;
+    openedCore!.code.invalidateStatus();
     const degraded = await execute("atlr_code_search", { query: "Different degraded discovery" });
     assert.equal((degraded.details as any).status.degraded, true);
     const rawAfterDegradation = await events.get("tool_call")!({ toolName: "bash", input: { command: "rg -n KnownSymbol ." } }, context);

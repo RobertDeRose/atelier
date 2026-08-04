@@ -236,6 +236,58 @@ test(
   },
 );
 
+test("Octocode version probes yield to the event loop", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-octocode-status-"));
+  const command = join(root, "octocode-status");
+  writeFileSync(command, String.raw`#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[0] === '--version') setTimeout(() => console.log('octocode 0.14.0'), 500);
+`, "utf8");
+  chmodSync(command, 0o755);
+  const provider = new OctocodeProvider({ command, cwd: root, timeoutMs: 2_000 });
+  let ticks = 0;
+  const timer = setInterval(() => { ticks += 1; }, 10);
+  try {
+    const status = provider.status();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.ok(ticks >= 5, `event loop advanced only ${ticks} times during version probing`);
+    assert.equal((await status).available, true);
+  } finally {
+    clearInterval(timer);
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Octocode indexing yields to the event loop and honors cancellation", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-octocode-cancel-"));
+  const repo = join(root, "repo");
+  mkdirSync(repo, { recursive: true });
+  const command = join(root, "octocode-cancel");
+  writeFileSync(command, String.raw`#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[0] === '--version') { console.log('octocode 0.14.0'); process.exit(0); }
+if (args[0] === 'stats') { console.log('Code blocks: 1\\nText blocks: 0\\nDocument blocks: 0\\nCommit blocks: 0\\nCode model: fastembed:local'); process.exit(0); }
+if (args[0] === 'index') { setTimeout(() => process.exit(0), 5000); }
+`, "utf8");
+  chmodSync(command, 0o755);
+  const provider = new OctocodeProvider({ command, cwd: root, timeoutMs: 1_000, indexTimeoutMs: 10_000 });
+  const controller = new AbortController();
+  let ticks = 0;
+  const timer = setInterval(() => { ticks += 1; }, 10);
+  try {
+    const indexing = provider.ensureIndex(workspace([{ id: "repo", root: repo }]), { signal: controller.signal });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.ok(ticks >= 5, `event loop advanced only ${ticks} times while indexing`);
+    controller.abort();
+    await assert.rejects(indexing, /cancel|abort/i);
+  } finally {
+    clearInterval(timer);
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Octocode rejects cloud embedding configuration without the required API key before indexing", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-octocode-key-"));
   const repo = join(root, "repo");

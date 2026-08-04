@@ -252,6 +252,7 @@ test("self-hosting planning stays within eight intelligence calls without stale 
       || entry.freshness !== "current")));
 
     provider.indexRevision = "index-2";
+    code.invalidateStatus();
     repositoryIntelligenceCalls += 1;
     await code.search({ workspace: work, text: "scoped evidence", repositoryIds: ["atelier"], limit: 10 });
     const status = code.retrievalStatus();

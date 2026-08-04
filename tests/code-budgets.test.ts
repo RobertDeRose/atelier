@@ -102,8 +102,10 @@ class InstrumentedProvider implements CodeProvider {
   symbolCalls: CodeSymbolQuery[] = [];
   relationshipCalls: CodeRelationshipQuery[] = [];
   readCalls = 0;
+  statusCalls = 0;
 
   async status(): Promise<CodeProviderStatus> {
+    this.statusCalls += 1;
     return {
       identity: this.identity,
       available: true,
@@ -223,6 +225,23 @@ function service(provider = new InstrumentedProvider(), overrides: Partial<CodeS
   return { code, ledger, provider };
 }
 
+test("CodeService shares workspace-qualified provider status across retrieval hot paths", async () => {
+  const { code, ledger, provider } = service();
+  const currentWorkspace = workspace();
+  try {
+    const hits = await code.search({ workspace: currentWorkspace, text: "service", mode: "semantic", repositoryIds: ["a"], limit: 5 });
+    await code.symbols({ workspace: currentWorkspace, text: "CodeService", repositoryIds: ["a"], limit: 5, requireUnresolved: false });
+    await code.relationships({
+      workspace: currentWorkspace,
+      reference: hits[0]!.reference,
+      kinds: ["references"],
+      depth: 1,
+      limit: 5,
+    });
+    assert.equal(provider.statusCalls, 1);
+  } finally { await code.close(); ledger.close(); }
+});
+
 test("Given an unchanged exact query, repeated retrieval reuses one provider call", async () => {
   const { code, ledger, provider } = service();
   try {
@@ -267,6 +286,7 @@ test("Given truncated or degraded evidence, repetition calls the provider again"
   try {
     await degraded.code.search({ workspace: workspace(), text: "service", limit: 3 });
     degradedProvider.degraded = true;
+    degraded.code.invalidateStatus();
     await degraded.code.search({ workspace: workspace(), text: "service", limit: 3 });
     await degraded.code.search({ workspace: workspace(), text: "service", limit: 3 });
     assert.equal(degradedProvider.searchCalls.length, 3);
@@ -300,9 +320,11 @@ test("Given provider, repository, or index drift, cached evidence is invalidated
     await code.search({ workspace: work, text: "service", repositoryIds: ["a"], limit: 5 });
     assert.match(code.retrievalStatus().lastDecision?.reason ?? "", /repository revision changed/i);
     provider.indexRevision = "index-2";
+    code.invalidateStatus();
     await code.search({ workspace: work, text: "service", repositoryIds: ["a"], limit: 5 });
     assert.match(code.retrievalStatus().lastDecision?.reason ?? "", /index revision changed/i);
     provider.identity = { ...provider.identity, instanceId: "remote" };
+    code.invalidateStatus();
     await code.search({ workspace: work, text: "service", repositoryIds: ["a"], limit: 5 });
     assert.match(code.retrievalStatus().lastDecision?.reason ?? "", /provider identity changed/i);
 

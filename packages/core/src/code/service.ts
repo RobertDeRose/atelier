@@ -7,7 +7,7 @@ import {
   decideCanonicalQueryReuse,
   type CanonicalQueryInput,
 } from "./canonical-query.ts";
-import type { CodeProvider } from "./provider.ts";
+import type { CodeIndexOptions, CodeProvider } from "./provider.ts";
 import type { CodeProviderRegistry } from "./registry.ts";
 import {
   bindingDifference,
@@ -323,7 +323,7 @@ export class CodeService {
     return () => this.indexListeners.delete(listener);
   }
 
-  async ensureIndex(workspace: CodeWorkspace, provider?: string) {
+  async ensureIndex(workspace: CodeWorkspace, provider?: string, options: CodeIndexOptions = {}) {
     if (this.activeIndex !== undefined) return this.activeIndex;
     const selected = this.registry.get(provider);
     this.invalidateStatus(selected.name);
@@ -336,7 +336,7 @@ export class CodeService {
     });
     const operation = (async () => {
       try {
-        const state = await selected.ensureIndex(workspace);
+        const state = await selected.ensureIndex(workspace, options);
         const { error: _previousError, ...statusWithoutError } = this.indexStatus;
         this.setIndexStatus({ ...statusWithoutError, state, active: false, completedAt: nowIso() });
         this.ledger.append({ kind: "code.index_completed", actor: "system", payload: { provider: selected.name, workspaceId: workspace.id, state } });
@@ -368,7 +368,7 @@ export class CodeService {
   }): Promise<CodeSearchHit[]> {
     await this.waitForActiveIndex();
     const selected = this.registry.get(options.provider);
-    const status = await selected.status(options.workspace);
+    const status = await this.status(selected.name, options.workspace);
     const limit = boundedLimit(options.limit, this.limits.maxResults);
     const query = this.canonicalQuery({
       operation: "search",
@@ -444,7 +444,7 @@ export class CodeService {
     const key = referenceKey(reference);
     let context = this.referenceContexts.get(key);
     if (context !== undefined) {
-      const status = await selected.status(context.workspace);
+      const status = await this.status(selected.name, context.workspace);
       const currentQuery = this.rebindQuery(context.query, selected, status, context.workspace);
       if (currentQuery.digest !== context.query.digest || !statusAllowsReuse(status)) {
         const reason = currentQuery.digest === context.query.digest
@@ -519,7 +519,7 @@ export class CodeService {
   }): Promise<CodeSearchHit[]> {
     await this.waitForActiveIndex();
     const selected = this.registry.get(options.provider);
-    const status = await selected.status(options.workspace);
+    const status = await this.status(selected.name, options.workspace);
     const limit = boundedLimit(options.limit, this.limits.maxResults);
     const query = this.canonicalQuery({
       operation: "symbols",
@@ -619,7 +619,7 @@ export class CodeService {
   async relationships(query: CodeRelationshipQuery, provider?: string): Promise<CodeRelationship[]> {
     await this.waitForActiveIndex();
     const selected = this.registry.get(provider);
-    const status = await selected.status(query.workspace);
+    const status = await this.status(selected.name, query.workspace);
     const limit = boundedLimit(query.limit, this.limits.maxResults);
     const canonical = this.canonicalQuery({
       operation: "relationships",

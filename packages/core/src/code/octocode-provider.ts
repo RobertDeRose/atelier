@@ -1,13 +1,13 @@
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { sourceRevisionIdentity, sourceSnapshotBase } from "../repository/snapshot.ts";
 import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
 import { McpStdioClient, type McpToolCallResult, type McpToolDefinition } from "./mcp-stdio-client.ts";
 import { applyCodeSearchFocus, focusedProviderLimit, resolveCodeSearchFocus, type ResolvedCodeSearchFocus } from "./focus.ts";
-import { UnsupportedCodeCapabilityError, type CodeProvider } from "./provider.ts";
+import { UnsupportedCodeCapabilityError, type CodeIndexOptions, type CodeProvider } from "./provider.ts";
 import { ATELIER_VERSION } from "../version.ts";
 import { minimalEnvironment } from "../process/environment.ts";
+import { runProcess, type ProcessResult } from "../process/async-process.ts";
 import type {
   CodeCapability,
   CodeChunk,
@@ -66,13 +66,13 @@ export class OctocodeProvider implements CodeProvider {
   constructor(options: { command?: string; cwd: string; timeoutMs?: number; indexTimeoutMs?: number; environment?: Record<string, string> }) {
     this.command = options.command ?? "octocode";
     this.cwd = canonicalRepositoryRoot(options.cwd);
-    this.timeoutMs = options.timeoutMs ?? 60_000;
-    this.indexTimeoutMs = options.indexTimeoutMs ?? Math.max(this.timeoutMs, 30 * 60_000);
+    this.timeoutMs = Math.max(1, options.timeoutMs ?? 60_000);
+    this.indexTimeoutMs = Math.max(1, options.indexTimeoutMs ?? Math.max(this.timeoutMs, 30 * 60_000));
     this.environment = options.environment ?? {};
   }
 
   async status(workspace?: CodeWorkspace): Promise<CodeProviderStatus> {
-    const versionProbe = this.probeVersion();
+    const versionProbe = await this.probeVersion();
     const version = versionProbe.version;
     if (version === undefined) {
       return {
@@ -93,7 +93,11 @@ export class OctocodeProvider implements CodeProvider {
     }
     this.rememberWorkspace(workspace);
     try {
-      const stats = workspace.repositories.map((repository) => ({ repository, stats: this.inspectStats(repository.root) }));
+      const statResults = await Promise.allSettled(workspace.repositories.map((repository) => this.inspectStats(repository.root)));
+      const stats = statResults.map((result, index) => {
+        if (result.status === "rejected") throw result.reason;
+        return { repository: workspace.repositories[index]!, stats: result.value };
+      });
       const configurationWarnings = stats.flatMap(({ repository, stats: value }) => {
         const issue = this.embeddingConfigurationIssue(value);
         return issue ? [`${repository.name}: ${issue}`] : [];
@@ -145,9 +149,11 @@ export class OctocodeProvider implements CodeProvider {
     }
   }
 
-  async ensureIndex(workspace: CodeWorkspace): Promise<CodeIndexState> {
+  async ensureIndex(workspace: CodeWorkspace, options: CodeIndexOptions = {}): Promise<CodeIndexState> {
     this.rememberWorkspace(workspace);
-    const versionProbe = this.probeVersion();
+    if (options.signal?.aborted) throw new Error("octocode index cancelled before starting");
+    const versionProbe = await this.probeVersion(options.signal);
+    if (options.signal?.aborted) throw new Error("octocode index cancelled during version probe");
     const version = versionProbe.version;
     if (version === undefined) {
       throw new Error(
@@ -157,28 +163,35 @@ export class OctocodeProvider implements CodeProvider {
     await this.close();
     for (const repository of workspace.repositories) {
       const repositoryRoot = canonicalRepositoryRoot(repository.root);
-      const before = this.inspectStats(repositoryRoot);
+      if (options.signal?.aborted) throw new Error(`octocode index cancelled before ${repositoryRoot}`);
+      const before = await this.inspectStats(repositoryRoot, options.signal);
       const configurationIssue = this.embeddingConfigurationIssue(before);
       if (configurationIssue) {
         throw new Error(`Octocode cannot index or search ${repositoryRoot}: ${configurationIssue}`);
       }
-      const indexArgs = ["index"];
-      const result = spawnSync(this.command, indexArgs, {
+      const result = await runProcess(this.command, ["index"], {
         cwd: repositoryRoot,
-        env: minimalEnvironment({ overrides: this.environment }),
-        encoding: "utf8",
-        timeout: this.indexTimeoutMs,
-        shell: false,
+        environment: minimalEnvironment({ overrides: this.environment }),
+        timeoutMs: this.indexTimeoutMs,
+        maxOutputBytes: 128 * 1024,
+        signal: options.signal,
       });
-      if (result.error || result.status !== 0) {
-        throw new Error(`octocode index failed for ${repositoryRoot}: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`);
+      if (result.aborted) {
+        throw new Error(`octocode index cancelled for ${repositoryRoot}`);
       }
-      const after = this.inspectStats(repositoryRoot);
+      if (result.timedOut || result.exitCode !== 0) {
+        throw new Error(`octocode index failed for ${repositoryRoot}: ${processFailure(result)}`);
+      }
+      if (options.signal?.aborted) throw new Error(`octocode index cancelled after ${repositoryRoot}`);
+      const after = await this.inspectStats(repositoryRoot, options.signal);
+      if (options.signal?.aborted) throw new Error(`octocode index cancelled after ${repositoryRoot}`);
       if (after.totalBlocks <= 0) {
         throw new Error(`Octocode index completed for ${repositoryRoot} but produced no searchable blocks. ${this.embeddingConfigurationIssue(after) ?? "Run octocode stats and octocode clear before retrying if the existing index is unrecoverable."}`);
       }
       await this.clientFor(repository.id, repositoryRoot);
+      if (options.signal?.aborted) throw new Error(`octocode index cancelled after ${repositoryRoot}`);
     }
+    if (options.signal?.aborted) throw new Error("octocode index cancelled before completion");
     this.indexedRevisions = Object.fromEntries(workspace.repositories.map((repository) => [
       repository.id,
       sourceRevisionIdentity(repository.snapshot),
@@ -191,7 +204,7 @@ export class OctocodeProvider implements CodeProvider {
     this.rememberWorkspace(query.workspace);
     const repositories = selectedRepositories(query.workspace, query.repositoryIds);
     for (const repository of repositories) {
-      const stats = this.inspectStats(repository.root);
+      const stats = await this.inspectStats(repository.root);
       const issue = this.embeddingConfigurationIssue(stats);
       if (issue) throw new Error(`Octocode semantic search is unavailable for ${repository.root}: ${issue}`);
       if (stats.totalBlocks <= 0) throw new Error(`Octocode has no searchable blocks for ${repository.root}. Run atlr code index --provider octocode after configuring an embedding provider.`);
@@ -262,7 +275,7 @@ export class OctocodeProvider implements CodeProvider {
     const repositories = selectedRepositories(query.workspace, query.repositoryIds);
     const all: CodeSearchHit[] = [];
     for (const repository of repositories) {
-      const stats = this.inspectStats(repository.root);
+      const stats = await this.inspectStats(repository.root);
       const issue = this.embeddingConfigurationIssue(stats);
       if (issue) throw new Error(`Octocode symbol search is unavailable for ${repository.root}: ${issue}`);
       if (stats.totalBlocks <= 0) throw new Error(`Octocode has no searchable blocks for ${repository.root}. Run atlr code index --provider octocode.`);
@@ -336,7 +349,7 @@ export class OctocodeProvider implements CodeProvider {
     const repositoryRoot = canonicalRepositoryRoot(root);
     const client = new McpStdioClient(this.command, ["mcp", "--path", repositoryRoot], { cwd: repositoryRoot, timeoutMs: this.timeoutMs, environment: this.environment });
     const initialized = await client.initialize({ clientVersion: ATELIER_VERSION });
-    const version = initialized.serverInfo.version ?? this.probeVersion().version;
+    const version = initialized.serverInfo.version ?? (await this.probeVersion()).version;
     this.identity = { name: "octocode", instanceId: "octocode:experimental", ...(version ? { version } : {}) };
     const tools = new Map((await client.listTools()).map((tool) => [tool.name, tool]));
     const state = { client, tools };
@@ -347,16 +360,21 @@ export class OctocodeProvider implements CodeProvider {
 
   private repositoryRoot(repositoryId: string): string | undefined { return this.roots.get(repositoryId); }
 
-  private inspectStats(root: string): OctocodeStats {
-    const result = spawnSync(this.command, ["stats"], {
-      cwd: root,
-      env: minimalEnvironment({ overrides: this.environment }),
-      encoding: "utf8",
-      timeout: Math.min(this.timeoutMs, 30_000),
-      shell: false,
-    });
-    if (result.error || result.status !== 0) {
-      throw new Error(`octocode stats failed for ${root}: ${result.stderr || result.stdout || result.error?.message || "unknown error"}`);
+  private async inspectStats(root: string, signal?: AbortSignal): Promise<OctocodeStats> {
+    let result: ProcessResult;
+    try {
+      result = await runProcess(this.command, ["stats"], {
+        cwd: root,
+        environment: minimalEnvironment({ overrides: this.environment }),
+        timeoutMs: Math.min(this.timeoutMs, 30_000),
+        maxOutputBytes: 128 * 1024,
+        signal,
+      });
+    } catch (error) {
+      throw new Error(`octocode stats failed for ${root}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (result.timedOut || result.exitCode !== 0) {
+      throw new Error(`octocode stats failed for ${root}: ${processFailure(result)}`);
     }
     const raw = `${result.stdout}${result.stderr}`;
     const counts = ["Code blocks", "Text blocks", "Document blocks", "Commit blocks"]
@@ -392,24 +410,33 @@ export class OctocodeProvider implements CodeProvider {
     });
   }
 
-  private probeVersion(): OctocodeVersionProbe {
-    const result = spawnSync(this.command, ["--version"], {
-      cwd: this.cwd,
-      env: minimalEnvironment({ overrides: this.environment }),
-      encoding: "utf8",
-      timeout: Math.min(this.timeoutMs, 10_000),
-      shell: false,
-    });
-    if (result.error) return { error: result.error.message };
-    const output = `${result.stdout}${result.stderr}`.trim();
-    if (result.status !== 0) {
-      return { error: output || `process exited with status ${result.status ?? "unknown"}` };
+  private async probeVersion(signal?: AbortSignal): Promise<OctocodeVersionProbe> {
+    let result: ProcessResult;
+    try {
+      result = await runProcess(this.command, ["--version"], {
+        cwd: this.cwd,
+        environment: minimalEnvironment({ overrides: this.environment }),
+        timeoutMs: Math.min(this.timeoutMs, 10_000),
+        maxOutputBytes: 32 * 1024,
+        signal,
+      });
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
     }
+    if (result.timedOut || result.exitCode !== 0) return { error: processFailure(result) };
+    const output = `${result.stdout}${result.stderr}`.trim();
     const version = output.match(/\d+\.\d+\.\d+(?:[-+][\w.-]+)?/)?.[0];
     return version === undefined
       ? { error: `version output did not contain a semantic version: ${output || "<empty>"}` }
       : { version };
   }
+}
+
+function processFailure(result: ProcessResult): string {
+  if (result.aborted) return "cancelled";
+  if (result.timedOut) return "timed out";
+  const output = `${result.stderr}${result.stdout}`.trim();
+  return output || (result.signal === undefined ? `process exited with status ${result.exitCode}` : `process terminated by ${result.signal}`);
 }
 
 function capabilitiesFor(names: string[]): CodeCapability[] {
