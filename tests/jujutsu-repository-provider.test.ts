@@ -152,6 +152,7 @@ process.exit(1);
     const relativeMissing = "src/not-created.ts";
     const canonicalMissing = join(realpathSync.native(root), relativeMissing);
     const observation = await provider.observe({ paths: [aliasPath, relativeMissing] });
+    assert.equal(provider.snapshot().sourceFingerprint, observation.snapshot.sourceFingerprint);
     assert.equal(observation.root, realpathSync.native(root));
     assert.equal(observation.pathStates[aliasPath], "tracked_dirty");
     assert.equal(observation.pathStates[realpathSync.native(aliasPath)], "tracked_dirty");

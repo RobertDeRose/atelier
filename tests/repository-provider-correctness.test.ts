@@ -44,6 +44,22 @@ test("Git observations include staged and untracked source changes", () => {
   }
 });
 
+test("Git snapshots reuse async observations and share source identity", async () => {
+  const root = createTemporaryRepository("atlr-git-snapshot-identity-");
+  const ledger = new SqliteLedger(testDatabasePath(root));
+  try {
+    const provider = new GitRepositoryProvider({ cwd: root, ledger });
+    const observed = await provider.observe();
+    assert.equal(provider.snapshot().sourceFingerprint, observed.snapshot.sourceFingerprint);
+    writeFileSync(join(root, "README.md"), "changed source\n", "utf8");
+    const changed = await provider.observe({ force: true });
+    assert.equal(provider.snapshot().sourceFingerprint, changed.snapshot.sourceFingerprint);
+  } finally {
+    ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Atelier Git commits do not depend on workstation signing agents", () => {
   const root = createTemporaryRepository("atlr-git-signing-isolation-");
   const ledger = new SqliteLedger(testDatabasePath(root));

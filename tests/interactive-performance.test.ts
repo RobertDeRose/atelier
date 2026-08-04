@@ -30,7 +30,7 @@ test("interactive status yields to the event loop and reuses one cached reposito
     assert.equal(observations, 2, "each status request owns one observation instead of hidden duplicates");
     const repositorySamples = core.performanceReport().interactive.latest
       .filter((sample) => sample.operation === "status" && sample.phase === "repository.observe");
-    assert.ok((repositorySamples[0]?.subprocesses ?? Number.POSITIVE_INFINITY) <= 5,
+    assert.ok((repositorySamples[0]?.subprocesses ?? Number.POSITIVE_INFINITY) <= 6,
       `one Git status observation used too many subprocesses: ${repositorySamples[0]?.subprocesses}`);
     assert.equal(repositorySamples.at(-1)?.cache, "hit", "the repeated status should reuse the bounded observation cache");
     assert.equal(repositorySamples.at(-1)?.subprocesses, 0, "a cached status observation must not launch VCS subprocesses");

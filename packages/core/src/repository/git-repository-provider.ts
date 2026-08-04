@@ -29,6 +29,14 @@ import {
 } from "./repository-path.ts";
 
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const SOURCE_BASE_PATHS = [
+  ".",
+  ":(exclude).atelier/**",
+  ":(exclude).beads/**",
+  ":(exclude).dolt/**",
+  ":(exclude).codesearch/**",
+  ":(exclude).octocode/**",
+];
 
 function revision(reference: string): string {
   return reference === "unborn" ? EMPTY_TREE : reference;
@@ -325,14 +333,18 @@ export class GitRepositoryProvider implements RepositoryProvider {
     subprocesses += 1; // root observation (cached promises are intentionally counted only on cache misses by caller metrics)
     const commonDir = await this.commonDirectory(root, options.signal);
     subprocesses += 1;
-    const [statusResult, headResult, branchResult] = await Promise.all([
+    const [statusResult, headResult, branchResult, sourceBaseResult] = await Promise.all([
       run(["status", "--porcelain=v1", "--untracked-files=all"], "working-copy observation"),
       run(["rev-parse", "HEAD"], "head observation", true),
       run(["symbolic-ref", "--quiet", "--short", "HEAD"], "branch observation", true),
+      run(["log", "-1", "--format=%H", "--", ...SOURCE_BASE_PATHS], "source-base observation", true),
     ]);
     const rawChangedPaths = parseStatusPaths(statusResult.stdout).sort();
     const changedPaths = rawChangedPaths.filter(isSourcePath);
-    const sourceBaseCommit = headResult.exitCode === 0 ? headResult.stdout.trim() : "unborn";
+    const headCommit = headResult.exitCode === 0 ? headResult.stdout.trim() : "unborn";
+    const sourceBaseCommit = sourceBaseResult.exitCode === 0 && sourceBaseResult.stdout.trim()
+      ? sourceBaseResult.stdout.trim()
+      : headCommit;
     const sourceContents = hashChangedContents(root, changedPaths);
     const rawContents = hashChangedContents(root, rawChangedPaths.filter((path) => !changedPaths.includes(path)));
     const sourceFingerprint = sha256(`${sourceBaseCommit}\0${changedPaths.join("\0")}\0${sourceContents.value}`);
@@ -354,7 +366,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
       repositoryId: `git:${sha256(`${root}\0${commonDir}`).slice(0, 24)}`,
       workspaceId: sha256(root).slice(0, 16),
       vcs: "git",
-      headCommit: sourceBaseCommit,
+      headCommit,
       sourceBaseCommit,
       sourceFingerprint,
       dirtyGeneration: this.dirtyGeneration(rawFingerprint),
@@ -367,7 +379,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
       displayState: {
         vcs: "git",
         ...(branchResult.exitCode === 0 && branchResult.stdout.trim() ? { label: branchResult.stdout.trim() } : {}),
-        ...(sourceBaseCommit === "unborn" ? {} : { revision: sourceBaseCommit.slice(0, 8) }),
+        ...(headCommit === "unborn" ? {} : { revision: headCommit.slice(0, 8) }),
         state: conflicts ? "conflicted" : rawChangedPaths.length > 0 ? "dirty" : "clean",
         ...(branchResult.exitCode === 0 ? {} : { detached: true }),
       },
@@ -397,15 +409,18 @@ export class GitRepositoryProvider implements RepositoryProvider {
   snapshot(options: GitExecutionOptions = {}): RepositorySnapshot {
     const root = canonicalRepositoryRoot(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation", options).stdout.trim());
     const head = runGit(root, ["rev-parse", "HEAD"], options);
+    const sourceBase = runGit(root, ["log", "-1", "--format=%H", "--", ...SOURCE_BASE_PATHS], options);
     const commonDir = requiredGit(root, ["rev-parse", "--git-common-dir"], "common-directory observation", options);
     const status = requiredGit(root, ["status", "--porcelain=v1", "--untracked-files=all"], "working-copy observation", options);
     const rawStatusLines = status.stdout.split("\n").filter(Boolean);
-    const rawChanged = parseStatusPaths(`${rawStatusLines.join("\n")}\n`);
-    const sourceBaseCommit = head.status === 0 ? head.stdout.trim() : "unborn";
-    const sourceFiles = this.listFiles(options);
-    const sourceFingerprint = sha256(
-      `${sourceFiles.join("\0")}\0${contentState(root, sourceFiles, true)}`,
-    );
+    const rawChanged = parseStatusPaths(`${rawStatusLines.join("\n")}\n`).sort();
+    const changedPaths = rawChanged.filter(isSourcePath);
+    const headCommit = head.status === 0 ? head.stdout.trim() : "unborn";
+    const sourceBaseCommit = sourceBase.status === 0 && sourceBase.stdout.trim()
+      ? sourceBase.stdout.trim()
+      : headCommit;
+    const sourceContents = hashChangedContents(root, changedPaths);
+    const sourceFingerprint = sha256(`${sourceBaseCommit}\0${changedPaths.join("\0")}\0${sourceContents.value}`);
     const rawFingerprint = sha256(
       `${sourceBaseCommit}\0${rawStatusLines.join("\n")}\0${sourceFingerprint}\0${contentState(root, rawChanged, false)}`,
     );
@@ -413,7 +428,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
       repositoryId: `git:${sha256(`${root}\0${resolveAccessPath(commonDir.stdout.trim(), "read", root)}`).slice(0, 24)}`,
       workspaceId: sha256(root).slice(0, 16),
       vcs: "git",
-      headCommit: sourceBaseCommit,
+      headCommit,
       sourceBaseCommit,
       sourceFingerprint,
       dirtyGeneration: this.dirtyGeneration(rawFingerprint),
@@ -591,6 +606,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
     // Signing is also disabled so workstation-level commit.gpgSign settings
     // cannot prompt outside Atelier's authorization boundary.
     requiredGitWithoutHooks(this.cwd, ["commit", "--no-gpg-sign", "--no-verify", "-m", normalized, "--", ...changed], "scoped local commit");
+    this.invalidateObservation();
     return { message: normalized, changedPaths: changed, snapshot: this.snapshot({ disableFilters: true }) };
   }
 
@@ -637,6 +653,7 @@ export class GitRepositoryProvider implements RepositoryProvider {
     if (changed.length === 0) throw new Error("No workflow metadata changes are available to commit.");
     this.stageWithoutFilters(changed);
     requiredGitWithoutHooks(this.cwd, ["commit", "--no-gpg-sign", "--no-verify", "-m", normalized, "--", ...changed], "workflow metadata commit");
+    this.invalidateObservation();
     return { message: normalized, changedPaths: changed, snapshot: this.snapshot({ disableFilters: true }) };
   }
 

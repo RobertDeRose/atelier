@@ -126,9 +126,10 @@ export class WorkspaceRepositoryService {
   }
 
   evidenceSnapshot(): RepositorySnapshot {
-    const primaryContext = this.primary();
-    const primary = this.currentSnapshot(primaryContext);
-    const bindings = this.currentBindings();
+    const snapshots = this.contexts.map((context) => this.currentSnapshot(context));
+    const primaryIndex = this.contexts.findIndex((context) => context.primary);
+    const primary = snapshots[primaryIndex >= 0 ? primaryIndex : 0]!;
+    const bindings = this.contexts.map((context, index) => repositoryRevisionBinding(context.id, snapshots[index]!));
     const fingerprint = sha256(JSON.stringify(bindings.map((binding) => ({
       repositoryId: binding.repositoryId,
       snapshotRepositoryId: binding.snapshotRepositoryId,
