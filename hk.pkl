@@ -164,7 +164,7 @@ local linters = new Mapping<String, Step> {
 
 
 
-  ["typos"] = Builtins.typos
+  ["typos"] = (Builtins.typos) { exclude = List("tests/**/*.json") }
 }
 
 hooks {
