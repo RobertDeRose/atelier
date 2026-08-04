@@ -114,11 +114,29 @@ function containsRedirection(command: string): boolean {
   return false;
 }
 
+function gitDiffWritesOutput(args: readonly string[]): boolean {
+  for (let index = 2; index < args.length; index += 1) {
+    const argument = args[index] ?? "";
+    if (argument === "--") break;
+    if (
+      argument === "--output"
+      || argument.startsWith("--output=")
+      || argument === "-o"
+      || (argument.startsWith("-o") && argument.length > 2)
+    ) return true;
+  }
+  return false;
+}
+
 function classifyGit(args: string[], rationale: string[]): CommandClassification {
   const subcommand = args[1] ?? "";
   const command = args.join(" ");
   const readOnly = new Set(["diff", "grep", "log", "ls-files", "rev-parse", "show", "status"]);
   const destructive = new Set(["clean", "reset", "restore"]);
+  if (subcommand === "diff" && gitDiffWritesOutput(args)) {
+    rationale.push("git diff output options write a file");
+    return mutation("write.file", rationale, false, false, command, "high", "routine");
+  }
   if (readOnly.has(subcommand)) {
     rationale.push(`git ${subcommand} is read-only within the selected repository`);
     return readonly(command, rationale);

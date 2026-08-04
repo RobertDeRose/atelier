@@ -121,6 +121,48 @@ function searchCommandPaths(tokens: readonly string[]): string[] {
   return positional.slice(1);
 }
 
+function gitDiffOutputEffects(tokens: readonly string[], cwd: string): FilesystemEffect[] | undefined {
+  const diffIndex = tokens.findIndex((token, index) => index > 0 && token === "diff");
+  if (diffIndex < 0) return undefined;
+
+  const effects: FilesystemEffect[] = [];
+  for (let index = diffIndex + 1; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token === "--") break;
+
+    let raw: string | undefined;
+    if (token === "--output" || token === "-o") {
+      raw = tokens[index + 1];
+      index += 1;
+    } else if (token.startsWith("--output=")) {
+      raw = token.slice("--output=".length);
+    } else if (token.startsWith("-o") && token.length > 2) {
+      raw = token.slice(2);
+    } else {
+      continue;
+    }
+
+    if (raw === undefined) {
+      effects.push({ kind: "unknown", description: "git diff output path is missing" });
+      continue;
+    }
+    const path = pathFrom(cwd, raw);
+    if (path === undefined) {
+      effects.push({ kind: "unknown", description: `git diff output path cannot be resolved: ${raw}` });
+      continue;
+    }
+    const exists = existsSync(path);
+    effects.push({
+      kind: exists ? "overwrite" : "create",
+      path,
+      destructive: exists,
+      preservesPrevious: false,
+      description: "git diff output file",
+    });
+  }
+  return effects.length > 0 ? effects : undefined;
+}
+
 function segmentEffects(segment: string, cwd: string, runtimeConfined: boolean): FilesystemEffect[] {
   const tokens = words(segment);
   if (tokens.length === 0) return [];
@@ -200,6 +242,10 @@ function segmentEffects(segment: string, cwd: string, runtimeConfined: boolean):
   }
   if (executable === "git") {
     const subcommand = args.find((value) => !value.startsWith("-"));
+    if (subcommand === "diff") {
+      const outputEffects = gitDiffOutputEffects(tokens, cwd);
+      if (outputEffects !== undefined) return outputEffects;
+    }
     if (["status", "diff", "log", "show", "rev-parse", "ls-files", "branch"].includes(subcommand ?? "")) {
       return [{ kind: "read", path: cwd, description: `git ${subcommand} inspection` }];
     }

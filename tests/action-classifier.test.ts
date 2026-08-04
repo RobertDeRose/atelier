@@ -22,6 +22,20 @@ test("classifies common and compound read-only commands", () => {
   );
 });
 
+test("classifies Git diff output options as file mutations", () => {
+  for (const command of [
+    "git diff --output=diff.txt",
+    "git diff --output diff.txt",
+    "git diff -odiff.txt",
+    "git diff -o diff.txt",
+  ]) {
+    const classification = classifyShellCommand(command);
+    assert.equal(classification.action, "write.file", command);
+    assert.equal(classification.mutating, true, command);
+  }
+  assert.equal(classifyShellCommand("git diff --stat").action, "read.repository");
+});
+
 test("classifies task, repository, dependency, and file mutations", () => {
   assert.equal(classifyShellCommand("bd create Example --json").action, "task.create");
   assert.equal(classifyShellCommand("git push origin main").action, "repository.publish");

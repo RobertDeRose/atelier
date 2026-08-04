@@ -59,6 +59,31 @@ test("adversarial shell forms never inherit repository-read authorization", () =
   }
 });
 
+test("Git diff output options produce guarded concrete file effects", async () => {
+  const root = createTemporaryRepository("atlr-git-diff-output-boundary-");
+  writeFileSync(join(root, ".atelier", "PLAN.md"), "# reviewed plan\n", "utf8");
+  writeFileSync(join(root, "unapproved.txt"), "existing output\n", "utf8");
+  const core = AtelierCore.open(root, { taskProvider: "none" });
+  const ctx = { cwd: root } as any;
+  try {
+    for (const [command, expectedPath] of [
+      ["git diff --output=.atelier/PLAN.md", join(root, ".atelier", "PLAN.md")],
+      ["git diff -o unapproved.txt", join(root, "unapproved.txt")],
+    ] as const) {
+      const effects = effectsForShellCommand(command, root, false);
+      assert.equal(effects.length, 1, command);
+      assert.equal(effects[0]?.path, expectedPath, command);
+      assert.notEqual(effects[0]?.kind, "read", command);
+      const request = requestForTool({ toolName: "bash", input: { command } }, ctx, core, effects);
+      assert.equal(request.action, "command.execute", command);
+      assert.equal(core.evaluateWorkflow(request).result, "deny", command);
+    }
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the authoritative Pi effect and workflow path fail closed for adversarial shell forms", async () => {
   const root = createTemporaryRepository("atlr-authoritative-shell-boundary-");
   const core = AtelierCore.open(root, { taskProvider: "none" });
