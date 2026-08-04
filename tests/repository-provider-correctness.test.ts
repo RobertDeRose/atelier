@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -73,6 +73,42 @@ test("Atelier Git commits do not depend on workstation signing agents", () => {
       "test: commit metadata without signing agent",
       "test: commit without signing agent",
     ]);
+  } finally {
+    ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Atelier Git commits disable repository hooks and clean-smudge filters", () => {
+  const root = createTemporaryRepository("atlr-git-hook-filter-isolation-");
+  const ledger = new SqliteLedger(testDatabasePath(root));
+  const filterMarker = join(root, "filter-ran");
+  const hookMarker = join(root, "hook-ran");
+  try {
+    writeFileSync(join(root, ".gitattributes"), "# baseline attributes\n", "utf8");
+    git(root, "add", ".gitattributes");
+    git(root, "commit", "--quiet", "--no-gpg-sign", "-m", "test: establish attributes baseline");
+
+    const filter = join(root, "external-filter.sh");
+    writeFileSync(filter, `#!/bin/sh\nprintf filtered > ${JSON.stringify(filterMarker)}\ncat\n`, "utf8");
+    chmodSync(filter, 0o755);
+    git(root, "config", "filter.atelier.clean", filter);
+    git(root, "config", "filter.atelier.smudge", filter);
+    writeFileSync(join(root, ".gitattributes"), "*.txt filter=atelier\n", "utf8");
+    writeFileSync(join(root, "source.txt"), "raw source contents\n", "utf8");
+
+    const hook = join(root, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, `#!/bin/sh\nprintf hooked > ${JSON.stringify(hookMarker)}\nexit 1\n`, "utf8");
+    chmodSync(hook, 0o755);
+
+    const provider = new GitRepositoryProvider({ cwd: root, ledger });
+    provider.commit("test: commit raw source safely", [".gitattributes", "source.txt"]);
+
+    assert.equal(existsSync(filterMarker), false, "clean/smudge filter must not run");
+    assert.equal(existsSync(hookMarker), false, "repository hook must not run");
+    const committed = spawnSync("git", ["show", "HEAD:source.txt"], { cwd: root, encoding: "utf8", shell: false });
+    assert.equal(committed.status, 0, committed.stderr);
+    assert.equal(committed.stdout, "raw source contents\n");
   } finally {
     ledger.close();
     rmSync(root, { recursive: true, force: true });
