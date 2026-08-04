@@ -120,7 +120,7 @@ deterministic fixture suite.
 
 ```sh
 mise install
-mise run install
+mise run init
 npm run build
 node ./bin/atlr.mjs --version
 npm run check
@@ -143,13 +143,14 @@ Atelier establishes the canonical startup directory as the immutable filesystem 
 
 ```sh
 cd /path/to/repository
-atlr doctor
-atlr init
+atlr launch
 ```
+
+The first launch creates the small `.atelier/` project configuration automatically. Use `atlr doctor` when you want to inspect setup without changing project files; use `atlr doctor --json` for machine-readable diagnostics.
 
 Pi `/trust` remains independent. It controls loading project-local Pi resources; it does not grant Atelier filesystem authority. Atelier evaluates concrete filesystem effects against workspace containment, likely-secret paths, privilege escalation, and VCS/checkpoint recoverability.
 
-`atlr doctor` is observational: it does not open the ledger, start providers, or create project state.
+`atlr doctor` is observational: it does not open the ledger, start providers, or create project state. Its human-readable report ends with an `Operational` or `Degraded` status and any detected issues.
 
 ## Project files and runtime state
 
@@ -203,11 +204,12 @@ Every approvable task includes a structured execution contract in its `atlr:task
 ```
 
 Free-form Scope and Out-of-scope sections remain human context; the `execution` object is the reviewed task-constraint source. Missing, unknown, inconsistent, absolute, out-of-root, or non-source entries fail preparation. See
-`docs/src/reference/plan-format.md` for the complete contract.
+`docs/src/features/exact-plan-execution/plan-format.md` for the complete contract.
 
 A normal CLI workflow is:
 
 ```sh
+# `atlr launch` initializes a project automatically. For CLI-only work:
 atlr init --beads
 atlr plan "describe the objective"
 atlr review
