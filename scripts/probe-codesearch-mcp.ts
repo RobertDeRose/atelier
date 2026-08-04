@@ -1,5 +1,5 @@
-import { ATELIER_VERSION } from "../packages/core/src/version.ts";
 #!/usr/bin/env -S node --experimental-strip-types
+import { ATELIER_VERSION } from "../packages/core/src/version.ts";
 import { resolve } from "node:path";
 import { McpStdioClient, type McpToolCallResult } from "../packages/core/src/index.ts";
 
