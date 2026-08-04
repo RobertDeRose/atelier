@@ -192,7 +192,7 @@ test("user-level runtime configuration cannot move mutable state into the projec
   }
 });
 
-test("doctor is observational and reports the automatic workspace without creating runtime state", () => {
+test("doctor is human-readable by default and remains observational", () => {
   const root = createUntrustedRepository("atlr-doctor-observational-");
   writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({ repositoryProvider: "git", taskProvider: "none", codeProvider: "disabled" }), "utf8");
   const runtime = loadConfig(root).runtimeDirectory;
@@ -200,12 +200,23 @@ test("doctor is observational and reports the automatic workspace without creati
     assert.equal(existsSync(runtime), false);
     const result = runCli(root, ["doctor"]);
     assert.equal(result.status, 0, result.stderr);
-    const report = JSON.parse(result.stdout) as { observational: boolean; workspace: { root: string; policy: string }; configuredProviders: Record<string, string> };
+    assert.match(result.stdout, /^Checking Atelier's health\.\.\./m);
+    assert.match(result.stdout, /Workspace\n/);
+    assert.match(result.stdout, /Project: not initialized; launch will create the missing files/);
+    assert.match(result.stdout, /Status: Degraded/);
+    assert.match(result.stdout, /Issues\n/);
+    assert.doesNotMatch(result.stdout, /^\{/m);
+    assert.equal(existsSync(runtime), false);
+
+    const jsonResult = runCli(root, ["doctor", "--json"]);
+    assert.equal(jsonResult.status, 0, jsonResult.stderr);
+    const report = JSON.parse(jsonResult.stdout) as { observational: boolean; status: string; issues: string[]; workspace: { root: string; policy: string }; configuredProviders: Record<string, string> };
     assert.equal(report.observational, true);
+    assert.equal(report.status, "Degraded");
+    assert.ok(report.issues.length > 0);
     assert.equal(report.workspace.root, realpathSync.native(root));
     assert.equal(report.workspace.policy, "workspace_recoverability");
     assert.deepEqual(report.configuredProviders, { repository: "git", tasks: "none", code: "disabled" });
-    assert.equal(existsSync(runtime), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

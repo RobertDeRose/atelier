@@ -17,7 +17,8 @@ import {
   AtelierServiceClient,
   AtelierServiceServer,
 } from "../../../packages/core/src/index.ts";
-import { flagBoolean, flagString, parseArgs } from "./arguments.ts";
+import { flagBoolean, flagString, parseArgs, stripLaunchArguments } from "./arguments.ts";
+import { buildDoctorReport, formatDoctorReport } from "./doctor.ts";
 import {
   asJson,
   explicitConfirmation,
@@ -26,15 +27,6 @@ import {
   handleTasks,
   handleTaskStart,
 } from "./command-handlers.ts";
-
-function commandAvailable(command: string, args: string[] = ["--version"]): { available: boolean; detail: string } {
-  const result = spawnSync(command, args, { encoding: "utf8", shell: false, windowsHide: true });
-  if (result.error !== undefined) return { available: false, detail: result.error.message };
-  return {
-    available: result.status === 0,
-    detail: (result.stdout || result.stderr || `exit ${result.status}`).trim().split("\n")[0] ?? "",
-  };
-}
 
 function printHelp(): void {
   process.stdout.write(`Atelier ${ATELIER_VERSION}
@@ -48,7 +40,7 @@ Commands:
   repo status [--json]             Show the selected repository provider and identity
   repo review-diff [--json]        Record review of the exact current task diff
   repo commit --message TEXT       Create the required local commit/change
-  doctor                            Inspect configuration without creating state or starting providers
+  doctor [--json]                   Inspect configuration without creating state or starting providers
   status [--json]                   Show workflow, plan, task-provider, and repository state
   mode <investigate|plan|act>       Change the guarded workflow mode
   plan [OBJECTIVE]                  Enter plan mode and create the plan document if missing
@@ -124,8 +116,7 @@ async function main(): Promise<void> {
   }
 
   if (command === "launch") {
-    const commandIndex = raw.indexOf("launch");
-    const piArgs = commandIndex === -1 ? [] : raw.slice(commandIndex + 1);
+    const piArgs = stripLaunchArguments(raw);
     const builtExtension = fileURLToPath(new URL("../../pi-extension/src/index.js", import.meta.url));
     const sourceExtension = fileURLToPath(new URL("../../pi-extension/src/index.ts", import.meta.url));
     const extensionPath = existsSync(builtExtension) ? builtExtension : sourceExtension;
@@ -156,21 +147,9 @@ async function main(): Promise<void> {
   }
 
   if (command === "doctor") {
-    const config = loadConfig(root);
-    const editor = (() => {
-      try { return resolveEditorCommand(config, false); }
-      catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
-    })();
-    asJson({
-      observational: true,
-      node: { version: process.version, supported: Number(process.versions.node.split(".")[0]) >= 24 },
-      git: commandAvailable("git"), jj: commandAvailable("jj"), pi: commandAvailable("pi"), beads: commandAvailable(config.beadsCommand),
-      workspace: { root: config.workspaceRoot, source: config.workspaceSource, policy: "workspace_recoverability" },
-      piTrust: "Pi /trust controls project-local Pi resources only.",
-      editor,
-      configuredProviders: { repository: config.repositoryProvider, tasks: config.taskProvider, code: config.codeProvider },
-      projectConfigPath: config.projectConfigPath, runtimeDirectory: config.runtimeDirectory, repositoryRoot: root,
-    });
+    const report = buildDoctorReport(root);
+    if (flagBoolean(parsed, "json")) asJson(report);
+    else process.stdout.write(formatDoctorReport(report));
     return;
   }
 

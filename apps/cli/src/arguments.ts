@@ -39,3 +39,29 @@ export function flagBoolean(args: ParsedArgs, key: string): boolean {
   const value = args.flags.get(key);
   return value === true || value === "true";
 }
+
+const LAUNCH_GLOBAL_VALUE_FLAGS = new Set(["root", "workspace", "retrieval-session"]);
+
+export function stripLaunchArguments(raw: string[]): string[] {
+  const commandIndex = raw.indexOf("launch");
+  if (commandIndex === -1) return [];
+
+  const forwarded: string[] = [];
+  for (let index = commandIndex + 1; index < raw.length; index += 1) {
+    const argument = raw[index];
+    if (argument === undefined) continue;
+    if (argument === "--") continue;
+    if (!argument.startsWith("--")) {
+      forwarded.push(argument);
+      continue;
+    }
+    const equalsIndex = argument.indexOf("=");
+    const flagName = argument.slice(2, equalsIndex === -1 ? undefined : equalsIndex);
+    if (!LAUNCH_GLOBAL_VALUE_FLAGS.has(flagName)) {
+      forwarded.push(argument);
+      continue;
+    }
+    if (equalsIndex === -1) index += 1;
+  }
+  return forwarded;
+}
