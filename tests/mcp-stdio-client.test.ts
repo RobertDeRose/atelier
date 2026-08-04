@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { McpStdioClient } from "../packages/core/src/index.ts";
+import { MAX_MCP_LINE_BYTES, MAX_MCP_PAYLOAD_BYTES, McpStdioClient } from "../packages/core/src/index.ts";
 
 async function readProcessPid(path: string): Promise<number> {
   const deadline = Date.now() + 2_000;
@@ -65,6 +65,43 @@ process.stdin.resume();
     controller.abort();
     await assert.rejects(request, /cancel/i);
     await waitForProcessExit(pid);
+  } finally {
+    await client.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP oversized response lines fail closed before JSON parsing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-mcp-line-limit-"));
+  const script = join(root, "provider.mjs");
+  writeFileSync(script, `
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+rl.on('line', () => process.stdout.write('x'.repeat(${MAX_MCP_LINE_BYTES + 1}) + '\\n'));
+`, "utf8");
+  const client = new McpStdioClient(process.execPath, [script], { cwd: root, timeoutMs: 2_000 });
+  try {
+    await assert.rejects(client.request("oversized-line", {}), /response line exceeded maximum/i);
+  } finally {
+    await client.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP oversized JSON payloads fail closed before delivery", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-mcp-payload-limit-"));
+  const script = join(root, "provider.mjs");
+  writeFileSync(script, `
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+rl.on('line', (line) => {
+  const request = JSON.parse(line);
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { value: 'x'.repeat(${MAX_MCP_PAYLOAD_BYTES}) } }) + '\\n');
+});
+`, "utf8");
+  const client = new McpStdioClient(process.execPath, [script], { cwd: root, timeoutMs: 2_000 });
+  try {
+    await assert.rejects(client.request("oversized-payload", {}), /JSON payload exceeded maximum/i);
   } finally {
     await client.close();
     rmSync(root, { recursive: true, force: true });

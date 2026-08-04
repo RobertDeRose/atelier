@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AtelierCore, OctocodeProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
+import {
+  AtelierCore,
+  MAX_OCTOCODE_PREVIEW_BYTES,
+  MAX_OCTOCODE_READ_BYTES,
+  OctocodeProvider,
+  type CodeWorkspace,
+} from "../packages/core/src/index.ts";
 import { createTemporaryRepository } from "./fixtures.ts";
 
 const TEST_TOOL_TIMEOUT_MS = 10_000;
@@ -91,7 +97,7 @@ process.stdin.on('data', chunk => {
     else if (request.method === 'tools/call') {
       const { name, arguments: input } = request.params;
       fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), tool: name, input }) + '\\n');
-      if (name === 'semantic_search') result = { structuredContent: { results: [{ path: process.env.FAKE_OCTOCODE_RESULT_PATH ?? 'src/auth.ts', start_line: 2, end_line: 4, score: 0.91, signature: 'function refreshToken', content: 'export function refreshToken() {}' }] } };
+      if (name === 'semantic_search') result = { structuredContent: { results: [{ path: process.env.FAKE_OCTOCODE_RESULT_PATH ?? 'src/auth.ts', start_line: 2, end_line: 4, score: 0.91, signature: 'function refreshToken', content: process.env.FAKE_OCTOCODE_CONTENT_BYTES ? 'x'.repeat(Number(process.env.FAKE_OCTOCODE_CONTENT_BYTES)) : 'export function refreshToken() {}' }] } };
       else if (name === 'graphrag') result = { structuredContent: { relationships: [{ type: 'imports', target_path: 'src/token.ts', description: 'token validation' }] } };
       else result = { structuredContent: {} };
     }
@@ -261,6 +267,39 @@ test("Octocode canonicalizes aliased repository roots and absolute result paths"
   }
 });
 
+
+test("Octocode bounds embedded references and large source reads", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-octocode-bounds-"));
+  const repo = join(root, "repo");
+  mkdirSync(join(repo, "src"), { recursive: true });
+  writeFileSync(join(repo, "src", "auth.ts"), "export const value = true;\n".repeat(20_000), "utf8");
+  const fake = fakeOctocode(root);
+  const provider = new OctocodeProvider({
+    command: fake.command,
+    cwd: root,
+    timeoutMs: TEST_TOOL_TIMEOUT_MS,
+    environment: { VOYAGE_API_KEY: "test-key", FAKE_OCTOCODE_CONTENT_BYTES: "100000" },
+  });
+  const work = workspace([{ id: "repo", root: repo }]);
+  try {
+    const hits = await provider.search({ workspace: work, text: "refresh token", mode: "semantic", limit: 5, includeTests: true, includeGenerated: false });
+    const hit = hits[0]!;
+    assert.ok(Buffer.byteLength(hit.preview ?? "") <= MAX_OCTOCODE_PREVIEW_BYTES);
+    const encoded = JSON.parse(Buffer.from(hit.reference.opaqueId, "base64url").toString("utf8")) as { content?: string };
+    assert.equal(encoded.content, undefined);
+
+    const { startLine: _startLine, endLine: _endLine, ...referenceBase } = hit.reference;
+    const reference = {
+      ...referenceBase,
+      opaqueId: Buffer.from(JSON.stringify({ repositoryId: "repo", path: "src/auth.ts" }), "utf8").toString("base64url"),
+    };
+    const chunk = await provider.read(reference);
+    assert.ok(Buffer.byteLength(chunk.content) <= MAX_OCTOCODE_READ_BYTES);
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test(
   "Octocode version probes preserve timeout diagnostics instead of reporting a missing executable",

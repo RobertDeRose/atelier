@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { sourceRevisionIdentity, sourceSnapshotBase } from "../repository/snapshot.ts";
 import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
 import { createOpaqueIndexRevision } from "./canonical-query.ts";
@@ -8,6 +8,7 @@ import { UnsupportedCodeCapabilityError, type CodeCloseOptions, type CodeIndexOp
 import { ATELIER_VERSION } from "../version.ts";
 import { minimalEnvironment } from "../process/environment.ts";
 import { runProcess, type ProcessResult } from "../process/async-process.ts";
+import { truncateUtf8 } from "./service-support.ts";
 import type {
   CodeCapability,
   CodeChunk,
@@ -23,12 +24,17 @@ import type {
   CodeWorkspace,
 } from "./types.ts";
 
+export const MAX_OCTOCODE_PREVIEW_BYTES = 2_000;
+export const MAX_OCTOCODE_READ_BYTES = 64 * 1024;
+export const MAX_OCTOCODE_REFERENCE_BYTES = 16 * 1024;
+
 interface OctocodeReferenceData {
   workspaceId?: string;
   repositoryId: string;
   path: string;
   startLine?: number;
   endLine?: number;
+  /** Retained only for decoding older references; new references never embed content. */
   content?: string;
 }
 
@@ -569,10 +575,12 @@ function normalizeHits(
     const startLine = numberValue(item, ["start_line", "startLine", "line", "line_number"]);
     const endLine = numberValue(item, ["end_line", "endLine"]);
     const content = stringValue(item, ["content", "code", "snippet", "text", "preview"]);
+    const embeddedContent = content !== undefined && Buffer.byteLength(content) <= MAX_OCTOCODE_PREVIEW_BYTES ? content : undefined;
+    const preview = content === undefined ? undefined : truncateUtf8(content, MAX_OCTOCODE_PREVIEW_BYTES).value;
     const key = `${path}:${startLine ?? ""}:${endLine ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const opaqueId = encodeReference({ workspaceId: query.workspace.id, repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }), ...(content ? { content } : {}) });
+    const opaqueId = encodeReference({ workspaceId: query.workspace.id, repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }), ...(embeddedContent === undefined ? {} : { content: embeddedContent }) });
     const repository = query.workspace.repositories.find((repo) => repo.id === repositoryId);
     const sourceRevision = repository === undefined ? undefined : sourceSnapshotBase(repository.snapshot);
     const currentRevision = repository === undefined ? undefined : sourceRevisionIdentity(repository.snapshot);
@@ -588,7 +596,7 @@ function normalizeHits(
       ...(stringValue(item, ["symbol", "name", "signature", "title"]) ? { symbol: stringValue(item, ["symbol", "name", "signature", "title"])! } : {}),
       retrievalMethods: ["semantic"],
       ...(numberValue(item, ["score", "similarity", "relevance"]) === undefined ? {} : { providerScore: numberValue(item, ["score", "similarity", "relevance"])! }),
-      ...(content ? { preview: content } : {}),
+      ...(preview ? { preview } : {}),
       reference: { provider: "octocode", opaqueId, repositoryId, path, ...(startLine === undefined ? {} : { startLine }), ...(endLine === undefined ? {} : { endLine }) },
       provenance: provenance(identity, query.workspace.id, repositoryId, query.text, query.mode, indexedRevision, currentRevision),
     });
@@ -761,8 +769,29 @@ function numberValue(record: Record<string, unknown>, keys: string[]): number | 
   for (const key of keys) if (typeof record[key] === "number") return record[key] as number;
   return undefined;
 }
-function encodeReference(data: OctocodeReferenceData): string { return Buffer.from(JSON.stringify(data), "utf8").toString("base64url"); }
-function decodeReference(value: string): OctocodeReferenceData { return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as OctocodeReferenceData; }
+function encodeReference(data: OctocodeReferenceData): string {
+  const encoded = Buffer.from(JSON.stringify(data), "utf8").toString("base64url");
+  if (Buffer.byteLength(encoded) > MAX_OCTOCODE_REFERENCE_BYTES) {
+    throw new Error(`Octocode reference exceeded maximum size of ${MAX_OCTOCODE_REFERENCE_BYTES} bytes.`);
+  }
+  return encoded;
+}
+function decodeReference(value: string): OctocodeReferenceData {
+  if (Buffer.byteLength(value) > MAX_OCTOCODE_REFERENCE_BYTES) {
+    throw new Error(`Octocode reference exceeded maximum size of ${MAX_OCTOCODE_REFERENCE_BYTES} bytes.`);
+  }
+  let parsed: OctocodeReferenceData;
+  try {
+    parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as OctocodeReferenceData;
+  } catch {
+    throw new Error("Octocode reference was invalid.");
+  }
+  if (parsed.content !== undefined && typeof parsed.content !== "string") throw new Error("Octocode reference content was invalid.");
+  if (parsed.content !== undefined && Buffer.byteLength(parsed.content) > MAX_OCTOCODE_PREVIEW_BYTES) {
+    throw new Error(`Octocode reference content exceeded maximum size of ${MAX_OCTOCODE_PREVIEW_BYTES} bytes.`);
+  }
+  return parsed;
+}
 function normalizeOctocodePath(root: string, path: string): string {
   return repositoryPathTarget(root, path, "read").relative;
 }
@@ -773,8 +802,15 @@ function safePath(root: string, path: string): string {
   return resolved;
 }
 function readRange(path: string, startLine?: number, endLine?: number): string {
-  const content = readFileSync(path, "utf8");
-  if (startLine === undefined) return content;
-  const lines = content.split(/\r?\n/);
-  return lines.slice(Math.max(0, startLine - 1), endLine ?? startLine).join("\n");
+  const descriptor = openSync(path, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(MAX_OCTOCODE_READ_BYTES);
+    const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0);
+    const content = buffer.toString("utf8", 0, bytesRead);
+    if (startLine === undefined) return content;
+    const lines = content.split(/\r?\n/);
+    return lines.slice(Math.max(0, startLine - 1), endLine ?? startLine).join("\n");
+  } finally {
+    closeSync(descriptor);
+  }
 }

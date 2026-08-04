@@ -283,7 +283,7 @@ details for diagnostics and recovery. A separate source base plus source-content
 execution freshness use the source identity rather than raw metadata churn.
 
 Exact approval binds every workspace root independently. Primary source drift can represent the approved
-task’s own work when the baseline remains reachable. Secondary-root drift invalidates execution because
+task's own work when the baseline remains reachable. Secondary-root drift invalidates execution because
 Atelier cannot attribute it to the active primary task. See ADR-0027.
 
 ## Tool execution evidence
@@ -353,7 +353,9 @@ durable state rather than treated as the source of truth.
 ## Code intelligence
 
 Atelier owns provider contracts, capability negotiation, budgets, normalized references, provenance,
-revision bindings, deduplication, reuse, and invalidation. Providers own indexes.
+revision bindings, deduplication, reuse, and invalidation. Providers own indexes. Provider stdio lines and
+JSON payloads are bounded before parsing, and provider references and source reads remain bounded before
+retrieval evidence reaches model-facing or durable paths.
 
 ```text
 CodeService

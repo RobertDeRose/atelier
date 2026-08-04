@@ -1,8 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createInterface } from "node:readline";
 import { newId } from "../util/ids.ts";
 import { ATELIER_VERSION } from "../version.ts";
 import { minimalEnvironment } from "../process/environment.ts";
+
+export const MAX_MCP_LINE_BYTES = 1_048_576;
+export const MAX_MCP_PAYLOAD_BYTES = 524_288;
 
 interface JsonRpcSuccess<T> { jsonrpc: "2.0"; id: string | number; result: T }
 interface JsonRpcFailure { jsonrpc: "2.0"; id: string | number; error: { code: number; message: string; data?: unknown } }
@@ -38,6 +40,7 @@ export interface McpToolCallResult {
 
 export class McpStdioClient {
   private child: ChildProcessWithoutNullStreams | undefined;
+  private stdoutBuffer = "";
   private readonly pending = new Map<string | number, PendingRequest>();
   private stderr = "";
   private initialized: McpInitializeResult | undefined;
@@ -62,8 +65,7 @@ export class McpStdioClient {
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
-    const lines = createInterface({ input: child.stdout });
-    lines.on("line", (line) => this.onLine(line));
+    child.stdout.on("data", (chunk: Buffer) => this.onStdoutData(chunk));
     child.stderr.on("data", (chunk: Buffer) => {
       this.stderr = `${this.stderr}${chunk.toString("utf8")}`.slice(-16_384);
     });
@@ -116,15 +118,19 @@ export class McpStdioClient {
     if (child === undefined) throw new Error("MCP provider did not start.");
     const id = newId("rpc");
     const timeoutMs = this.options.timeoutMs ?? 30_000;
+    let encoded: string;
+    try {
+      encoded = this.encodeMessage({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) });
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.failProvider(failure);
+      throw failure;
+    }
     let timeout: NodeJS.Timeout;
     let onAbort: (() => void) | undefined;
     const promise = new Promise<T>((resolve, reject) => {
       timeout = setTimeout(() => {
-        const error = new Error(`MCP request timed out after ${timeoutMs} ms: ${method}`);
-        this.failAll(error);
-        const termination = new AbortController();
-        termination.abort(error);
-        void this.close({ signal: termination.signal });
+        this.failProvider(new Error(`MCP request timed out after ${timeoutMs} ms: ${method}`));
       }, timeoutMs);
       onAbort = () => {
         const error = new Error(`MCP request cancelled: ${method}`);
@@ -138,18 +144,21 @@ export class McpStdioClient {
       if (options.signal.aborted) onAbort!();
     }
     try {
-      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) })}\n`);
+      child.stdin.write(`${encoded}\n`);
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
-      this.failAll(failure);
-      void this.close({ signal: options.signal });
+      this.failProvider(failure);
     }
     return promise;
   }
 
   notify(method: string, params?: unknown): void {
     this.start();
-    this.child?.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, ...(params === undefined ? {} : { params }) })}\n`);
+    try {
+      this.child?.stdin.write(`${this.encodeMessage({ jsonrpc: "2.0", method, ...(params === undefined ? {} : { params }) })}\n`);
+    } catch (error) {
+      this.failProvider(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   async close(options: McpCloseOptions = {}): Promise<void> {
@@ -193,15 +202,40 @@ export class McpStdioClient {
     return this.stderr;
   }
 
+  private onStdoutData(chunk: Buffer): void {
+    let text = chunk.toString("utf8");
+    while (text.length > 0) {
+      const newline = text.indexOf("\n");
+      const fragment = newline < 0 ? text : text.slice(0, newline);
+      if (Buffer.byteLength(this.stdoutBuffer) + Buffer.byteLength(fragment) > MAX_MCP_LINE_BYTES) {
+        this.failProvider(new Error(`MCP response line exceeded maximum size of ${MAX_MCP_LINE_BYTES} bytes.`));
+        this.stdoutBuffer = "";
+        return;
+      }
+      this.stdoutBuffer += fragment;
+      if (newline < 0) return;
+      const line = this.stdoutBuffer.endsWith("\r") ? this.stdoutBuffer.slice(0, -1) : this.stdoutBuffer;
+      this.stdoutBuffer = "";
+      this.onLine(line);
+      text = text.slice(newline + 1);
+    }
+  }
+
   private onLine(line: string): void {
     if (!line.trim()) return;
-    let message: JsonRpcSuccess<unknown> | JsonRpcFailure;
+    const lineBytes = Buffer.byteLength(line);
+    if (lineBytes > MAX_MCP_PAYLOAD_BYTES) {
+      this.failProvider(new Error(`MCP JSON payload exceeded maximum size of ${MAX_MCP_PAYLOAD_BYTES} bytes.`));
+      return;
+    }
+    let parsed: unknown;
     try {
-      message = JSON.parse(line) as JsonRpcSuccess<unknown> | JsonRpcFailure;
+      parsed = JSON.parse(line);
     } catch {
       return;
     }
-    if (!("id" in message)) return;
+    if (parsed === null || typeof parsed !== "object" || !("id" in parsed)) return;
+    const message = parsed as JsonRpcSuccess<unknown> | JsonRpcFailure;
     const pending = this.pending.get(message.id);
     if (pending === undefined) return;
     this.clearPending(message.id, pending);
@@ -209,11 +243,26 @@ export class McpStdioClient {
     else pending.resolve(message.result);
   }
 
+  private failProvider(error: Error): void {
+    this.failAll(error);
+    const termination = new AbortController();
+    termination.abort(error);
+    void this.close({ signal: termination.signal });
+  }
+
   private failAll(error: Error): void {
     for (const [id, pending] of this.pending) {
       this.clearPending(id, pending);
       pending.reject(error);
     }
+  }
+
+  private encodeMessage(message: Record<string, unknown>): string {
+    const encoded = JSON.stringify(message);
+    if (Buffer.byteLength(encoded, "utf8") > MAX_MCP_PAYLOAD_BYTES) {
+      throw new Error(`MCP JSON payload exceeded maximum size of ${MAX_MCP_PAYLOAD_BYTES} bytes.`);
+    }
+    return encoded;
   }
 
   private clearPending(id: string | number, pending: PendingRequest): void {
