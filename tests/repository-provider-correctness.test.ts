@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { RepositoryObservationError } from "../packages/core/src/domain/errors.ts";
 import { SqliteLedger } from "../packages/core/src/ledger/sqlite-ledger.ts";
 import { GitRepositoryProvider } from "../packages/core/src/repository/git-repository-provider.ts";
+import { MAX_REPOSITORY_HASH_BYTES } from "../packages/core/src/repository/repository-content.ts";
 import { createTemporaryRepository, testDatabasePath } from "./fixtures.ts";
 
 function git(root: string, ...args: string[]): void {
@@ -56,6 +57,43 @@ test("Git snapshots reuse async observations and share source identity", async (
     assert.equal(provider.snapshot().sourceFingerprint, changed.snapshot.sourceFingerprint);
   } finally {
     ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Git observation does not read outside, broken, or oversized tracked symlink targets", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("file symlink creation is not reliably available without elevated Windows privileges");
+    return;
+  }
+  const root = createTemporaryRepository("atlr-git-symlink-observation-");
+  const external = mkdtempSync(join(tmpdir(), "atlr-git-symlink-targets-"));
+  const secret = join(external, "secret.txt");
+  const oversized = join(external, "oversized.bin");
+  const links = ["outside-secret.ts", "broken-target.ts", "oversized-target.ts"];
+  const ledger = new SqliteLedger(testDatabasePath(root));
+  try {
+    writeFileSync(secret, "external secret contents\n", "utf8");
+    writeFileSync(oversized, "", "utf8");
+    truncateSync(oversized, MAX_REPOSITORY_HASH_BYTES + 1);
+    for (const path of links) symlinkSync("initial-target", join(root, path), "file");
+    git(root, "add", ".atelier/config.json", ...links);
+    git(root, "commit", "--quiet", "--no-gpg-sign", "-m", "test: establish symlink baseline");
+
+    rmSync(join(root, links[0]!));
+    symlinkSync(secret, join(root, links[0]!), "file");
+    rmSync(join(root, links[1]!));
+    symlinkSync("missing-target", join(root, links[1]!), "file");
+    rmSync(join(root, links[2]!));
+    symlinkSync(oversized, join(root, links[2]!), "file");
+
+    const observation = await new GitRepositoryProvider({ cwd: root, ledger }).observe({ force: true });
+    assert.deepEqual(observation.changedPaths, [...links].sort());
+    assert.equal(observation.metrics.filesHashed, 0);
+    assert.equal(observation.metrics.bytesHashed, 0);
+  } finally {
+    ledger.close();
+    rmSync(external, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

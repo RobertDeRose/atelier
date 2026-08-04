@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { minimalEnvironment } from "../process/environment.ts";
 import { runProcess, type ProcessResult } from "../process/async-process.ts";
 import { resolve } from "node:path";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
 import { RepositoryObservationError } from "../domain/errors.ts";
@@ -26,6 +26,7 @@ import {
   repositoryPathTargets,
   repositoryPathspecs,
 } from "./repository-path.ts";
+import { hashRepositoryContents, repositoryContentFingerprint } from "./repository-content.ts";
 
 interface CommandResult {
   status: number;
@@ -64,22 +65,6 @@ function lines(value: string): string[] {
   return value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
-function contentState(root: string, paths: string[], hashContents: boolean): string {
-  return paths.map((path) => {
-    const absolute = resolve(root, path);
-    if (!existsSync(absolute)) return `${path}:deleted`;
-    try {
-      const stat = statSync(absolute);
-      if (!stat.isFile()) return `${path}:non-file:${stat.size}:${stat.mtimeMs}`;
-      return hashContents
-        ? `${path}:${stat.size}:${sha256(readFileSync(absolute))}`
-        : `${path}:${stat.size}:${stat.mtimeMs}`;
-    } catch {
-      return `${path}:unreadable`;
-    }
-  }).join("\0");
-}
-
 function asyncFailure(result: ProcessResult): string {
   if (result.timedOut) return "timed out";
   if (result.aborted) return "cancelled";
@@ -112,26 +97,6 @@ function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
     }, delayMs);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
-}
-
-function hashChangedContents(root: string, paths: readonly string[]): { value: string; files: number; bytes: number } {
-  let files = 0;
-  let bytes = 0;
-  const value = [...new Set(paths)].sort().map((path) => {
-    const absolute = resolve(root, path);
-    if (!existsSync(absolute)) return `${path}:deleted`;
-    try {
-      const stat = statSync(absolute);
-      if (!stat.isFile()) return `${path}:non-file:${stat.mode}:${stat.size}:${stat.mtimeMs}`;
-      const content = readFileSync(absolute);
-      files += 1;
-      bytes += content.byteLength;
-      return `${path}:${stat.mode}:${content.byteLength}:${sha256(content)}`;
-    } catch {
-      return `${path}:unreadable`;
-    }
-  }).join("\0");
-  return { value, files, bytes };
 }
 
 
@@ -296,8 +261,8 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     const operationId = lines(operation.stdout)[0] ?? "unknown";
     const rawChangedPaths = lines(changed.stdout).sort();
     const changedPaths = rawChangedPaths.filter(isSourcePath);
-    const sourceContents = hashChangedContents(root, changedPaths);
-    const rawContents = hashChangedContents(root, rawChangedPaths.filter((path) => !changedPaths.includes(path)));
+    const sourceContents = hashRepositoryContents(root, changedPaths);
+    const rawContents = hashRepositoryContents(root, rawChangedPaths.filter((path) => !changedPaths.includes(path)));
     const sourceFingerprint = sha256(`${sourceBaseCommit}\0${changedPaths.join("\0")}\0${sourceContents.value}`);
     const rawFingerprint = sha256(`${commitId}\0${changeId}\0${operationId}\0${rawChangedPaths.join("\0")}\0${sourceFingerprint}\0${rawContents.value}`);
     let files: string[] | undefined;
@@ -384,10 +349,10 @@ export class JujutsuRepositoryProvider implements RepositoryProvider {
     // churn for diagnostics. Source identity deliberately excludes it.
     const rawChanged = this.observeRawChangedPaths().sort();
     const changedPaths = rawChanged.filter(isSourcePath);
-    const sourceContents = hashChangedContents(root, changedPaths);
+    const sourceContents = hashRepositoryContents(root, changedPaths);
     const sourceFingerprint = sha256(`${sourceBaseCommit}\0${changedPaths.join("\0")}\0${sourceContents.value}`);
     const rawFingerprint = sha256(
-      `${commitId}\0${changeId}\0${operationId}\0${rawChanged.join("\0")}\0${sourceFingerprint}\0${contentState(root, rawChanged, false)}`,
+      `${commitId}\0${changeId}\0${operationId}\0${rawChanged.join("\0")}\0${sourceFingerprint}\0${repositoryContentFingerprint(root, rawChanged, false)}`,
     );
     return {
       repositoryId: `jj:${sha256(root).slice(0, 24)}`,

@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { SqliteLedger } from "../packages/core/src/ledger/sqlite-ledger.ts";
 import { JujutsuRepositoryProvider } from "../packages/core/src/repository/jujutsu-repository-provider.ts";
+import { MAX_REPOSITORY_HASH_BYTES } from "../packages/core/src/repository/repository-content.ts";
 import { sha256 } from "../packages/core/src/util/hash.ts";
 import { RepositoryObservationError } from "../packages/core/src/domain/errors.ts";
 
@@ -53,6 +54,50 @@ test("Jujutsu provider exposes change, commit, operation, workspace, files, and 
   }
 });
 
+
+test("Jujutsu observation does not read outside, broken, or oversized tracked symlink targets", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("file symlink creation is not reliably available without elevated Windows privileges");
+    return;
+  }
+  const root = mkdtempSync(join(tmpdir(), "atelier-jj-symlink-observation-"));
+  const external = mkdtempSync(join(tmpdir(), "atelier-jj-symlink-targets-"));
+  mkdirSync(join(root, ".atelier"), { recursive: true });
+  const secret = join(external, "secret.txt");
+  const oversized = join(external, "oversized.bin");
+  const links = ["outside-secret.ts", "broken-target.ts", "oversized-target.ts"];
+  writeFileSync(secret, "external secret contents\n", "utf8");
+  writeFileSync(oversized, "", "utf8");
+  truncateSync(oversized, MAX_REPOSITORY_HASH_BYTES + 1);
+  for (const path of links) symlinkSync("initial-target", join(root, path), "file");
+
+  const executable = join(root, "jj-symlink");
+  writeFileSync(executable, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("jj 0.43.0"); process.exit(0); }
+if (args[0] === "root" || (args[0] === "workspace" && args[1] === "root")) { console.log(${JSON.stringify(root)}); process.exit(0); }
+if (args[0] === "log" && args.includes("@-")) { console.log("parent456"); process.exit(0); }
+if (args[0] === "log") { console.log("change456\\ncommit456"); process.exit(0); }
+if (args[0] === "op" && args[1] === "log") { console.log("operation456"); process.exit(0); }
+if (args[0] === "bookmark" && args[1] === "list") { console.log("main"); process.exit(0); }
+if (args[0] === "resolve" && args[1] === "--list") process.exit(0);
+if (args[0] === "diff" && args.includes("--name-only")) { console.log(${JSON.stringify(links.join("\n"))}); process.exit(0); }
+if (args[0] === "diff") process.exit(0);
+process.exit(1);
+`, "utf8");
+  chmodSync(executable, 0o755);
+  const ledger = new SqliteLedger(join(root, ".atelier", "atelier.db"));
+  try {
+    const observation = await new JujutsuRepositoryProvider({ cwd: root, ledger, executable }).observe({ force: true });
+    assert.deepEqual(observation.changedPaths, [...links].sort());
+    assert.equal(observation.metrics.filesHashed, 0);
+    assert.equal(observation.metrics.bytesHashed, 0);
+  } finally {
+    ledger.close();
+    rmSync(external, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("Jujutsu observation failures never masquerade as an empty diff", () => {
   const root = mkdtempSync(join(tmpdir(), "atelier-jj-failure-"));

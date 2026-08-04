@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { minimalEnvironment } from "../process/environment.ts";
 import { runProcess, type ProcessResult } from "../process/async-process.ts";
 import { resolve, join } from "node:path";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
@@ -27,6 +27,7 @@ import {
   repositoryPathTargets,
   repositoryPathspecs,
 } from "./repository-path.ts";
+import { hashRepositoryContents, repositoryContentFingerprint } from "./repository-content.ts";
 
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const SOURCE_BASE_PATHS = [
@@ -139,46 +140,10 @@ function parseStatusPaths(stdout: string): string[] {
   });
 }
 
-function contentState(root: string, paths: string[], hashContents: boolean): string {
-  return paths.map((path) => {
-    const absolute = resolve(root, path);
-    if (!existsSync(absolute)) return `${path}:deleted`;
-    try {
-      const stat = statSync(absolute);
-      if (!stat.isFile()) return `${path}:non-file:${stat.size}:${stat.mtimeMs}`;
-      return hashContents
-        ? `${path}:${stat.size}:${sha256(readFileSync(absolute))}`
-        : `${path}:${stat.size}:${stat.mtimeMs}`;
-    } catch {
-      return `${path}:unreadable`;
-    }
-  }).join("\0");
-}
-
 function asyncFailure(result: ProcessResult): string {
   if (result.timedOut) return "timed out";
   if (result.aborted) return "cancelled";
   return result.stderr.trim() || `exit ${result.exitCode}`;
-}
-
-function hashChangedContents(root: string, paths: readonly string[]): { value: string; files: number; bytes: number } {
-  let files = 0;
-  let bytes = 0;
-  const value = [...new Set(paths)].sort().map((path) => {
-    const absolute = resolve(root, path);
-    if (!existsSync(absolute)) return `${path}:deleted`;
-    try {
-      const stat = statSync(absolute);
-      if (!stat.isFile()) return `${path}:non-file:${stat.mode}:${stat.size}:${stat.mtimeMs}`;
-      const content = readFileSync(absolute);
-      files += 1;
-      bytes += content.byteLength;
-      return `${path}:${stat.mode}:${content.byteLength}:${sha256(content)}`;
-    } catch {
-      return `${path}:unreadable`;
-    }
-  }).join("\0");
-  return { value, files, bytes };
 }
 
 
@@ -345,8 +310,8 @@ export class GitRepositoryProvider implements RepositoryProvider {
     const sourceBaseCommit = sourceBaseResult.exitCode === 0 && sourceBaseResult.stdout.trim()
       ? sourceBaseResult.stdout.trim()
       : headCommit;
-    const sourceContents = hashChangedContents(root, changedPaths);
-    const rawContents = hashChangedContents(root, rawChangedPaths.filter((path) => !changedPaths.includes(path)));
+    const sourceContents = hashRepositoryContents(root, changedPaths);
+    const rawContents = hashRepositoryContents(root, rawChangedPaths.filter((path) => !changedPaths.includes(path)));
     const sourceFingerprint = sha256(`${sourceBaseCommit}\0${changedPaths.join("\0")}\0${sourceContents.value}`);
     const rawFingerprint = sha256(`${sourceBaseCommit}\0${statusResult.stdout}\0${sourceFingerprint}\0${rawContents.value}`);
     const conflicts = statusResult.stdout.split("\n").filter(Boolean).some((line) => {
@@ -419,10 +384,10 @@ export class GitRepositoryProvider implements RepositoryProvider {
     const sourceBaseCommit = sourceBase.status === 0 && sourceBase.stdout.trim()
       ? sourceBase.stdout.trim()
       : headCommit;
-    const sourceContents = hashChangedContents(root, changedPaths);
+    const sourceContents = hashRepositoryContents(root, changedPaths);
     const sourceFingerprint = sha256(`${sourceBaseCommit}\0${changedPaths.join("\0")}\0${sourceContents.value}`);
     const rawFingerprint = sha256(
-      `${sourceBaseCommit}\0${rawStatusLines.join("\n")}\0${sourceFingerprint}\0${contentState(root, rawChanged, false)}`,
+      `${sourceBaseCommit}\0${rawStatusLines.join("\n")}\0${sourceFingerprint}\0${repositoryContentFingerprint(root, rawChanged, false)}`,
     );
     return {
       repositoryId: `git:${sha256(`${root}\0${resolveAccessPath(commonDir.stdout.trim(), "read", root)}`).slice(0, 24)}`,

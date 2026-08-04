@@ -280,7 +280,9 @@ Each repository provider returns explicit status and a revision-aware snapshot. 
 Git and Jujutsu snapshots carry two related identities. Raw VCS fields retain commit/change/operation
 details for diagnostics and recovery. A separate source base plus source-content fingerprint excludes
 `.atelier`, Beads, provider indexes, and other workflow metadata. Approval, retrieval, validation, and
-execution freshness use the source identity rather than raw metadata churn.
+execution freshness use the source identity rather than raw metadata churn. Observation fingerprints inspect
+symlink metadata without following final targets, reject boundary escapes and broken links without reads, and
+skip oversized file contents.
 
 Exact approval binds every workspace root independently. Primary source drift can represent the approved
 task's own work when the baseline remains reachable. Secondary-root drift invalidates execution because
