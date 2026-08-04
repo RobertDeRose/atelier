@@ -21,6 +21,12 @@ function toolReadPaths(event: any, ctx: ExtensionContext): string[] {
   return [...new Set(paths.map((path) => resolveAccessPath(path, "read", ctx.cwd)))];
 }
 
+function shellWritePaths(effects: readonly FilesystemEffect[]): string[] {
+  return [...new Set(effects
+    .filter((effect) => ["create", "mutate", "delete", "overwrite"].includes(effect.kind))
+    .flatMap((effect) => effect.path === undefined ? [] : [effect.path]))];
+}
+
 export function requestForTool(
   event: any,
   ctx: ExtensionContext,
@@ -129,12 +135,15 @@ export function requestForTool(
       && effects.length > 0
       && effects.every((effect) => effect.kind === "read");
     const sandbox = resolveSandboxBackend(core.config.sandboxBackend);
+    const writePaths = shellWritePaths(effects);
     return {
       ...base,
       action: readOnly ? "read.repository" : "command.execute",
       risk: classification.risk,
       command: [command],
-      ...(readOnly ? { paths: effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]) } : {}),
+      ...(readOnly
+        ? { paths: effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]) }
+        : writePaths.length > 0 ? { paths: writePaths } : {}),
       rationale: readOnly
         ? `${classification.rationale.join("; ")} Both shell-analysis layers classify the command as read-only. ${sandbox.available ? `Execution uses ${sandbox.detail}.` : "No OS sandbox is available, so execution requires an additional one-operation approval."}`
         : `${classification.rationale.join("; ")} Persistent effects remain governed by workspace recoverability. ${sandbox.available ? `Execution uses ${sandbox.detail}.` : "Unsandboxed execution requires an explicit one-operation approval."}`,

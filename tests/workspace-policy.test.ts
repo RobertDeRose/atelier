@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -72,6 +72,24 @@ test("explicit workspace selection is canonical and remains immutable after proc
     assert.equal(workspace.root, realpathSync.native(explicit));
   } finally {
     process.chdir(original);
+  }
+});
+
+test("reviewed shell scope requires approval before workspace auto-allow", () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-reviewed-shell-scope-"));
+  const target = join(root, "unrelated.ts");
+  const evaluator = new WorkspacePolicyEvaluator({ root });
+  try {
+    const decision = evaluator.evaluate([{
+      kind: "overwrite",
+      path: target,
+      requiresExplicitApproval: true,
+      description: "shell redirection",
+    }], resolver({ [target]: "tracked_clean" }));
+    assert.equal(decision.result, "ask");
+    assert.match(decision.reason, /outside the reviewed task paths/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

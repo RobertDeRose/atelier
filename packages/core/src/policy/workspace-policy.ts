@@ -36,6 +36,8 @@ export interface FilesystemEffect {
   runtimeConfined?: boolean;
   /** True when destructive targets cannot be enumerated precisely enough to checkpoint. */
   indeterminateDestructive?: boolean;
+  /** True when a concrete shell write falls outside the active reviewed task paths. */
+  requiresExplicitApproval?: boolean;
 }
 
 export type WorkspaceDecisionKind = "allow" | "checkpoint_then_allow" | "ask" | "deny";
@@ -142,6 +144,9 @@ export class WorkspacePolicyEvaluator {
     // VCS and recovery state belongs to the named filesystem entry. Boundary
     // enforcement separately uses the fully resolved canonical target above.
     const state = resolver.classify(entryPath);
+    if (effect.requiresExplicitApproval === true) {
+      return { ...effect, resolvedPath, entryPath, state, decision: "ask", reason: "This concrete shell write is outside the reviewed task paths and requires one-time approval." };
+    }
     if (effect.kind === "read") return { ...effect, resolvedPath, entryPath, state, decision: "allow", reason: "Ordinary workspace read is allowed." };
     if (effect.kind === "create" && state === "missing") return { ...effect, resolvedPath, entryPath, state, decision: "allow", reason: "Creating a new path inside the workspace is recoverable." };
     if ((effect.kind === "mutate" || effect.kind === "delete" || effect.kind === "overwrite") && state === "tracked_clean") {

@@ -84,6 +84,32 @@ test("Git diff output options produce guarded concrete file effects", async () =
   }
 });
 
+test("concrete shell writes are carried into reviewed task authorization", async () => {
+  const root = createTemporaryRepository("atlr-shell-task-scope-");
+  mkdirSync(join(root, "src"), { recursive: true });
+  const core = AtelierCore.open(root, { taskProvider: "none" });
+  const ctx = { cwd: root } as any;
+  const cases = [
+    ["printf x > src/allowed.ts", [join(root, "src", "allowed.ts")]],
+    ["printf x > unrelated.ts", [join(root, "unrelated.ts")]],
+    ["printf x > src/allowed.ts && printf y > unrelated.ts", [join(root, "src", "allowed.ts"), join(root, "unrelated.ts")]],
+  ] as const;
+  try {
+    for (const [command, expectedPaths] of cases) {
+      const effects = effectsForShellCommand(command, root, true, [join(root, "src", "allowed.ts")]);
+      const writeEffects = effects.filter((effect) => ["create", "mutate", "delete", "overwrite"].includes(effect.kind));
+      const outsideScope = expectedPaths.some((path) => path.endsWith("unrelated.ts"));
+      assert.equal(writeEffects.some((effect) => effect.requiresExplicitApproval === true), outsideScope, command);
+      const request = requestForTool({ toolName: "bash", input: { command } }, ctx, core, effects);
+      assert.equal(request.action, "command.execute", command);
+      assert.deepEqual(new Set(request.paths), new Set(expectedPaths), command);
+    }
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the authoritative Pi effect and workflow path fail closed for adversarial shell forms", async () => {
   const root = createTemporaryRepository("atlr-authoritative-shell-boundary-");
   const core = AtelierCore.open(root, { taskProvider: "none" });

@@ -5,6 +5,7 @@ import {
   resolveSandboxBackend,
   resolveAbsolutePath,
   resolveAccessPath,
+  isAccessEntryWithin,
   type AtelierCore,
   type FilesystemEffect,
 } from "../../../packages/core/src/index.ts";
@@ -375,6 +376,23 @@ function sandboxIsAvailable(core: AtelierCore): boolean {
   return resolveSandboxBackend(core.config.sandboxBackend).available;
 }
 
+function applyReviewedTaskScope(
+  effects: readonly FilesystemEffect[],
+  approvedTaskPaths: readonly string[],
+): FilesystemEffect[] {
+  if (approvedTaskPaths.length === 0) return [...effects];
+  return effects.map((effect) => {
+    if (!["create", "mutate", "delete", "overwrite"].includes(effect.kind)
+      || effect.path === undefined
+      || approvedTaskPaths.some((approvedPath) => isAccessEntryWithin(effect.path!, approvedPath, "write"))) return effect;
+    return {
+      ...effect,
+      requiresExplicitApproval: true,
+      description: `${effect.description ?? "shell write"} is outside the reviewed task paths`,
+    };
+  });
+}
+
 export function effectsForTool(event: any, ctx: ExtensionContext, core: AtelierCore): FilesystemEffect[] {
   const path = typeof event.input?.path === "string" ? resolveAbsolutePath(event.input.path, ctx.cwd) : undefined;
   if (["read", "grep", "find", "ls"].includes(event.toolName)) {
@@ -392,7 +410,12 @@ export function effectsForTool(event: any, ctx: ExtensionContext, core: AtelierC
       ? [{ kind: "unknown", description: "edit without a path" }]
       : [{ kind: existsSync(path) ? "mutate" : "create", path, preservesPrevious: true, description: "typed edit" }];
   }
-  if (event.toolName === "bash") return effectsForShellCommand(commandText(event), ctx.cwd, sandboxIsAvailable(core));
+  if (event.toolName === "bash") return effectsForShellCommand(
+    commandText(event),
+    ctx.cwd,
+    sandboxIsAvailable(core),
+    core.approvedTaskPaths(),
+  );
   if (event.toolName.startsWith("atlr_code_") || event.toolName === "atlr_state") {
     return [{ kind: "read", path: ctx.cwd, description: `Atelier ${event.toolName} read` }];
   }
@@ -414,6 +437,7 @@ export function effectsForShellCommand(
   command: string,
   cwd: string,
   runtimeConfined: boolean,
+  approvedTaskPaths: readonly string[] = [],
 ): FilesystemEffect[] {
-  return shellEffects(command, cwd, runtimeConfined);
+  return applyReviewedTaskScope(shellEffects(command, cwd, runtimeConfined), approvedTaskPaths);
 }
