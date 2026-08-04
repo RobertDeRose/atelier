@@ -249,6 +249,51 @@ test("codesearch canonicalizes workspace aliases and absolute provider result pa
 });
 
 
+test("codesearch rejects provider paths that escape the repository boundary", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-path-boundary-"));
+  const outside = mkdtempSync(join(tmpdir(), "atlr-codesearch-path-outside-"));
+  writeFileSync(join(outside, "secret.txt"), "outside secret\n", "utf8");
+  symlinkSync(outside, join(root, "escape"), "dir");
+  const fake = fakeCodesearch(root);
+  const paths = ["../secret.txt", join(outside, "secret.txt"), "escape/secret.txt"];
+  try {
+    for (const [index, providerPath] of paths.entries()) {
+      const provider = new CodesearchProvider({
+        command: fake.command,
+        cwd: root,
+        stateDirectory: join(root, `.atelier/runtime-${index}`),
+        mode: "local",
+        timeoutMs: 2_000,
+        indexTimeoutMs: 2_000,
+        pollIntervalMs: 5,
+        environment: { FAKE_RESULT_PATH: providerPath },
+      });
+      try {
+        await assert.rejects(
+          provider.search({ workspace: workspace(root), text: "secret", mode: "semantic", limit: 5, includeTests: true, includeGenerated: false }),
+          /outside|invalid|repository/i,
+          providerPath,
+        );
+        await assert.rejects(
+          provider.read({
+            provider: "codesearch",
+            opaqueId: Buffer.from(JSON.stringify({ chunkId: "42" }), "utf8").toString("base64url"),
+            repositoryId: "repo",
+            path: "src/auth.ts",
+          }),
+          /outside|invalid|repository/i,
+          `read ${providerPath}`,
+        );
+      } finally {
+        await provider.close();
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("codesearch index readiness outranks unrelated optional-index errors", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-optional-status-"));
   const fake = fakeCodesearch(root);

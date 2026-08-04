@@ -969,13 +969,17 @@ function resolveRepository(workspace: CodeWorkspace, project?: string, path?: st
 
 function normalizeRepositoryPath(repository: CodeWorkspace["repositories"][number], path: string): string {
   const normalized = normalizeSlashes(path).replace(/^\.\//, "");
-  if (isAbsolute(path) && pathWithinRoot(repository.root, path)) {
-    return repositoryPathTarget(repository.root, path, "read").relative;
+  const repositoryRelative = isAbsolute(path)
+    ? path
+    : repositoryAliases(repository).reduce<string | undefined>((candidate, alias) =>
+      candidate ?? (normalized.startsWith(`${alias}/`) ? normalized.slice(alias.length + 1) : undefined), undefined)
+      ?? normalized;
+  try {
+    return repositoryPathTarget(repository.root, repositoryRelative, "read").relative;
+  } catch (error) {
+    const displayed = truncate(normalizeSlashes(path), 256);
+    throw new Error(`Codesearch provider returned an invalid repository path: ${displayed}`, { cause: error });
   }
-  for (const alias of repositoryAliases(repository)) {
-    if (normalized.startsWith(`${alias}/`)) return normalized.slice(alias.length + 1);
-  }
-  return normalized;
 }
 
 function pathWithinRoot(root: string, path: string): boolean {
