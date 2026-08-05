@@ -59,6 +59,24 @@ test("adversarial shell forms never inherit repository-read authorization", () =
   }
 });
 
+test("read-only Beads inspection stays a repository read through both policy layers", async () => {
+  const root = createTemporaryRepository("atlr-readonly-beads-boundary-");
+  const core = AtelierCore.open(root, { taskProvider: "none" });
+  const ctx = { cwd: root } as any;
+  try {
+    for (const command of ["bd list --json", "bd ready --json", "bd show atelier-mw9 --json"]) {
+      const effects = effectsForShellCommand(command, root, false);
+      assert.deepEqual(effects.map((effect) => effect.kind), ["read"], command);
+      const request = requestForTool({ toolName: "bash", input: { command } }, ctx, core, effects);
+      assert.equal(request.action, "read.repository", command);
+      assert.equal(core.evaluateWorkflow(request).result, "allow", command);
+    }
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Git diff output options produce guarded concrete file effects", async () => {
   const root = createTemporaryRepository("atlr-git-diff-output-boundary-");
   writeFileSync(join(root, ".atelier", "PLAN.md"), "# reviewed plan\n", "utf8");
@@ -104,6 +122,16 @@ test("concrete shell writes are carried into reviewed task authorization", async
       assert.equal(request.action, "command.execute", command);
       assert.deepEqual(new Set(request.paths), new Set(expectedPaths), command);
     }
+
+    const excludedDependency = effectsForShellCommand(
+      "printf x > package.json",
+      root,
+      true,
+      [root],
+      [],
+      root,
+    );
+    assert.equal(excludedDependency.some((effect) => effect.requiresExplicitApproval === true), true);
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });

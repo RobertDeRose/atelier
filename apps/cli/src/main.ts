@@ -49,7 +49,7 @@ Commands:
   plan prepare [--json]             Prepare an exact execution approval transaction
   plan scope TASK --write PATHS      Canonically update task execution scope
   review                            Open the plan in the configured editor and record a ManualEdit
-  approve [--approval ID]           Prepare, inspect, or explicitly apply an exact transaction
+  approve [--approval ID]           Prepare/apply a plan transaction, or use --task for direct task activation (repository-wide source scope by default)
   execute [TASK_ID] [--yes]         Explicitly activate a later approved-plan task
   resume-task [TASK_ID] [--yes]     Resume a cancelled approved task
   pause --reason TEXT               Pause active execution without revoking task constraints
@@ -57,6 +57,8 @@ Commands:
   cancel --reason TEXT              Revoke the current execution without closing its task
   ready [--json]                    Return provider-reported unblocked work
   task show ID [--json]             Read one provider task
+  task start [ID] --standalone [--write PATH[,PATH]] [--yes]
+                                    Activate one existing task without a plan
   task start [ID] [--yes]           Explicitly activate a later approved-plan task
   task close ID --reason TEXT       Close a task with evidence
   policy command "COMMAND"          Classify and evaluate a shell command
@@ -312,7 +314,11 @@ async function main(): Promise<void> {
       }
 
       case "approve": {
-        await handlePlan(core, "approve", parsed);
+        if (flagString(parsed, "task") !== undefined || flagBoolean(parsed, "standalone") || flagString(parsed, "write") !== undefined) {
+          await handleTaskStart(core, flagString(parsed, "task") ?? subcommand, parsed);
+        } else {
+          await handlePlan(core, "approve", parsed);
+        }
         return;
       }
 
@@ -361,7 +367,8 @@ async function main(): Promise<void> {
       }
 
       case "ready": {
-        const tasks = await core.taskProvider.ready();
+        const tasks = (await core.taskProvider.ready())
+          .filter((task) => ["bug", "feature", "task", "chore", "spike"].includes(task.type));
         if (flagBoolean(parsed, "json")) asJson(tasks);
         else for (const task of tasks) process.stdout.write(`${task.id}\tP${task.priority}\t${task.status}\t${task.title}\n`);
         return;

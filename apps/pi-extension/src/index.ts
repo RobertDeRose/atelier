@@ -30,9 +30,11 @@ import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "
 import { runInteractiveProcessWithPi } from "./interactive-process.ts";
 import { runPlanEditorWithPi } from "./manual-edit-process.ts";
 import { planInstruction } from "./plan-instruction.ts";
+import { atelierAgentProtocol } from "./atelier-agent-guidance.ts";
 import { contextCapsulePrompt, createAuthoritativeContextCapsule } from "./authoritative-context.ts";
 import { createAtelierBashOperations } from "./bash-operations.ts";
 import { createPolicyControlledBashTool } from "./model-bash-tool.ts";
+import { approveStandaloneTask, parseStandaloneTaskCommand, registerStandaloneTaskCommands } from "./standalone-task-command.ts";
 import { ensureAtelierToolsActive, isBroadRawDiscovery } from "./tool-activation.ts";
 import { authorizeShellEffects, authorizeTool, authorizeWorkspaceEffects, isDesignatedPlanWrite, recordBlockedWorkspaceConsequence, recordWorkspacePolicyDecision, repositoryObservationPaths, requestForTool } from "./tool-authorization.ts";
 import { effectsForTool, effectsForUserBash } from "./tool-effects.ts";
@@ -349,6 +351,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   registerAtelierReportRenderer(pi);
   registerValidationTool(pi, getCore);
   registerWorkflowTools(pi, getCore);
+  registerStandaloneTaskCommands(pi, getCore, updateStatus);
   pi.registerTool(createPolicyControlledBashTool({
     getCore,
     takeAuthorization(ctx, toolCallId) {
@@ -1048,9 +1051,14 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   });
 
   pi.registerCommand("approve", {
-    description: "Approve the reviewed plan, reconcile Beads, and enter act mode",
-    handler: async (_args, ctx) => {
+    description: "Approve the reviewed plan, or activate one existing task with repository-wide source scope by default",
+    handler: async (args, ctx) => {
       const core = getCore(ctx);
+      const standalone = parseStandaloneTaskCommand(args);
+      if (standalone !== undefined) {
+        await approveStandaloneTask(ctx, core, standalone, updateStatus);
+        return;
+      }
       try {
         await approveAndReconcile(pi, ctx, core);
       } finally {
@@ -1169,39 +1177,6 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       delete sessionState(ctx).lastCompletionNotice;
       ctx.ui.notify(`Cancelled execution ${cancelled.id}; task ${cancelled.taskId} remains open.`, "info");
       void updateStatus(ctx, core);
-    },
-  });
-
-  pi.registerCommand("ready", {
-    description: "Show or select provider-reported ready work",
-    handler: async (args, ctx) => {
-      const core = getCore(ctx);
-      const ready = await core.taskProvider.ready();
-      if (ready.length === 0) {
-        appendAtelierReport(pi, ctx, "Ready tasks", readyTasksMarkdown([]), "none ready");
-        return;
-      }
-      const requested = args.trim();
-      let selected = requested ? ready.find((task) => task.id === requested) : undefined;
-      if (selected === undefined && ctx.hasUI) {
-        const labels = ready.map((task) => `${task.id} · P${task.priority} · ${task.title}`);
-        const choice = await ctx.ui.select("Select Atelier task", labels);
-        const index = choice === undefined ? -1 : labels.indexOf(choice);
-        selected = index < 0 ? undefined : ready[index];
-      }
-      if (selected === undefined) {
-        appendAtelierReport(pi, ctx, "Ready tasks", readyTasksMarkdown(ready), `${ready.length} ready`);
-        return;
-      }
-      core.ledger.setState("currentTaskId", selected.id);
-      core.ledger.append({
-        kind: "task.selected",
-        actor: "user",
-        taskId: selected.id,
-        payload: { provider: core.taskProvider.name },
-      });
-      ctx.ui.notify(`Selected ${selected.id}: ${selected.title}`, "info");
-      await updateStatus(ctx, core);
     },
   });
 

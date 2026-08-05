@@ -69,7 +69,7 @@ function prose(lines: string[]): string {
 function metadataTaskType(value: unknown): TaskType {
   if (typeof value !== "string") return "task";
   const normalized = value.toLowerCase();
-  return ["bug", "feature", "task", "epic", "chore"].includes(normalized)
+  return ["bug", "feature", "task", "epic", "chore", "spike"].includes(normalized)
     ? (normalized as TaskType)
     : "unknown";
 }

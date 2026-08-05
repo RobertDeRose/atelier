@@ -59,7 +59,7 @@ import type { TaskProvider } from "./tasks/task-provider.ts";
 import type { RepositoryDisplayState } from "./repository/repository-provider.ts";
 import { hashFile, sha256 } from "./util/hash.ts";
 import { newId, nowIso } from "./util/ids.ts";
-import { isPathWithin, resolveAccessPath } from "./security/path-boundary.ts";
+import { isPathWithin, resolveAccessPath, sameAccessEntryPath } from "./security/path-boundary.ts";
 import { isSourcePath, sourcePaths } from "./repository/source-path.ts";
 import { repositoryPathTarget, repositoryPathTargets, repositoryRelativePath } from "./repository/repository-path.ts";
 import {
@@ -420,6 +420,7 @@ export class AtelierCore {
     const decision = this.workflowGuard.evaluate(request, {
       mode: this.mode(),
       workspaceRoot: this.config.workspaceRoot,
+      repositoryRoot: this.config.repositoryRoot,
       planPath: this.config.planPath,
       ...(executionGrant === undefined ? {} : { executionGrant, executionPaused: this.execution.isPaused() }),
       taskConstraints: this.activeTaskConstraints(),
@@ -669,6 +670,16 @@ export class AtelierCore {
     return [...new Set(this.activeExecutionConstraints().flatMap((constraint) => constraint.writePaths))].sort();
   }
 
+  approvedDependencyPaths(): string[] {
+    return [...new Set(this.activeExecutionConstraints().flatMap((constraint) => {
+      const broadScope = constraint.writePaths.some((path) => sameAccessEntryPath(path, this.config.repositoryRoot, "write"));
+      return [
+        ...constraint.dependencyPaths,
+        ...(broadScope && constraint.allowDependencyChanges ? [this.config.repositoryRoot] : []),
+      ];
+    }))].sort();
+  }
+
   approvedValidationNames(category: "focused" | "full"): string[] {
     return [...new Set(this.activeExecutionConstraints().flatMap((constraint) =>
       category === "focused" ? constraint.focusedValidations : constraint.fullValidations))].sort();
@@ -685,6 +696,7 @@ export class AtelierCore {
       primaryProvider: this.repository,
       providerForRoot: (root) => createRepositoryProvider(this.config, this.ledger, root),
       approvedPaths: executionGrant === undefined ? [] : this.approvedTaskPaths(),
+      approvedDependencyPaths: executionGrant === undefined ? [] : this.approvedDependencyPaths(),
       ...(executionGrant?.repositoryBindings === undefined
         ? {}
         : { baselines: executionGrant.repositoryBindings }),
@@ -831,6 +843,8 @@ export class AtelierCore {
     const validation = this.validation.closureReadiness(snapshot, executionGrant.taskId, executionGrant.id);
     const policy = this.validation.closurePolicy();
     const review = this.currentFinalDiffReview();
+    const activeConstraint = this.activeTaskConstraints()[0];
+    const requiresLocalChange = policy.requireLocalChange && activeConstraint?.allowLocalChange !== false;
     let diffHash: string | undefined;
     try {
       diffHash = repositories.diff(true).diffHash;
@@ -844,7 +858,7 @@ export class AtelierCore {
         && review.baselineHeadCommit === (executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit)
         && diffHash !== undefined
         && review.diffHash === diffHash);
-    const localChangeCreated = !policy.requireLocalChange || repositories.localChangeCreated();
+    const localChangeCreated = !requiresLocalChange || repositories.localChangeCreated();
     let sourceStateAcceptable = true;
     let repositoryMetadataPaths: string[] = [];
     try {
@@ -1297,6 +1311,9 @@ export class AtelierCore {
     }
     const previousGrant = this.ledger.listExecutionGrants()[0];
     if (previousGrant?.status === "revoked") {
+      if (previousGrant.executionSource === "standalone") {
+        return `Reactivate standalone task ${previousGrant.taskId} with its explicit task scope.`;
+      }
       if (!allowProviderIo) {
         return `Resume or reconcile previously active task ${previousGrant.taskId}.`;
       }

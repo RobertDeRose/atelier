@@ -40,6 +40,10 @@ interface TaskSelection {
   omission?: string;
 }
 
+function isExecutableTask(task: TaskRecord): boolean {
+  return ["bug", "feature", "task", "chore", "spike"].includes(task.type);
+}
+
 export class WorkingStateBuilder {
   private readonly provider: TaskProvider;
   private readonly ledger: SqliteLedger;
@@ -331,8 +335,10 @@ export class WorkingStateBuilder {
 
     this.persistTaskSelection(selection, request.snapshot);
     if (request.plan === undefined) {
-      omissions.push("No plan document was supplied to the working state builder.");
-    } else if (planTask === undefined && activeTask !== undefined) {
+      if (activeExecutionGrant?.executionSource !== "standalone") {
+        omissions.push("No plan document was supplied to the working state builder.");
+      }
+    } else if (planTask === undefined && activeTask !== undefined && activeExecutionGrant?.executionSource !== "standalone") {
       omissions.push("The active provider task could not be mapped to a plan task.");
     } else if (planTask !== undefined) {
       retrievalExplanation.push(`Included reviewed-plan task ${planTask.id}.`);
@@ -393,6 +399,7 @@ export class WorkingStateBuilder {
   private async readyTasks(limit: number, omissions: string[]): Promise<TaskRecord[]> {
     try {
       return (await this.provider.ready())
+        .filter(isExecutableTask)
         .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id))
         .slice(0, limit);
     } catch (error) {
@@ -428,6 +435,7 @@ export class WorkingStateBuilder {
         const current = await this.provider.get(currentTaskId);
         if (
           current !== undefined
+          && isExecutableTask(current)
           && (current.status === "open" || current.status === "in_progress")
           && (!approvedPlan || this.findPlanTask(plan, current) !== undefined)
         ) {
@@ -567,6 +575,9 @@ function describeNextAction(input: {
     if (input.taskClosure.ready) return `Close active task ${input.executionGrant.taskId} explicitly.`;
     if (input.workflowCheckpoint === "validating") return `Run required focused validation: ${input.taskClosure.reason}`;
     return `Continue implementing active task ${input.executionGrant.taskId}, then validate focused changes.`;
+  }
+  if (input.executionGrant?.status === "revoked" && input.executionGrant.executionSource === "standalone") {
+    return `Reactivate standalone task ${input.executionGrant.taskId} with its explicit task scope, or explicitly close/defer it in the task provider.`;
   }
   if (input.executionGrant?.status === "revoked" && input.readyTasks.length === 0) {
     return `Prepare a fresh exact transaction to resume task ${input.executionGrant.taskId}, or explicitly close/defer it in the task provider.`;

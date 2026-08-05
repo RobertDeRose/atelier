@@ -61,7 +61,8 @@ export interface WorkflowDecision {
 }
 
 export type TaskStatus = "open" | "in_progress" | "blocked" | "closed" | "deferred" | "unknown";
-export type TaskType = "bug" | "feature" | "task" | "epic" | "chore" | "unknown";
+export type TaskType = "bug" | "feature" | "task" | "epic" | "chore" | "spike" | "unknown";
+export type ExecutionSource = "plan" | "standalone";
 
 export interface TaskRecord {
   id: string;
@@ -76,6 +77,7 @@ export interface TaskRecord {
   type: TaskType;
   dependencies: string[];
   labels: string[];
+  parentId?: string;
   assignee?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -350,6 +352,7 @@ export interface ApprovedTaskConstraint {
 
 export interface PlanApproval {
   id: string;
+  executionSource?: ExecutionSource;
   status: PlanApprovalStatus;
   planPath: string;
   planHash: string;
@@ -394,6 +397,7 @@ export interface ExecutionPause {
 
 export interface ExecutionGrant {
   id: string;
+  executionSource?: ExecutionSource;
   status: ExecutionGrantStatus;
   planApprovalId: string;
   reconciliationTransactionId: string;

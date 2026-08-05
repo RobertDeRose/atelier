@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -62,6 +62,50 @@ console.error("unsupported", args); process.exit(2);
   chmodSync(executable, 0o755);
   return executable;
 }
+
+test("CLI activates an existing task without creating or reconciling a plan", () => {
+  const root = createTemporaryRepository("atlr-cli-standalone-task-");
+  const beads = installFakeBeads(root);
+  writeFileSync(join(root, ".atelier", "fake-bd-state.json"), JSON.stringify({
+    next: 1,
+    tasks: {
+      "bd-existing": {
+        id: "bd-existing",
+        title: "Existing implementation",
+        description: "Implement the existing task.",
+        acceptance_criteria: "The implementation is complete.",
+        status: "open",
+        priority: 1,
+        issue_type: "task",
+        dependencies: [],
+        labels: [],
+      },
+    },
+  }), "utf8");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "beads",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }), "utf8");
+  const userConfig = `${root}-user-config.json`;
+  const previousUserConfig = process.env.ATLR_USER_CONFIG;
+  writeFileSync(userConfig, JSON.stringify({ beadsCommand: beads }));
+  process.env.ATLR_USER_CONFIG = userConfig;
+  try {
+    const result = run(root, ["approve", "--task", "bd-existing", "--yes", "--json"]);
+    assert.equal(result.status, 0, result.stderr);
+    const transition = JSON.parse(result.stdout) as any;
+    assert.equal(transition.task.id, "bd-existing");
+    assert.equal(transition.executionGrant.executionSource, "standalone");
+    assert.equal(readFileSync(join(root, ".atelier", "fake-bd-state.json"), "utf8").includes('"status":"in_progress"'), true);
+    assert.equal(existsSync(join(root, ".atelier", "PLAN.md")), false);
+  } finally {
+    if (previousUserConfig === undefined) delete process.env.ATLR_USER_CONFIG;
+    else process.env.ATLR_USER_CONFIG = previousUserConfig;
+    rmSync(userConfig, { force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("CLI review, exact approval, cancellation, and JSON workflow remain coordinated", () => {
   const root = createTemporaryRepository("atlr-cli-workflow-");

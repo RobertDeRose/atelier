@@ -1,3 +1,5 @@
+import { relativeAccessPath } from "../security/path-boundary.ts";
+
 const WORKFLOW_METADATA_ROOTS = [
   ".atelier",
   ".beads",
@@ -58,4 +60,21 @@ export function isSourcePath(path: string): boolean {
 
 export function sourcePaths(paths: string[]): string[] {
   return [...new Set(paths.filter(isSourcePath))].sort();
+}
+
+function repositoryRelativePath(repositoryRoot: string, path: string): string | undefined {
+  const relationship = relativeAccessPath(path, repositoryRoot, "write", repositoryRoot);
+  return relationship === "" ? "." : relationship;
+}
+
+/** True when a path is the repository root or an application-source path below it. */
+export function isSourcePathWithin(repositoryRoot: string, path: string): boolean {
+  const relativePath = repositoryRelativePath(repositoryRoot, path);
+  return relativePath === "." || (relativePath !== undefined && isSourcePath(relativePath));
+}
+
+/** True when a path below the repository root names a dependency manifest. */
+export function isDependencyPathWithin(repositoryRoot: string, path: string): boolean {
+  const relativePath = repositoryRelativePath(repositoryRoot, path);
+  return relativePath !== undefined && relativePath !== "." && isDependencyPath(relativePath);
 }

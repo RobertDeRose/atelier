@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension/src/index.ts";
 import { executionGrantText, planStatusText, vcsStatusText } from "../apps/pi-extension/src/status-presentation.ts";
+import { parseStandaloneTaskCommand } from "../apps/pi-extension/src/standalone-task-command.ts";
 import {
   AtelierCore,
   InMemoryTaskProvider,
@@ -175,6 +176,17 @@ function registerTrustCommandHarness(): {
   return { events, commands };
 }
 
+
+test("standalone Pi task commands default to repository-wide source scope", () => {
+  assert.deepEqual(parseStandaloneTaskCommand("--task task-1"), {
+    taskId: "task-1",
+    writePaths: [],
+  });
+  assert.deepEqual(parseStandaloneTaskCommand("--standalone task-1"), {
+    taskId: "task-1",
+    writePaths: [],
+  });
+});
 
 test("Pi status presentation distinguishes missing plans, execution grants, and VCS identity", () => {
   const missing = {

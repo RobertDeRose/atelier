@@ -3,8 +3,10 @@ import type {
   ExecutionPreparation,
   ExecutionTransition,
   PlanApproval,
+  PlanTask,
   ReconciliationTransaction,
   TaskProviderIdentity,
+  TaskReconciliation,
   TaskRecord,
   TaskStartTransition,
 } from "../domain/types.ts";
@@ -21,6 +23,7 @@ import type { RepositoryProvider } from "../repository/repository-provider.ts";
 import type { RepositorySnapshot } from "../repository/snapshot.ts";
 import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
 import type { TaskProvider } from "../tasks/task-provider.ts";
+import { sha256 } from "../util/hash.ts";
 import { newId, nowIso } from "../util/ids.ts";
 import {
   constraintsForPlanTask,
@@ -59,6 +62,18 @@ export interface ExecutionSourceContext {
 export interface ExecutionTransitionOptions {
   onPhase?: (phase: "revalidate" | "reconcile" | "converge" | "activate") => void | Promise<void>;
 }
+
+export interface StandaloneTaskExecutionOptions {
+  taskId: string;
+  /** Optional narrowing; omitted means all application-source paths in the repository. */
+  writePaths?: string[];
+  validations?: string[];
+  allowDependencyChanges?: boolean;
+  allowFullSuite?: boolean;
+  allowLocalChange?: boolean;
+}
+
+const STANDALONE_TASK_TYPES = new Set(["bug", "feature", "task", "chore", "spike"]);
 
 function providerIdentity(name: string, version: string | undefined): TaskProviderIdentity {
   return { name, ...(version === undefined ? {} : { version }) };
@@ -332,10 +347,170 @@ export class ExecutionWorkflowCoordinator {
     }
   }
 
+  async startStandaloneTask(options: StandaloneTaskExecutionOptions, confirmed: boolean): Promise<TaskStartTransition | undefined> {
+    if (this.ledger.getActiveExecutionGrant() !== undefined) {
+      throw new Error("Cancel the active execution grant before starting a standalone task.");
+    }
+    const taskId = options.taskId.trim();
+    if (!taskId) throw new Error("A standalone task id is required.");
+    const requestedWritePaths = (options.writePaths ?? []).map((path) => path.trim()).filter(Boolean);
+    const writePaths = requestedWritePaths.length === 0 ? ["."] : requestedWritePaths;
+
+    const status = await this.provider.status();
+    if (!status.available || !status.initialized) {
+      throw new Error(status.reason ?? `Task provider ${status.provider} is unavailable or uninitialized.`);
+    }
+    const task = await this.provider.get(taskId);
+    if (task === undefined) throw new Error(`Standalone task ${taskId} was not found.`);
+    if (!STANDALONE_TASK_TYPES.has(task.type)) {
+      throw new Error(`Task ${task.id} has non-executable type ${task.type}; standalone activation accepts task, bug, feature, chore, or spike issues.`);
+    }
+    if (task.parentId !== undefined || task.labels.includes("workflow:feature")) {
+      throw new Error(`Task ${task.id} belongs to a parent workflow; use the owning feature execution flow instead of standalone activation.`);
+    }
+    if (task.status !== "open" && task.status !== "in_progress") {
+      throw new Error(`Task ${task.id} has status ${task.status}; only open or in-progress tasks can be activated.`);
+    }
+    if (task.status === "open") {
+      const ready = await this.provider.ready();
+      if (!ready.some((candidate) => candidate.id === task.id)) {
+        throw new Error(`Task ${task.id} is not provider-ready; resolve its blockers before standalone activation.`);
+      }
+    } else {
+      const previous = this.ledger.listExecutionGrants().find((grant) => grant.taskId === task.id);
+      if (previous?.status !== "revoked" || previous.executionSource !== "standalone") {
+        throw new Error(`Task ${task.id} is already in progress without a resumable standalone execution owned by Atelier.`);
+      }
+    }
+
+    const source = await this.sourceContext();
+    const validationNames = [...new Set((options.validations ?? []).map((name) => name.trim()).filter(Boolean))].sort();
+    const planTask: PlanTask = {
+      id: task.id,
+      title: task.title,
+      goal: task.description || task.title,
+      description: task.description,
+      scope: [...writePaths],
+      outOfScope: [],
+      dependencies: [...task.dependencies],
+      validation: validationNames,
+      completionCriteria: [...task.acceptanceCriteria],
+      notes: task.notes === undefined ? [] : [task.notes],
+      priority: task.priority,
+      type: task.type,
+      execution: {
+        writePaths: [...writePaths],
+        allowDependencyChanges: options.allowDependencyChanges === true,
+        validations: validationNames,
+        allowFullSuite: options.allowFullSuite === true,
+        allowLocalChange: options.allowLocalChange !== false,
+      },
+      source: { startLine: 0, endLine: 0 },
+    };
+    const taskConstraints = createTaskConstraints(
+      [planTask],
+      this.repositoryRoot,
+      this.validationConstraints(),
+      {
+        requireValidation: this.validationRequired(),
+        repositoryRoots: source.repositoryRoots,
+        primaryRepositoryId: source.primaryRepositoryId,
+      },
+    );
+    const provider = providerIdentity(this.provider.name, status.version);
+    const constraintDigest = taskConstraintDigest(taskConstraints);
+    const planHash = sha256(JSON.stringify({
+      executionSource: "standalone",
+      task: {
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        acceptanceCriteria: task.acceptanceCriteria,
+        priority: task.priority,
+        type: task.type,
+        dependencies: task.dependencies,
+      },
+      provider,
+      taskConstraints,
+    }));
+    const reconciliationDigest = sha256(JSON.stringify({ executionSource: "standalone", taskId: task.id, provider, constraintDigest }));
+    const timestamp = nowIso();
+    const approval: PlanApproval = {
+      id: newId("approval"),
+      executionSource: "standalone",
+      status: "approved",
+      planPath: this.planPath,
+      planHash,
+      reconciliationDigest,
+      provider,
+      workspaceId: source.repositorySnapshot.workspaceId,
+      repositoryId: source.repositorySnapshot.repositoryId,
+      repositorySnapshot: source.repositorySnapshot,
+      repositoryBindings: source.repositoryBindings,
+      retrievalBindings: source.retrievalBindings,
+      taskConstraints,
+      constraintDigest,
+      preparedAt: timestamp,
+      decidedAt: timestamp,
+    };
+    const reconciliation: TaskReconciliation = {
+      planHash,
+      provider,
+      digest: reconciliationDigest,
+      operations: [],
+      unchanged: [task.id],
+      created: [],
+      applied: true,
+      conflicts: [],
+    };
+    const transaction: ReconciliationTransaction = {
+      id: newId("reconciliation"),
+      planApprovalId: approval.id,
+      status: "applied",
+      planHash,
+      reconciliationDigest,
+      provider,
+      preview: reconciliation,
+      preparedAt: timestamp,
+      updatedAt: timestamp,
+    };
+    if (!confirmed) return undefined;
+    const claimed = task.status === "in_progress" ? task : await this.provider.claim(task.id);
+    if (claimed.status !== "in_progress") throw new Error(`Task ${claimed.id} claim returned status ${claimed.status}.`);
+    const activeTask = { ...claimed, planTaskId: task.id };
+    this.ledger.setTaskMapping(task.id, this.provider.name, claimed.id, planHash);
+    const grant = this.executionGrant(
+      approval,
+      transaction.id,
+      activeTask,
+      source.repositorySnapshot,
+      source.repositoryBindings,
+      source.retrievalBindings,
+    );
+    this.ledger.activateExecution({ approval, transaction, grant });
+    this.ledger.setWorkflowCheckpoint("executing");
+    this.ledger.append({
+      kind: "execution.standalone_started",
+      actor: "user",
+      taskId: claimed.id,
+      repositorySnapshot: source.repositorySnapshot,
+      payload: {
+        executionGrantId: grant.id,
+        taskId: claimed.id,
+        writePaths: taskConstraints[0]?.writePaths ?? [],
+        validations: validationNames,
+      },
+    });
+    return { task: activeTask, transaction, executionGrant: grant };
+  }
+
   async startNextTask(confirmed: boolean, requestedTaskId?: string): Promise<TaskStartTransition | undefined> {
     const active = this.ledger.getActiveExecutionGrant();
     const previous = active ?? this.ledger.listExecutionGrants().find((grant) => grant.status === "revoked");
     if (previous === undefined) throw new Error("No prior approved execution grant exists for task continuation.");
+    if (previous.executionSource === "standalone") {
+      throw new Error(`Standalone task ${previous.taskId} must be activated explicitly with its task scope; later plan-task activation is unavailable.`);
+    }
     const currentTask = await this.provider.get(previous.taskId);
     if (currentTask !== undefined && currentTask.status !== "closed" && currentTask.status !== "deferred") {
       throw new Error(`Current task ${currentTask.id} has status ${currentTask.status}; later task activation is not available.`);
@@ -616,6 +791,7 @@ export class ExecutionWorkflowCoordinator {
     if (task.planTaskId === undefined) throw new Error(`Task ${task.id} has no approved plan identity.`);
     return {
       id: newId("execution"),
+      ...(approval.executionSource === undefined ? {} : { executionSource: approval.executionSource }),
       status: "active",
       planApprovalId: approval.id,
       reconciliationTransactionId: transactionId,
@@ -638,6 +814,9 @@ export class ExecutionWorkflowCoordinator {
   private async invalidReason(grant: ExecutionGrant): Promise<string | undefined> {
     const approval = this.ledger.getPlanApproval(grant.planApprovalId);
     if (approval === undefined || approval.status !== "approved") return "Plan approval is unavailable or changed.";
+    if (grant.executionSource === "standalone" || approval.executionSource === "standalone") {
+      return this.invalidStandaloneReason(grant, approval);
+    }
     let plan;
     try {
       plan = parsePlanFile(this.planPath);
@@ -670,6 +849,50 @@ export class ExecutionWorkflowCoordinator {
     } catch (error) {
       return `Reviewed task execution contract is unavailable or invalid: ${errorMessage(error)}`;
     }
+  }
+
+  private async invalidStandaloneReason(
+    grant: ExecutionGrant,
+    approval: PlanApproval,
+  ): Promise<string | undefined> {
+    if (grant.executionSource !== "standalone" || approval.executionSource !== "standalone") {
+      return "Standalone execution source binding is incomplete.";
+    }
+    if (grant.planHash !== approval.planHash || grant.reconciliationDigest !== approval.reconciliationDigest) {
+      return "Standalone task execution identity changed.";
+    }
+    const selectedConstraints = constraintsForPlanTask(approval.taskConstraints, grant.planTaskId);
+    if (selectedConstraints.length !== 1
+      || grant.approvalConstraintDigest !== approval.constraintDigest
+      || grant.constraintDigest !== taskConstraintDigest(selectedConstraints)
+      || taskConstraintDigest(approval.taskConstraints) !== approval.constraintDigest
+      || !executionConstraintsMatch(grant, approval.taskConstraints)) {
+      return "Standalone task execution constraints changed or are incomplete.";
+    }
+    const status = await this.provider.status();
+    if (!status.available || !status.initialized) return "Task provider is unavailable during standalone execution resume.";
+    if (!sameProvider(grant.provider, providerIdentity(this.provider.name, status.version))) {
+      return "Task provider identity changed during standalone execution resume.";
+    }
+    const source = await this.sourceContext();
+    const snapshot = source.repositorySnapshot;
+    if (snapshot.workspaceId !== grant.workspaceId) return "Workspace changed during standalone execution resume.";
+    if (snapshot.repositoryId !== grant.repositoryId) return "Repository changed during standalone execution resume.";
+    if (snapshot.vcs !== grant.repositorySnapshot.vcs) return "Repository provider changed during standalone execution resume.";
+    if ((snapshot.sourceBaseCommit ?? snapshot.headCommit)
+      !== (grant.repositorySnapshot.sourceBaseCommit ?? grant.repositorySnapshot.headCommit)) {
+      return "Source base changed during standalone execution resume.";
+    }
+    const primaryRepositoryId = grant.repositorySnapshot.repositoryId;
+    const stableExpected = grant.repositoryBindings.filter((binding) => binding.snapshotRepositoryId !== primaryRepositoryId);
+    const stableActual = source.repositoryBindings.filter((binding) => binding.snapshotRepositoryId !== primaryRepositoryId);
+    if (!sameRepositoryBindings(stableExpected, stableActual)) {
+      return "A secondary workspace repository changed during standalone execution resume.";
+    }
+    const task = await this.provider.get(grant.taskId);
+    if (task === undefined) return "Standalone execution task is unavailable during resume.";
+    if (task.status !== "in_progress") return `Standalone execution task status changed to ${task.status}.`;
+    return undefined;
   }
 
   private async invalidReasonAfterConstraints(

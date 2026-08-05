@@ -8,7 +8,7 @@ import {
   type RepositoryRevisionBinding,
 } from "./revision-binding.ts";
 import { isAccessEntryWithin, resolveAccessEntryPath } from "../security/path-boundary.ts";
-import { isSourcePath, sourcePaths } from "./source-path.ts";
+import { isDependencyPath, isSourcePath, sourcePaths } from "./source-path.ts";
 import { sha256 } from "../util/hash.ts";
 import { canonicalRepositoryRoot, repositoryPathTarget, repositoryRelativePath } from "./repository-path.ts";
 
@@ -75,6 +75,7 @@ export class WorkspaceRepositoryService {
   readonly workspace: CodeWorkspace;
   readonly contexts: WorkspaceRepositoryContext[];
   private readonly approvedPaths: string[];
+  private readonly approvedDependencyPaths: string[];
   private readonly useWorkspaceSnapshots: boolean;
 
   constructor(options: {
@@ -83,6 +84,7 @@ export class WorkspaceRepositoryService {
     primaryProvider: RepositoryProvider;
     providerForRoot: (root: string) => RepositoryProvider;
     approvedPaths?: readonly string[];
+    approvedDependencyPaths?: readonly string[];
     baselines?: readonly RepositoryRevisionBinding[];
     useWorkspaceSnapshots?: boolean;
   }) {
@@ -111,6 +113,9 @@ export class WorkspaceRepositoryService {
       })),
     };
     this.approvedPaths = [...new Set(options.approvedPaths ?? [])]
+      .map((path) => resolveAccessEntryPath(path, "write", primaryRoot))
+      .sort();
+    this.approvedDependencyPaths = [...new Set(options.approvedDependencyPaths ?? [])]
       .map((path) => resolveAccessEntryPath(path, "write", primaryRoot))
       .sort();
     this.useWorkspaceSnapshots = options.useWorkspaceSnapshots === true;
@@ -159,6 +164,16 @@ export class WorkspaceRepositoryService {
       if (outside.length > 0) {
         throw new Error(
           `Source changes in workspace repository ${context.id} exceed the reviewed task scope: ${outside.join(", ")}.`,
+        );
+      }
+      const excludedDependencies = changedPaths.filter((path) => {
+        if (!isDependencyPath(path)) return false;
+        const entry = repositoryPathTarget(context.root, path, "write").entry;
+        return !this.approvedDependencyPaths.some((approvedPath) => isAccessEntryWithin(entry, approvedPath, "write"));
+      });
+      if (excludedDependencies.length > 0) {
+        throw new Error(
+          `Dependency changes in workspace repository ${context.id} are excluded by the reviewed task: ${excludedDependencies.join(", ")}.`,
         );
       }
       return {

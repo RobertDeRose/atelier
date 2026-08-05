@@ -6,6 +6,8 @@ import {
   resolveAbsolutePath,
   resolveAccessPath,
   isAccessEntryWithin,
+  isSourcePathWithin,
+  isDependencyPathWithin,
   type AtelierCore,
   type FilesystemEffect,
 } from "../../../packages/core/src/index.ts";
@@ -273,6 +275,15 @@ function segmentEffects(segment: string, cwd: string, runtimeConfined: boolean):
         : candidates.map((target) => pathEffect(cwd, "overwrite", target, "jj restore target", { destructive: true }));
     }
   }
+  if (executable === "bd") {
+    const subcommand = args.find((value) => !value.startsWith("-")) ?? "";
+    const readOnly = ["blocked", "children", "graph", "info", "list", "prime", "ready", "show", "status", "version", "where"];
+    const readOnlyDependency = subcommand === "dep"
+      && ["", "cycles", "list", "tree"].includes(args.slice(args.indexOf(subcommand) + 1).find((value) => !value.startsWith("-")) ?? "");
+    if (readOnly.includes(subcommand) || readOnlyDependency) {
+      return [{ kind: "read", path: cwd, description: `bd ${subcommand || "command"} inspection` }];
+    }
+  }
 
   if (executable === "rg" || executable === "grep") {
     const roots = searchCommandPaths(tokens);
@@ -379,16 +390,21 @@ function sandboxIsAvailable(core: AtelierCore): boolean {
 function applyReviewedTaskScope(
   effects: readonly FilesystemEffect[],
   approvedTaskPaths: readonly string[],
+  approvedDependencyPaths: readonly string[],
+  repositoryRoot: string,
 ): FilesystemEffect[] {
   if (approvedTaskPaths.length === 0) return [...effects];
   return effects.map((effect) => {
-    if (!["create", "mutate", "delete", "overwrite"].includes(effect.kind)
-      || effect.path === undefined
-      || approvedTaskPaths.some((approvedPath) => isAccessEntryWithin(effect.path!, approvedPath, "write"))) return effect;
+    if (!["create", "mutate", "delete", "overwrite"].includes(effect.kind) || effect.path === undefined) return effect;
+    const inTaskScope = approvedTaskPaths.some((approvedPath) => isAccessEntryWithin(effect.path!, approvedPath, "write"));
+    const dependency = isDependencyPathWithin(repositoryRoot, effect.path);
+    const inDependencyScope = approvedDependencyPaths.some((approvedPath) => isAccessEntryWithin(effect.path!, approvedPath, "write"));
+    const source = isSourcePathWithin(repositoryRoot, effect.path);
+    if (inTaskScope && source && (!dependency || inDependencyScope)) return effect;
     return {
       ...effect,
       requiresExplicitApproval: true,
-      description: `${effect.description ?? "shell write"} is outside the reviewed task paths`,
+      description: `${effect.description ?? "shell write"} is outside the reviewed task source scope`,
     };
   });
 }
@@ -415,6 +431,8 @@ export function effectsForTool(event: any, ctx: ExtensionContext, core: AtelierC
     ctx.cwd,
     sandboxIsAvailable(core),
     core.approvedTaskPaths(),
+    core.approvedDependencyPaths(),
+    core.config.repositoryRoot,
   );
   if (event.toolName.startsWith("atlr_code_") || event.toolName === "atlr_state") {
     return [{ kind: "read", path: ctx.cwd, description: `Atelier ${event.toolName} read` }];
@@ -438,6 +456,13 @@ export function effectsForShellCommand(
   cwd: string,
   runtimeConfined: boolean,
   approvedTaskPaths: readonly string[] = [],
+  approvedDependencyPaths: readonly string[] = [],
+  repositoryRoot: string = cwd,
 ): FilesystemEffect[] {
-  return applyReviewedTaskScope(shellEffects(command, cwd, runtimeConfined), approvedTaskPaths);
+  return applyReviewedTaskScope(
+    shellEffects(command, cwd, runtimeConfined),
+    approvedTaskPaths,
+    approvedDependencyPaths,
+    repositoryRoot,
+  );
 }

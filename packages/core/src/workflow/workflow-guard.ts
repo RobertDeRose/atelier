@@ -6,12 +6,14 @@ import type {
   WorkflowDecision,
   WorkflowMode,
 } from "../domain/types.ts";
-import { isAccessEntryWithin, sameAccessEntryPath } from "../security/path-boundary.ts";
+import { isAccessEntryWithin, relativeAccessPath, sameAccessEntryPath } from "../security/path-boundary.ts";
+import { isDependencyPath, isSourcePath } from "../repository/source-path.ts";
 import { newId } from "../util/ids.ts";
 
 export interface WorkflowGuardState {
   mode: WorkflowMode;
   workspaceRoot: string;
+  repositoryRoot?: string;
   planPath: string;
   executionGrant?: ExecutionGrant;
   executionPaused?: boolean;
@@ -28,6 +30,39 @@ function selectedConstraint(state: WorkflowGuardState): ApprovedTaskConstraint |
 function allowedPath(path: string, approved: readonly string[]): boolean {
   return approved.some((candidate) =>
     sameAccessEntryPath(path, candidate, "write") || isAccessEntryWithin(path, candidate, "write"));
+}
+
+function repositoryRelativePath(repositoryRoot: string, path: string): string | undefined {
+  const relationship = relativeAccessPath(path, repositoryRoot, "write", repositoryRoot);
+  return relationship === "" ? "." : relationship;
+}
+
+function hasRepositoryRootScope(constraint: ApprovedTaskConstraint, repositoryRoot: string | undefined): boolean {
+  return repositoryRoot !== undefined && constraint.writePaths.some((path) => sameAccessEntryPath(path, repositoryRoot, "write"));
+}
+
+function allowedSourcePath(
+  path: string,
+  constraint: ApprovedTaskConstraint,
+  repositoryRoot: string | undefined,
+): boolean {
+  if (!allowedPath(path, constraint.writePaths)) return false;
+  if (!hasRepositoryRootScope(constraint, repositoryRoot) || repositoryRoot === undefined) return true;
+  const relativePath = repositoryRelativePath(repositoryRoot, path);
+  if (relativePath === undefined || !isSourcePath(relativePath)) return false;
+  return constraint.allowDependencyChanges || !isDependencyPath(relativePath);
+}
+
+function allowedDependencyPath(
+  path: string,
+  constraint: ApprovedTaskConstraint,
+  repositoryRoot: string | undefined,
+): boolean {
+  const relativePath = repositoryRoot === undefined ? path : repositoryRelativePath(repositoryRoot, path);
+  if (relativePath === undefined || relativePath === "." || !isDependencyPath(relativePath)) return false;
+  const broadScope = hasRepositoryRootScope(constraint, repositoryRoot);
+  return allowedPath(path, constraint.dependencyPaths)
+    || (broadScope && constraint.allowDependencyChanges && allowedPath(path, constraint.writePaths));
 }
 
 function decision(request: WorkflowActionRequest, result: "allow" | "deny", reason: string, matchedRules: string[] = []): WorkflowDecision {
@@ -69,15 +104,15 @@ export class WorkflowGuard {
       case "write.file":
       case "write.multiple_files": {
         const paths = request.paths ?? [];
-        if (paths.length === 0 || !paths.every((path) => allowedPath(path, constraint.writePaths))) {
-          return decision(request, "deny", "The operation exceeds the reviewed task path constraints.");
+        if (paths.length === 0 || !paths.every((path) => allowedSourcePath(path, constraint, state.repositoryRoot))) {
+          return decision(request, "deny", "The operation exceeds the reviewed task path constraints or targets excluded metadata/dependency paths.");
         }
         return decision(request, "allow", "The operation stays within the reviewed task paths.", ["reviewed task path constraint"]);
       }
       case "dependency.modify": {
         if (!constraint.allowDependencyChanges) return decision(request, "deny", "Dependency changes were excluded by the reviewed task.");
         const paths = request.paths ?? [];
-        if (paths.length === 0 || !paths.every((path) => allowedPath(path, constraint.dependencyPaths))) {
+        if (paths.length === 0 || !paths.every((path) => allowedDependencyPath(path, constraint, state.repositoryRoot))) {
           return decision(request, "deny", "The dependency operation exceeds the reviewed dependency paths.");
         }
         return decision(request, "allow", "Dependency changes are explicitly reviewed for these paths.", ["reviewed dependency constraint"]);
@@ -101,8 +136,8 @@ export class WorkflowGuard {
       case "repository.change.create": {
         if (!constraint.allowLocalChange) return decision(request, "deny", "A local change was not included by the reviewed task.");
         const paths = request.paths ?? [];
-        if (paths.length === 0 || !paths.every((path) => allowedPath(path, constraint.writePaths))) {
-          return decision(request, "deny", "The local change includes paths outside the reviewed task.");
+        if (paths.length === 0 || !paths.every((path) => allowedSourcePath(path, constraint, state.repositoryRoot))) {
+          return decision(request, "deny", "The local change includes paths outside the reviewed task or excluded metadata/dependency paths.");
         }
         return decision(request, "allow", "The local change is limited to reviewed task paths.", ["reviewed local-change constraint"]);
       }

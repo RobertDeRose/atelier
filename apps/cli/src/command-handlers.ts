@@ -14,6 +14,7 @@ import {
   type PlanDiagnostic,
   type RetrievalSessionStatus,
   type TaskReconciliation,
+  type StandaloneTaskExecutionOptions,
 } from "../../../packages/core/src/index.ts";
 import { flagBoolean, flagString, type ParsedArgs } from "./arguments.ts";
 
@@ -310,22 +311,71 @@ export async function explicitConfirmation(args: ParsedArgs, prompt: string): Pr
   }
 }
 
+function standaloneTaskOptions(taskId: string | undefined, args: ParsedArgs): StandaloneTaskExecutionOptions {
+  const resolvedTaskId = taskId?.trim();
+  if (!resolvedTaskId) throw new Error("Standalone task activation requires an explicit task id.");
+  const writePaths = (flagString(args, "write") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const validationFlag = flagString(args, "validation") ?? flagString(args, "validations") ?? "";
+  const validations = validationFlag.split(",").map((value) => value.trim()).filter(Boolean);
+  return {
+    taskId: resolvedTaskId,
+    writePaths,
+    ...(validations.length === 0 ? {} : { validations }),
+    ...(flagBoolean(args, "dependencies") ? { allowDependencyChanges: true } : {}),
+    ...(flagBoolean(args, "full-suite") ? { allowFullSuite: true } : {}),
+    ...(flagBoolean(args, "no-local-change") ? { allowLocalChange: false } : {}),
+  };
+}
+
 export async function handleTaskStart(core: AtelierCore, requestedTaskId: string | undefined, args: ParsedArgs): Promise<void> {
-  const confirmed = await explicitConfirmation(args, `Activate ${requestedTaskId ?? "the next approved-plan task"}?`);
-  if (!confirmed) {
-    process.stdout.write("Task activation cancelled.\n");
+  const standalone = flagBoolean(args, "standalone")
+    || flagString(args, "write") !== undefined
+    || flagString(args, "task") !== undefined;
+  if (!standalone) {
+    const confirmed = await explicitConfirmation(args, `Activate ${requestedTaskId ?? "the next approved-plan task"}?`);
+    if (!confirmed) {
+      process.stdout.write("Task activation cancelled.\n");
+      return;
+    }
+    const transition = await core.execution.startNextTask(true, requestedTaskId);
+    if (transition === undefined) throw new Error("Task activation was not confirmed.");
+    if (flagBoolean(args, "json")) asJson(transition);
+    else process.stdout.write(`Activated ${transition.task.id} with execution grant ${transition.executionGrant.id}.\n`);
     return;
   }
-  const transition = await core.execution.startNextTask(true, requestedTaskId);
-  if (transition === undefined) throw new Error("Task activation was not confirmed.");
+
+  const options = standaloneTaskOptions(requestedTaskId ?? flagString(args, "task"), args);
+  const task = await core.taskProvider.get(options.taskId);
+  if (task === undefined) throw new Error(`Task not found: ${options.taskId}`);
+  if (!flagBoolean(args, "json")) {
+    process.stdout.write([
+      `Standalone task: ${task.id} — ${task.title}`,
+      `Writes: ${options.writePaths?.join(", ") || ". (all application-source paths; metadata and dependencies excluded by default)"}`,
+      `Validations: ${options.validations?.join(", ") || "none"}`,
+      `Dependency changes: ${options.allowDependencyChanges === true ? "allowed" : "excluded"}`,
+      `Full suite: ${options.allowFullSuite === true ? "allowed" : "excluded"}`,
+      `Local change: ${options.allowLocalChange === false ? "not required" : "required"}`,
+    ].join("\n") + "\n");
+  }
+  const confirmed = await explicitConfirmation(args, `Activate standalone task ${task.id} without a plan?`);
+  if (!confirmed) {
+    process.stdout.write("Standalone task activation cancelled.\n");
+    return;
+  }
+  const transition = await core.execution.startStandaloneTask(options, true);
+  if (transition === undefined) throw new Error("Standalone task activation was not confirmed.");
   if (flagBoolean(args, "json")) asJson(transition);
-  else process.stdout.write(`Activated ${transition.task.id} with execution grant ${transition.executionGrant.id}.\n`);
+  else process.stdout.write(`Activated standalone task ${transition.task.id} with execution grant ${transition.executionGrant.id}.\n`);
 }
 
 export async function handleTasks(core: AtelierCore, subcommand: string | undefined, rest: string[], args: ParsedArgs): Promise<void> {
   switch (subcommand) {
     case "ready": {
-      const tasks = await core.taskProvider.ready();
+      const tasks = (await core.taskProvider.ready())
+        .filter((task) => ["bug", "feature", "task", "chore", "spike"].includes(task.type));
       if (flagBoolean(args, "json")) asJson(tasks);
       else for (const task of tasks) process.stdout.write(`${task.id}\tP${task.priority}\t${task.status}\t${task.title}\n`);
       return;

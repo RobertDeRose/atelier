@@ -69,7 +69,7 @@ function normalizeStatus(value: unknown): TaskStatus {
 
 function normalizeType(value: unknown): TaskType {
   const type = typeof value === "string" ? value.toLowerCase() : "unknown";
-  if (["bug", "feature", "task", "epic", "chore"].includes(type)) return type as TaskType;
+  if (["bug", "feature", "task", "epic", "chore", "spike"].includes(type)) return type as TaskType;
   return "unknown";
 }
 
@@ -120,6 +120,8 @@ export function normalizeBeadsTask(value: unknown): TaskRecord {
   const acceptance = firstDefined(record, ["acceptance_criteria", "acceptance", "criteria"]);
   const labels = firstDefined(record, ["labels", "tags"]);
   const notes = stringValue(record, ["notes", "note"]);
+  const parentValue = firstDefined(record, ["parent", "parent_id", "parentId"]);
+  const parentId = typeof parentValue === "string" && parentValue.trim() ? parentValue.trim() : undefined;
   const planTaskId = stablePlanTaskId(notes);
 
   return {
@@ -138,6 +140,7 @@ export function normalizeBeadsTask(value: unknown): TaskRecord {
     type: normalizeType(firstDefined(record, ["issue_type", "type", "kind"])),
     dependencies: stringArray(dependencyValue),
     labels: stringArray(labels),
+    ...(parentId === undefined ? {} : { parentId }),
     ...(stringValue(record, ["assignee", "owner"]) ? { assignee: stringValue(record, ["assignee", "owner"]) } : {}),
     ...(stringValue(record, ["created_at", "createdAt"]) ? { createdAt: stringValue(record, ["created_at", "createdAt"]) } : {}),
     ...(stringValue(record, ["updated_at", "updatedAt"]) ? { updatedAt: stringValue(record, ["updated_at", "updatedAt"]) } : {}),
