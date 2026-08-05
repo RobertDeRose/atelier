@@ -6,6 +6,7 @@ export interface AtelierStatusView {
   workflow: { mode: string; checkpoint: string; plan: string; objective?: string; nextAction: string };
   task: { current: string; provider: string; providerState: string };
   execution: { grant: string; constraints: number; closure: string };
+  security: { mode: string; sandbox: string };
 }
 
 export function createStatusView(status: AtelierStatus): AtelierStatusView {
@@ -24,6 +25,7 @@ export function createStatusView(status: AtelierStatus): AtelierStatusView {
     workflow: { mode: status.mode, checkpoint: status.workflowCheckpoint, plan, ...(status.planObjective ? { objective: status.planObjective } : {}), nextAction: status.nextAction },
     task: { current: status.currentTaskId ?? "none", provider: status.taskProvider.provider, providerState: !status.taskProvider.available ? "unavailable" : status.taskProvider.initialized ? "ready" : "not initialized" },
     execution: { grant, constraints: status.activeTaskConstraints?.length ?? 0, closure: status.closureStatus },
+    security: { mode: status.securityMode ?? "unknown", sandbox: status.sandboxBackend ?? "unknown" },
   };
 }
 
@@ -40,6 +42,7 @@ export function statusViewLines(view: AtelierStatusView): string[] {
     `Execution grant: ${view.execution.grant}`,
     `Reviewed task constraints: ${view.execution.constraints}`,
     `Task closure: ${view.execution.closure}`,
+    `Security: ${view.security.mode} · sandbox ${view.security.sandbox}`,
     `Next action: ${view.workflow.nextAction}`,
   ];
 }

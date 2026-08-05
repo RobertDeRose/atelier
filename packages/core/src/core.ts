@@ -76,6 +76,8 @@ export interface AtelierStatus {
   workspaceRoot: string;
   workspaceSource: "startup_cwd" | "explicit";
   runtimeDirectory: string;
+  securityMode: AtelierConfig["securityMode"];
+  sandboxBackend: AtelierConfig["sandboxBackend"];
   mode: WorkflowMode;
   planPath: string;
   planExists: boolean;
@@ -332,6 +334,8 @@ export class AtelierCore {
             codeMaxPersistedBytes: this.config.codeMaxPersistedBytes,
             longRunningThresholdMs: this.config.longRunningThresholdMs,
             providerFirstRetrieval: this.config.providerFirstRetrieval,
+            securityMode: "core-only",
+            sandboxBackend: "none",
           },
           null,
           2,
@@ -1406,6 +1410,8 @@ export class AtelierCore {
       workspaceRoot: this.config.workspaceRoot,
       workspaceSource: this.config.workspaceSource,
       runtimeDirectory: this.config.runtimeDirectory,
+      securityMode: this.config.securityMode,
+      sandboxBackend: this.config.sandboxBackend,
       mode: this.mode(),
       planPath: this.config.planPath,
       planExists,
@@ -1456,16 +1462,20 @@ export class AtelierCore {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       operation: options.operation ?? "workspace-policy",
     });
-    const decision = this.workspacePolicy.evaluate(effects, {
-      classify: (path) => observation.pathStates[path]
-        ?? this.repository.classifyPath?.(path)
-        ?? (existsSync(path) ? "untracked" : "missing"),
-    });
+    const decision = this.config.securityMode === "core-only"
+      ? coreOnlyWorkspaceDecision(effects)
+      : this.workspacePolicy.evaluate(effects, {
+          classify: (path) => observation.pathStates[path]
+            ?? this.repository.classifyPath?.(path)
+            ?? (existsSync(path) ? "untracked" : "missing"),
+        });
     return { decision, observation };
   }
 
   evaluateWorkspaceEffects(effects: readonly FilesystemEffect[]): WorkspacePolicyDecision {
-    return this.workspacePolicy.evaluate(effects, { classify: (path) => this.repository.classifyPath?.(path) ?? (existsSync(path) ? "untracked" : "missing") });
+    return this.config.securityMode === "core-only"
+      ? coreOnlyWorkspaceDecision(effects)
+      : this.workspacePolicy.evaluate(effects, { classify: (path) => this.repository.classifyPath?.(path) ?? (existsSync(path) ? "untracked" : "missing") });
   }
 
   checkpointWorkspaceEffects(
@@ -1495,6 +1505,20 @@ export class AtelierCore {
     this.ledger.append({ kind: "recovery.checkpoint_restored", actor: "user", repositorySnapshot: this.repository.snapshot(), payload: { id, paths } });
     return paths;
   }
+}
+
+function coreOnlyWorkspaceDecision(effects: readonly FilesystemEffect[]): WorkspacePolicyDecision {
+  const reason = "Workspace permission enforcement is disabled in core-only mode.";
+  return {
+    result: "allow",
+    effects: effects.map((effect) => ({
+      ...effect,
+      state: "unknown" as const,
+      decision: "allow" as const,
+      reason,
+    })),
+    reason,
+  };
 }
 
 function positiveOrOne(value: number): number {

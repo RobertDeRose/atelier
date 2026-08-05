@@ -204,6 +204,8 @@ async function main(): Promise<void> {
         if (flagBoolean(parsed, "json")) asJson({
           valid: issues.length === 0,
           issues,
+          securityMode: core.config.securityMode,
+          sandboxBackend: core.config.sandboxBackend,
           workspace: core.codeWorkspace(),
           retrievalBudgets: {
             providerRequests: core.config.codeMaxProviderRequests,

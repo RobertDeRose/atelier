@@ -15,6 +15,43 @@ const expectedDefaults = {
   codeMaxPersistedBytes: 256_000,
 };
 
+test("global config supplies defaults and project config overrides declarative settings", () => {
+  const root = createTemporaryRepository("atlr-global-config-");
+  const globalConfig = `${root}-global-config.json`;
+  const previousUserConfig = process.env.ATLR_USER_CONFIG;
+  const projectConfigPath = join(root, ".atelier", "config.json");
+  const projectConfig = JSON.parse(readFileSync(projectConfigPath, "utf8")) as Record<string, unknown>;
+  writeFileSync(globalConfig, `${JSON.stringify({
+    repositoryProvider: "git",
+    codeProvider: "mock",
+    codeMode: "local",
+    codeMaxResults: 3,
+    securityMode: "enforced",
+    sandboxBackend: "seatbelt",
+  })}\n`, "utf8");
+  writeFileSync(projectConfigPath, `${JSON.stringify({
+    ...projectConfig,
+    codeProvider: "disabled",
+    codeMaxResults: 7,
+    securityMode: "core-only",
+  })}\n`, "utf8");
+  process.env.ATLR_USER_CONFIG = globalConfig;
+  try {
+    const config = loadConfig(root);
+    assert.equal(config.repositoryProvider, "git", "global settings apply when the project omits a field");
+    assert.equal(config.codeMode, "local", "global settings apply to all declarative config fields");
+    assert.equal(config.codeProvider, "disabled", "project settings override global settings");
+    assert.equal(config.codeMaxResults, 7, "project scalar settings override global settings");
+    assert.equal(config.securityMode, "core-only", "project security mode overrides the global mode");
+    assert.equal(config.sandboxBackend, "none", "core-only still forces sandboxing off");
+  } finally {
+    if (previousUserConfig === undefined) delete process.env.ATLR_USER_CONFIG;
+    else process.env.ATLR_USER_CONFIG = previousUserConfig;
+    rmSync(globalConfig, { force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("retrieval budgets have bounded defaults and repository overrides", () => {
   const root = createTemporaryRepository("atlr-retrieval-config-");
   try {

@@ -145,7 +145,7 @@ export function requestForTool(
         ? { paths: effects.flatMap((effect) => effect.path === undefined ? [] : [effect.path]) }
         : writePaths.length > 0 ? { paths: writePaths } : {}),
       rationale: readOnly
-        ? `${classification.rationale.join("; ")} Both shell-analysis layers classify the command as read-only. ${sandbox.available ? `Execution uses ${sandbox.detail}.` : "No OS sandbox is available, so execution requires an additional one-operation approval."}`
+        ? `${classification.rationale.join("; ")} Both shell-analysis layers classify the command as read-only. ${sandbox.available ? `Execution uses ${sandbox.detail}.` : "No OS sandbox is needed for this bounded read-only operation."}`
         : `${classification.rationale.join("; ")} Persistent effects remain governed by workspace recoverability. ${sandbox.available ? `Execution uses ${sandbox.detail}.` : "Unsandboxed execution requires an explicit one-operation approval."}`,
     };
   }
@@ -328,19 +328,27 @@ export async function authorizeShellEffects(
   effects: readonly FilesystemEffect[],
   ctx: ExtensionContext,
   core: AtelierCore,
-  options: { toolCallId?: string; sessionId?: string; observation?: RepositoryObservation } = {},
+  options: {
+    toolCallId?: string;
+    sessionId?: string;
+    observation?: RepositoryObservation;
+    allowUnsandboxedReadOnly?: boolean;
+  } = {},
 ): Promise<WorkspaceEffectsAuthorization & { allowUnsandboxed: boolean }> {
   const sandbox = resolveSandboxBackend(core.config.sandboxBackend);
+  const coreOnly = core.config.securityMode === "core-only";
+  const requireUnsandboxedApproval = !coreOnly && !sandbox.available && options.allowUnsandboxedReadOnly !== true;
   const authorization = await authorizeWorkspaceEffects(effects, ctx, core, {
     ...options,
-    ...(sandbox.available ? {} : {
+    ...(requireUnsandboxedApproval ? {
       requireExplicitApproval: true,
       approvalWarning: `${sandbox.detail} This command will run without OS-level confinement if approved.`,
-    }),
+    } : {}),
   });
   return {
     ...authorization,
-    allowUnsandboxed: !sandbox.available && authorization.approvedOnce === true,
+    allowUnsandboxed: coreOnly || (!sandbox.available
+      && (authorization.approvedOnce === true || options.allowUnsandboxedReadOnly === true)),
   };
 }
 

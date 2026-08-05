@@ -69,11 +69,13 @@ Current release: **0.14.0-alpha.46**. Alpha.46 makes agent-turn progress surface
 
 ## Current status
 
-Atelier establishes an immutable session workspace from the canonical startup directory. Ordinary non-secret reads, file creation, and recoverable in-workspace mutations proceed without setup or repetitive approval. Atelier asks only when an operation may escape the workspace, expose a likely secret, require privilege escalation, or cannot be recovered exactly.
+Atelier establishes an immutable session workspace from the canonical startup directory. New development workspaces initialize with `securityMode: "core-only"`: workspace permission prompts and the OS shell sandbox are disabled so the foundational code-intelligence, Beads, and Jujutsu/Git workflow can be exercised without safety-layer friction. Core still records workflow state, observations, retrieval, validation, evidence, and task constraints.
 
-Pi `/trust` remains independent and controls only project-local Pi resources. Generic shell execution uses macOS Seatbelt or Linux Bubblewrap when available. When neither backend is available, every shell command requires an explicit one-operation approval that states execution will not be OS-confined.
+This mode is intentionally unsafe. Do not use it with untrusted repositories or unattended privileged work. Set `securityMode: "enforced"` in `.atelier/config.json` to restore workspace-policy decisions and the configured Seatbelt/Bubblewrap backend.
 
-This remains an interactive alpha. Do not use it for unattended privileged execution.
+Pi `/trust` remains independent and controls only project-local Pi resources.
+
+This remains an interactive alpha.
 
 ## Delivered workflow
 
@@ -170,12 +172,16 @@ ${XDG_STATE_HOME:-~/.local/state}/atelier/repositories/<root-hash>/atelier.db
 ${XDG_STATE_HOME:-~/.local/state}/atelier/repositories/<root-hash>/code/codesearch-index-state.json
 ```
 
-`ATLR_STATE_HOME` or user configuration can relocate runtime state. Repository configuration cannot
-redirect the ledger or caches, and it cannot select editor, Beads, Jujutsu, codesearch, or Octocode
-executables. Those commands come only from user configuration, controlled defaults, or `ATLR_EDITOR`.
-Legacy `.atelier/*.db` and codesearch selection-state files are ignored and migrated; mutable provider state
-never participates in Git or Jujutsu working-copy snapshots. `.atelier/config.json`, `PLAN.md`,
-`validation.json`, and `workspace.json` remain intentionally trackable.
+`ATLR_STATE_HOME` or user configuration can relocate runtime state. Atelier reads the user-wide
+`~/.config/atelier/config.json` first, then applies repository `.atelier/config.json` as the override
+layer for declarative settings. `ATLR_USER_CONFIG` selects a different global file. Repository
+configuration cannot redirect the ledger or caches, and it cannot select editor, Beads, Jujutsu,
+codesearch, or Octocode executables. Those commands come only from user configuration, controlled
+defaults, or `ATLR_EDITOR`. A user-specified external `octocodeConfigPath` also remains authoritative;
+otherwise the repository may use its project-local provider config. Legacy `.atelier/*.db` and
+codesearch selection-state files are ignored and migrated; mutable provider state never participates
+in Git or Jujutsu working-copy snapshots.
+`.atelier/config.json`, `PLAN.md`, `validation.json`, and `workspace.json` remain intentionally trackable.
 
 ## Exact plan-to-task workflow
 
@@ -474,9 +480,10 @@ live provider result.
 
 ## Current limitations
 
-- Static shell effect analysis is deliberately conservative. Interpreter, build-system, and compound
-  commands ask when their persistent effects cannot be enumerated exactly. When no OS sandbox is available,
-  every shell command asks once regardless of its parsed effect.
+- The default development `core-only` mode intentionally bypasses workspace permission decisions and OS
+  sandboxing; use `securityMode: "enforced"` before running untrusted or unattended work.
+- In enforced mode, static shell effect analysis is deliberately conservative. Interpreter, build-system,
+  and compound commands ask when their persistent effects cannot be enumerated exactly.
 - Seatbelt and Bubblewrap are platform facilities, not a complete VM boundary; network policy remains a
   separate concern and privileged execution always asks.
 - Live provider conformance depends on locally available external tools and is separate from deterministic CI.

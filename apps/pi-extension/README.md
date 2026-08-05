@@ -2,6 +2,15 @@
 
 This extension provides the interactive Atelier shell behavior for Pi.
 
+## Development security mode
+
+New workspaces use `securityMode: "core-only"` while the foundational workflow is being exercised.
+That mode skips workspace permission prompts and runs shell commands without Seatbelt or Bubblewrap.
+It does not remove Core workflow state, Beads task selection, Jujutsu/Git observation, retrieval,
+validation, evidence, or task constraints. The mode is unsafe for untrusted or unattended work; set
+`securityMode: "enforced"` in `.atelier/config.json` before relying on the permission and sandbox
+controls.
+
 ## Efficient code retrieval
 
 Each Pi session owns one bounded Atelier retrieval session. The same compact evidence

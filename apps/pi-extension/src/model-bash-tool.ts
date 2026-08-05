@@ -49,8 +49,8 @@ export function createPolicyControlledBashTool(
   return {
     name: "bash",
     label: "bash (Atelier policy-controlled)",
-    description: "Run a shell command through Atelier effect analysis and workspace policy. An OS sandbox is used when available; otherwise the exact command requires an explicit one-operation approval before unsandboxed execution.",
-    promptSnippet: "Use Atelier's policy-controlled shell; prefer typed tools and expect explicit approval when no OS sandbox is available",
+    description: "Run a shell command through Atelier effect analysis and workflow controls. Enforced mode uses an OS sandbox when available and prompts for unsandboxed execution; core-only mode intentionally skips both gates.",
+    promptSnippet: "Use Atelier's policy-controlled shell; prefer typed tools; core-only mode intentionally runs without permission prompts or an OS sandbox",
     executionMode: "sequential",
     parameters: objectSchema({
       command: stringSchema("Shell command to execute."),

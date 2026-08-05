@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   AtelierCore,
+  classifyShellCommand,
   ensurePlanDocument,
   updatePlanTaskScopeFile,
   sourceSnapshotFingerprint,
@@ -686,6 +687,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       toolCallId: event.toolCallId,
       sessionId: extensionState.sessionId,
       observation,
+      ...(request.action === "read.repository" ? { allowUnsandboxedReadOnly: true } : {}),
     };
     const workspaceAuthorization = event.toolName === "bash"
       ? await authorizeShellEffects(effects, ctx, core, authorizationOptions)
@@ -734,10 +736,17 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       ...(signal === undefined ? {} : { signal }),
       operation: "permission",
     });
+    const classification = classifyShellCommand(command);
+    const allowUnsandboxedReadOnly = classification.action === "read.repository"
+      && classification.mutating === false
+      && classification.risk === "routine"
+      && effects.length > 0
+      && effects.every((effect) => effect.kind === "read");
     const authorization = await authorizeShellEffects(effects, ctx, core, {
       toolCallId: `user-bash-${randomUUID()}`,
       sessionId: sessionState(ctx).sessionId,
       observation,
+      allowUnsandboxedReadOnly,
     });
     clearPhase(ctx);
     if (authorization.response !== undefined) {

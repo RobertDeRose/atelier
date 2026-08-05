@@ -7,6 +7,8 @@ import { sha256 } from "../util/hash.ts";
 import { splitCommandLine } from "../util/command-line.ts";
 import { establishSessionWorkspace } from "../workspace/session-workspace.ts";
 
+export type AtelierSecurityMode = "core-only" | "enforced";
+
 export interface AtelierConfig {
   repositoryRoot: string;
   workspaceRoot: string;
@@ -49,6 +51,7 @@ export interface AtelierConfig {
   secretPathPatterns: string[];
   checkpointMaxBytes: number;
   footer: "atelier" | "status-only" | "disabled";
+  securityMode: AtelierSecurityMode;
   sandboxBackend: "auto" | "seatbelt" | "bubblewrap" | "none";
 }
 
@@ -86,6 +89,7 @@ export interface PartialAtelierConfig {
   secretPathPatterns?: string[];
   checkpointMaxBytes?: number;
   footer?: AtelierConfig["footer"];
+  securityMode?: AtelierConfig["securityMode"];
   sandboxBackend?: AtelierConfig["sandboxBackend"];
 }
 
@@ -93,6 +97,7 @@ function canonicalRoot(path: string): string {
   return resolveAccessPath(path, "read");
 }
 
+/** Return the user-wide settings file, overridable for isolated environments and tests. */
 export function userConfigPath(): string {
   return resolve(process.env.ATLR_USER_CONFIG ?? join(homedir(), ".config", "atelier", "config.json"));
 }
@@ -173,14 +178,17 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
   if (!isPathWithin(root, workspace.root, "read")) throw new ConfigurationError(`Repository root must remain inside the Atelier workspace: ${root}`);
   const projectDirectory = requireProjectPath(root, ".atelier", "projectDirectory");
   const projectConfigPath = requireProjectPath(root, ".atelier/config.json", "projectConfigPath");
-  const userConfig = readJsonConfig(userConfigPath());
+  const globalConfigPath = userConfigPath();
+  const globalConfig = readJsonConfig(globalConfigPath);
   const repositoryConfig = readJsonConfig(projectConfigPath);
   rejectRepositoryExecutableConfiguration(repositoryConfig, projectConfigPath);
-  const merged = mergeConfig(userConfig, repositoryConfig);
+  // Repository configuration is the local override layer for declarative settings.
+  // Executable and mutable-runtime settings remain user-controlled below.
+  const merged = mergeConfig(globalConfig, repositoryConfig);
 
-  const runtimeValue = userConfig.runtimeDirectory ?? userConfig.stateDirectory;
+  const runtimeValue = globalConfig.runtimeDirectory ?? globalConfig.stateDirectory;
   const runtimeDirectory = requireExternalRuntimePath(root, runtimeValue ?? defaultRuntimeDirectory(root), "runtimeDirectory");
-  const databasePath = requireExternalRuntimePath(root, userConfig.databasePath ?? join(runtimeDirectory, "atelier.db"), "databasePath");
+  const databasePath = requireExternalRuntimePath(root, globalConfig.databasePath ?? join(runtimeDirectory, "atelier.db"), "databasePath");
   const planPath = requireProjectPath(root, merged.planPath ?? ".atelier/PLAN.md", "planPath");
   const validationPath = requireProjectPath(root, ".atelier/validation.json", "validationPath");
   const workspacePath = requireProjectPath(root, ".atelier/workspace.json", "workspacePath");
@@ -191,21 +199,23 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
   const codeMode = validateChoice(merged.codeMode ?? "auto", ["auto", "local", "client"] as const, "codeMode");
   const providerFirstRetrieval = validateChoice(merged.providerFirstRetrieval ?? "advisory", ["advisory", "off"] as const, "providerFirstRetrieval");
   const footer = validateChoice(merged.footer ?? "atelier", ["atelier", "status-only", "disabled"] as const, "footer");
-  const sandboxBackend = validateChoice(merged.sandboxBackend ?? "auto", ["auto", "seatbelt", "bubblewrap", "none"] as const, "sandboxBackend");
+  const securityMode = validateChoice(merged.securityMode ?? "enforced", ["core-only", "enforced"] as const, "securityMode");
+  const configuredSandboxBackend = validateChoice(merged.sandboxBackend ?? "auto", ["auto", "seatbelt", "bubblewrap", "none"] as const, "sandboxBackend");
+  const sandboxBackend = securityMode === "core-only" ? "none" as const : configuredSandboxBackend;
 
-  const octocodeConfigPath = userConfig.octocodeConfigPath !== undefined
-    ? resolveAccessPath(resolveFromRoot(root, userConfig.octocodeConfigPath), "write")
+  const octocodeConfigPath = globalConfig.octocodeConfigPath !== undefined
+    ? resolveAccessPath(resolveFromRoot(root, globalConfig.octocodeConfigPath), "write")
     : requireProjectPath(root, repositoryConfig.octocodeConfigPath ?? ".atelier/octocode-config.toml", "octocodeConfigPath");
-  const editor = process.env.ATLR_EDITOR ?? userConfig.editor;
+  const editor = process.env.ATLR_EDITOR ?? globalConfig.editor;
   return {
     repositoryRoot: root,
     workspaceRoot: workspace.root,
     workspaceSource: workspace.source,
     projectDirectory, projectConfigPath, validationPath, workspacePath, runtimeDirectory, stateDirectory: runtimeDirectory, databasePath, planPath,
     ...(editor === undefined ? {} : { editor }),
-    taskProvider, beadsCommand: userConfig.beadsCommand ?? "bd", repositoryProvider, jjCommand: userConfig.jjCommand ?? "jj",
+    taskProvider, beadsCommand: globalConfig.beadsCommand ?? "bd", repositoryProvider, jjCommand: globalConfig.jjCommand ?? "jj",
     indexSchemaVersion: merged.indexSchemaVersion ?? 1, longRunningThresholdMs: merged.longRunningThresholdMs ?? 300_000,
-    codeProvider, codeCommand: userConfig.codeCommand ?? "codesearch", octocodeCommand: userConfig.octocodeCommand ?? "octocode", octocodeConfigPath, codeMode,
+    codeProvider, codeCommand: globalConfig.codeCommand ?? "codesearch", octocodeCommand: globalConfig.octocodeCommand ?? "octocode", octocodeConfigPath, codeMode,
     codeTimeoutMs: merged.codeTimeoutMs ?? 60_000, codeIndexTimeoutMs: merged.codeIndexTimeoutMs ?? 300_000,
     codeMaxResults: merged.codeMaxResults ?? 10, codeMaxPreviewBytes: merged.codeMaxPreviewBytes ?? 2_000, codeMaxChunkBytes: merged.codeMaxChunkBytes ?? 16_000,
     codeMaxFetches: merged.codeMaxFetches ?? 8, codeMaxTotalBytes: merged.codeMaxTotalBytes ?? 64_000, codeMaxProviderRequests: merged.codeMaxProviderRequests ?? 8,
@@ -213,7 +223,7 @@ export function loadConfig(repositoryRoot: string, options: { workspaceRoot?: st
     codeMaxPersistedEntries: merged.codeMaxPersistedEntries ?? 256, codeMaxPersistedBytes: merged.codeMaxPersistedBytes ?? 256_000, providerFirstRetrieval,
     secretPathPatterns: Array.isArray(merged.secretPathPatterns) ? merged.secretPathPatterns.filter((value): value is string => typeof value === "string") : [],
     checkpointMaxBytes: Number.isFinite(merged.checkpointMaxBytes) && (merged.checkpointMaxBytes ?? 0) > 0 ? merged.checkpointMaxBytes! : 16 * 1024 * 1024,
-    footer, sandboxBackend,
+    footer, securityMode, sandboxBackend,
   };
 }
 
