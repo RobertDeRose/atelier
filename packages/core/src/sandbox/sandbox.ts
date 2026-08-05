@@ -55,10 +55,10 @@ function bubblewrapSecretMasks(): string[] {
 
 export function sandboxCommand(status: SandboxStatus, workspace: string, command: string, allowNetwork = false, cwd = workspace): { command: string; args: string[] } {
   if (!status.available) throw new Error(status.detail);
-  if (status.backend === "seatbelt") return { command: "sandbox-exec", args: ["-p", seatbeltProfile(workspace, allowNetwork), "/bin/sh", "-lc", command] };
+  if (status.backend === "seatbelt") return { command: "sandbox-exec", args: ["-p", seatbeltProfile(workspace, allowNetwork), "/bin/sh", "-c", command] };
   if (status.backend === "bubblewrap") return {
     command: "bwrap",
-    args: ["--die-with-parent", "--unshare-all", ...(allowNetwork ? ["--share-net"] : []), "--ro-bind", "/", "/", ...bubblewrapSecretMasks(), "--bind", workspace, workspace, "--tmpfs", "/tmp", "--chdir", cwd, "/bin/sh", "-lc", command],
+    args: ["--die-with-parent", "--unshare-all", ...(allowNetwork ? ["--share-net"] : []), "--ro-bind", "/", "/", ...bubblewrapSecretMasks(), "--bind", workspace, workspace, "--tmpfs", "/tmp", "--chdir", cwd, "/bin/sh", "-c", command],
   };
   throw new Error("No sandbox backend is active.");
 }
@@ -71,7 +71,7 @@ export async function runSandboxedShell(options: { workspace: string; command: s
   const invocation = sandbox.available
     ? sandboxCommand(sandbox, workspace, options.command, options.allowNetwork ?? false, cwd)
     : options.allowUnsandboxed === true
-      ? { command: "/bin/sh", args: ["-lc", options.command] }
+      ? { command: "/bin/sh", args: ["-c", options.command] }
       : (() => { throw new Error(sandbox.detail); })();
   const result = await runProcess(invocation.command, invocation.args, {
     cwd,
