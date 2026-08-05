@@ -57,7 +57,7 @@ Commands:
   cancel --reason TEXT              Revoke the current execution without closing its task
   ready [--json]                    Return provider-reported unblocked work
   task show ID [--json]             Read one provider task
-  task start [ID] --standalone [--write PATH[,PATH]] [--yes]
+  task start [ID] --standalone [--write PATH[,PATH]]
                                     Activate one existing task without a plan
   task start [ID] [--yes]           Explicitly activate a later approved-plan task
   task close ID --reason TEXT       Close a task with evidence

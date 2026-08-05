@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AtelierCore, StandaloneTaskExecutionOptions } from "../../../packages/core/src/index.ts";
-import { confirmApprovalDialog } from "./approval-dialog.ts";
 import { appendAtelierReport } from "./report-presentation.ts";
 import { readyTasksMarkdown } from "./command-reports.ts";
 
@@ -22,6 +21,7 @@ export function parseStandaloneTaskCommand(raw: string): StandaloneTaskExecution
       continue;
     }
     if (token === "--task") {
+      if (taskId !== undefined) throw new Error("Standalone task activation accepts only one task id.");
       taskFlag = true;
       taskId = tokens[++index];
       continue;
@@ -50,11 +50,11 @@ export function parseStandaloneTaskCommand(raw: string): StandaloneTaskExecution
     if (taskId === undefined) taskId = token;
     else throw new Error("Standalone task activation accepts only one task id.");
   }
-  if (!standalone && !taskFlag && writeFlag === undefined) return undefined;
+  if (!standalone && !taskFlag && taskId === undefined && writeFlag === undefined) return undefined;
   const resolvedTaskId = taskId?.trim();
   const writePaths = writeFlag?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
   if (!resolvedTaskId) {
-    throw new Error("Usage: /approve --task TASK_ID [--write PATH[,PATH]] [--validation NAME[,NAME]] [--dependencies] [--full-suite]");
+    throw new Error("Usage: /approve TASK_ID [--write PATH[,PATH]] [--validation NAME[,NAME]] [--dependencies] [--full-suite]");
   }
   const validations = validationFlag?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
   return {
@@ -74,37 +74,9 @@ export async function approveStandaloneTask(
   refreshStatus: (ctx: ExtensionCommandContext, core: AtelierCore) => Promise<void>,
 ): Promise<void> {
   await ctx.waitForIdle();
-  const status = await core.taskProvider.status();
-  if (!status.available || !status.initialized) {
-    ctx.ui.notify(status.reason ?? `${status.provider} is unavailable or uninitialized.`, "error");
-    return;
-  }
-  const task = await core.taskProvider.get(options.taskId);
-  if (task === undefined) {
-    ctx.ui.notify(`Task not found: ${options.taskId}`, "error");
-    return;
-  }
-  const summary = [
-    `Standalone task: ${task.id} — ${task.title}`,
-    `Writes: ${options.writePaths?.join(", ") || ". (all application-source paths; metadata and dependencies excluded by default)"}`,
-    `Validations: ${options.validations?.join(", ") || "none"}`,
-    `Dependency changes: ${options.allowDependencyChanges === true ? "allowed" : "excluded"}`,
-    `Full suite: ${options.allowFullSuite === true ? "allowed" : "excluded"}`,
-    `Local change: ${options.allowLocalChange === false ? "not required" : "required"}`,
-    "No plan file will be created, changed, or reconciled.",
-  ];
-  const confirmed = await confirmApprovalDialog(ctx, {
-    title: "Approve standalone task execution",
-    lines: summary,
-    approveLabel: "Activate task",
-  });
-  if (!confirmed) {
-    ctx.ui.notify("Standalone task activation was not approved.", "warning");
-    return;
-  }
   try {
     const transition = await core.execution.startStandaloneTask(options, true);
-    if (transition === undefined) throw new Error("Standalone task activation was not confirmed.");
+    if (transition === undefined) throw new Error("Standalone task activation did not produce an execution grant.");
     ctx.ui.notify(`Activated standalone task ${transition.task.id} with execution grant ${transition.executionGrant.id}.`, "info");
   } catch (error) {
     ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");

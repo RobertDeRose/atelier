@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension/src/index.ts";
 import { executionGrantText, planStatusText, vcsStatusText } from "../apps/pi-extension/src/status-presentation.ts";
-import { parseStandaloneTaskCommand } from "../apps/pi-extension/src/standalone-task-command.ts";
+import { approveStandaloneTask, parseStandaloneTaskCommand } from "../apps/pi-extension/src/standalone-task-command.ts";
 import {
   AtelierCore,
   InMemoryTaskProvider,
@@ -178,6 +178,10 @@ function registerTrustCommandHarness(): {
 
 
 test("standalone Pi task commands default to repository-wide source scope", () => {
+  assert.deepEqual(parseStandaloneTaskCommand("task-1"), {
+    taskId: "task-1",
+    writePaths: [],
+  });
   assert.deepEqual(parseStandaloneTaskCommand("--task task-1"), {
     taskId: "task-1",
     writePaths: [],
@@ -186,6 +190,39 @@ test("standalone Pi task commands default to repository-wide source scope", () =
     taskId: "task-1",
     writePaths: [],
   });
+  assert.throws(
+    () => parseStandaloneTaskCommand("task-1 --task task-2"),
+    /accepts only one task id/i,
+  );
+});
+
+test("explicit standalone approval activates without a second confirmation", async () => {
+  const root = createTemporaryRepository("atlr-standalone-approval-ui-");
+  const confirms = { count: 0 };
+  const notifications: string[] = [];
+  const context = fakeContext(root, confirms, [], { notifications });
+  const task = { id: "task-1", title: "Test standalone task" };
+  let received: { confirmed: boolean } | undefined;
+  const core = {
+    taskProvider: {
+      status: async () => ({ available: true, initialized: true }),
+      get: async () => task,
+    },
+    execution: {
+      startStandaloneTask: async (_options: unknown, confirmed: boolean) => {
+        received = { confirmed };
+        return { task, executionGrant: { id: "grant-1" } };
+      },
+    },
+  } as unknown as AtelierCore;
+  try {
+    await approveStandaloneTask(context, core, { taskId: task.id, writePaths: [] }, async () => {});
+    assert.equal(confirms.count, 0);
+    assert.deepEqual(received, { confirmed: true });
+    assert.ok(notifications.some((message) => /Activated standalone task task-1/.test(message)));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Pi status presentation distinguishes missing plans, execution grants, and VCS identity", () => {

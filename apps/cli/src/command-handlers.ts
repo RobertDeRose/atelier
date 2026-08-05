@@ -348,25 +348,8 @@ export async function handleTaskStart(core: AtelierCore, requestedTaskId: string
   }
 
   const options = standaloneTaskOptions(requestedTaskId ?? flagString(args, "task"), args);
-  const task = await core.taskProvider.get(options.taskId);
-  if (task === undefined) throw new Error(`Task not found: ${options.taskId}`);
-  if (!flagBoolean(args, "json")) {
-    process.stdout.write([
-      `Standalone task: ${task.id} — ${task.title}`,
-      `Writes: ${options.writePaths?.join(", ") || ". (all application-source paths; metadata and dependencies excluded by default)"}`,
-      `Validations: ${options.validations?.join(", ") || "none"}`,
-      `Dependency changes: ${options.allowDependencyChanges === true ? "allowed" : "excluded"}`,
-      `Full suite: ${options.allowFullSuite === true ? "allowed" : "excluded"}`,
-      `Local change: ${options.allowLocalChange === false ? "not required" : "required"}`,
-    ].join("\n") + "\n");
-  }
-  const confirmed = await explicitConfirmation(args, `Activate standalone task ${task.id} without a plan?`);
-  if (!confirmed) {
-    process.stdout.write("Standalone task activation cancelled.\n");
-    return;
-  }
   const transition = await core.execution.startStandaloneTask(options, true);
-  if (transition === undefined) throw new Error("Standalone task activation was not confirmed.");
+  if (transition === undefined) throw new Error("Standalone task activation did not produce an execution grant.");
   if (flagBoolean(args, "json")) asJson(transition);
   else process.stdout.write(`Activated standalone task ${transition.task.id} with execution grant ${transition.executionGrant.id}.\n`);
 }

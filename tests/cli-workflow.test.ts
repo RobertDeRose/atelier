@@ -63,7 +63,7 @@ console.error("unsupported", args); process.exit(2);
   return executable;
 }
 
-test("CLI activates an existing task without creating or reconciling a plan", () => {
+test("CLI activates an existing task without --yes or plan reconciliation", () => {
   const root = createTemporaryRepository("atlr-cli-standalone-task-");
   const beads = installFakeBeads(root);
   writeFileSync(join(root, ".atelier", "fake-bd-state.json"), JSON.stringify({
@@ -92,7 +92,7 @@ test("CLI activates an existing task without creating or reconciling a plan", ()
   writeFileSync(userConfig, JSON.stringify({ beadsCommand: beads }));
   process.env.ATLR_USER_CONFIG = userConfig;
   try {
-    const result = run(root, ["approve", "--task", "bd-existing", "--yes", "--json"]);
+    const result = run(root, ["approve", "--task", "bd-existing", "--json"]);
     assert.equal(result.status, 0, result.stderr);
     const transition = JSON.parse(result.stdout) as any;
     assert.equal(transition.task.id, "bd-existing");

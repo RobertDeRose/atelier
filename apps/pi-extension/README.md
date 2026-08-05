@@ -53,8 +53,8 @@ The slash commands mirror the `atlr` CLI verbs:
 - `atlr plan` → `/plan <objective>`
 - `atlr review` → `/review`
 - `atlr approve` → `/approve`
-- `atlr approve --task ID [--write PATH[,PATH]] [--validation NAME[,NAME]] --yes` → `/approve --task ID [--write PATH[,PATH]] [--validation NAME[,NAME]]`
-- `atlr task start ID --standalone [--write PATH[,PATH]] [--validation NAME[,NAME]] --yes` → `/task-start ID [--write PATH[,PATH]] [--validation NAME[,NAME]]`
+- `atlr approve --task ID [--write PATH[,PATH]] [--validation NAME[,NAME]]` → `/approve ID [--write PATH[,PATH]] [--validation NAME[,NAME]]`
+- `atlr task start ID --standalone [--write PATH[,PATH]] [--validation NAME[,NAME]]` → `/task-start ID [--write PATH[,PATH]] [--validation NAME[,NAME]]`
 - `atlr execute [task-id]` → `/execute [task-id]`
 - stop current turn → `/atelier-stop`
 - pause agent mutation → `/atelier-pause [reason]`
@@ -85,7 +85,7 @@ atlr plan prepare --json
 atlr approve --approval <id> --digest <reconciliation-digest> --yes
 ```
 
-`review` prints the durable `ManualEdit` structural diff, plan diagnostics, and reconciliation preview. `prepare` reports the full plan hash, provider identity, operation details, retirements, and proposed first task. A non-interactive planned `approve` refuses to apply without the matching ID, digest, and `--yes`; an interactive terminal may confirm the same displayed transaction. Existing standalone tasks can instead use `atlr approve --task <id> [--write <path[,path]>] [--validation <name[,name]>] --yes` or `/task-start <id> [--write <path[,path]>]`. Without `--write`, standalone activation covers all application-source paths while excluding Atelier/provider metadata and dependency manifests; `--write` narrows the scope. Standalone activation never creates or reconciles `.atelier/PLAN.md`, and the effective scope remains enforced by Core. Use `atlr task start [id] --yes` or `atlr execute [id] --yes` only after explicit closure exposes later approved-plan work. `atlr cancel --reason <text>` revokes execution authorization without closing the provider task. Pi
+`review` prints the durable `ManualEdit` structural diff, plan diagnostics, and reconciliation preview. `prepare` reports the full plan hash, provider identity, operation details, retirements, and proposed first task. A non-interactive planned `approve` refuses to apply without the matching ID, digest, and `--yes`; an interactive terminal may confirm the same displayed transaction. Existing standalone tasks can instead use `atlr approve --task <id> [--write <path[,path]>] [--validation <name[,name]>]`, `/approve <id> [--write <path[,path]>] [--validation <name[,name]>]`, or `/task-start <id> [--write <path[,path]>]`. The positional `/approve <id>` form is preferred; `--task` remains accepted for compatibility. These standalone commands are already explicit approval and do not prompt again. Without `--write`, standalone activation covers all application-source paths while excluding Atelier/provider metadata and dependency manifests; `--write` narrows the scope. Standalone activation never creates or reconciles `.atelier/PLAN.md`, and the effective scope remains enforced by Core. Use `atlr task start [id] --yes` or `atlr execute [id] --yes` only after explicit closure exposes later approved-plan work. `atlr cancel --reason <text>` revokes execution authorization without closing the provider task. Pi
 `/cancel` does not wait for idle and can abort an active turn after the durable grant is revoked.
 `/atelier-stop` leaves execution active, while `/atelier-pause` and `/atelier-resume` persist the agent
 mutation state without starting another model turn.
