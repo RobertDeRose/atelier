@@ -19,7 +19,7 @@ The retrieval sequence is:
 5. Prefer provider evidence before broad raw scanning, but use exact typed reads or an explicitly approved
    shell operation when provider evidence is insufficient, wrong, excluded, or budget-limited.
 
-Retrieval routing is advisory; security authorization remains independent from retrieval economy.
+Provider-first retrieval is the model-facing default; security authorization remains independent from retrieval economy.
 Every code-tool response reports the session inventory, freshness, remaining budgets, deduplication, returned bytes, truncation, invalidations, repository scopes, and the latest provider-call or reuse decision. Original provider provenance remains attached to fresh and reused evidence.
 
 Repository, provider identity, and index revision changes invalidate affected evidence before another decision. Historical observations may remain for explanation, but they are marked non-current and cannot satisfy Working State retrieval after reopen.

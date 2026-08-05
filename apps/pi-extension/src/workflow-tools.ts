@@ -25,6 +25,10 @@ export function registerWorkflowTools(
     label: "Atelier Working State",
     description: "Read authoritative Atelier Working State for the current plan, task, execution, evidence, and next action.",
     promptSnippet: "Read Atelier Working State instead of inferring workflow authority from conversation history",
+    promptGuidelines: [
+      "Use atlr_state when the injected Working State is missing or unclear; it is the authoritative projection of Beads task state and Jujutsu/Git repository state.",
+      "Do not use raw bd, jj, or git commands for routine workflow-state inspection.",
+    ],
     parameters: objectSchema({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const core = coreFor(ctx);
@@ -38,6 +42,9 @@ export function registerWorkflowTools(
     label: "Atelier Local Change",
     description: "Create the one task-scoped local Git commit or Jujutsu change using only source paths approved by the exact plan transaction.",
     promptSnippet: "Use Atelier's typed local-change tool; never use Bash or raw VCS commands for the approved task commit",
+    promptGuidelines: [
+      "Use atlr_commit only after current validation and exact diff review are complete; it creates the approved task-scoped Git commit or Jujutsu change.",
+    ],
     parameters: objectSchema({ message: stringSchema("Local commit or change description.") }, ["message"]),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const message = String((params as { message?: unknown }).message ?? "").trim();
@@ -55,6 +62,9 @@ export function registerWorkflowTools(
     label: "Atelier Task Closure",
     description: "Close the active task only when current validation, exact diff review, local change, and repository-state evidence satisfy the authoritative predicate.",
     promptSnippet: "Use Atelier's typed task-close tool after the completion predicate passes",
+    promptGuidelines: [
+      "Use atlr_task_close only after Working State says validation, final diff review, local change, and repository cleanliness satisfy the completion predicate.",
+    ],
     parameters: objectSchema({ reason: stringSchema("Evidence-backed task closure reason.") }, ["reason"]),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const reason = String((params as { reason?: unknown }).reason ?? "").trim();

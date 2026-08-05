@@ -404,9 +404,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     promptSnippet: "Start with one focused semantic discovery, inspect its inventory, then read returned paths directly",
     promptGuidelines: [
       "Use exactly one focused semantic discovery before broad raw scans. Call atlr_code_search only when Working State does not already contain current scoped semantic evidence; never duplicate an existing discovery.",
+      "Query atlr_code_search with the implementation concept you need, not the entire task description; set focus=source for implementation, focus=tests for verification, or focus=docs for documentation.",
       "Before another search, inspect the returned inventory; Atelier will reuse covered evidence or recommend no provider call.",
       "Use built-in read for every known or returned path. Do not search again merely to inspect a known file.",
-      "Prefer provider evidence before broad raw scanning. Raw inspection remains available through typed reads or a concrete shell operation evaluated by the workspace recoverability policy; budget denial does not bypass that policy.",
+      "Use provider evidence before broad raw scanning. Raw inspection remains available through typed reads or a concrete shell operation evaluated by the workspace recoverability policy; budget denial does not bypass that policy.",
     ],
     parameters: objectSchema({
       query: stringSchema("Natural-language or identifier-oriented code search query."),
@@ -480,7 +481,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     promptSnippet: "Use exact symbol lookup only for identifiers marked unresolved in the current inventory",
     promptGuidelines: [
       "Do not call atlr_code_symbols before one focused semantic discovery.",
-      "Call it only for an identifier listed under unresolved symbols; use built-in read for returned definition paths.",
+      "Call it only for an identifier listed under unresolved symbols after semantic discovery; use built-in read for returned definition paths."
     ],
     parameters: objectSchema({
       query: stringSchema("Symbol name or identifier fragment."),
@@ -795,16 +796,18 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const state = await core.buildWorkingState();
       const retrieval = core.code.retrievalStatus();
       const activeContext = core.workingStateBuilder.toMarkdown(state);
-      const retrievalInstruction = core.config.codeProvider === "disabled"
-        ? "Atelier code intelligence is disabled; use exact built-in read/grep/find operations as needed."
-        : "Provider-first retrieval is advisory: prefer current scoped evidence or one focused semantic query, inspect the compact inventory before another request, and read known paths directly. Raw repository inspection remains available when provider evidence is insufficient or the user requests it.";
-      const modeInstruction = core.execution.isPaused()
-        ? `Execution is paused. Repository reads remain available, but agent mutation is denied until the user runs /atelier-resume. Do not continue implementation automatically. ${retrievalInstruction}`
+      const agentProtocol = atelierAgentProtocol({
+        mode: state.mode,
+        codeIntelligence: core.config.codeProvider === "disabled" ? "disabled" : "enabled",
+      });
+      const modePolicy = core.execution.isPaused()
+        ? "Execution is paused. Repository reads remain available, but agent mutation is denied until the user runs /atelier-resume. Do not continue implementation automatically."
         : state.mode === "plan"
-        ? `Only ${core.config.planPath} may be modified by the agent. Task-provider and source mutations are prohibited until exact plan approval. Ordinary non-secret reads inside the immutable session workspace are allowed; every structured or shell effect is evaluated for workspace containment and recoverability. ${retrievalInstruction}`
+        ? `Only ${core.config.planPath} may be modified by the agent. Task-provider and source mutations are prohibited until exact plan approval. Ordinary non-secret reads inside the immutable session workspace are allowed; every structured or shell effect is evaluated for workspace containment and recoverability.`
         : state.mode === "investigate"
-          ? `Investigate only. Any mutation requires a distinct Atelier approval. ${retrievalInstruction}`
-          : `Implement only the selected task and reviewed task constraints. Ordinary contained and recoverable structured or shell effects are allowed by the workspace policy; likely-secret access, privilege escalation, workspace escape, and indeterminate or unrecoverable effects require one concrete approval. Authorization is not an instruction: obey the user's latest constraints, including requests not to run validation, Bash, commit, or continue. An incomplete task may remain paused; completion is enforced only when task closure is requested. ${retrievalInstruction}`;
+          ? "Investigate only. Any mutation requires a distinct Atelier approval."
+          : "Implement only the selected task and reviewed task constraints. Ordinary contained and recoverable structured or shell effects are allowed by the workspace policy; likely-secret access, privilege escalation, workspace escape, and indeterminate or unrecoverable effects require one concrete approval. Authorization is not an instruction: obey the user's latest constraints, including requests not to run validation, Bash, commit, close, or continue. An incomplete task may remain paused; completion is enforced only when task closure is requested.";
+      const modeInstruction = `${agentProtocol}\n\n${modePolicy}`;
       const policyInstruction = turnPolicyInstruction(sessionState(ctx).turnPolicy);
       const capsule = createAuthoritativeContextCapsule({
         modeInstruction,

@@ -171,12 +171,7 @@ export class RepositoryStatePlanner {
     }
 
     if (request.activeTask !== undefined) {
-      const text = normalizeText([
-        request.activeTask.title,
-        request.activeTask.description,
-        request.activeTask.design,
-        request.activeTask.notes,
-      ].filter((value): value is string => Boolean(value)).join(" "));
+      const text = taskRetrievalText(request.activeTask);
       if (text !== undefined) sources.push({ purpose: "active_task", text, limit: 6 });
     }
 
@@ -193,6 +188,45 @@ export class RepositoryStatePlanner {
     }
     return deduplicateSources(sources);
   }
+}
+
+function taskRetrievalText(task: TaskRecord): string | undefined {
+  const context = [
+    task.title,
+    relevantTaskSections(task.description),
+    relevantTaskSections(task.design),
+    relevantTaskSections(task.notes),
+  ].filter((value): value is string => value !== undefined && value.length > 0).join(" ");
+  const normalized = normalizeText(context);
+  return normalized === undefined
+    ? undefined
+    : normalizeText(`Locate relevant implementation and tests for: ${normalized}`);
+}
+
+function relevantTaskSections(markdown: string | undefined): string | undefined {
+  if (markdown === undefined || markdown.trim().length === 0) return undefined;
+  const sections = [...markdown.matchAll(/^#{1,6}\s+(.+)$/gmu)];
+  if (sections.length === 0) return cleanRetrievalText(markdown);
+  const selected: string[] = [];
+  for (let index = 0; index < sections.length; index += 1) {
+    const heading = sections[index]?.[1]?.trim().toLowerCase() ?? "";
+    if (!["why", "goal", "scope", "in scope", "requirements", "user intent", "design"].includes(heading)) continue;
+    const start = (sections[index]?.index ?? 0) + (sections[index]?.[0]?.length ?? 0);
+    const end = sections[index + 1]?.index ?? markdown.length;
+    const body = cleanRetrievalText(markdown.slice(start, end));
+    if (body !== undefined) selected.push(body);
+  }
+  return selected.length === 0 ? cleanRetrievalText(markdown) : selected.join(" ");
+}
+
+function cleanRetrievalText(value: string): string | undefined {
+  const cleaned = value
+    .replace(/<!--[\s\S]*?-->/gu, " ")
+    .replace(/^\s*[-*>]\s+/gmu, " ")
+    .replace(/[`*_#]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return cleaned.length === 0 ? undefined : cleaned;
 }
 
 export function extractLiteralHints(text: string, maximum = 8): string[] {

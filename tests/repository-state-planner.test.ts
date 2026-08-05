@@ -18,6 +18,38 @@ test("repository state planner derives one semantic discovery from durable objec
   assert.match(plan.queries[0]?.reason ?? "", /broad semantic discovery/i);
 });
 
+test("active task retrieval uses a compact implementation-oriented query", () => {
+  const plan = planner.plan({
+    mode: "act",
+    activeTask: {
+      id: "task-docs",
+      title: "Expand the user guide",
+      description: [
+        "## Why",
+        "The guide is too short.",
+        "## Scope",
+        "Find the CLI and Pi command implementations and document the workflow.",
+        "## Out of scope",
+        "Do not change runtime behavior.",
+        "## Validation",
+        "Run the docs checker.",
+      ].join("\n"),
+      acceptanceCriteria: [],
+      status: "in_progress",
+      priority: 0,
+      type: "task",
+      dependencies: [],
+      labels: [],
+    },
+  });
+
+  assert.equal(plan.queries.length, 1);
+  assert.match(plan.queries[0]?.text ?? "", /Locate relevant implementation and tests/i);
+  assert.match(plan.queries[0]?.text ?? "", /CLI and Pi command implementations/i);
+  assert.doesNotMatch(plan.queries[0]?.text ?? "", /Out of scope|Run the docs checker/i);
+  assert.equal(plan.queries[0]?.focus, "mixed");
+});
+
 test("repository state planner merges purposes into one broad semantic phase", () => {
   const plan = planner.plan({
     mode: "plan",

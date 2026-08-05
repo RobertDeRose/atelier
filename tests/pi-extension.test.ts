@@ -355,7 +355,7 @@ test("Pi extension keeps provider-first discovery advisory while confining typed
       && (event.payload as { operation?: string; state?: string }).state === "presented");
   phaseLedger.close();
   assert.equal((agentContextPhase?.payload as { surface?: string } | undefined)?.surface, "native_working_indicator");
-  assert.match(agentStart?.systemPrompt ?? "", /Provider-first retrieval is advisory/i);
+  assert.match(agentStart?.systemPrompt ?? "", /Provider-first retrieval is the default/i);
   assert.match(agentStart?.systemPrompt ?? "", /Raw repository inspection remains available/i);
   assert.match(agentStart?.systemPrompt ?? "", /## Retrieval session/);
   assert.deepEqual(activeTools.slice(0, 4), ["atlr_code_search", "atlr_code_symbols", "atlr_code_status", "atlr_validate"]);
