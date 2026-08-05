@@ -70,6 +70,7 @@ function fakeContext(
     confirmResult?: boolean;
     confirmResults?: boolean[];
     renderCustom?: boolean;
+    customError?: Error;
     modelId?: string;
     thinkingLevel?: string;
     sessionKey?: object;
@@ -140,6 +141,7 @@ function fakeContext(
         observations.onFooter?.(footer);
       },
       custom: async (factory: any) => {
+        if (observations.customError !== undefined) throw observations.customError;
         if (!observations.renderCustom) return { exitCode: 0 };
         return await new Promise((resolve) => {
           const component = factory(
@@ -261,16 +263,22 @@ test("Pi startup makes a recovered active task actionable without re-approval", 
   registerAtelierExtension(fakePi, { openCore: () => core });
   const notifications: string[] = [];
   const widgets: string[][] = [];
-  const context = fakeContext(root, { count: 0 }, [], {
+  const startupObservations: { notifications: string[]; widgets: string[][]; renderCustom: boolean; customError?: Error } = {
     notifications,
     widgets,
     renderCustom: true,
-  });
+  };
+  const context = fakeContext(root, { count: 0 }, [], startupObservations);
   try {
     await events.get("session_start")!({ reason: "startup" }, context);
-    assert.match(widgets.flat().join("\n"), /Recovered active task: task-1/);
+    assert.match(widgets.flat().join("\n"), /Recovered active task/);
+    assert.match(widgets.flat().join("\n"), /task-1/);
     assert.deepEqual(sentMessages, ["Continue the recovered active task task-1 from Atelier Working State."]);
     assert.equal(core.ledger.getActiveExecutionGrant()?.id, transition.executionGrant.id);
+
+    startupObservations.customError = new Error("modal unavailable");
+    await assert.doesNotReject(events.get("session_start")!({ reason: "reload" }, context));
+    assert.match(notifications.at(-1) ?? "", /Recovery prompt failed closed: modal unavailable/);
   } finally {
     await events.get("session_shutdown")!({ reason: "quit" }, context);
     rmSync(root, { recursive: true, force: true });

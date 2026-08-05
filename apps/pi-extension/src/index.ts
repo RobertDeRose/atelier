@@ -160,7 +160,8 @@ async function offerRecoveredTaskAction(
   const grant = core.ledger.getActiveExecutionGrant();
   if (grant === undefined || core.mode() !== "act") return;
   const message = `Recovered active task ${grant.taskId}. Existing changes are preserved. Atelier is ready and waiting for your next instruction.`;
-  const action = await recoveryActionDialog(ctx, grant.taskId);
+  const taskTitle = core.taskProvider.peekTask?.(grant.taskId)?.title;
+  const action = await recoveryActionDialog(ctx, grant.taskId, taskTitle);
   if (action === "continue") {
     pi.sendUserMessage(`Continue the recovered active task ${grant.taskId} from Atelier Working State.`);
     return;
@@ -592,7 +593,14 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       ctx.ui.notify(`Execution resume failed closed: ${errorMessage(error)}`, "error");
     }
     await updateStatus(ctx, core);
-    await offerRecoveredTaskAction(pi, ctx, core);
+    try {
+      await offerRecoveredTaskAction(pi, ctx, core);
+    } catch (error) {
+      ctx.ui.notify(
+        `Recovery prompt failed closed: ${errorMessage(error)}. Existing changes remain in place; type an implementation request to continue.`,
+        "error",
+      );
+    }
     if (core.config.codeProvider !== "disabled") {
       void (async () => {
         const workspace = await core.observeCodeWorkspace({ operation: "code-index-startup" });

@@ -100,6 +100,16 @@ declare module "@earendil-works/pi-coding-agent" {
         handleInput?(input: unknown): void;
         dispose?(): void;
       },
+      options?: {
+        overlay?: boolean;
+        overlayOptions?: {
+          width?: number | `${number}%`;
+          minWidth?: number;
+          maxHeight?: number | `${number}%`;
+          anchor?: string;
+          margin?: number | { top?: number; right?: number; bottom?: number; left?: number };
+        };
+      },
     ): Promise<T>;
   }
 
