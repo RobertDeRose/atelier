@@ -26,7 +26,7 @@ import {
 } from "./code-tool-presentation.ts";
 import { toolExecutionOutcome } from "./execution-outcome.ts";
 import { preparationSummary } from "./approval-presentation.ts";
-import { confirmApprovalDialog } from "./approval-dialog.ts";
+import { confirmApprovalDialog, recoveryActionDialog } from "./approval-dialog.ts";
 import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "./navigation.ts";
 import { runInteractiveProcessWithPi } from "./interactive-process.ts";
 import { runPlanEditorWithPi } from "./manual-edit-process.ts";
@@ -151,6 +151,39 @@ function updateStatus(ctx: ExtensionContext, core: AtelierCore, status?: Atelier
 }
 function updateRuntimeFooter(ctx: ExtensionContext): void {
   sessionState(ctx).footerStatus.renderRuntime(ctx);
+}
+async function offerRecoveredTaskAction(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  core: AtelierCore,
+): Promise<void> {
+  const grant = core.ledger.getActiveExecutionGrant();
+  if (grant === undefined || core.mode() !== "act") return;
+  const message = `Recovered active task ${grant.taskId}. Existing changes are preserved. Atelier is ready and waiting for your next instruction.`;
+  const action = await recoveryActionDialog(ctx, grant.taskId);
+  if (action === "continue") {
+    pi.sendUserMessage(`Continue the recovered active task ${grant.taskId} from Atelier Working State.`);
+    return;
+  }
+  if (action === "pause") {
+    const paused = core.execution.pause("User paused the recovered task at startup.");
+    ctx.ui.notify(
+      paused === undefined ? "The recovered task could not be paused." : `Paused recovered task ${grant.taskId}. Existing changes remain in place.`,
+      paused === undefined ? "warning" : "info",
+    );
+    await updateStatus(ctx, core);
+    return;
+  }
+  if (action === "cancel") {
+    const cancelled = core.execution.cancel("User cancelled the recovered task at startup.");
+    ctx.ui.notify(
+      cancelled === undefined ? "The recovered task could not be cancelled." : `Cancelled recovered task ${grant.taskId}. Existing changes remain in place.`,
+      cancelled === undefined ? "warning" : "info",
+    );
+    await updateStatus(ctx, core);
+    return;
+  }
+  ctx.ui.notify(`${message} Type an implementation request to continue.`, "info");
 }
 async function reviewPlan(
   ctx: ExtensionContext,
@@ -559,6 +592,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       ctx.ui.notify(`Execution resume failed closed: ${errorMessage(error)}`, "error");
     }
     await updateStatus(ctx, core);
+    await offerRecoveredTaskAction(pi, ctx, core);
     if (core.config.codeProvider !== "disabled") {
       void (async () => {
         const workspace = await core.observeCodeWorkspace({ operation: "code-index-startup" });

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension/src/index.ts";
 import { executionGrantText, planStatusText, vcsStatusText } from "../apps/pi-extension/src/status-presentation.ts";
+import { recoveryActionDialog } from "../apps/pi-extension/src/approval-dialog.ts";
 import { approveStandaloneTask, parseStandaloneTaskCommand } from "../apps/pi-extension/src/standalone-task-command.ts";
 import {
   AtelierCore,
@@ -223,6 +224,63 @@ test("explicit standalone approval activates without a second confirmation", asy
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Pi startup makes a recovered active task actionable without re-approval", async () => {
+  const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
+  const sentMessages: string[] = [];
+  const fakePi = {
+    on(name: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void { events.set(name, handler); },
+    registerCommand(): void {},
+    registerTool(): void {},
+    registerEntryRenderer(): void {},
+    getActiveTools(): string[] { return ["read", "bash", "edit", "write"]; },
+    setActiveTools(): void {},
+    sendUserMessage(message: string): void { sentMessages.push(message); },
+  } as unknown as ExtensionAPI;
+  const root = createTemporaryRepository("atlr-pi-recovered-task-");
+  const provider = new InMemoryTaskProvider([{
+    id: "task-1",
+    title: "Recovered task",
+    description: "Continue the bounded change.",
+    acceptanceCriteria: ["The change is complete."],
+    status: "open",
+    priority: 1,
+    type: "task",
+    dependencies: [],
+    labels: [],
+  }]);
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "memory",
+    repositoryProvider: "git",
+    codeProvider: "disabled",
+  }));
+  const core = AtelierCore.open(root, { taskProviderInstance: provider });
+  const transition = await core.execution.startStandaloneTask({ taskId: "task-1" }, true);
+  assert.ok(transition);
+  registerAtelierExtension(fakePi, { openCore: () => core });
+  const notifications: string[] = [];
+  const widgets: string[][] = [];
+  const context = fakeContext(root, { count: 0 }, [], {
+    notifications,
+    widgets,
+    renderCustom: true,
+  });
+  try {
+    await events.get("session_start")!({ reason: "startup" }, context);
+    assert.match(widgets.flat().join("\n"), /Recovered active task: task-1/);
+    assert.deepEqual(sentMessages, ["Continue the recovered active task task-1 from Atelier Working State."]);
+    assert.equal(core.ledger.getActiveExecutionGrant()?.id, transition.executionGrant.id);
+  } finally {
+    await events.get("session_shutdown")!({ reason: "quit" }, context);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Pi recovery prompt exposes explicit continue, pause, and cancel actions", () => {
+  const confirms = { count: 0 };
+  const context = fakeContext("/tmp", confirms, [], { renderCustom: true });
+  return recoveryActionDialog(context, "task-1").then((action) => assert.equal(action, "continue"));
 });
 
 test("Pi status presentation distinguishes missing plans, execution grants, and VCS identity", () => {

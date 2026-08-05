@@ -54,6 +54,20 @@ test("Atelier footer uses task titles when wide and Beads ids when narrow", () =
   assert.ok(narrow.every((line) => Array.from(line).length <= 66));
 });
 
+test("Atelier footer distinguishes active execution from closure blockers", () => {
+  const active = status({
+    mode: "act",
+    workflowCheckpoint: "executing",
+    currentTaskId: "repo-t0e",
+    currentTaskTitle: "Continue the task",
+    activeExecutionGrant: { status: "active" },
+    closureStatus: "blocked — Task closure blocked: the current diff has not been reviewed.",
+  });
+  const [line = ""] = renderAtelierFooter(context(), active, "ready", 160, {}, "high");
+  assert.match(line, /closure: diff review/);
+  assert.doesNotMatch(line, /blocked: diff review/);
+});
+
 test("Atelier footer applies bold headings and semantic state colors", () => {
   const theme = {
     bold: (value: string) => `<b>${value}</b>`,

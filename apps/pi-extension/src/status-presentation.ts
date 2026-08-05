@@ -206,12 +206,14 @@ function modeCells(
   const title = status.currentTaskTitle ?? status.currentTaskId;
   const blocker = conciseBlocker(status);
   const taskHeader = { plain: " · task: ", styled: `${fg(theme, "dim", " · ")}${heading(theme, "task:")} ` };
+  const closurePending = status.activeExecutionGrant?.status === "active";
+  const blockerLabel = closurePending ? "closure:" : "blocked:";
   const blocked = blocker === undefined
     ? []
-    : [{ plain: " · blocked: ", styled: `${fg(theme, "dim", " · ")}${heading(theme, "blocked:")} ` }, { plain: blocker, styled: fg(theme, "warning", blocker) }];
+    : [{ plain: ` · ${blockerLabel} `, styled: `${fg(theme, "dim", " · ")}${heading(theme, blockerLabel)} ` }, { plain: blocker, styled: fg(theme, "warning", blocker) }];
   const blockedShort = blocker === undefined
     ? []
-    : [{ plain: " · blocked", styled: `${fg(theme, "dim", " · ")}${stateText(theme, "blocked")}` }];
+    : [{ plain: closurePending ? " · closure" : " · blocked", styled: `${fg(theme, "dim", " · ")}${stateText(theme, "blocked")}` }];
   return [
     joinedCell([header, modePart, taskHeader, { plain: title }, ...blocked], 7),
     joinedCell([header, modePart, taskHeader, { plain: truncate(title, 28) }, ...blocked], 6),
