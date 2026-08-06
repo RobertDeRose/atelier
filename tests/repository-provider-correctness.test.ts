@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -98,23 +98,30 @@ test("Git observation does not read outside, broken, or oversized tracked symlin
   }
 });
 
-test("Atelier Git commits do not depend on workstation signing agents", () => {
+test("Atelier Git commits preserve signing policy and report signing failures", () => {
   const root = createTemporaryRepository("atlr-git-signing-isolation-");
   const ledger = new SqliteLedger(testDatabasePath(root));
   try {
     // Reproduce the common macOS setup where global or local Git configuration
-    // requires SSH-backed signing but Atelier deliberately does not inherit the
-    // SSH agent socket.
+    // requires SSH-backed signing. A bad signer must fail rather than be
+    // silently bypassed; repository policy can then explicitly disable signing.
     git(root, "config", "commit.gpgSign", "true");
     git(root, "config", "gpg.format", "ssh");
     git(root, "config", "user.signingKey", "key::not-a-real-signing-key");
 
     const provider = new GitRepositoryProvider({ cwd: root, ledger });
     writeFileSync(join(root, "signed-source.ts"), "export const unsignedByAtelier = true;\n", "utf8");
-    const committed = provider.commit("test: commit without signing agent", ["signed-source.ts"]);
+    assert.throws(
+      () => provider.commit("test: signed commit failure", ["signed-source.ts"]),
+      /sign|key|commit/i,
+      "a configured signing failure must not be bypassed",
+    );
+    git(root, "reset", "--", "signed-source.ts");
+    git(root, "config", "commit.gpgSign", "false");
+    const committed = provider.commit("test: commit with signing disabled by repository policy", ["signed-source.ts"]);
 
     assert.deepEqual(committed.changedPaths, ["signed-source.ts"]);
-    const metadata = provider.commitMetadata("test: commit metadata without signing agent", [".atelier/config.json"]);
+    const metadata = provider.commitMetadata("test: commit metadata with repository policy", [".atelier/config.json"]);
     assert.deepEqual(metadata.changedPaths, [".atelier/config.json"]);
 
     const subjects = spawnSync("git", ["log", "-2", "--format=%s"], {
@@ -124,8 +131,8 @@ test("Atelier Git commits do not depend on workstation signing agents", () => {
     });
     assert.equal(subjects.status, 0, subjects.stderr);
     assert.deepEqual(subjects.stdout.trim().split("\n"), [
-      "test: commit metadata without signing agent",
-      "test: commit without signing agent",
+      "test: commit metadata with repository policy",
+      "test: commit with signing disabled by repository policy",
     ]);
   } finally {
     ledger.close();
@@ -133,11 +140,14 @@ test("Atelier Git commits do not depend on workstation signing agents", () => {
   }
 });
 
-test("Atelier Git commits disable repository hooks and clean-smudge filters", () => {
+test("Atelier Git commits honor repository hooks and clean-smudge filters", () => {
   const root = createTemporaryRepository("atlr-git-hook-filter-isolation-");
   const ledger = new SqliteLedger(testDatabasePath(root));
   const filterMarker = join(root, "filter-ran");
   const hookMarker = join(root, "hook-ran");
+  const signingMarker = join(root, "signing-env");
+  const previousSigningSocket = process.env.SSH_AUTH_SOCK;
+  process.env.SSH_AUTH_SOCK = join(root, "agent.sock");
   try {
     writeFileSync(join(root, ".gitattributes"), "# baseline attributes\n", "utf8");
     git(root, "add", ".gitattributes");
@@ -152,17 +162,48 @@ test("Atelier Git commits disable repository hooks and clean-smudge filters", ()
     writeFileSync(join(root, "source.txt"), "raw source contents\n", "utf8");
 
     const hook = join(root, ".git", "hooks", "pre-commit");
-    writeFileSync(hook, `#!/bin/sh\nprintf hooked > ${JSON.stringify(hookMarker)}\nexit 1\n`, "utf8");
+    git(root, "config", "core.hooksPath", ".git/hooks");
+    writeFileSync(hook, `#!/bin/sh\nprintf hooked > ${JSON.stringify(hookMarker)}\nprintf %s "$SSH_AUTH_SOCK" > ${JSON.stringify(signingMarker)}\nexit 1\n`, "utf8");
     chmodSync(hook, 0o755);
 
     const provider = new GitRepositoryProvider({ cwd: root, ledger });
-    provider.commit("test: commit raw source safely", [".gitattributes", "source.txt"]);
+    assert.throws(
+      () => provider.commit("test: hook rejection remains visible", [".gitattributes", "source.txt"]),
+      /hook|failed|exit/i,
+    );
+    assert.equal(existsSync(filterMarker), true, "configured clean filter must run during staging");
+    assert.equal(existsSync(hookMarker), true, "configured pre-commit hook must run");
+    assert.equal(readFileSync(signingMarker, "utf8"), process.env.SSH_AUTH_SOCK);
+    rmSync(hook, { force: true });
+    provider.commit("test: commit with repository hook and filter", [".gitattributes", "source.txt"]);
 
-    assert.equal(existsSync(filterMarker), false, "clean/smudge filter must not run");
-    assert.equal(existsSync(hookMarker), false, "repository hook must not run");
+    assert.equal(existsSync(filterMarker), true, "clean/smudge filter must remain active");
     const committed = spawnSync("git", ["show", "HEAD:source.txt"], { cwd: root, encoding: "utf8", shell: false });
     assert.equal(committed.status, 0, committed.stderr);
     assert.equal(committed.stdout, "raw source contents\n");
+  } finally {
+    if (previousSigningSocket === undefined) delete process.env.SSH_AUTH_SOCK;
+    else process.env.SSH_AUTH_SOCK = previousSigningSocket;
+    ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Git scoped commits preserve unrelated staged changes", () => {
+  const root = createTemporaryRepository("atlr-git-scoped-staging-");
+  const ledger = new SqliteLedger(testDatabasePath(root));
+  try {
+    writeFileSync(join(root, "unrelated.ts"), "export const unrelated = true;\n", "utf8");
+    git(root, "add", "unrelated.ts");
+    writeFileSync(join(root, "scoped.ts"), "export const scoped = true;\n", "utf8");
+    const provider = new GitRepositoryProvider({ cwd: root, ledger });
+    provider.commit("test: commit only scoped path", ["scoped.ts"]);
+
+    const staged = spawnSync("git", ["diff", "--cached", "--name-only"], { cwd: root, encoding: "utf8", shell: false });
+    assert.equal(staged.status, 0, staged.stderr);
+    assert.deepEqual(staged.stdout.trim().split("\n"), ["unrelated.ts"]);
+    assert.equal(spawnSync("git", ["cat-file", "-e", "HEAD:unrelated.ts"], { cwd: root, encoding: "utf8", shell: false }).status, 128);
+    assert.equal(spawnSync("git", ["cat-file", "-e", "HEAD:scoped.ts"], { cwd: root, encoding: "utf8", shell: false }).status, 0);
   } finally {
     ledger.close();
     rmSync(root, { recursive: true, force: true });

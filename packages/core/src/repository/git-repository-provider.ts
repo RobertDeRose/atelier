@@ -1,9 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { minimalEnvironment } from "../process/environment.ts";
 import { runProcess, type ProcessResult } from "../process/async-process.ts";
-import { resolve, join } from "node:path";
-import { existsSync, lstatSync, mkdtempSync, readlinkSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import type { RepositorySnapshot } from "./snapshot.ts";
 import type { SqliteLedger } from "../ledger/sqlite-ledger.ts";
 import type {
@@ -50,36 +49,31 @@ interface GitResult {
 }
 
 interface GitExecutionOptions {
-  disableFilters?: boolean;
+  preserveSigningEnvironment?: boolean;
 }
 
-function filterDisableArgs(cwd: string): string[] {
-  const result = spawnSync("git", ["config", "--local", "--get-regexp", "^filter\\..*\\.(clean|smudge|process)$"], {
-    cwd,
-    env: minimalEnvironment(),
-    encoding: "utf8",
-    shell: false,
-    windowsHide: true,
-  });
-  if (result.status !== 0) return [];
-  const names = new Set(
-    (result.stdout ?? "").split("\n").map((line) => line.trim().split(/\s+/, 1)[0] ?? "")
-      .map((key) => key.match(/^filter\.(.+)\.(?:clean|smudge|process)$/)?.[1])
-      .filter((name): name is string => name !== undefined),
-  );
-  return [...names].sort().flatMap((name) => [
-    "-c", `filter.${name}.clean=cat`,
-    "-c", `filter.${name}.smudge=cat`,
-    "-c", `filter.${name}.process=`,
-    "-c", `filter.${name}.required=false`,
-  ]);
+const SIGNING_ENVIRONMENT_NAMES = [
+  "SSH_AUTH_SOCK",
+  "SSH_AGENT_PID",
+  "GPG_TTY",
+  "GPG_AGENT_INFO",
+  "GNUPGHOME",
+] as const;
+
+function gitEnvironment(preserveSigningEnvironment: boolean): NodeJS.ProcessEnv {
+  const environment = minimalEnvironment();
+  if (!preserveSigningEnvironment) return environment;
+  for (const name of SIGNING_ENVIRONMENT_NAMES) {
+    const value = process.env[name];
+    if (value !== undefined) environment[name] = value;
+  }
+  return environment;
 }
 
 function runGit(cwd: string, args: string[], options: GitExecutionOptions = {}): GitResult {
-  const command = options.disableFilters ? [...filterDisableArgs(cwd), ...args] : args;
-  const result = spawnSync("git", command, {
+  const result = spawnSync("git", args, {
     cwd,
-    env: minimalEnvironment(),
+    env: gitEnvironment(options.preserveSigningEnvironment === true),
     encoding: "utf8",
     shell: false,
     windowsHide: true,
@@ -92,10 +86,9 @@ function runGit(cwd: string, args: string[], options: GitExecutionOptions = {}):
 }
 
 function runGitInput(cwd: string, args: string[], input: string, options: GitExecutionOptions = {}): GitResult {
-  const command = options.disableFilters ? [...filterDisableArgs(cwd), ...args] : args;
-  const result = spawnSync("git", command, {
+  const result = spawnSync("git", args, {
     cwd,
-    env: minimalEnvironment(),
+    env: gitEnvironment(options.preserveSigningEnvironment === true),
     encoding: "utf8",
     input,
     shell: false,
@@ -114,23 +107,6 @@ function requiredGit(cwd: string, args: string[], purpose: string, options: GitE
     });
   }
   return result;
-}
-
-function requiredGitWithoutHooks(cwd: string, args: string[], purpose: string): GitResult {
-  const hooksPath = mkdtempSync(join(tmpdir(), "atlr-git-hooks-"));
-  try {
-    const result = runGit(cwd, ["-c", `core.hooksPath=${hooksPath}`, ...args], { disableFilters: true });
-    if (result.status !== 0) {
-      throw new RepositoryObservationError(`Git ${purpose} failed: ${result.stderr.trim() || `exit ${result.status}`}`, {
-        cwd,
-        command: ["git", "-c", `core.hooksPath=${hooksPath}`, ...args],
-        status: result.status,
-      });
-    }
-    return result;
-  } finally {
-    rmSync(hooksPath, { force: true, recursive: true });
-  }
 }
 
 function parseStatusPaths(stdout: string): string[] {
@@ -371,12 +347,12 @@ export class GitRepositoryProvider implements RepositoryProvider {
     return { provider: "git", available: true, repository: root.status === 0, ...(root.status === 0 ? {} : { reason: root.stderr.trim() || "not a Git repository" }) };
   }
 
-  snapshot(options: GitExecutionOptions = {}): RepositorySnapshot {
-    const root = canonicalRepositoryRoot(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation", options).stdout.trim());
-    const head = runGit(root, ["rev-parse", "HEAD"], options);
-    const sourceBase = runGit(root, ["log", "-1", "--format=%H", "--", ...SOURCE_BASE_PATHS], options);
-    const commonDir = requiredGit(root, ["rev-parse", "--git-common-dir"], "common-directory observation", options);
-    const status = requiredGit(root, ["status", "--porcelain=v1", "--untracked-files=all"], "working-copy observation", options);
+  snapshot(): RepositorySnapshot {
+    const root = canonicalRepositoryRoot(requiredGit(this.cwd, ["rev-parse", "--show-toplevel"], "repository-root observation").stdout.trim());
+    const head = runGit(root, ["rev-parse", "HEAD"]);
+    const sourceBase = runGit(root, ["log", "-1", "--format=%H", "--", ...SOURCE_BASE_PATHS]);
+    const commonDir = requiredGit(root, ["rev-parse", "--git-common-dir"], "common-directory observation");
+    const status = requiredGit(root, ["status", "--porcelain=v1", "--untracked-files=all"], "working-copy observation");
     const rawStatusLines = status.stdout.split("\n").filter(Boolean);
     const rawChanged = parseStatusPaths(`${rawStatusLines.join("\n")}\n`).sort();
     const changedPaths = rawChanged.filter(isSourcePath);
@@ -560,55 +536,19 @@ export class GitRepositoryProvider implements RepositoryProvider {
       ? this.changedPaths()
       : repositoryPathspecs(this.cwd, paths, "write").filter(isSourcePath);
     if (changed.length === 0) throw new Error("No repository changes are available to commit.");
-    this.stageWithoutFilters(changed);
-    // Keep workflow/provider metadata and unrelated pre-staged changes out of
-    // the approved task commit. Git pathspec commits record only the reviewed
-    // source paths while leaving any other index entries staged for separate
-    // handling.
-    // Atelier intentionally disables repository hooks for typed commits and
-    // stages raw file contents through Git plumbing, so repository-defined
-    // hooks and clean/smudge filters cannot run outside the policy boundary.
-    // Signing is also disabled so workstation-level commit.gpgSign settings
-    // cannot prompt outside Atelier's authorization boundary.
-    requiredGitWithoutHooks(this.cwd, ["commit", "--no-gpg-sign", "--no-verify", "-m", normalized, "--", ...changed], "scoped local commit");
+    this.stage(changed);
+    // Git pathspec commits record only the reviewed source paths while leaving
+    // unrelated pre-staged entries for separate handling. Hooks, filters,
+    // signing, and user configuration remain active for this commit.
+    requiredGit(this.cwd, ["commit", "-m", normalized, "--", ...changed], "scoped local commit", { preserveSigningEnvironment: true });
     this.invalidateObservation();
-    return { message: normalized, changedPaths: changed, snapshot: this.snapshot({ disableFilters: true }) };
+    return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };
   }
 
-  private stageWithoutFilters(scopes: readonly string[]): void {
+  private stage(scopes: readonly string[]): void {
     const pathspecs = [...new Set(repositoryPathspecs(this.cwd, scopes, "write"))];
-    const tracked = requiredGit(this.cwd, ["ls-files", "-z", "--cached", "--", ...pathspecs], "tracked-file staging inventory")
-      .stdout.split("\0").filter(Boolean);
-    const untracked = requiredGit(this.cwd, ["ls-files", "-z", "--others", "--exclude-standard", "--", ...pathspecs], "untracked-file staging inventory")
-      .stdout.split("\0").filter(Boolean);
-    const files = [...new Set([...tracked, ...untracked])].sort();
-    if (files.length === 0) throw new Error("No repository files are available to stage.");
-
-    for (const path of files) {
-      const target = repositoryPathTarget(this.cwd, path, "write");
-      const stat = lstatSync(target.entry, { throwIfNoEntry: false });
-      if (stat === undefined) {
-        requiredGit(this.cwd, ["update-index", "--force-remove", "--", path], "unfiltered deletion staging");
-        continue;
-      }
-      if (stat.isSymbolicLink()) {
-        const hash = runGitInput(this.cwd, ["hash-object", "-w", "--no-filters", "--stdin"], readlinkSync(target.entry));
-        if (hash.status !== 0) {
-          throw new RepositoryObservationError(`Git unfiltered symlink staging failed: ${hash.stderr.trim() || `exit ${hash.status}`}`, { cwd: this.cwd, path });
-        }
-        this.updateIndexWithoutFilters(path, "120000", hash.stdout.trim());
-        continue;
-      }
-      if (!stat.isFile()) throw new Error(`Git typed commit cannot stage special file: ${target.entry}`);
-      const hash = requiredGit(this.cwd, ["hash-object", "-w", "--no-filters", "--", target.entry], "unfiltered file staging").stdout.trim();
-      const mode = (Number(stat.mode) & 0o111) === 0 ? "100644" : "100755";
-      this.updateIndexWithoutFilters(path, mode, hash);
-    }
-  }
-
-  private updateIndexWithoutFilters(path: string, mode: string, hash: string): void {
-    if (!/^[0-9a-f]{40,64}$/i.test(hash)) throw new Error(`Git returned an invalid object id while staging ${path}.`);
-    requiredGit(this.cwd, ["update-index", "--add", "--cacheinfo", `${mode},${hash},${path}`], "unfiltered index update");
+    if (pathspecs.length === 0) throw new Error("No repository files are available to stage.");
+    requiredGit(this.cwd, ["add", "--", ...pathspecs], "scoped staging");
   }
 
   commitMetadata(message: string, paths: string[]): RepositoryCommitResult {
@@ -616,10 +556,10 @@ export class GitRepositoryProvider implements RepositoryProvider {
     if (!normalized) throw new Error("Metadata commit message cannot be empty.");
     const changed = repositoryPathspecs(this.cwd, paths, "write").sort();
     if (changed.length === 0) throw new Error("No workflow metadata changes are available to commit.");
-    this.stageWithoutFilters(changed);
-    requiredGitWithoutHooks(this.cwd, ["commit", "--no-gpg-sign", "--no-verify", "-m", normalized, "--", ...changed], "workflow metadata commit");
+    this.stage(changed);
+    requiredGit(this.cwd, ["commit", "-m", normalized, "--", ...changed], "workflow metadata commit", { preserveSigningEnvironment: true });
     this.invalidateObservation();
-    return { message: normalized, changedPaths: changed, snapshot: this.snapshot({ disableFilters: true }) };
+    return { message: normalized, changedPaths: changed, snapshot: this.snapshot() };
   }
 
   private dirtyGeneration(fingerprint: string): number {
