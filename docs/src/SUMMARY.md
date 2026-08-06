@@ -41,6 +41,7 @@
   - [Legacy Decision Records](./reference/changelog/legacy-decision-records/index.md)
 - [Planned Features](./planned-features.md)
   <!-- BEGIN FEATURE DESIGNS -->
+  - [First-class dstack workflow harness](./features/first-class-dstack-harness/design.md)
   <!-- Design records are linked from their feature records and roadmap entries. -->
   <!-- END FEATURE DESIGNS -->
 - [Implemented Features](./features/index.md)
