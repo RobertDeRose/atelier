@@ -862,7 +862,14 @@ export class AtelierCore {
         && review.baselineHeadCommit === (executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit)
         && diffHash !== undefined
         && review.diffHash === diffHash);
-    const localChangeCreated = !requiresLocalChange || repositories.localChangeCreated();
+    let localChangeCreated = true;
+    let localChangeError: string | undefined;
+    try {
+      localChangeCreated = !requiresLocalChange || repositories.localChangeCreated();
+    } catch (error) {
+      localChangeCreated = false;
+      localChangeError = error instanceof Error ? error.message : String(error);
+    }
     let sourceStateAcceptable = true;
     let repositoryMetadataPaths: string[] = [];
     try {
@@ -883,7 +890,10 @@ export class AtelierCore {
     }
     if (!localChangeCreated) {
       missing.push("local committed change");
-      blockers.push({ code: "local_change_missing", detail: "No local commit or finalized Jujutsu change exists for the task." });
+      blockers.push({
+        code: "local_change_missing",
+        detail: localChangeError ?? "No local commit or finalized Jujutsu change exists for the task.",
+      });
     }
     if (!sourceStateAcceptable) {
       missing.push("clean application-source state");
@@ -910,7 +920,7 @@ export class AtelierCore {
         : `Task closure blocked: ${[
             validation.ready ? "" : validation.reason.replace(/^Task closure blocked:\s*/i, "").replace(/\.$/, ""),
             finalDiffReviewed ? "" : "the current diff has not been reviewed",
-            localChangeCreated ? "" : "no local commit or finalized change exists",
+            localChangeCreated ? "" : localChangeError ?? "no local commit or finalized change exists",
             sourceStateAcceptable ? "" : "approved application-source paths are not clean",
           ].filter(Boolean).join("; ")}.`,
     };

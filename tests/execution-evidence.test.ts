@@ -104,6 +104,26 @@ test("closure diagnostics distinguish a missing focused selection from a missing
   }
 });
 
+test("closure diagnostics treat unapproved dirty source as a blocker without throwing", async () => {
+  const { root, core } = await activeCore("atlr-closure-scope-diagnostic-");
+  try {
+    writeFileSync(join(root, "unapproved.ts"), "export const unrelated = true;\n", "utf8");
+    assert.doesNotThrow(() => core.taskClosureReadiness());
+    const readiness = core.taskClosureReadiness();
+    assert.equal(readiness.ready, false);
+    assert.equal(readiness.blockers.some((blocker) => blocker.code === "local_change_missing"), true);
+    assert.match(
+      readiness.blockers.find((blocker) => blocker.code === "local_change_missing")?.detail ?? "",
+      /reviewed task scope/i,
+    );
+    const state = await core.buildWorkingState();
+    assert.equal(state.taskClosure.ready, false);
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("focused validation gates closure, becomes stale after mutation, reruns, and survives restart", async () => {
   const { root, core } = await activeCore("atlr-execution-validation-");
   let reopened: AtelierCore | undefined;
