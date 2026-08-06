@@ -69,6 +69,8 @@ function fakeContext(
     waitForIdle?: () => Promise<void>;
     confirmResult?: boolean;
     confirmResults?: boolean[];
+    selectResult?: string;
+    selectError?: Error;
     renderCustom?: boolean;
     customError?: Error;
     modelId?: string;
@@ -96,7 +98,10 @@ function fakeContext(
         observations.confirmationBodies?.push(body);
         return observations.confirmResults?.shift() ?? observations.confirmResult ?? true;
       },
-      select: async () => undefined,
+      select: async (_title: string, _options: string[]) => {
+        if (observations.selectError !== undefined) throw observations.selectError;
+        return observations.selectResult;
+      },
       notify: (message: string) => { observations.notifications?.push(message); },
       setStatus: (key: string, value: string | undefined) => {
         observations.statusEvents?.push({ key, value });
@@ -262,21 +267,21 @@ test("Pi startup makes a recovered active task actionable without re-approval", 
   assert.ok(transition);
   registerAtelierExtension(fakePi, { openCore: () => core });
   const notifications: string[] = [];
-  const widgets: string[][] = [];
-  const startupObservations: { notifications: string[]; widgets: string[][]; renderCustom: boolean; customError?: Error } = {
+  const startupObservations: {
+    notifications: string[];
+    selectResult?: string;
+    selectError?: Error;
+  } = {
     notifications,
-    widgets,
-    renderCustom: true,
+    selectResult: "Continue task — send one explicit agent turn",
   };
   const context = fakeContext(root, { count: 0 }, [], startupObservations);
   try {
     await events.get("session_start")!({ reason: "startup" }, context);
-    assert.match(widgets.flat().join("\n"), /Recovered active task/);
-    assert.match(widgets.flat().join("\n"), /task-1/);
     assert.deepEqual(sentMessages, ["Continue the recovered active task task-1 from Atelier Working State."]);
     assert.equal(core.ledger.getActiveExecutionGrant()?.id, transition.executionGrant.id);
 
-    startupObservations.customError = new Error("modal unavailable");
+    startupObservations.selectError = new Error("modal unavailable");
     await assert.doesNotReject(events.get("session_start")!({ reason: "reload" }, context));
     assert.match(notifications.at(-1) ?? "", /Recovery prompt failed closed: modal unavailable/);
   } finally {
@@ -286,8 +291,9 @@ test("Pi startup makes a recovered active task actionable without re-approval", 
 });
 
 test("Pi recovery prompt exposes explicit continue, pause, and cancel actions", () => {
-  const confirms = { count: 0 };
-  const context = fakeContext("/tmp", confirms, [], { renderCustom: true });
+  const context = fakeContext("/tmp", { count: 0 }, [], {
+    selectResult: "Continue task — send one explicit agent turn",
+  });
   return recoveryActionDialog(context, "task-1").then((action) => assert.equal(action, "continue"));
 });
 
