@@ -221,6 +221,8 @@ test("CLI review, exact approval, cancellation, and JSON workflow remain coordin
     const prepared = JSON.parse(prepare.stdout) as any;
     assert.equal(prepared.approval.status, "prepared");
     assert.equal(prepared.approval.reconciliationDigest, prepared.reconciliation.digest);
+    assert.match(prepared.approval.qualityGateProfileDigest, /^[a-f0-9]{64}$/);
+    assert.ok(Array.isArray(prepared.approval.qualityGatePlan.proposals));
 
     const noAffirmation = run(root, [
       "approve", "--approval", prepared.approval.id,

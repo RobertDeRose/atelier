@@ -87,6 +87,27 @@ test("standalone task activation creates a scoped grant without touching the pla
   }
 });
 
+test("standalone activation does not require legacy validation names", async () => {
+  const root = createTemporaryRepository("atlr-standalone-task-quality-gates-");
+  writeFileSync(join(root, ".atelier", "validation.json"), `${JSON.stringify({
+    closurePolicy: { requireValidation: true },
+    validations: { legacy: { command: ["node", "--version"], required: true } },
+  })}\n`, "utf8");
+  const provider = new InMemoryTaskProvider([task()]);
+  const core = AtelierCore.open(root, { taskProviderInstance: provider });
+  try {
+    const transition = await core.execution.startStandaloneTask({ taskId: "task-1" }, true);
+    assert.ok(transition);
+    const approval = core.ledger.getPlanApproval(transition.executionGrant.planApprovalId);
+    assert.ok(approval);
+    assert.match(approval.qualityGateProfileDigest ?? "", /^[a-f0-9]{64}$/);
+    assert.ok(approval.qualityGatePlan !== undefined);
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("standalone activation rejects epics and stale blockers", async () => {
   const root = createTemporaryRepository("atlr-standalone-task-reject-");
   const provider = new InMemoryTaskProvider([

@@ -8,6 +8,7 @@ import type {
 } from "./retrieval-state.ts";
 import type { CodeFreshness } from "./code-identity.ts";
 import type { RepositoryRevisionBinding, RetrievalRevisionBinding } from "../repository/revision-binding.ts";
+import type { QualityGatePlanInventory, QualityGateProfile } from "../quality-gates/quality-gate-provider.ts";
 import type { RepositorySnapshot } from "../repository/snapshot.ts";
 export type { RepositorySnapshot } from "../repository/snapshot.ts";
 
@@ -365,6 +366,10 @@ export interface PlanApproval {
   retrievalBindings: RetrievalRevisionBinding[];
   taskConstraints: ApprovedTaskConstraint[];
   constraintDigest: string;
+  qualityGateProfileDigest?: string;
+  qualityGateConfigDigest?: string;
+  qualityGatePlan?: QualityGatePlanInventory;
+  qualityGatePlanDigest?: string;
   preparedAt: string;
   decidedAt?: string;
   invalidationReason?: string;
@@ -382,6 +387,9 @@ export interface ReconciliationTransaction {
   preview: TaskReconciliation;
   preparedAt: string;
   updatedAt: string;
+  qualityGateProfileDigest?: string;
+  qualityGateConfigDigest?: string;
+  qualityGatePlanDigest?: string;
   error?: string;
 }
 
@@ -453,6 +461,8 @@ export interface ExecutionPreparation {
   approval: PlanApproval;
   transaction: ReconciliationTransaction;
   reconciliation: TaskReconciliation;
+  qualityGateProfile?: QualityGateProfile;
+  qualityGatePlan?: QualityGatePlanInventory;
 }
 
 export interface ExecutionTransition extends ExecutionPreparation {

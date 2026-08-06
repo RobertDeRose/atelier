@@ -16,6 +16,7 @@ import {
   type AtelierStatus,
   type ExecutionPreparation,
   type QualityGateProfile,
+  type QualityGatePlanInventory,
   type ManualEdit,
   type PlanDiagnostic,
   type RetrievalSessionStatus,
@@ -286,6 +287,19 @@ function reviewText(payload: {
   ].join("\n") + "\n";
 }
 
+function qualityGatePlanText(plan: QualityGatePlanInventory | undefined): string[] {
+  if (plan === undefined) return ["Repository checks: inventory unavailable."];
+  return [
+    `Repository checks: ${plan.selectedGateId ?? "none selected"}`,
+    `Quality-gate profile: ${plan.profileDigest}`,
+    `Quality-gate configuration: ${plan.configDigest}`,
+    ...plan.gates.map((gate) => `- ${gate.id}: ${gate.availability}; ${gate.tool.name} ${gate.tool.version}${gate.reason ? ` — ${gate.reason}` : ""}`),
+    `Coverage: ${plan.coverage.filter((item) => item.covered).length}/${plan.coverage.length} planned path(s) covered${plan.truncated ? " (inventory truncated)" : ""}`,
+    ...plan.coverage.map((item) => `- ${item.path}: ${item.gateIds.join(", ") || "no check coverage"}`),
+    ...(plan.proposals.length === 0 ? [] : ["Proposals:", ...plan.proposals.map((proposal) => `- ${proposal}`)]),
+  ];
+}
+
 function preparationText(core: AtelierCore, prepared: ExecutionPreparation): string {
   const plan = core.parsePlan();
   const retirements = prepared.reconciliation.operations.filter((operation) => operation.kind === "retire");
@@ -302,6 +316,7 @@ function preparationText(core: AtelierCore, prepared: ExecutionPreparation): str
     ...prepared.reconciliation.operations.map((operation) => `- ${operation.kind}: ${operation.planTaskId}`),
     `Retirements: ${retirements.length}${retirements.length === 0 ? "" : ` (${retirements.map((operation) => operation.planTaskId).join(", ")})`}`,
     `Proposed first task: ${proposed === undefined ? "none" : `${proposed.id} — ${proposed.title}`}`,
+    ...qualityGatePlanText(prepared.qualityGatePlan ?? prepared.approval.qualityGatePlan),
     ...taskConstraintSummary(prepared.approval.taskConstraints, core.config.repositoryRoot),
   ].join("\n");
 }

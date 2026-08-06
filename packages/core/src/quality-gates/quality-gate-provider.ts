@@ -17,6 +17,7 @@ const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
 const DEFAULT_OUTPUT_BYTES = 64 * 1024;
 const PREFERRED_TASKS = ["check", "test", "lint", "typecheck", "docs:check"] as const;
 const MAX_DISCOVERED_ENTRYPOINTS = 64;
+const MAX_PLANNED_PATHS = 256;
 
 export type QualityGateKind = "hk" | "prek" | "husky" | "devenv" | "native-git-hook" | "mise" | "npm" | "no-gate";
 export type QualityGateAvailability = "available" | "missing_tool" | "unsupported" | "conflicting" | "no_gate";
@@ -80,6 +81,36 @@ export interface QualityGateProfile {
   selectedGateId?: string;
   noGate: boolean;
   omissions: string[];
+  digest: string;
+}
+
+export interface QualityGatePathCoverage {
+  path: string;
+  gateIds: string[];
+  covered: boolean;
+}
+
+export interface QualityGatePlanGate {
+  id: string;
+  availability: QualityGateAvailability;
+  supported: boolean;
+  command?: string[];
+  tool: QualityGateToolIdentity;
+  coverage: QualityGateCoverage;
+  reason?: string;
+}
+
+export interface QualityGatePlanInventory {
+  version: 1;
+  profileDigest: string;
+  configDigest: string;
+  selectedGateId?: string;
+  gates: QualityGatePlanGate[];
+  plannedPaths: string[];
+  coverage: QualityGatePathCoverage[];
+  truncated: boolean;
+  missingPaths: string[];
+  proposals: string[];
   digest: string;
 }
 
@@ -596,6 +627,50 @@ export class QualityGateService implements QualityGateProvider {
       ...(status === "mutation_detected" ? { reason: "The quality gate changed repository state." } : {}),
     };
   }
+}
+
+export function qualityGatePlanningInventory(profile: QualityGateProfile, plannedPaths: readonly string[]): QualityGatePlanInventory {
+  const allPaths = [...new Set(plannedPaths)].sort();
+  const normalizedPaths = allPaths.slice(0, MAX_PLANNED_PATHS);
+  const runnable = profile.gates.filter((gate) => gate.supported && gate.availability === "available" && gate.command !== undefined && gate.precedence < Number.MAX_SAFE_INTEGER);
+  const coverage = normalizedPaths.map((path) => {
+    const relativePath = relative(profile.repositoryRoot, path).replaceAll("\\", "/");
+    const gateIds = runnable.filter((gate) => gate.coverage.scope === "repository"
+      || (gate.coverage.scope === "changed_paths" && gate.coverage.paths.some((candidate) => candidate === path || candidate === relativePath))).map((gate) => gate.id).sort();
+    return { path, gateIds, covered: gateIds.length > 0 };
+  });
+  const missingPaths = coverage.filter((item) => !item.covered).map((item) => item.path);
+  const unavailable = profile.gates.filter((gate) => gate.kind !== "no-gate" && gate.availability !== "available");
+  const proposals = profile.noGate
+    ? unavailable.length > 0
+      ? [`Resolve unavailable repository checks before approving this plan: ${unavailable.map((gate) => gate.id).join(", ")}.`]
+      : ["Configure a repository quality check before approving this plan."]
+    : missingPaths.length > 0
+      ? [`Add or extend repository check coverage for: ${missingPaths.join(", ")}.`]
+      : [];
+  const configDigest = sha256(stableJson({ sourceFiles: profile.sourceFiles, gitPolicy: profile.gitPolicy }));
+  const gates: QualityGatePlanGate[] = profile.gates.filter((gate) => gate.kind !== "no-gate").map((gate) => ({
+    id: gate.id,
+    availability: gate.availability,
+    supported: gate.supported,
+    ...(gate.command === undefined ? {} : { command: [...gate.command] }),
+    tool: { ...gate.tool },
+    coverage: { ...gate.coverage, paths: [...gate.coverage.paths] },
+    ...(gate.reason === undefined ? {} : { reason: gate.reason }),
+  }));
+  const base: Omit<QualityGatePlanInventory, "digest"> = {
+    version: 1,
+    profileDigest: profile.digest,
+    configDigest,
+    ...(profile.selectedGateId === undefined ? {} : { selectedGateId: profile.selectedGateId }),
+    gates,
+    plannedPaths: normalizedPaths,
+    coverage,
+    truncated: allPaths.length > MAX_PLANNED_PATHS,
+    missingPaths,
+    proposals,
+  };
+  return { ...base, digest: sha256(stableJson(base)) };
 }
 
 export function qualityGateSelection(profile: QualityGateProfile): QualityGate | undefined {

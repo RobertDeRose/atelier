@@ -23,6 +23,7 @@ import type { RepositoryProvider } from "../repository/repository-provider.ts";
 import type { RepositorySnapshot } from "../repository/snapshot.ts";
 import { canonicalRepositoryRoot, repositoryPathTarget } from "../repository/repository-path.ts";
 import type { TaskProvider } from "../tasks/task-provider.ts";
+import { qualityGatePlanningInventory, type QualityGateProvider } from "../quality-gates/quality-gate-provider.ts";
 import { sha256 } from "../util/hash.ts";
 import { newId, nowIso } from "../util/ids.ts";
 import {
@@ -50,6 +51,7 @@ export interface ExecutionWorkflowCoordinatorOptions {
   validationRequired?: () => boolean;
   repositoryRoots?: () => Readonly<Record<string, string>> | Promise<Readonly<Record<string, string>>>;
   primaryRepositoryId?: () => string | Promise<string>;
+  qualityGates?: QualityGateProvider;
   sourceContext?: () => ExecutionSourceContext | Promise<ExecutionSourceContext>;
 }
 
@@ -101,6 +103,7 @@ export class ExecutionWorkflowCoordinator {
   private readonly validationRequired: () => boolean;
   private readonly repositoryRoots: () => Readonly<Record<string, string>> | Promise<Readonly<Record<string, string>>>;
   private readonly primaryRepositoryId: () => string | Promise<string>;
+  private readonly qualityGates: QualityGateProvider | undefined;
   private readonly configuredSourceContext: (() => ExecutionSourceContext | Promise<ExecutionSourceContext>) | undefined;
 
   constructor(options: ExecutionWorkflowCoordinatorOptions) {
@@ -115,6 +118,7 @@ export class ExecutionWorkflowCoordinator {
     this.validationRequired = options.validationRequired ?? (() => false);
     this.repositoryRoots = options.repositoryRoots ?? (() => ({ [this.repository.snapshot().repositoryId]: this.repositoryRoot }));
     this.primaryRepositoryId = options.primaryRepositoryId ?? (() => this.repository.snapshot().repositoryId);
+    this.qualityGates = options.qualityGates;
     this.configuredSourceContext = options.sourceContext;
   }
 
@@ -176,6 +180,10 @@ export class ExecutionWorkflowCoordinator {
       this.validationConstraints(),
       { requireValidation: this.validationRequired(), repositoryRoots: source.repositoryRoots, primaryRepositoryId: source.primaryRepositoryId },
     );
+    const qualityGateProfile = this.qualityGates === undefined ? undefined : await this.qualityGates.discover();
+    const qualityGatePlan = qualityGateProfile === undefined
+      ? undefined
+      : qualityGatePlanningInventory(qualityGateProfile, taskConstraints.flatMap((constraint) => constraint.writePaths));
     const timestamp = nowIso();
     const approval: PlanApproval = {
       id: newId("approval"),
@@ -191,6 +199,12 @@ export class ExecutionWorkflowCoordinator {
       retrievalBindings,
       taskConstraints,
       constraintDigest: taskConstraintDigest(taskConstraints),
+      ...(qualityGateProfile === undefined || qualityGatePlan === undefined ? {} : {
+        qualityGateProfileDigest: qualityGateProfile.digest,
+        qualityGateConfigDigest: qualityGatePlan.configDigest,
+        qualityGatePlan,
+        qualityGatePlanDigest: qualityGatePlan.digest,
+      }),
       preparedAt: timestamp,
     };
     const transaction: ReconciliationTransaction = {
@@ -203,6 +217,11 @@ export class ExecutionWorkflowCoordinator {
       preview: reconciliation,
       preparedAt: timestamp,
       updatedAt: timestamp,
+      ...(qualityGateProfile === undefined || qualityGatePlan === undefined ? {} : {
+        qualityGateProfileDigest: qualityGateProfile.digest,
+        qualityGateConfigDigest: qualityGatePlan.configDigest,
+        qualityGatePlanDigest: qualityGatePlan.digest,
+      }),
     };
     this.ledger.savePlanApproval(approval);
     this.ledger.saveReconciliationTransaction(transaction);
@@ -222,9 +241,16 @@ export class ExecutionWorkflowCoordinator {
         retrievalBindingCount: retrievalBindings.length,
         taskConstraints,
         constraintDigest: approval.constraintDigest,
+        ...(qualityGatePlan === undefined ? {} : { qualityGatePlan }),
       },
     });
-    return { approval, transaction, reconciliation };
+    return {
+      approval,
+      transaction,
+      reconciliation,
+      ...(qualityGateProfile === undefined ? {} : { qualityGateProfile }),
+      ...(qualityGatePlan === undefined ? {} : { qualityGatePlan }),
+    };
   }
 
   async approveAndApply(
@@ -414,11 +440,15 @@ export class ExecutionWorkflowCoordinator {
       this.repositoryRoot,
       this.validationConstraints(),
       {
-        requireValidation: this.validationRequired(),
+        requireValidation: false,
         repositoryRoots: source.repositoryRoots,
         primaryRepositoryId: source.primaryRepositoryId,
       },
     );
+    const qualityGateProfile = this.qualityGates === undefined ? undefined : await this.qualityGates.discover();
+    const qualityGatePlan = qualityGateProfile === undefined
+      ? undefined
+      : qualityGatePlanningInventory(qualityGateProfile, taskConstraints.flatMap((constraint) => constraint.writePaths));
     const provider = providerIdentity(this.provider.name, status.version);
     const constraintDigest = taskConstraintDigest(taskConstraints);
     const planHash = sha256(JSON.stringify({
@@ -435,7 +465,13 @@ export class ExecutionWorkflowCoordinator {
       provider,
       taskConstraints,
     }));
-    const reconciliationDigest = sha256(JSON.stringify({ executionSource: "standalone", taskId: task.id, provider, constraintDigest }));
+    const reconciliationDigest = sha256(JSON.stringify({
+      executionSource: "standalone",
+      taskId: task.id,
+      provider,
+      constraintDigest,
+      qualityGatePlanDigest: qualityGatePlan?.digest,
+    }));
     const timestamp = nowIso();
     const approval: PlanApproval = {
       id: newId("approval"),
@@ -452,6 +488,12 @@ export class ExecutionWorkflowCoordinator {
       retrievalBindings: source.retrievalBindings,
       taskConstraints,
       constraintDigest,
+      ...(qualityGateProfile === undefined || qualityGatePlan === undefined ? {} : {
+        qualityGateProfileDigest: qualityGateProfile.digest,
+        qualityGateConfigDigest: qualityGatePlan.configDigest,
+        qualityGatePlan,
+        qualityGatePlanDigest: qualityGatePlan.digest,
+      }),
       preparedAt: timestamp,
       decidedAt: timestamp,
     };
@@ -475,6 +517,11 @@ export class ExecutionWorkflowCoordinator {
       preview: reconciliation,
       preparedAt: timestamp,
       updatedAt: timestamp,
+      ...(qualityGateProfile === undefined || qualityGatePlan === undefined ? {} : {
+        qualityGateProfileDigest: qualityGateProfile.digest,
+        qualityGateConfigDigest: qualityGatePlan.configDigest,
+        qualityGatePlanDigest: qualityGatePlan.digest,
+      }),
     };
     if (!confirmed) return undefined;
     const claimed = task.status === "in_progress" ? task : await this.provider.claim(task.id);

@@ -247,6 +247,7 @@ export class AtelierCore {
           required: definition.required === true,
         })),
       validationRequired: () => this.validation.closurePolicy().requireValidation,
+      qualityGates: this.qualityGates,
     });
     this.workingStateBuilder = new WorkingStateBuilder(taskProvider, ledger, this.code, this.validation);
     this.dstack = new DstackLifecycleCoordinator({

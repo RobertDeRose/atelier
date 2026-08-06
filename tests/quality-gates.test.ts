@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync } from "node:fs";
 import test from "node:test";
-import { QualityGateService } from "../packages/core/src/quality-gates/quality-gate-provider.ts";
+import {
+  QualityGateService,
+  qualityGatePlanningInventory,
+} from "../packages/core/src/quality-gates/quality-gate-provider.ts";
 import { GitRepositoryProvider } from "../packages/core/src/repository/git-repository-provider.ts";
 import { SqliteLedger } from "../packages/core/src/ledger/sqlite-ledger.ts";
 import { createTemporaryRepository, testDatabasePath } from "./fixtures.ts";
@@ -147,6 +150,33 @@ test("quality-gate runs use bounded redacted output and detect repository mutati
     const changed = await gates.run(changedProfile.selectedGateId!);
     assert.equal(changed.status, "mutation_detected");
     assert.ok(changed.changedPathsAfter.includes("generated.txt"));
+  } finally {
+    ledger.close();
+  }
+});
+
+test("quality-gate planning inventory identifies covered and missing paths without running checks", async () => {
+  const root = createTemporaryRepository("atlr-quality-gates-planning-");
+  writeFileSync(`${root}/package.json`, JSON.stringify({ scripts: { check: "echo check" } }), "utf8");
+  const { gates, ledger } = service(root);
+  try {
+    const profile = await gates.discover();
+    const inventory = qualityGatePlanningInventory(profile, [`${root}/packages/core`, `${root}/docs`]);
+    assert.equal(inventory.selectedGateId, "npm:check");
+    assert.deepEqual(inventory.missingPaths, []);
+    assert.equal(inventory.coverage.every((item) => item.covered), true);
+    assert.equal(inventory.digest.length, 64);
+
+    const noGateRoot = createTemporaryRepository("atlr-quality-gates-planning-empty-");
+    const noGateService = service(noGateRoot);
+    try {
+      const noGate = await noGateService.gates.discover();
+      const missing = qualityGatePlanningInventory(noGate, [`${noGateRoot}/src`]);
+      assert.equal(missing.missingPaths.length, 1);
+      assert.ok(missing.proposals.length > 0);
+    } finally {
+      noGateService.ledger.close();
+    }
   } finally {
     ledger.close();
   }
