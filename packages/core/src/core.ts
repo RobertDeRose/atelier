@@ -70,6 +70,26 @@ import { WorkspacePolicyEvaluator, type FilesystemEffect, type WorkspacePolicyDe
 import { RecoveryManager, type RecoveryCheckpoint } from "./recovery/recovery-manager.ts";
 import { PerformanceRecorder } from "./performance/performance-recorder.ts";
 import { octocodeCredentialEnvironment } from "./process/environment.ts";
+import {
+  buildContextCapsule,
+  contextBoundaryDigest,
+  stableJson,
+  ContextCapsuleCache,
+  type ContextCapsule,
+  type ContextCapsuleBudgets,
+  type ContextCapsuleSectionInput,
+  type ContextCapsuleSource,
+} from "./context/context-capsule.ts";
+
+export interface BuildContextCapsuleOptions {
+  /** Select one task explicitly; otherwise use the same selection as Working State. */
+  explicitTaskId?: string;
+  /** Exact repository-relative documents supplied by an authoritative adapter. */
+  documentPaths?: readonly string[];
+  /** Already-inventoried repository quality gates; arbitrary file scraping is not performed. */
+  gateInventory?: unknown;
+  budgets?: Partial<ContextCapsuleBudgets>;
+}
 
 export interface AtelierStatus {
   repositoryRoot: string;
@@ -143,6 +163,7 @@ export class AtelierCore {
   private codeWorkspacePromise?: Promise<CodeWorkspace>;
   private repositoryObservationGeneration = 0;
   private cachedTaskClosure?: { executionGrantId: string; readiness: TaskClosureReadiness };
+  private readonly contextCapsuleCache = new ContextCapsuleCache();
   private closePromise: Promise<void> | undefined;
 
   private constructor(
@@ -1306,6 +1327,212 @@ export class AtelierCore {
       },
     });
     return state;
+  }
+
+  async buildContextCapsule(options: BuildContextCapsuleOptions = {}): Promise<ContextCapsule> {
+    const state = await this.buildWorkingState(options.explicitTaskId);
+    const omissions = [...state.omissions];
+    const documentSources: ContextCapsuleSource[] = [];
+    const documentValues: Array<{ path: string; content: string }> = [];
+    const seenDocuments = new Set<string>();
+
+    for (const requestedPath of options.documentPaths ?? []) {
+      try {
+        const target = repositoryPathTarget(this.config.repositoryRoot, requestedPath, "read");
+        if (seenDocuments.has(target.relative)) continue;
+        seenDocuments.add(target.relative);
+        const content = readFileSync(target.entry, "utf8");
+        const digest = sha256(content);
+        documentSources.push({
+          id: `document:${target.relative}`,
+          kind: "document",
+          digest,
+          location: target.relative,
+          boundary: "entire file",
+          freshness: "current",
+        });
+        documentValues.push({ path: target.relative, content });
+      } catch (error) {
+        const location = requestedPath;
+        const digest = sha256(`unavailable:${location}`);
+        documentSources.push({
+          id: `document:${location}`,
+          kind: "document",
+          digest,
+          location,
+          boundary: "read attempt",
+          freshness: "unavailable",
+        });
+        omissions.push(`Document ${location} was unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    const taskValue = {
+      provider: this.taskProvider.name,
+      activeTask: state.activeTask,
+      planTask: state.planTask,
+      taskSelection: state.taskSelection,
+      readyTasks: state.readyTasks,
+      taskDependencies: state.taskDependencies,
+      taskBlockers: state.taskBlockers,
+      taskConstraints: state.taskConstraints,
+    };
+    const retrievalValue = {
+      queries: state.retrievalQueries,
+      evidence: state.codeEvidence,
+      session: state.retrievalSession,
+      explanation: state.retrievalExplanation,
+    };
+    const snapshotIdentity = {
+      repositoryId: state.snapshot.repositoryId,
+      workspaceId: state.snapshot.workspaceId,
+      vcs: state.snapshot.vcs,
+      headCommit: state.snapshot.headCommit,
+      sourceBaseCommit: state.snapshot.sourceBaseCommit,
+      sourceFingerprint: state.snapshot.sourceFingerprint,
+      dirtyFingerprint: state.snapshot.dirtyFingerprint,
+      indexSchemaVersion: state.snapshot.indexSchemaVersion,
+    };
+    const snapshotValue = {
+      identity: sourceRevisionIdentity(state.snapshot),
+      snapshot: snapshotIdentity,
+      executionGrant: state.executionGrant,
+      workflowCheckpoint: state.workflowCheckpoint,
+      planApproval: state.planApproval,
+      reconciliationTransaction: state.reconciliationTransaction,
+    };
+    const reviewValue = {
+      corrections: state.corrections,
+      findings: state.findings,
+      manualEdits: state.manualEdits,
+      executionEvidence: state.executionEvidence,
+      focusedValidationSelections: state.focusedValidationSelections,
+    };
+    const workingStateValue = {
+      mode: state.mode,
+      planObjective: state.planObjective,
+      taskSelection: state.taskSelection,
+      nextAction: state.nextAction,
+      taskClosure: state.taskClosure,
+      workflowCheckpoint: state.workflowCheckpoint,
+      omissions: state.omissions,
+      // State IDs and build timestamps are observation metadata, not source changes.
+      markdown: this.workingStateBuilder.toMarkdown(state)
+        .replace(`- Working state: ${state.stateId}`, "- Working state: [current]")
+        .replace(/ \/ dirty generation \d+/, " / dirty generation [current]"),
+    };
+    const validationDigest = sourcePathFingerprint(this.config.repositoryRoot, this.config.validationPath);
+    const validationAvailable = existsSync(this.config.validationPath);
+    let validationFreshness: ContextCapsuleSource["freshness"] = validationAvailable ? "current" : "unavailable";
+    let configuredGateInventory: { configured: Record<string, unknown>; closurePolicy: unknown } | undefined;
+    if (options.gateInventory === undefined) {
+      try {
+        const manifest = this.validation.manifest();
+        configuredGateInventory = {
+          configured: manifest.validations,
+          closurePolicy: manifest.closurePolicy,
+        };
+      } catch (error) {
+        omissions.push(`Quality-gate inventory was unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        configuredGateInventory = { configured: {}, closurePolicy: {} };
+        validationFreshness = "unavailable";
+      }
+    }
+    const qualityGateValue = options.gateInventory ?? {
+      ...(configuredGateInventory ?? {}),
+      current: state.currentValidationEvidence,
+      stale: state.staleValidationEvidence,
+      closure: state.taskClosure,
+    };
+    const validationSource: ContextCapsuleSource = {
+      id: "atelier:quality-gates",
+      kind: "quality-gate-inventory",
+      digest: sha256(stableJson({ manifest: validationDigest, inventory: qualityGateValue })),
+      location: repositoryRelativePath(this.config.repositoryRoot, this.config.validationPath, "read"),
+      boundary: "validation manifest and current validation evidence",
+      freshness: validationFreshness,
+    };
+    const taskSource: ContextCapsuleSource = {
+      id: `task-provider:${this.taskProvider.name}`,
+      kind: "beads",
+      digest: sha256(stableJson(taskValue)),
+      location: state.activeTask?.id ?? "ready-task-set",
+      boundary: "selected task, direct dependencies, and bounded ready set",
+      freshness: "current",
+    };
+    const retrievalSource: ContextCapsuleSource = {
+      id: `retrieval:${state.retrievalSession?.id ?? "none"}`,
+      kind: "code-intelligence",
+      digest: sha256(stableJson(retrievalValue)),
+      location: state.retrievalSession?.id ?? "no retrieval session",
+      boundary: "scoped evidence, queries, inventory, and provider decisions",
+      freshness: state.retrievalSession === undefined
+        ? "unavailable"
+        : state.retrievalSession.freshness === "current"
+          ? "current"
+          : state.retrievalSession.freshness === "possibly_stale"
+            ? "stale"
+            : "unknown",
+    };
+    const snapshotSource: ContextCapsuleSource = {
+      id: `snapshot:${state.snapshot.repositoryId}`,
+      kind: "repository-snapshot",
+      digest: sha256(stableJson(snapshotValue)),
+      location: state.snapshot.repositoryId,
+      boundary: sourceRevisionIdentity(state.snapshot),
+      freshness: "current",
+    };
+    const reviewSource: ContextCapsuleSource = {
+      id: `ledger:task:${state.activeTask?.id ?? "none"}`,
+      kind: "ledger-review",
+      digest: sha256(stableJson(reviewValue)),
+      location: state.activeTask?.id ?? "workflow ledger",
+      boundary: "bounded findings, corrections, edits, and execution evidence",
+      freshness: "current",
+    };
+    const workingStateSource: ContextCapsuleSource = {
+      id: "working-state:current",
+      kind: "working-state",
+      digest: sha256(stableJson(workingStateValue)),
+      location: "current Core Working State",
+      boundary: "one Core Working State build",
+      freshness: "current",
+    };
+    const sections: ContextCapsuleSectionInput[] = [
+      { name: "task", kind: "beads", sources: [taskSource], value: taskValue, budgetClass: "items" },
+      { name: "working_state", kind: "working-state", sources: [workingStateSource], value: workingStateValue },
+      { name: "snapshot", kind: "repository-snapshot", sources: [snapshotSource], value: snapshotValue },
+      { name: "code", kind: "code-intelligence", sources: [retrievalSource], value: retrievalValue, budgetClass: "retrieval" },
+      { name: "reviews", kind: "ledger-review", sources: [reviewSource], value: reviewValue, budgetClass: "history" },
+      { name: "quality_gates", kind: "quality-gate-inventory", sources: [validationSource], value: qualityGateValue, budgetClass: "history" },
+    ];
+    if (documentSources.length > 0) {
+      sections.push({
+        name: "documents",
+        kind: "design-and-implementation-records",
+        sources: documentSources,
+        value: documentValues,
+        budgetClass: "items",
+      });
+    }
+
+    const boundary = {
+      repository: this.config.repositoryRoot,
+      taskId: state.activeTask?.id ?? options.explicitTaskId ?? "none",
+      executionGrant: state.executionGrant,
+      approvedPlanHash: state.approvedPlanHash,
+      sourceDigests: sections.map((section) => ({ name: section.name, sources: section.sources.map((source) => source.digest) })),
+      snapshot: snapshotValue,
+      documentPaths: documentSources.map((source) => source.location),
+      budgets: options.budgets ?? {},
+    };
+    const boundaryDigest = contextBoundaryDigest(boundary);
+    return this.contextCapsuleCache.getOrBuild(boundaryDigest, () => buildContextCapsule({
+      boundary,
+      sections,
+      ...(options.budgets === undefined ? {} : { budgets: options.budgets }),
+      omissions,
+    }));
   }
 
   async nextAction(options: { taskClosure?: TaskClosureReadiness; allowProviderIo?: boolean } = {}): Promise<string> {
