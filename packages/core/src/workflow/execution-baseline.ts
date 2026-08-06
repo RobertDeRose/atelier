@@ -1,5 +1,6 @@
 import type {
   ApprovedTaskConstraint,
+  ExecutionBaseline,
   ExecutionGrant,
   PlanTask,
   RepositorySnapshot,
@@ -24,6 +25,17 @@ function canonical(value: unknown): unknown {
     );
   }
   return value;
+}
+
+export type ExecutionBaselineInput = Omit<ExecutionBaseline, "digest">;
+
+export function executionBaselineDigest(baseline: ExecutionBaseline | ExecutionBaselineInput): string {
+  const { digest: _digest, ...stable } = baseline as ExecutionBaseline;
+  return sha256(JSON.stringify(canonical(stable)));
+}
+
+export function createExecutionBaseline(input: ExecutionBaselineInput): ExecutionBaseline {
+  return { ...input, digest: executionBaselineDigest(input) };
 }
 
 export function createTaskConstraints(

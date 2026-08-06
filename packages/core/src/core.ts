@@ -30,7 +30,7 @@ import {
 import { PlanReconciler } from "./planning/plan-reconciler.ts";
 import { WorkflowGuard } from "./workflow/workflow-guard.ts";
 import { ExecutionWorkflowCoordinator } from "./workflow/execution-workflow-coordinator.ts";
-import { constraintsForPlanTask, sourceBaselineMismatch } from "./workflow/execution-baseline.ts";
+import { constraintsForPlanTask, executionBaselineDigest, sourceBaselineMismatch } from "./workflow/execution-baseline.ts";
 import { createRepositoryProvider } from "./repository/repository-factory.ts";
 import type {
   RepositoryObservation,
@@ -474,6 +474,7 @@ export class AtelierCore {
       executionGrantId: executionGrant.id,
       workflowDecisionId: input.workflowDecisionId,
       ...(input.checkpointId === undefined ? {} : { checkpointId: input.checkpointId }),
+      ...(executionGrant.executionBaseline === undefined ? {} : { baselineDigest: executionGrant.executionBaseline.digest }),
       beforeSnapshot: currentSnapshot,
       requestedPaths: sourcePaths((input.request.paths ?? [])
         .flatMap((path) => repositoryRelativeSourcePath(this.config.repositoryRoot, path) ?? [])),
@@ -609,6 +610,7 @@ export class AtelierCore {
       executionGrantId: executionGrant.id,
       planHash: executionGrant.planHash,
       reconciliationDigest: executionGrant.reconciliationDigest,
+      ...(executionGrant.executionBaseline === undefined ? {} : { baselineDigest: executionGrant.executionBaseline.digest }),
       snapshot: repositories.evidenceSnapshot(),
       changedPaths,
       changedSymbols,
@@ -648,6 +650,7 @@ export class AtelierCore {
         taskId: executionGrant.taskId,
         executionGrantId: executionGrant.id,
         planHash: executionGrant.planHash,
+        ...(executionGrant.executionBaseline === undefined ? {} : { baselineDigest: executionGrant.executionBaseline.digest }),
       }),
     });
     this.ledger.append({
@@ -750,6 +753,8 @@ export class AtelierCore {
 
   reviewFinalDiff(expectedDiffHash: string): FinalDiffReview {
     const preview = this.previewFinalDiff();
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant === undefined) throw new Error("Final diff review requires an active execution grant.");
     if (preview.diffHash !== expectedDiffHash) {
       throw new Error("The task diff changed while it was being reviewed; preview and review the current diff again.");
     }
@@ -762,6 +767,7 @@ export class AtelierCore {
       snapshot,
       changedPaths: preview.changedPaths,
       diffHash: preview.diffHash,
+      ...(executionGrant.executionBaseline === undefined ? {} : { baselineDigest: executionGrant.executionBaseline.digest }),
       repositoryBindings: this.repositoryRevisionBindings(),
       ...(preview.repositories === undefined ? {} : { repositories: preview.repositories }),
       reviewedAt: nowIso(),
@@ -1498,7 +1504,12 @@ export class AtelierCore {
   ): RecoveryCheckpoint {
     const checkpoint = this.recovery.checkpoint(
       decision.effects.filter((effect) => effect.decision === "checkpoint_then_allow"),
-      options,
+      {
+        ...options,
+        ...(this.ledger.getActiveExecutionGrant()?.executionBaseline === undefined
+          ? {}
+          : { baseline: this.ledger.getActiveExecutionGrant()!.executionBaseline }),
+      },
     );
     this.invalidateRepositoryObservation();
     this.ledger.append({
@@ -1511,8 +1522,26 @@ export class AtelierCore {
   }
 
   restoreCheckpoint(id: string): string[] {
+    const checkpoint = this.recovery.get(id);
+    const grant = this.ledger.getActiveExecutionGrant();
+    if (grant !== undefined && checkpoint.baseline !== undefined
+      && checkpoint.baseline.digest !== grant.executionBaseline?.digest) {
+      throw new Error(`Recovery checkpoint ${id} belongs to a different execution baseline.`);
+    }
+    if (grant !== undefined) {
+      this.execution.pause(`Recovery checkpoint ${id} restored; explicit resume is required.`, { checkpointId: id });
+    }
     const paths = this.recovery.restore(id);
-    this.ledger.append({ kind: "recovery.checkpoint_restored", actor: "user", repositorySnapshot: this.repository.snapshot(), payload: { id, paths } });
+    this.ledger.append({
+      kind: "recovery.checkpoint_restored",
+      actor: "user",
+      repositorySnapshot: this.repository.snapshot(),
+      payload: {
+        id,
+        paths,
+        ...(checkpoint.baseline === undefined ? {} : { baselineDigest: executionBaselineDigest(checkpoint.baseline) }),
+      },
+    });
     return paths;
   }
 }

@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { RecoveryManager } from "../packages/core/src/recovery/recovery-manager.ts";
+import { createExecutionBaseline } from "../packages/core/src/workflow/execution-baseline.ts";
 import { GitRepositoryProvider } from "../packages/core/src/repository/git-repository-provider.ts";
 import { JujutsuRepositoryProvider } from "../packages/core/src/repository/jujutsu-repository-provider.ts";
 import { SqliteLedger } from "../packages/core/src/ledger/sqlite-ledger.ts";
@@ -50,6 +51,50 @@ function scopedGitState(root: string, paths: string[]): Record<string, string> {
     unstaged: gitResult(root, "diff", "--binary", "--", ...paths),
   };
 }
+
+test("Recovery checkpoints persist the task-bound execution baseline for inspection", () => {
+  const root = createTemporaryRepository("atlr-recovery-baseline-");
+  const runtime = mkdtempSync(join(tmpdir(), "atlr-recovery-baseline-runtime-"));
+  const ledger = new SqliteLedger(testDatabasePath(root));
+  try {
+    const path = join(root, "baseline.txt");
+    writeFileSync(path, "baseline\n", "utf8");
+    const provider = new GitRepositoryProvider({ cwd: root, ledger });
+    const recovery = new RecoveryManager({ workspaceRoot: root, runtimeDirectory: runtime, repository: provider });
+    const baseline = createExecutionBaseline({
+      version: 1,
+      planHash: "plan-hash",
+      reconciliationDigest: "reconciliation-digest",
+      provider: { name: "git", version: "test" },
+      workspaceId: provider.snapshot().workspaceId,
+      repositoryId: provider.snapshot().repositoryId,
+      repositorySnapshot: provider.snapshot(),
+      repositoryBindings: [],
+      retrievalBindings: [],
+      executionGrantId: "execution-1",
+      taskId: "task-1",
+      planTaskId: "plan-task-1",
+      taskOwner: "owner-1",
+      approvalConstraintDigest: "approval-constraints",
+      constraintDigest: "task-constraints",
+      writePaths: [path],
+      dependencyPaths: [],
+      allowDependencyChanges: false,
+      focusedValidations: [],
+      fullValidations: [],
+      allowFullSuite: false,
+      allowLocalChange: true,
+      capturedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const checkpoint = recovery.checkpoint([checkpointEffect(path)], { baseline });
+    assert.deepEqual(checkpoint.baseline, baseline);
+    assert.deepEqual(recovery.list()[0]?.baseline, baseline);
+  } finally {
+    ledger.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(runtime, { recursive: true, force: true });
+  }
+});
 
 test("Git recovery restores exact staged, unstaged, rename, mode, symlink, ignored, and untracked state", () => {
   const root = createTemporaryRepository("atlr-recovery-git-");

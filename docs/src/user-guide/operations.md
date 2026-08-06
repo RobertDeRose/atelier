@@ -104,6 +104,12 @@ Jujutsu checkpoint before that operation. Checkpoints are stored under the
 external runtime directory and record the initiating session, tool call,
 provider state, affected paths, and verification result.
 
+When a task is active, the checkpoint also records the task execution baseline:
+task and plan identity, execution grant, repository/workspace identity, source
+snapshot and bindings, reviewed scope, validation contract, and task ownership.
+Evidence, diff review, and validation records retain the same baseline digest so
+an observation cannot be reused for a different task boundary.
+
 List or restore checkpoints from the CLI:
 
 ```sh
@@ -114,6 +120,10 @@ atlr recovery restore CHECKPOINT_ID
 Restore only after inspecting the checkpoint and current diff. A restore is a
 source mutation and may overwrite work that appeared after the checkpoint;
 make a separate copy or local VCS checkpoint first when attribution is unclear.
+Restoring a checkpoint for an active task pauses that execution before the
+restore. `atlr resume` or `/atelier-resume` rechecks the repository, workspace,
+source-base, index, and scope baseline before unpausing; drift invalidates the
+grant instead of resuming mutation. Continue is always an explicit action.
 A failed checkpoint blocks the destructive operation rather than proceeding
 without recovery.
 
@@ -143,7 +153,8 @@ Initialize Beads separately when Pi asks; do not manually claim a task with
 
 ### Work is paused, cancelled, or interrupted
 
-For a pause, inspect `/status`, then `/atelier-resume` or `atlr resume`. For a
+For a pause or restored checkpoint, inspect `/status`, then `/atelier-resume` or
+`atlr resume`; the resume action revalidates the exact execution baseline. For a
 cancelled approved task, inspect source and evidence before
 `/atelier-resume-task` or `atlr resume-task`. Escape, denial, and normal turn
 settlement do not schedule a forced follow-up. Existing source edits remain

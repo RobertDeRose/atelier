@@ -351,7 +351,7 @@ async function main(): Promise<void> {
       }
 
       case "resume": {
-        const resumed = core.execution.resumePaused();
+        const resumed = await core.execution.resumePaused();
         if (resumed === undefined) throw new Error("No active execution exists to resume.");
         if (flagBoolean(parsed, "json")) asJson({ resumed: true, executionGrant: resumed });
         else process.stdout.write(`Resumed execution ${resumed.id}; task ${resumed.taskId} remains active.\n`);

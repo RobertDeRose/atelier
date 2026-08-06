@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { AtelierCore } from "../packages/core/src/core.ts";
+import type { WorkspacePolicyDecision } from "../packages/core/src/policy/workspace-policy.ts";
 import { DisabledCodeProvider } from "../packages/core/src/code/disabled-provider.ts";
 import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
 
@@ -68,6 +69,7 @@ test("authorized tool attempts record observed success, failure, interruption, a
     core.beginExecutionEvidence({ toolCallId: "success", toolName: "write", request, ...authorize(core, request) });
     writeFileSync(join(root, "src.ts"), "export const changed = true;\n", "utf8");
     const succeeded = core.completeExecutionEvidence("success", { status: "succeeded" });
+    assert.equal(succeeded?.baselineDigest, grant.executionBaseline?.digest);
     assert.equal(succeeded?.observedMutation, true);
     assert.deepEqual(succeeded?.changedPaths, ["src.ts"]);
 
@@ -81,6 +83,49 @@ test("authorized tool attempts record observed success, failure, interruption, a
     const interrupted = core.interruptPendingExecutionEvidence("session interrupted");
     assert.equal(interrupted[0]?.status, "interrupted");
     assert.equal(core.ledger.listExecutionEvidence({ taskId: grant.taskId }).length, 3);
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("restoring a task checkpoint preserves the baseline and requires explicit continuation", async () => {
+  const { root, core } = await activeCore("atlr-recovery-task-boundary-");
+  try {
+    const grant = core.ledger.getActiveExecutionGrant();
+    assert.ok(grant?.executionBaseline);
+    mkdirSync(join(root, "src"), { recursive: true });
+    const path = join(root, "src", "recoverable.ts");
+    writeFileSync(path, "export const state = \"before\";\n", "utf8");
+    const decision: WorkspacePolicyDecision = {
+      result: "checkpoint_then_allow",
+      reason: "test recovery boundary",
+      effects: [{
+        kind: "overwrite",
+        path,
+        resolvedPath: path,
+        destructive: true,
+        state: "tracked_dirty",
+        decision: "checkpoint_then_allow",
+        reason: "test recovery boundary",
+      }],
+    };
+
+    const checkpoint = core.checkpointWorkspaceEffects(decision, {
+      toolCallId: "recovery-boundary",
+      sessionId: "recovery-session",
+    });
+    assert.equal(checkpoint.baseline?.digest, grant.executionBaseline?.digest);
+    writeFileSync(path, "export const state = \"after\";\n", "utf8");
+
+    core.restoreCheckpoint(checkpoint.id);
+    assert.equal(readFileSync(path, "utf8"), "export const state = \"before\";\n");
+    assert.equal(core.execution.isPaused(), true);
+    assert.equal(core.ledger.getExecutionPause()?.checkpointId, checkpoint.id);
+
+    const resumed = await core.execution.resumePaused();
+    assert.equal(resumed?.id, grant.id);
+    assert.equal(core.execution.isPaused(), false);
   } finally {
     await core.close();
     rmSync(root, { recursive: true, force: true });

@@ -1205,7 +1205,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     description: "Resume a paused Atelier execution without starting an agent turn",
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
-      const resumed = core.execution.resumePaused();
+      const resumed = await core.execution.resumePaused();
       if (resumed === undefined) {
         ctx.ui.notify("No active execution exists to resume.", "info");
         return;

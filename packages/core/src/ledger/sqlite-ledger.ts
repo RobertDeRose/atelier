@@ -932,11 +932,17 @@ export class SqliteLedger {
     return this.getState<ExecutionPause>("executionPause");
   }
 
-  pauseExecution(grant: ExecutionGrant, reason: string): ExecutionPause {
+  pauseExecution(grant: ExecutionGrant, reason: string, options: { checkpointId?: string } = {}): ExecutionPause {
     const current = this.getActiveExecutionGrant();
     if (current === undefined || current.id !== grant.id) throw new Error("Only the active execution can be paused.");
     const timestamp = nowIso();
-    const pause: ExecutionPause = { executionGrantId: grant.id, taskId: grant.taskId, reason, pausedAt: timestamp };
+    const pause: ExecutionPause = {
+      executionGrantId: grant.id,
+      taskId: grant.taskId,
+      reason,
+      pausedAt: timestamp,
+      ...(options.checkpointId === undefined ? {} : { checkpointId: options.checkpointId }),
+    };
     const run = this.getCurrentWorkflowRun();
     const nextRun = run === undefined ? undefined : { ...run, status: "active" as const, checkpoint: "paused" as const, updatedAt: timestamp };
     this.database.exec("BEGIN IMMEDIATE");

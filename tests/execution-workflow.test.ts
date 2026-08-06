@@ -16,6 +16,7 @@ import { PlanReconciler } from "../packages/core/src/planning/plan-reconciler.ts
 import type { RepositoryCommitResult, RepositoryProvider, RepositoryProviderStatus } from "../packages/core/src/repository/repository-provider.ts";
 import { InMemoryTaskProvider } from "../packages/core/src/tasks/in-memory-task-provider.ts";
 import { ExecutionWorkflowCoordinator } from "../packages/core/src/workflow/execution-workflow-coordinator.ts";
+import { executionBaselineDigest } from "../packages/core/src/workflow/execution-baseline.ts";
 import { createTemporaryRepository, testDatabasePath, VALID_PLAN } from "./fixtures.ts";
 
 class MutableRepository implements RepositoryProvider {
@@ -188,6 +189,15 @@ test("successful exact approval reconciles, claims, then atomically enters act m
     assert.equal(result.task?.status, "in_progress");
     assert.equal(result.executionGrant?.status, "active");
     assert.equal(result.executionGrant?.taskId, result.task?.id);
+    assert.ok(result.executionGrant?.executionBaseline);
+    assert.equal(
+      result.executionGrant?.executionBaseline?.digest,
+      executionBaselineDigest(result.executionGrant!.executionBaseline!),
+    );
+    assert.equal(result.executionGrant?.executionBaseline?.taskId, result.task?.id);
+    assert.equal(result.executionGrant?.executionBaseline?.executionGrantId, result.executionGrant?.id);
+    assert.ok(result.executionGrant?.executionBaseline?.writePaths.some((path) => path.endsWith("/packages/core")));
+    assert.equal(result.executionGrant?.executionBaseline?.writePaths.length, 3);
     assert.equal(context.ledger.getState("workflowMode"), "act");
     assert.equal(context.ledger.getState("currentTaskId"), result.task?.id);
     assert.equal(prepared.approval.taskConstraints.filter((item) => item.planTaskId === result.task?.planTaskId).length, 1, "approval retains one reviewed task constraint for the active task");
@@ -226,6 +236,25 @@ test("hash drift, provider drift, partial reconciliation, no ready task, and cla
       context.ledger.close();
       rmSync(context.root, { recursive: true, force: true });
     }
+  }
+});
+
+test("paused execution rejects workspace drift before explicit continuation", async () => {
+  const context = setup("atlr-execution-paused-drift-");
+  try {
+    const prepared = await context.coordinator.prepare();
+    const started = await context.coordinator.approveAndApply(prepared.approval.id, true);
+    assert.ok(started.executionGrant);
+    assert.ok(context.coordinator.pause("pause before restart"));
+    context.repository.current.workspaceId = "changed-after-pause";
+
+    const resumed = await context.coordinator.resumePaused();
+    assert.equal(resumed, undefined);
+    assert.equal(context.ledger.getActiveExecutionGrant(), undefined);
+    assert.match(context.ledger.listExecutionGrants()[0]?.invalidationReason ?? "", /workspace identity changed/i);
+  } finally {
+    context.ledger.close();
+    rmSync(context.root, { recursive: true, force: true });
   }
 });
 

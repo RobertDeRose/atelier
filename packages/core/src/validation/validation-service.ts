@@ -190,6 +190,7 @@ export class ValidationService {
       executionGrantId?: string;
       planHash?: string;
       selectionId?: string;
+      baselineDigest?: string;
       maxOutputBytes?: number;
     } = {},
   ): Promise<ValidationEvidence> {
@@ -212,6 +213,7 @@ export class ValidationService {
         ...(options.executionGrantId === undefined ? {} : { executionGrantId: options.executionGrantId }),
         ...(options.planHash === undefined ? {} : { planHash: options.planHash }),
         ...(options.selectionId === undefined ? {} : { selectionId: options.selectionId }),
+        ...(options.baselineDigest === undefined ? {} : { baselineDigest: options.baselineDigest }),
         snapshotFingerprint: sourceSnapshotFingerprint(snapshot),
         environmentFingerprint,
         startedAt,
@@ -290,6 +292,7 @@ export class ValidationService {
           ...(options.executionGrantId === undefined ? {} : { executionGrantId: options.executionGrantId }),
           ...(options.planHash === undefined ? {} : { planHash: options.planHash }),
           ...(options.selectionId === undefined ? {} : { selectionId: options.selectionId }),
+          ...(options.baselineDigest === undefined ? {} : { baselineDigest: options.baselineDigest }),
           snapshotFingerprint: sourceSnapshotFingerprint(snapshot),
           environmentFingerprint,
           startedAt,
@@ -495,10 +498,10 @@ export class ValidationService {
   private persistEvidence(evidence: ValidationEvidence): ValidationEvidence {
     this.database.prepare(`
       INSERT INTO validation_evidence(
-        id, name, command_json, task_id, execution_grant_id, plan_hash, selection_id,
+        id, name, command_json, task_id, execution_grant_id, plan_hash, selection_id, baseline_digest,
         snapshot_fingerprint, environment_fingerprint, started_at, finished_at, duration_ms, exit_code, status,
         stdout, stderr, stdout_truncated, stderr_truncated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       evidence.id,
       evidence.name,
@@ -507,6 +510,7 @@ export class ValidationService {
       evidence.executionGrantId ?? null,
       evidence.planHash ?? null,
       evidence.selectionId ?? null,
+      evidence.baselineDigest ?? null,
       evidence.snapshotFingerprint,
       evidence.environmentFingerprint ?? null,
       evidence.startedAt,
@@ -546,6 +550,7 @@ export class ValidationService {
         execution_grant_id TEXT,
         plan_hash TEXT,
         selection_id TEXT,
+        baseline_digest TEXT,
         snapshot_fingerprint TEXT NOT NULL,
         environment_fingerprint TEXT,
         started_at TEXT NOT NULL,
@@ -581,6 +586,7 @@ export class ValidationService {
       ["execution_grant_id", "TEXT"],
       ["plan_hash", "TEXT"],
       ["selection_id", "TEXT"],
+      ["baseline_digest", "TEXT"],
       ["environment_fingerprint", "TEXT"],
       ["stdout_truncated", "INTEGER NOT NULL DEFAULT 0"],
       ["stderr_truncated", "INTEGER NOT NULL DEFAULT 0"],
@@ -629,6 +635,7 @@ function evidenceFromRow(row: Record<string, unknown>): ValidationEvidence {
     ...(typeof row.execution_grant_id === "string" ? { executionGrantId: row.execution_grant_id } : {}),
     ...(typeof row.plan_hash === "string" ? { planHash: row.plan_hash } : {}),
     ...(typeof row.selection_id === "string" ? { selectionId: row.selection_id } : {}),
+    ...(typeof row.baseline_digest === "string" ? { baselineDigest: row.baseline_digest } : {}),
     snapshotFingerprint: row.snapshot_fingerprint as string,
     ...(typeof row.environment_fingerprint === "string" ? { environmentFingerprint: row.environment_fingerprint } : {}),
     startedAt: row.started_at as string,

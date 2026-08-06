@@ -387,12 +387,39 @@ export interface ReconciliationTransaction {
 
 export type ExecutionGrantStatus = "active" | "revoked" | "invalidated";
 
+export interface ExecutionBaseline {
+  version: 1;
+  planHash: string;
+  reconciliationDigest: string;
+  provider: TaskProviderIdentity;
+  workspaceId: string;
+  repositoryId: string;
+  repositorySnapshot: RepositorySnapshot;
+  repositoryBindings: RepositoryRevisionBinding[];
+  retrievalBindings: RetrievalRevisionBinding[];
+  executionGrantId: string;
+  taskId: string;
+  planTaskId: string;
+  taskOwner?: string;
+  approvalConstraintDigest: string;
+  constraintDigest: string;
+  writePaths: string[];
+  dependencyPaths: string[];
+  allowDependencyChanges: boolean;
+  focusedValidations: string[];
+  fullValidations: string[];
+  allowFullSuite: boolean;
+  allowLocalChange: boolean;
+  capturedAt: string;
+  digest: string;
+}
 
 export interface ExecutionPause {
   executionGrantId: string;
   taskId: string;
   reason: string;
   pausedAt: string;
+  checkpointId?: string;
 }
 
 export interface ExecutionGrant {
@@ -409,6 +436,8 @@ export interface ExecutionGrant {
   repositorySnapshot: RepositorySnapshot;
   repositoryBindings: RepositoryRevisionBinding[];
   retrievalBindings: RetrievalRevisionBinding[];
+  /** The immutable task/repository/scope boundary issued with this grant. */
+  executionBaseline?: ExecutionBaseline;
   /** Digest of the full reviewed multi-task constraint projection. */
   approvalConstraintDigest: string;
   /** Digest of constraints installed for this one active plan task. */
@@ -449,6 +478,8 @@ export interface ExecutionEvidence {
   executionGrantId: string;
   workflowDecisionId: string;
   checkpointId?: string;
+  /** Digest of the task baseline used to authorize this effect. */
+  baselineDigest?: string;
   beforeSnapshot: RepositorySnapshot;
   afterSnapshot?: RepositorySnapshot;
   requestedPaths: string[];
@@ -495,6 +526,8 @@ export interface FinalDiffReview {
   snapshot: RepositorySnapshot;
   changedPaths: string[];
   diffHash: string;
+  /** Digest of the task baseline used to review this diff. */
+  baselineDigest?: string;
   repositoryBindings?: RepositoryRevisionBinding[];
   repositories?: Array<{
     repositoryId: string;
@@ -513,6 +546,8 @@ export interface FocusedValidationSelection {
   planHash: string;
   reconciliationDigest: string;
   snapshot: RepositorySnapshot;
+  /** Digest of the task baseline used to select these checks. */
+  baselineDigest?: string;
   changedPaths: string[];
   changedSymbols: string[];
   selected: Array<{ name: string; reason: string; required: boolean }>;
@@ -528,6 +563,8 @@ export interface ValidationEvidenceRecord {
   executionGrantId?: string;
   planHash?: string;
   selectionId?: string;
+  /** Digest of the task baseline used to run this check. */
+  baselineDigest?: string;
   snapshotFingerprint: string;
   environmentFingerprint?: string;
   startedAt: string;

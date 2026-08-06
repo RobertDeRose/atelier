@@ -213,7 +213,7 @@ test("post-approval retrieval drift does not revoke source-bound execution contr
       rationale: "pause probe",
     })).result, "deny");
 
-    core.execution.resumePaused();
+    await core.execution.resumePaused();
     assert.equal(core.evaluateWorkflow(request(core, {
       action: "write.file",
       paths: [join(root, "src", "allowed.ts")],
@@ -249,7 +249,7 @@ test("pause, resume, and cancellation are atomic and execution resume is idempot
       rationale: "paused mutation",
     })).result, "deny");
 
-    core.execution.resumePaused();
+    await core.execution.resumePaused();
     assert.equal(core.execution.isPaused(), false);
     assert.equal(core.ledger.getCurrentWorkflowRun()?.checkpoint, "executing");
     assert.equal(core.evaluateWorkflow(request(core, {

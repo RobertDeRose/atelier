@@ -30,6 +30,8 @@ import {
   createTaskConstraints,
   retrievalBindingDigest,
   taskConstraintDigest,
+  createExecutionBaseline,
+  executionBaselineDigest,
   executionConstraintsMatch,
   sameRetrievalBindings,
   sourceBaselineMismatch,
@@ -635,22 +637,56 @@ export class ExecutionWorkflowCoordinator {
     });
   }
 
-  pause(reason: string): ExecutionGrant | undefined {
+  pause(reason: string, options: { checkpointId?: string } = {}): ExecutionGrant | undefined {
     const grant = this.ledger.getActiveExecutionGrant();
     if (grant === undefined) return undefined;
-    this.ledger.pauseExecution(grant, reason);
+    this.ledger.pauseExecution(grant, reason, options);
     return grant;
   }
 
-  resumePaused(): ExecutionGrant | undefined {
+  async resumePaused(): Promise<ExecutionGrant | undefined> {
     const grant = this.ledger.getActiveExecutionGrant();
-    if (grant === undefined || !this.ledger.resumePausedExecution(grant)) return undefined;
+    const pause = this.ledger.getExecutionPause();
+    if (grant === undefined || pause?.executionGrantId !== grant.id) return undefined;
+    const reason = this.pausedBaselineMismatch(grant);
+    if (reason !== undefined) {
+      this.ledger.invalidateExecutionGrant(grant.id, { status: "invalidated", reason });
+      return undefined;
+    }
+    if (this.provider.name !== "memory") {
+      const providerReason = await this.invalidReason(grant);
+      if (providerReason !== undefined) {
+        this.ledger.invalidateExecutionGrant(grant.id, { status: "invalidated", reason: providerReason });
+        return undefined;
+      }
+    }
+    if (!this.ledger.resumePausedExecution(grant)) return undefined;
     return grant;
   }
 
   isPaused(): boolean {
     const grant = this.ledger.getActiveExecutionGrant();
     return grant !== undefined && this.ledger.getExecutionPause()?.executionGrantId === grant.id;
+  }
+
+  private pausedBaselineMismatch(grant: ExecutionGrant): string | undefined {
+    if (grant.executionBaseline !== undefined
+      && (grant.executionBaseline.digest !== executionBaselineDigest(grant.executionBaseline)
+        || grant.executionBaseline.executionGrantId !== grant.id)) {
+      return "Paused execution baseline is invalid or incomplete.";
+    }
+    const current = this.repository.snapshot();
+    if (grant.repositorySnapshot.repositoryId !== current.repositoryId) return "Paused execution baseline changed: repository identity changed.";
+    if (grant.repositorySnapshot.workspaceId !== current.workspaceId) return "Paused execution baseline changed: workspace identity changed.";
+    if (grant.repositorySnapshot.vcs !== current.vcs) return "Paused execution baseline changed: repository provider changed.";
+    if ((grant.repositorySnapshot.sourceBaseCommit ?? grant.repositorySnapshot.headCommit)
+      !== (current.sourceBaseCommit ?? current.headCommit)) {
+      return "Paused execution baseline changed: source base changed.";
+    }
+    if (grant.repositorySnapshot.indexSchemaVersion !== current.indexSchemaVersion) {
+      return "Paused execution baseline changed: repository index schema changed.";
+    }
+    return undefined;
   }
 
   async resume(): Promise<ExecutionGrant | undefined> {
@@ -789,8 +825,38 @@ export class ExecutionWorkflowCoordinator {
     retrievalBindings = approval.retrievalBindings,
   ): ExecutionGrant {
     if (task.planTaskId === undefined) throw new Error(`Task ${task.id} has no approved plan identity.`);
+    const selectedConstraints = constraintsForPlanTask(approval.taskConstraints, task.planTaskId);
+    if (selectedConstraints.length !== 1) throw new Error(`Task ${task.id} has no unique approved execution constraint.`);
+    const constraint = selectedConstraints[0]!;
+    const executionId = newId("execution");
+    const issuedAt = nowIso();
+    const executionBaseline = createExecutionBaseline({
+      version: 1,
+      planHash: approval.planHash,
+      reconciliationDigest: approval.reconciliationDigest,
+      provider: approval.provider,
+      workspaceId: repositorySnapshot.workspaceId,
+      repositoryId: repositorySnapshot.repositoryId,
+      repositorySnapshot,
+      repositoryBindings: [...repositoryBindings],
+      retrievalBindings: [...retrievalBindings],
+      executionGrantId: executionId,
+      taskId: task.id,
+      planTaskId: task.planTaskId,
+      ...(task.assignee === undefined ? {} : { taskOwner: task.assignee }),
+      approvalConstraintDigest: approval.constraintDigest,
+      constraintDigest: taskConstraintDigest(selectedConstraints),
+      writePaths: [...constraint.writePaths],
+      dependencyPaths: [...constraint.dependencyPaths],
+      allowDependencyChanges: constraint.allowDependencyChanges,
+      focusedValidations: [...constraint.focusedValidations],
+      fullValidations: [...constraint.fullValidations],
+      allowFullSuite: constraint.allowFullSuite,
+      allowLocalChange: constraint.allowLocalChange,
+      capturedAt: issuedAt,
+    });
     return {
-      id: newId("execution"),
+      id: executionId,
       ...(approval.executionSource === undefined ? {} : { executionSource: approval.executionSource }),
       status: "active",
       planApprovalId: approval.id,
@@ -803,17 +869,23 @@ export class ExecutionWorkflowCoordinator {
       repositorySnapshot,
       repositoryBindings,
       retrievalBindings,
+      executionBaseline,
       approvalConstraintDigest: approval.constraintDigest,
-      constraintDigest: taskConstraintDigest(constraintsForPlanTask(approval.taskConstraints, task.planTaskId)),
+      constraintDigest: taskConstraintDigest(selectedConstraints),
       taskId: task.id,
       planTaskId: task.planTaskId,
-      issuedAt: nowIso(),
+      issuedAt,
     };
   }
 
   private async invalidReason(grant: ExecutionGrant): Promise<string | undefined> {
     const approval = this.ledger.getPlanApproval(grant.planApprovalId);
     if (approval === undefined || approval.status !== "approved") return "Plan approval is unavailable or changed.";
+    if (grant.executionBaseline !== undefined
+      && (grant.executionBaseline.digest !== executionBaselineDigest(grant.executionBaseline)
+        || grant.executionBaseline.executionGrantId !== grant.id)) {
+      return "Execution baseline is invalid or incomplete during execution resume.";
+    }
     if (grant.executionSource === "standalone" || approval.executionSource === "standalone") {
       return this.invalidStandaloneReason(grant, approval);
     }
@@ -892,6 +964,10 @@ export class ExecutionWorkflowCoordinator {
     const task = await this.provider.get(grant.taskId);
     if (task === undefined) return "Standalone execution task is unavailable during resume.";
     if (task.status !== "in_progress") return `Standalone execution task status changed to ${task.status}.`;
+    if (grant.executionBaseline !== undefined
+      && (grant.executionBaseline.taskOwner ?? "") !== (task.assignee ?? "")) {
+      return "Standalone execution task ownership changed during resume.";
+    }
     return undefined;
   }
 
@@ -963,6 +1039,10 @@ export class ExecutionWorkflowCoordinator {
     const task = await this.provider.get(grant.taskId);
     if (task === undefined) return "Execution task is unavailable during execution resume.";
     if (task.status !== "in_progress") return `Execution task status changed to ${task.status}.`;
+    if (grant.executionBaseline !== undefined
+      && (grant.executionBaseline.taskOwner ?? "") !== (task.assignee ?? "")) {
+      return "Execution task ownership changed during execution resume.";
+    }
     return undefined;
   }
 }

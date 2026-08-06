@@ -22,6 +22,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { EvaluatedEffect } from "../policy/workspace-policy.ts";
+import type { ExecutionBaseline } from "../domain/types.ts";
+import { executionBaselineDigest } from "../workflow/execution-baseline.ts";
 import type { RepositoryProvider, RepositoryRecoveryState } from "../repository/repository-provider.ts";
 import { repositoryPathTarget, repositoryRelativePath } from "../repository/repository-path.ts";
 import { resolveAccessEntryPath, resolveAccessPath, sameAccessPath } from "../security/path-boundary.ts";
@@ -44,6 +46,7 @@ interface RecoveryManifest {
   paths: string[];
   entries: SnapshotEntry[];
   repositoryState: RepositoryRecoveryState;
+  baseline?: ExecutionBaseline;
   toolCallId?: string;
   sessionId?: string;
   restoreCommand: string;
@@ -55,6 +58,7 @@ export interface RecoveryCheckpoint {
   createdAt: string;
   paths: string[];
   repositoryState: RepositoryRecoveryState;
+  baseline?: ExecutionBaseline;
   toolCallId?: string;
   sessionId?: string;
   restoreCommand: string;
@@ -109,7 +113,7 @@ export class RecoveryManager {
 
   checkpoint(
     effects: readonly EvaluatedEffect[],
-    options: { toolCallId?: string; sessionId?: string } = {},
+    options: { toolCallId?: string; sessionId?: string; baseline?: ExecutionBaseline } = {},
   ): RecoveryCheckpoint {
     const paths = [...new Set(
       effects
@@ -139,6 +143,7 @@ export class RecoveryManager {
         paths,
         entries,
         repositoryState,
+        ...(options.baseline === undefined ? {} : { baseline: options.baseline }),
         ...(options.toolCallId === undefined ? {} : { toolCallId: options.toolCallId }),
         ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
         restoreCommand,
@@ -154,6 +159,11 @@ export class RecoveryManager {
       rmSync(directory, { recursive: true, force: true });
       throw error;
     }
+  }
+
+  get(id: string): RecoveryCheckpoint {
+    const directory = join(this.directory, basename(id));
+    return this.checkpointRecord(directory, this.readManifest(directory));
   }
 
   list(): RecoveryCheckpoint[] {
@@ -221,6 +231,7 @@ export class RecoveryManager {
       createdAt: manifest.createdAt,
       paths: manifest.paths,
       repositoryState: manifest.repositoryState,
+      ...(manifest.baseline === undefined ? {} : { baseline: manifest.baseline }),
       ...(manifest.toolCallId === undefined ? {} : { toolCallId: manifest.toolCallId }),
       ...(manifest.sessionId === undefined ? {} : { sessionId: manifest.sessionId }),
       restoreCommand: manifest.restoreCommand,
@@ -403,6 +414,9 @@ export class RecoveryManager {
   }
 
   private verifyCheckpoint(directory: string, manifest: RecoveryManifest): void {
+    if (manifest.baseline !== undefined && manifest.baseline.digest !== executionBaselineDigest(manifest.baseline)) {
+      throw new Error("Recovery checkpoint execution baseline verification failed.");
+    }
     for (const entry of manifest.entries) {
       if (entry.kind === "file") {
         const rel = repositoryRelativePath(this.root, entry.path, "write");
@@ -453,6 +467,9 @@ export class RecoveryManager {
     const manifest = JSON.parse(readFileSync(path, "utf8")) as RecoveryManifest;
     if (manifest.version !== 1) {
       throw new Error(`Unsupported recovery checkpoint version: ${String(manifest.version)}`);
+    }
+    if (manifest.baseline !== undefined && manifest.baseline.digest !== executionBaselineDigest(manifest.baseline)) {
+      throw new Error("Recovery checkpoint execution baseline verification failed.");
     }
     return manifest;
   }
