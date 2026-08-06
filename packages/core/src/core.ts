@@ -14,6 +14,7 @@ import type {
   WorkingState,
   WorkflowDecision,
   TaskClosureReadiness,
+  QualityGateClosureState,
   TaskProviderStatus,
   TaskReconciliation,
   TaskRecord,
@@ -42,7 +43,7 @@ import {
   WorkspaceRepositoryService,
   type WorkspaceCommitResult,
 } from "./repository/workspace-repository-service.ts";
-import { sourceRevisionIdentity, sourceSnapshotFingerprint } from "./repository/snapshot.ts";
+import { sourceRevisionIdentity, sourceSnapshotFingerprint, type RepositorySnapshot } from "./repository/snapshot.ts";
 import {
   MAX_COMMIT_FAILURE_ATTEMPTS,
   CommitFailureError,
@@ -53,7 +54,14 @@ import {
   type CommitFailureDecision,
 } from "./repository/commit-failure.ts";
 import { ValidationService } from "./validation/validation-service.ts";
-import { QualityGateService } from "./quality-gates/quality-gate-provider.ts";
+import {
+  QualityGateService,
+  qualityGatePlanningInventory,
+  QualityGatePolicyError,
+  type QualityGateEvidence,
+  type QualityGateEvidenceOperation,
+  type QualityGatePlanInventory,
+} from "./quality-gates/quality-gate-provider.ts";
 import type { CodeProvider } from "./code/provider.ts";
 import { DisabledCodeProvider } from "./code/disabled-provider.ts";
 import { MockCodeProvider } from "./code/mock-provider.ts";
@@ -471,7 +479,7 @@ export class AtelierCore {
       planPath: this.config.planPath,
       ...(executionGrant === undefined ? {} : { executionGrant, executionPaused: this.execution.isPaused() }),
       taskConstraints: this.activeTaskConstraints(),
-      ...(request.action === "task.close" ? { taskClosure: this.taskClosureReadiness() } : {}),
+      ...(request.action === "task.close" ? { taskClosure: this.taskClosureReadiness({ deferQualityGate: true }) } : {}),
     });
     this.ledger.append({
       kind: "workflow.authorization_decision",
@@ -826,6 +834,231 @@ export class AtelierCore {
     return review;
   }
 
+  private qualityGatePlanFor(executionGrant: ExecutionGrant): QualityGatePlanInventory | undefined {
+    return this.ledger.getPlanApproval(executionGrant.planApprovalId)?.qualityGatePlan;
+  }
+
+  private qualityGateEvidenceKey(executionGrantId: string, operation: QualityGateEvidenceOperation): string {
+    return `qualityGateEvidence:${executionGrantId}:${operation}`;
+  }
+
+  private saveQualityGateEvidence(evidence: QualityGateEvidence): QualityGateEvidence {
+    this.ledger.setState(this.qualityGateEvidenceKey(evidence.executionGrantId, evidence.operation), evidence);
+    this.ledger.append({
+      kind: "quality_gate.evidence_recorded",
+      actor: "system",
+      taskId: evidence.taskId,
+      repositorySnapshot: evidence.snapshotAfter,
+      payload: evidence,
+    });
+    return evidence;
+  }
+
+  private qualityGateDiffHash(repositories: WorkspaceRepositoryService): string {
+    try {
+      return repositories.diff(true).diffHash;
+    } catch (error) {
+      return `unavailable:${sha256(error instanceof Error ? error.message : String(error))}`;
+    }
+  }
+
+  private async enforceQualityGate(
+    executionGrant: ExecutionGrant,
+    operation: QualityGateEvidenceOperation,
+    repositories: WorkspaceRepositoryService,
+  ): Promise<QualityGateEvidence | undefined> {
+    const approvedPlan = this.qualityGatePlanFor(executionGrant);
+    if (approvedPlan === undefined) return undefined;
+    const before = repositories.evidenceSnapshot();
+    const stagedDiffHashBefore = this.qualityGateDiffHash(repositories);
+    const profile = await this.qualityGates.discover();
+    const currentPlan = qualityGatePlanningInventory(profile, approvedPlan.plannedPaths);
+    const selectedGate = approvedPlan.selectedGateId === undefined
+      ? undefined
+      : profile.gates.find((gate) => gate.id === approvedPlan.selectedGateId);
+    const identityChanged = profile.digest !== approvedPlan.profileDigest
+      || currentPlan.digest !== approvedPlan.digest
+      || currentPlan.configDigest !== approvedPlan.configDigest;
+    const now = nowIso();
+    const staleEvidence = (): QualityGateEvidence => ({
+      version: 1,
+      id: newId("quality-gate-evidence"),
+      taskId: executionGrant.taskId,
+      executionGrantId: executionGrant.id,
+      operation,
+      ...(approvedPlan.selectedGateId === undefined ? {} : { gateId: approvedPlan.selectedGateId }),
+      status: "stale",
+      passed: false,
+      profileDigest: profile.digest,
+      configDigest: currentPlan.configDigest,
+      planDigest: currentPlan.digest,
+      tool: selectedGate?.tool ?? { name: "unknown", version: "unknown", available: false },
+      ...(selectedGate?.command === undefined ? {} : { command: [...selectedGate.command] }),
+      coverage: selectedGate?.coverage ?? { scope: "unknown", paths: [] },
+      snapshotBefore: before,
+      snapshotAfter: before,
+      sourceFingerprintBefore: sourceSnapshotFingerprint(before),
+      sourceFingerprintAfter: sourceSnapshotFingerprint(before),
+      stagedDiffHashBefore,
+      stagedDiffHashAfter: stagedDiffHashBefore,
+      mutationDetected: false,
+      stdout: "",
+      stderr: "",
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      startedAt: now,
+      finishedAt: now,
+      durationMs: 0,
+      reason: `Approved quality-gate identity is stale (profile ${approvedPlan.profileDigest} -> ${profile.digest}; plan ${approvedPlan.digest} -> ${currentPlan.digest}). Prepare and approve a fresh transaction.`,
+    });
+    if (identityChanged || (approvedPlan.selectedGateId !== undefined && selectedGate === undefined)) {
+      const evidence = this.saveQualityGateEvidence(staleEvidence());
+      throw new QualityGatePolicyError(evidence.reason ?? "The approved quality-gate identity is stale.", evidence);
+    }
+
+    if (approvedPlan.selectedGateId === undefined) {
+      const finished = repositories.evidenceSnapshot();
+      const evidence: QualityGateEvidence = this.saveQualityGateEvidence({
+        version: 1,
+        id: newId("quality-gate-evidence"),
+        taskId: executionGrant.taskId,
+        executionGrantId: executionGrant.id,
+        operation,
+        status: "no_gate",
+        passed: false,
+        profileDigest: profile.digest,
+        configDigest: currentPlan.configDigest,
+        planDigest: currentPlan.digest,
+        tool: { name: "none", version: "none", available: false },
+        coverage: { scope: "unknown", paths: [] },
+        snapshotBefore: before,
+        snapshotAfter: finished,
+        sourceFingerprintBefore: sourceSnapshotFingerprint(before),
+        sourceFingerprintAfter: sourceSnapshotFingerprint(finished),
+        stagedDiffHashBefore,
+        stagedDiffHashAfter: this.qualityGateDiffHash(repositories),
+        mutationDetected: false,
+        stdout: "",
+        stderr: "",
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        startedAt: now,
+        finishedAt: nowIso(),
+        durationMs: 0,
+        reason: "No runnable repository quality gate was discovered; the approved transaction explicitly permits the no-gate policy.",
+      });
+      return evidence;
+    }
+
+    const changedPaths = this.repository.changedPaths();
+    const run = await this.qualityGates.run(approvedPlan.selectedGateId, {
+      profile,
+      changedPaths,
+    });
+    const after = repositories.evidenceSnapshot();
+    const stagedDiffHashAfter = this.qualityGateDiffHash(repositories);
+    const mutationDetected = run.mutationDetected
+      || sourceSnapshotFingerprint(before) !== sourceSnapshotFingerprint(after)
+      || stagedDiffHashBefore !== stagedDiffHashAfter;
+    const status = mutationDetected ? "mutation_detected" : run.status;
+    const evidence: QualityGateEvidence = this.saveQualityGateEvidence({
+      version: 1,
+      id: newId("quality-gate-evidence"),
+      taskId: executionGrant.taskId,
+      executionGrantId: executionGrant.id,
+      operation,
+      gateId: approvedPlan.selectedGateId,
+      status,
+      passed: status === "passed",
+      profileDigest: run.profileDigest,
+      configDigest: run.configDigest,
+      planDigest: currentPlan.digest,
+      tool: { ...run.tool },
+      ...(run.command === undefined ? {} : { command: [...run.command] }),
+      coverage: { ...run.coverage, paths: [...run.coverage.paths] },
+      runId: run.id,
+      snapshotBefore: before,
+      snapshotAfter: after,
+      sourceFingerprintBefore: sourceSnapshotFingerprint(before),
+      sourceFingerprintAfter: sourceSnapshotFingerprint(after),
+      stagedDiffHashBefore,
+      stagedDiffHashAfter,
+      mutationDetected,
+      ...(run.exitCode === undefined ? {} : { exitCode: run.exitCode }),
+      ...(run.signal === undefined ? {} : { signal: run.signal }),
+      stdout: run.stdout,
+      stderr: run.stderr,
+      stdoutTruncated: run.stdoutTruncated,
+      stderrTruncated: run.stderrTruncated,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+      durationMs: run.durationMs,
+      ...(run.reason === undefined ? {} : { reason: run.reason }),
+    });
+    if (!evidence.passed) {
+      throw new QualityGatePolicyError(
+        `Quality gate ${evidence.gateId} did not pass (${evidence.status}). ${evidence.reason ?? "Inspect the recorded gate evidence before retrying."}`,
+        evidence,
+      );
+    }
+    return evidence;
+  }
+
+  private qualityGateClosureState(
+    executionGrant: ExecutionGrant,
+    repositories: WorkspaceRepositoryService,
+    snapshot: RepositorySnapshot,
+  ): QualityGateClosureState | undefined {
+    const plan = this.qualityGatePlanFor(executionGrant);
+    if (plan === undefined) return undefined;
+    if (plan.selectedGateId === undefined) {
+      return {
+        required: false,
+        ready: true,
+        status: "no_gate",
+        reason: "The approved execution transaction explicitly permits the discovered no-gate repository policy.",
+      };
+    }
+    const evidence = this.ledger.getState<QualityGateEvidence>(this.qualityGateEvidenceKey(executionGrant.id, "closure"));
+    if (evidence === undefined) {
+      return {
+        required: true,
+        ready: false,
+        gateId: plan.selectedGateId,
+        reason: `Quality gate ${plan.selectedGateId} has not produced current closure evidence.`,
+      };
+    }
+    let stagedDiffHash: string | undefined;
+    try {
+      stagedDiffHash = this.qualityGateDiffHash(repositories);
+    } catch {
+      stagedDiffHash = undefined;
+    }
+    const currentSource = sourceSnapshotFingerprint(snapshot);
+    const current = evidence.status === "passed"
+      && evidence.passed
+      && !evidence.mutationDetected
+      && evidence.profileDigest === plan.profileDigest
+      && evidence.planDigest === plan.digest
+      && evidence.sourceFingerprintBefore === currentSource
+      && evidence.sourceFingerprintAfter === currentSource
+      && stagedDiffHash !== undefined
+      && !stagedDiffHash.startsWith("unavailable:")
+      && !evidence.stagedDiffHashBefore.startsWith("unavailable:")
+      && evidence.stagedDiffHashBefore === stagedDiffHash
+      && evidence.stagedDiffHashAfter === stagedDiffHash;
+    return {
+      required: true,
+      ready: current,
+      status: evidence.status,
+      gateId: plan.selectedGateId,
+      evidenceId: evidence.id,
+      reason: current
+        ? `Quality gate ${plan.selectedGateId} passed with current closure evidence.`
+        : `Quality gate ${plan.selectedGateId} evidence is ${evidence.status}; rerun the gate against the current source and staged diff.`,
+    };
+  }
+
   recordCommitFailureDecision(decision: Exclude<CommitFailureDecision, "pending">, actor: "user" | "agent" = "user"): CommitAttemptState | undefined {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) return undefined;
@@ -852,7 +1085,7 @@ export class AtelierCore {
     return updated;
   }
 
-  commitActiveTask(message: string, actor: "user" | "agent" = "user"): WorkspaceCommitResult {
+  async commitActiveTask(message: string, actor: "user" | "agent" = "user"): Promise<WorkspaceCommitResult> {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("A local task change requires an active execution grant.");
     const snapshot = this.repository.snapshot();
@@ -878,6 +1111,7 @@ export class AtelierCore {
       rationale: "Create the local repository change required by the approved task.",
     });
     if (decision.result !== "allow") throw new Error(decision.reason);
+    const qualityGateEvidence = await this.enforceQualityGate(executionGrant, "commit", repositories);
     let result: WorkspaceCommitResult;
     try {
       result = repositories.commit(message);
@@ -953,6 +1187,7 @@ export class AtelierCore {
       payload: {
         message: result.message,
         changedPaths: result.changedPaths,
+        ...(qualityGateEvidence === undefined ? {} : { qualityGate: qualityGateEvidence }),
         baselineHeadCommit: executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit,
         repositories: result.repositories.map((repository) => ({
           repositoryId: repository.repositoryId,
@@ -965,7 +1200,7 @@ export class AtelierCore {
     return result;
   }
 
-  taskClosureReadiness(): TaskClosureReadiness {
+  taskClosureReadiness(options: { deferQualityGate?: boolean } = {}): TaskClosureReadiness {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) {
       const completed = this.currentWorkflowRun()?.checkpoint === "completed";
@@ -1017,6 +1252,7 @@ export class AtelierCore {
       repositoryMetadataPaths = [];
     }
     const repositoryFinalizationRequired = policy.requireCleanRepository && repositoryMetadataPaths.length > 0;
+    const qualityGate = this.qualityGateClosureState(executionGrant, repositories, snapshot);
     const missing = [...validation.missing];
     const stale = [...validation.stale];
     const failed = [...validation.failed];
@@ -1036,7 +1272,20 @@ export class AtelierCore {
       missing.push("clean application-source state");
       blockers.push({ code: "source_dirty", detail: "Approved application-source paths remain dirty." });
     }
-    const ready = validation.ready && finalDiffReviewed && localChangeCreated && sourceStateAcceptable;
+    if (qualityGate !== undefined && !qualityGate.ready && options.deferQualityGate !== true) {
+      missing.push("current quality-gate evidence");
+      if (qualityGate.status === "failed" || qualityGate.status === "cancelled" || qualityGate.status === "timed_out" || qualityGate.status === "unavailable" || qualityGate.status === "mutation_detected" || qualityGate.status === "blocked") {
+        failed.push(qualityGate.gateId ?? "quality gate");
+        blockers.push({ code: "quality_gate_failed", detail: qualityGate.reason });
+      } else if (qualityGate.status === "stale") {
+        stale.push(qualityGate.gateId ?? "quality gate");
+        blockers.push({ code: "quality_gate_evidence_stale", detail: qualityGate.reason });
+      } else {
+        blockers.push({ code: "quality_gate_evidence_missing", detail: qualityGate.reason });
+      }
+    }
+    const qualityGateReady = options.deferQualityGate === true || qualityGate === undefined || qualityGate.ready;
+    const ready = validation.ready && finalDiffReviewed && localChangeCreated && sourceStateAcceptable && qualityGateReady;
     const readiness: TaskClosureReadiness = {
       ready,
       blockers,
@@ -1046,6 +1295,7 @@ export class AtelierCore {
       repositoryStateAcceptable: sourceStateAcceptable,
       repositoryFinalizationRequired,
       repositoryMetadataPaths,
+      ...(qualityGate === undefined ? {} : { qualityGate }),
       required: validation.required,
       missing,
       stale,
@@ -1059,6 +1309,7 @@ export class AtelierCore {
             finalDiffReviewed ? "" : "the current diff has not been reviewed",
             localChangeCreated ? "" : localChangeError ?? "no local commit or finalized change exists",
             sourceStateAcceptable ? "" : "approved application-source paths are not clean",
+            qualityGateReady ? "" : qualityGate?.reason ?? "quality-gate evidence is incomplete",
           ].filter(Boolean).join("; ")}.`,
     };
     this.cachedTaskClosure = { executionGrantId: executionGrant.id, readiness };
@@ -1080,6 +1331,8 @@ export class AtelierCore {
       rationale: reason,
     });
     if (decision.result !== "allow") throw new Error(decision.reason);
+
+    const qualityGateEvidence = await this.enforceQualityGate(executionGrant, "closure", repositories);
 
     // Preserve the exact evidence snapshot that authorized closure. Repository
     // and provider finalization may legitimately change raw VCS state after this
@@ -1133,6 +1386,7 @@ export class AtelierCore {
       payload: {
         reason,
         completion: closureDecision,
+        ...(qualityGateEvidence === undefined ? {} : { qualityGate: qualityGateEvidence }),
         finalization: {
           providerMutationPaths,
           workflowFinalizationPaths,
@@ -1163,6 +1417,23 @@ export class AtelierCore {
     if (executionGrant === undefined) return [];
     const task = await this.taskProvider.get(executionGrant.taskId);
     if (task === undefined || task.status !== "closed") return [];
+    const repositories = this.workspaceRepositories(executionGrant);
+    try {
+      await this.enforceQualityGate(executionGrant, "closure", repositories);
+    } catch (error) {
+      this.ledger.append({
+        kind: "task.external_closure_detected",
+        actor: "system",
+        taskId: task.id,
+        repositorySnapshot: this.repository.snapshot(),
+        payload: { qualityGateError: error instanceof Error ? error.message : String(error) },
+      });
+      this.ledger.invalidateExecutionGrant(executionGrant.id, {
+        status: "invalidated",
+        reason: `Task ${task.id} was closed outside Atelier before quality-gate evidence was satisfied: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      return [];
+    }
     const readiness = this.taskClosureReadiness();
     if (!readiness.ready) {
       this.ledger.append({

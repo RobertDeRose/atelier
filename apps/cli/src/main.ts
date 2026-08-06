@@ -17,6 +17,7 @@ import {
   AtelierServiceClient,
   AtelierServiceServer,
   CommitFailureError,
+  QualityGatePolicyError,
 } from "../../../packages/core/src/index.ts";
 import { flagBoolean, flagString, parseArgs, stripLaunchArguments } from "./arguments.ts";
 import { buildDoctorReport, formatDoctorReport } from "./doctor.ts";
@@ -257,12 +258,24 @@ async function main(): Promise<void> {
           if (!message) throw new Error("Usage: atlr repo commit --message TEXT");
           try {
             core.recordCommitFailureDecision("retry");
-            const result = core.commitActiveTask(message);
+            const result = await core.commitActiveTask(message);
             if (flagBoolean(parsed, "json")) asJson(result);
             else process.stdout.write(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}\n`);
           } catch (error) {
-            if (!(error instanceof CommitFailureError)) throw error;
             process.exitCode = 1;
+            if (error instanceof QualityGatePolicyError) {
+              if (flagBoolean(parsed, "json")) {
+                asJson({ error: { code: "quality_gate_failure", message: error.message, evidence: error.evidence } });
+              } else {
+                process.stderr.write([
+                  `Quality gate blocked the commit (${error.evidence.gateId ?? "no gate"}; ${error.evidence.status}).`,
+                  `Evidence: ${error.evidence.reason ?? "No additional reason was recorded."}`,
+                  `Gate output: ${error.evidence.stdout || error.evidence.stderr || "(empty)"}`,
+                ].join("\n") + "\n");
+              }
+              return;
+            }
+            if (!(error instanceof CommitFailureError)) throw error;
             if (flagBoolean(parsed, "json")) {
               asJson({
                 error: {

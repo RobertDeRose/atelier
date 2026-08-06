@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { CommitFailureError, type AtelierCore } from "../../../packages/core/src/index.ts";
+import { CommitFailureError, QualityGatePolicyError, type AtelierCore } from "../../../packages/core/src/index.ts";
 
 export const ATELIER_STATE_TOOL = "atlr_state";
 export const ATELIER_COMMIT_TOOL = "atlr_commit";
@@ -52,12 +52,18 @@ export function registerWorkflowTools(
       try {
         const core = coreFor(ctx);
         core.recordCommitFailureDecision("retry", "agent");
-        const result = core.commitActiveTask(message, "agent");
+        const result = await core.commitActiveTask(message, "agent");
         return {
           content: [{ type: "text", text: `Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}\nPaths: ${result.changedPaths.join(", ")}` }],
           details: result,
         };
       } catch (error) {
+        if (error instanceof QualityGatePolicyError) {
+          return {
+            content: [{ type: "text", text: `Quality gate blocked the commit (${error.evidence.gateId ?? "no gate"}; ${error.evidence.status}). ${error.evidence.reason ?? "Inspect the recorded evidence before retrying."}` }],
+            details: { error: "quality_gate_failure", evidence: error.evidence },
+          };
+        }
         if (!(error instanceof CommitFailureError)) throw error;
         return {
           content: [{

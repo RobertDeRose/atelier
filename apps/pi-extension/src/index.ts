@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@e
 import {
   AtelierCore,
   CommitFailureError,
+  QualityGatePolicyError,
   classifyShellCommand,
   ensurePlanDocument,
   updatePlanTaskScopeFile,
@@ -1020,9 +1021,16 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const core = getCore(ctx);
       try {
         core.recordCommitFailureDecision("retry");
-        const result = core.commitActiveTask(message);
+        const result = await core.commitActiveTask(message);
         ctx.ui.notify(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}`, "info");
       } catch (error) {
+        if (error instanceof QualityGatePolicyError) {
+          ctx.ui.notify([
+            `Quality gate blocked the commit (${error.evidence.gateId ?? "no gate"}; ${error.evidence.status}).`,
+            error.evidence.reason ?? "Inspect the recorded quality-gate evidence before retrying.",
+          ].join(" "), "warning");
+          return;
+        }
         if (!(error instanceof CommitFailureError)) throw error;
         ctx.ui.notify([
           error.budgetExhausted
@@ -1034,7 +1042,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         if (action === "retry") {
           try {
             core.recordCommitFailureDecision("retry");
-            const result = core.commitActiveTask(message);
+            const result = await core.commitActiveTask(message);
             ctx.ui.notify(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}`, "info");
           } catch (retryError) {
             if (!(retryError instanceof CommitFailureError)) throw retryError;

@@ -115,6 +115,8 @@ export interface QualityGatePlanInventory {
 }
 
 export interface QualityGateRunOptions {
+  /** Use an already verified profile so execution is bound to one discovery snapshot. */
+  profile?: QualityGateProfile;
   signal?: AbortSignal;
   timeoutMs?: number;
   idleTimeoutMs?: number;
@@ -125,6 +127,54 @@ export interface QualityGateRunOptions {
 export interface QualityGateProvider {
   discover(options?: QualityGateDiscoveryOptions): Promise<QualityGateProfile>;
   run(gateId: string, options?: QualityGateRunOptions): Promise<QualityGateRunResult>;
+}
+
+export type QualityGateEvidenceStatus = QualityGateRunStatus | "no_gate" | "stale";
+export type QualityGateEvidenceOperation = "commit" | "closure";
+
+export interface QualityGateEvidence {
+  version: 1;
+  id: string;
+  taskId: string;
+  executionGrantId: string;
+  operation: QualityGateEvidenceOperation;
+  gateId?: string;
+  status: QualityGateEvidenceStatus;
+  passed: boolean;
+  profileDigest: string;
+  configDigest: string;
+  planDigest?: string;
+  tool: QualityGateToolIdentity;
+  command?: string[];
+  coverage: QualityGateCoverage;
+  runId?: string;
+  snapshotBefore: RepositorySnapshot;
+  snapshotAfter: RepositorySnapshot;
+  sourceFingerprintBefore: string;
+  sourceFingerprintAfter: string;
+  stagedDiffHashBefore: string;
+  stagedDiffHashAfter: string;
+  mutationDetected: boolean;
+  exitCode?: number;
+  signal?: NodeJS.Signals;
+  stdout: string;
+  stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  reason?: string;
+}
+
+export class QualityGatePolicyError extends Error {
+  readonly evidence: QualityGateEvidence;
+
+  constructor(message: string, evidence: QualityGateEvidence, cause?: unknown) {
+    super(message, { cause });
+    this.name = "QualityGatePolicyError";
+    this.evidence = evidence;
+  }
 }
 
 export interface QualityGateRunResult {
@@ -572,7 +622,10 @@ export class QualityGateService implements QualityGateProvider {
   async run(gateId: string, options: QualityGateRunOptions = {}): Promise<QualityGateRunResult> {
     let profile: QualityGateProfile;
     try {
-      profile = await this.discover(options.signal === undefined ? {} : { signal: options.signal });
+      if (options.profile !== undefined && options.profile.repositoryRoot !== this.root) {
+        throw new Error("The supplied quality-gate profile belongs to a different repository root.");
+      }
+      profile = options.profile ?? await this.discover(options.signal === undefined ? {} : { signal: options.signal });
     } catch (error) {
       if (options.signal?.aborted !== true) throw error;
       profile = noGateProfile(this.root, "Quality-gate discovery was cancelled.");

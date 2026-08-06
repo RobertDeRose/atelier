@@ -11,8 +11,9 @@ import {
 import { DisabledCodeProvider } from "../packages/core/src/code/disabled-provider.ts";
 import { createTemporaryRepository, VALID_PLAN } from "./fixtures.ts";
 
-async function activeCore(prefix: string): Promise<{ root: string; core: AtelierCore }> {
+async function activeCore(prefix: string, beforePrepare?: (root: string) => void): Promise<{ root: string; core: AtelierCore }> {
   const root = createTemporaryRepository(prefix);
+  beforePrepare?.(root);
   writeFileSync(join(root, ".atelier", "PLAN.md"), VALID_PLAN, "utf8");
   const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
   core.beginPlan("Persist commit failure decisions");
@@ -48,19 +49,22 @@ test("commit failure classification distinguishes policy failures and bounds evi
 });
 
 test("hook rejection persists a bounded retry budget and never weakens Git policy", async () => {
-  const { root, core } = await activeCore("atlr-commit-failure-");
-  try {
-    const grant = core.ledger.getActiveExecutionGrant();
-    assert.ok(grant);
-    const hookPath = join(root, ".git", "hooks", "pre-commit");
-    mkdirSync(join(root, ".git", "hooks"), { recursive: true });
-    const hooksPath = spawnSync("git", ["config", "core.hooksPath", ".git/hooks"], { cwd: root, encoding: "utf8", shell: false });
+  const hookPathFor = (root: string): string => join(root, ".git", "hooks", "pre-commit");
+  const { root, core } = await activeCore("atlr-commit-failure-", (preparedRoot) => {
+    const hookPath = hookPathFor(preparedRoot);
+    mkdirSync(join(preparedRoot, ".git", "hooks"), { recursive: true });
+    const hooksPath = spawnSync("git", ["config", "core.hooksPath", ".git/hooks"], { cwd: preparedRoot, encoding: "utf8", shell: false });
     assert.equal(hooksPath.status, 0, hooksPath.stderr);
     writeFileSync(hookPath, "#!/bin/sh\nprintf 'hook rejected\n' >&2\nexit 1\n", "utf8");
     chmodSync(hookPath, 0o755);
+  });
+  try {
+    const grant = core.ledger.getActiveExecutionGrant();
+    assert.ok(grant);
+    const hookPath = hookPathFor(root);
     writeFileSync(join(root, "src.ts"), "export const failed = true;\n", "utf8");
 
-    assert.throws(() => core.commitActiveTask("feat: trigger hook failure"), /hook_rejection|hook rejection/i);
+    await assert.rejects(core.commitActiveTask("feat: trigger hook failure"), /hook_rejection|hook rejection/i);
     let attempt = core.ledger.getState<CommitAttemptState>(`commitAttempt:${grant.id}`);
     assert.equal(attempt?.category, "hook_rejection");
     assert.equal(attempt?.attempt, 1);
@@ -70,25 +74,25 @@ test("hook rejection persists a bounded retry budget and never weakens Git polic
     assert.ok(attempt?.sourceFingerprint);
     assert.ok(attempt?.configurationFingerprint);
     assert.ok(attempt?.failureFingerprint);
-    assert.throws(() => core.commitActiveTask("feat: retry without decision"), /explicit retry|reviewed bypass/i);
+    await assert.rejects(core.commitActiveTask("feat: retry without decision"), /explicit retry|reviewed bypass/i);
 
     const retryDecision = core.recordCommitFailureDecision("retry");
     assert.equal(retryDecision?.decision, "retry");
     assert.equal(core.ledger.listEvents({ kind: "repository.change_failure_decision" }).length, 1);
-    assert.throws(() => core.commitActiveTask("feat: retry hook failure"), /hook_rejection|hook rejection/i);
+    await assert.rejects(core.commitActiveTask("feat: retry hook failure"), /hook_rejection|hook rejection/i);
     attempt = core.ledger.getState<CommitAttemptState>(`commitAttempt:${grant.id}`);
     assert.equal(attempt?.attempt, 2);
 
     core.recordCommitFailureDecision("retry");
-    assert.throws(() => core.commitActiveTask("feat: third hook failure"), /retry budget|attempt budget/i);
+    await assert.rejects(core.commitActiveTask("feat: third hook failure"), /retry budget|attempt budget/i);
     attempt = core.ledger.getState<CommitAttemptState>(`commitAttempt:${grant.id}`);
     assert.equal(attempt?.attempt, 2);
     assert.equal(core.recordCommitFailureDecision("retry", "agent")?.decision, "pending");
-    assert.throws(() => core.commitActiveTask("feat: agent cannot loop", "agent"), /explicit retry|reviewed bypass/i);
+    await assert.rejects(core.commitActiveTask("feat: agent cannot loop", "agent"), /explicit retry|reviewed bypass/i);
 
     writeFileSync(hookPath, "#!/bin/sh\nexit 0\n", "utf8");
     core.recordCommitFailureDecision("retry");
-    const committed = core.commitActiveTask("feat: commit after external remediation");
+    const committed = await core.commitActiveTask("feat: commit after external remediation");
     assert.deepEqual(committed.changedPaths, ["src.ts"]);
     assert.equal(core.ledger.getState<CommitAttemptState>(`commitAttempt:${grant.id}`), undefined);
   } finally {

@@ -354,7 +354,7 @@ test("workflow metadata does not alter source revision bindings or enter a scope
     writeFileSync(join(root, "src", "allowed.ts"), "export const scoped = true;\n", "utf8");
     writeFileSync(join(root, ".atelier", "PLAN.md"), `${EXACT_PLAN}\n<!-- reviewed metadata remains outside task commit -->\n`, "utf8");
     execFileSync("git", ["-C", root, "add", ".atelier/PLAN.md"]);
-    const result = core.commitActiveTask("test: commit only approved source");
+    const result = await core.commitActiveTask("test: commit only approved source");
     assert.deepEqual(result.changedPaths, ["src/allowed.ts"]);
     const committed = execFileSync("git", ["-C", root, "show", "--pretty=format:", "--name-only", "HEAD"], { encoding: "utf8" })
       .split("\n").map((value) => value.trim()).filter(Boolean);
@@ -523,7 +523,7 @@ test("task closure finalizes workflow metadata and leaves the complete Git repos
 
     const selection = core.selectFocusedValidation();
     await core.runValidation("manual-acceptance", { selectionId: selection.id });
-    core.commitActiveTask("test: finalize approved source");
+    await core.commitActiveTask("test: finalize approved source");
     const refreshed = core.selectFocusedValidation();
     await core.runValidation("manual-acceptance", { selectionId: refreshed.id });
     const preview = core.previewFinalDiff();

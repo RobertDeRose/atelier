@@ -175,7 +175,7 @@ test("focused validation gates closure, becomes stale after mutation, reruns, an
   try {
     mkdirSync(join(root, "src"), { recursive: true });
     writeFileSync(join(root, "src", "feature.ts"), "export const feature = 1;\n", "utf8");
-    core.commitActiveTask("feat: add task feature");
+    await core.commitActiveTask("feat: add task feature");
     const selection = core.selectFocusedValidation(["Feature"]);
     assert.deepEqual(selection.selected.map((item) => item.name), ["focused"]);
     assert.equal(core.taskClosureReadiness().ready, false);
@@ -190,7 +190,7 @@ test("focused validation gates closure, becomes stale after mutation, reruns, an
     writeFileSync(join(root, "src", "feature.ts"), "export const feature = 2;\n", "utf8");
     assert.equal(core.taskClosureReadiness().ready, false);
     assert.match(core.taskClosureReadiness().reason, /stale focused|diff has not been reviewed|not clean/i);
-    core.commitActiveTask("fix: refine task feature");
+    await core.commitActiveTask("fix: refine task feature");
     const refreshed = core.selectFocusedValidation(["Feature"]);
     await core.runValidation("focused", { selectionId: refreshed.id });
     await core.runValidation("full");
@@ -244,7 +244,7 @@ test("task closure requires current focused passes, invalidates execution, and e
     writeFileSync(join(root, "src", "close.ts"), "export const close = true;\n", "utf8");
     const selection = core.selectFocusedValidation();
     await assert.rejects(core.closeActiveTask("not validated"), /missing full|diff has not been reviewed|local commit/i);
-    core.commitActiveTask("feat: add closable task change");
+    await core.commitActiveTask("feat: add closable task change");
     const currentSelection = core.selectFocusedValidation();
     assert.deepEqual(currentSelection.selected.map((item) => item.name), ["focused"]);
     await core.runValidation("focused", { selectionId: currentSelection.id });

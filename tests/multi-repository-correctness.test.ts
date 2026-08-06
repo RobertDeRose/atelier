@@ -155,7 +155,7 @@ test("one reviewed task commits, reviews, and closes changes across every approv
     writeFileSync(join(primary, "src", "primary.ts"), "export const primary = true;\n", "utf8");
     writeFileSync(join(secondary, "src", "secondary.ts"), "export const secondary = true;\n", "utf8");
 
-    const committed = core.commitActiveTask("feat: update workspace repositories");
+    const committed = await core.commitActiveTask("feat: update workspace repositories");
     assert.deepEqual(committed.repositories.map((repository) => repository.repositoryId).sort(), ["primary", "secondary"]);
     assert.ok(committed.changedPaths.includes("src/primary.ts"));
     assert.ok(committed.changedPaths.includes("secondary::src/secondary.ts"));

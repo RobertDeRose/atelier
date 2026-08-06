@@ -8,7 +8,7 @@ import type {
 } from "./retrieval-state.ts";
 import type { CodeFreshness } from "./code-identity.ts";
 import type { RepositoryRevisionBinding, RetrievalRevisionBinding } from "../repository/revision-binding.ts";
-import type { QualityGatePlanInventory, QualityGateProfile } from "../quality-gates/quality-gate-provider.ts";
+import type { QualityGateEvidenceStatus, QualityGatePlanInventory, QualityGateProfile } from "../quality-gates/quality-gate-provider.ts";
 import type { RepositorySnapshot } from "../repository/snapshot.ts";
 export type { RepositorySnapshot } from "../repository/snapshot.ts";
 
@@ -608,12 +608,24 @@ export type TaskClosureBlockerCode =
   | "diff_review_missing"
   | "local_change_missing"
   | "source_dirty"
-  | "repository_metadata_dirty";
+  | "repository_metadata_dirty"
+  | "quality_gate_evidence_missing"
+  | "quality_gate_evidence_stale"
+  | "quality_gate_failed";
 
 export interface TaskClosureBlocker {
   code: TaskClosureBlockerCode;
   detail: string;
   names?: string[];
+}
+
+export interface QualityGateClosureState {
+  required: boolean;
+  ready: boolean;
+  status?: QualityGateEvidenceStatus;
+  gateId?: string;
+  evidenceId?: string;
+  reason: string;
 }
 
 export interface TaskClosureReadiness {
@@ -629,6 +641,7 @@ export interface TaskClosureReadiness {
   repositoryStateAcceptable?: boolean;
   repositoryFinalizationRequired?: boolean;
   repositoryMetadataPaths?: string[];
+  qualityGate?: QualityGateClosureState;
   reason: string;
 }
 
