@@ -170,6 +170,31 @@ export class SqliteLedger {
     }
   }
 
+  saveStateTransition<TPayload>(input: {
+    stateUpdates: Record<string, unknown>;
+    event: {
+      kind: string;
+      actor: Actor;
+      taskId?: string;
+      repositorySnapshot?: RepositorySnapshot;
+      payload: TPayload;
+    };
+  }): LedgerEvent<TPayload> {
+    const event = this.createEvent(input.event);
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const [key, value] of Object.entries(input.stateUpdates)) {
+        this.upsertState(key, JSON.stringify(value), event.occurredAt);
+      }
+      this.insertEvent(event);
+      this.database.exec("COMMIT");
+      return event;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   getWorkflowRun(id: string): WorkflowRun | undefined {
     const row = this.database.prepare("SELECT record_json FROM workflow_runs WHERE id = ?").get(id) as
       | WorkflowRunRow

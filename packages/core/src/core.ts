@@ -30,6 +30,7 @@ import {
 import { PlanReconciler } from "./planning/plan-reconciler.ts";
 import { WorkflowGuard } from "./workflow/workflow-guard.ts";
 import { ExecutionWorkflowCoordinator } from "./workflow/execution-workflow-coordinator.ts";
+import { DstackLifecycleCoordinator } from "./workflow/dstack-lifecycle-coordinator.ts";
 import { constraintsForPlanTask, executionBaselineDigest, sourceBaselineMismatch } from "./workflow/execution-baseline.ts";
 import { createRepositoryProvider } from "./repository/repository-factory.ts";
 import type {
@@ -155,6 +156,7 @@ export class AtelierCore {
   readonly validation: ValidationService;
   readonly code: CodeService;
   readonly execution: ExecutionWorkflowCoordinator;
+  readonly dstack: DstackLifecycleCoordinator;
   readonly workspacePolicy: WorkspacePolicyEvaluator;
   readonly recovery: RecoveryManager;
   readonly performance = new PerformanceRecorder();
@@ -244,6 +246,13 @@ export class AtelierCore {
       validationRequired: () => this.validation.closurePolicy().requireValidation,
     });
     this.workingStateBuilder = new WorkingStateBuilder(taskProvider, ledger, this.code, this.validation);
+    this.dstack = new DstackLifecycleCoordinator({
+      provider: taskProvider,
+      ledger,
+      repository: this.repository,
+      pauseExecution: (reason) => this.execution.pause(reason),
+      resumeExecution: () => this.execution.resumePaused(),
+    });
   }
 
   static open(repositoryRoot = process.cwd(), options: {

@@ -33,6 +33,7 @@ export * from "./util/ids.ts";
 
 export * from "./validation/validation-service.ts";
 export * from "./workflow/execution-workflow-coordinator.ts";
+export * from "./workflow/dstack-lifecycle-coordinator.ts";
 
 
 export * from "./code/types.ts";
