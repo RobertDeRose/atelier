@@ -1,65 +1,101 @@
 # User Guide
 
-Atelier keeps the person using the agent in control of the workflow. Use this
-guide to prepare a workspace, review proposed work, run it safely, and recover
-when a provider or process fails.
+Atelier is the local-first control plane around Pi. It keeps plan review, task
+activation, workspace policy, recovery, validation evidence, and task closure
+durable while letting Git or Jujutsu, Beads, editors, and code providers keep
+their native responsibilities.
 
-## Prepare a workspace
+Use this guide when you are operating an existing project. For installation
+and the shortest first-run path, start with the [Quickstart](../getting-started/quick-start.md).
 
-The first `atlr launch` from a project initializes the small `.atelier/`
-configuration files automatically. You do not need to run a separate init step.
+> **Development safety note:** New workspaces currently initialize with
+> `securityMode: "core-only"`. This disables workspace permission prompts and OS
+> shell sandboxing so code intelligence, Beads, and Jujutsu/Git can be exercised
+> without safety-layer friction. It is unsafe for untrusted or unattended work.
+> Set `securityMode: "enforced"` in `.atelier/config.json` to restore those gates.
 
-To inspect setup without changing project files, run:
+## Choose an interface
 
-```sh
-atlr doctor
-```
+The `atlr` CLI and the Pi extension expose the same workflow through different
+surfaces. Both read the project files and durable runtime state; neither makes
+conversation history or a provider's output authoritative.
 
-`doctor` is observational. It reports the workspace, available tools, and
-configured providers in a human-readable summary, ending with an `Operational`
-or `Degraded` status and any detected issues. Use `atlr doctor --json` when a
-script needs machine-readable output. Initialization does not grant
-permanent filesystem trust.
+| Use the CLI when you need to                                     | Use Pi when you need to                                   |
+|------------------------------------------------------------------|-----------------------------------------------------------|
+| script or automate an inspection                                 | iterate with an agent in the terminal                     |
+| use a non-interactive terminal or CI-like environment            | review a plan in the configured editor from the TUI       |
+| inspect JSON, provider health, evidence, or recovery checkpoints | see status reports and phase feedback in the transcript   |
+| launch the local Core service or diagnose installation           | pause, stop, or cancel the current agent turn immediately |
 
-## Review and execute work
+A process creates its own Core instance, but all clients use the same project
+configuration, repository, task provider, and external Atelier runtime ledger
+for the repository. When switching clients, inspect state first with `atlr
+status`, `/status`, or `/workflow`. Do not run competing approval or commit
+transactions concurrently.
 
-Atelier's normal sequence is:
+## The normal path
 
-1. Inspect the current workflow state.
-2. Review or edit the plan in the configured editor.
-3. Inspect the exact plan hash, task projection, repository bindings, and
-   validation requirements.
-4. Approve the displayed transaction.
-5. Start the selected task explicitly.
-6. Use Pi or the CLI to make changes within the approved scope.
+The durable workflow is:
 
-A changed plan, repository revision, provider identity, or task binding
-invalidates the affected approval. Atelier stops rather than silently widening
-the transaction.
+1. **Prepare.** Run `atlr launch` or start Pi from the repository. Use `doctor`
+   when you want diagnostics without initialization.
+2. **Plan.** In Pi, use `/plan OBJECTIVE`; in a terminal, use
+   `atlr plan OBJECTIVE`. A plan must be reviewed before it can be approved.
+3. **Review.** Use `/review` or `atlr review` to open the plan and record the
+   exact `ManualEdit` and structural diff.
+4. **Approve.** Pi `/approve` or the CLI's `plan prepare` followed by
+   `approve --approval ID --digest DIGEST --yes` displays and applies one exact
+   transaction. Successful approval activates the first task and leaves Pi
+   idle; it does not start implementation automatically.
+5. **Implement.** Send an explicit implementation request in Pi, or use the
+   CLI to inspect and control the session. Use `/execute` or `atlr execute`
+   only to activate a later approved-plan task after the previous task ends.
+6. **Validate and inspect.** Run the selected checks, inspect `/evidence` or
+   `atlr evidence`, then review the exact final diff.
+7. **Finalize.** Record one local change with `/commit MESSAGE` or
+   `atlr repo commit --message MESSAGE`, then close with `/close` or
+   `atlr task close ID --reason TEXT`.
 
-## Observe progress and results
+For a ready task that does not need a plan, use standalone activation:
+`/task-start TASK_ID` or `atlr approve --task TASK_ID --yes`. Standalone
+activation still has an exact write scope and the same evidence, validation,
+commit, and closure gates; it never edits or reconciles `.atelier/PLAN.md`.
 
-Use the status and workflow surfaces to see the current task, repository state,
-retrieval freshness, validation state, and next action. Tool evidence records
-what was attempted and what changed afterward; permission to attempt a mutation
-is not treated as proof that a mutation occurred.
+## Safety boundaries
 
-## Validate and close
+- The startup directory, or one explicit `--workspace` path, is the immutable
+  session workspace. Atelier does not create a permanent trust grant.
+- Plan approval is bound to the reviewed plan hash, provider and repository
+  revisions, reconciliation digest, retrieval identity, and reviewed task
+  constraints. Drift causes a fresh review or preparation instead of widening
+  authority.
+- A reviewed task constraint is workflow scope, not a general filesystem
+  permission. Workspace containment, likely-secret checks, privilege checks,
+  and VCS/checkpoint recoverability are evaluated independently.
+- `/atelier-stop` ends one current turn. `/atelier-pause` keeps the task active
+  but disables agent mutation. `/cancel` revokes execution without closing the
+  task or reverting source files.
+- Closure is explicit and requires the configured current validation evidence,
+  exact final-diff review, local change, and repository cleanliness. An
+  incomplete task can remain paused or idle.
 
-Run the required focused checks, review the final diff, and confirm that the
-repository and validation evidence are current before closing a task. A failed,
-interrupted, or stale validation cannot satisfy the closure predicate.
+## Guide map
 
-## Recover safely
+- [Setup, launch, and configuration](setup.md) covers workspace initialization,
+  editors, providers, runtime state, and multi-repository workspaces.
+- [CLI reference](cli.md) covers command groups, exact approval, validation,
+  evidence, recovery, and closure.
+- [Pi reference](pi.md) covers every Atelier slash-command and its workflow
+  transition.
+- [Shared state, validation, and recovery](operations.md) explains client
+  boundaries, failure recovery, closure blockers, and troubleshooting.
 
-Atelier keeps runtime state outside the repository and creates exact recovery
-checkpoints when an operation could discard dirty or untracked work. If a
-process, provider, or session stops, restart Atelier and inspect the
-reconstructed Working State before continuing. Cancellation revokes the active
-execution grant without reverting source changes or silently changing task
-state.
+## Command vocabulary
 
-## Find implementation context
+Atelier commands use the `atlr` executable. Pi commands use the same short verb
+where possible, for example `atlr status` and `/status`. Pi-only controls keep
+the `atelier-` prefix where that distinguishes a turn or navigation operation,
+for example `/atelier-pause` and `/atelier-open`.
 
-For code-intelligence usage, provider behavior, and bounded retrieval evidence,
-see [Code Intelligence and Retrieval](../features/canonical-retrieval-planning/code-intelligence/index.md).
+Pi's `/trust` command is not an Atelier command. It controls loading Pi-owned
+project resources only; it does not grant Atelier filesystem authority.

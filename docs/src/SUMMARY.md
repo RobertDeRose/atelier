@@ -9,6 +9,10 @@
 # User Guide
 
 - [Using Atelier](./user-guide/index.md)
+  - [Setup, launch, and configuration](./user-guide/setup.md)
+  - [CLI reference](./user-guide/cli.md)
+  - [Pi reference](./user-guide/pi.md)
+  - [Shared state, validation, and recovery](./user-guide/operations.md)
 
 # Architecture
 

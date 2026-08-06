@@ -76,8 +76,9 @@ workflow around it.
    read, edit, and save it.
 3. Enter `/approve`. Atelier shows the exact tasks, files, and checks it is
    about to authorize. Approve it only when the summary matches your intent.
-4. Enter `/execute` to start the next approved task. The agent can then work
-   within the reviewed boundaries.
+4. After approval, send an explicit implementation request. The first
+   approved task is already active and the agent can work within the reviewed
+   boundaries. Use `/execute` only to activate a later approved-plan task.
 5. Enter `/validate focused` to run the checks selected for the changed files.
    Use `/status` or `/evidence` if you want to see the recorded result.
 6. Enter `/review-diff` to inspect the final change. If it is correct, use
