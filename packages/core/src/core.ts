@@ -44,6 +44,7 @@ import {
 } from "./repository/workspace-repository-service.ts";
 import { sourceRevisionIdentity, sourceSnapshotFingerprint } from "./repository/snapshot.ts";
 import { ValidationService } from "./validation/validation-service.ts";
+import { QualityGateService } from "./quality-gates/quality-gate-provider.ts";
 import type { CodeProvider } from "./code/provider.ts";
 import { DisabledCodeProvider } from "./code/disabled-provider.ts";
 import { MockCodeProvider } from "./code/mock-provider.ts";
@@ -154,6 +155,7 @@ export class AtelierCore {
   readonly planReview: PlanReviewService;
   readonly workingStateBuilder: WorkingStateBuilder;
   readonly validation: ValidationService;
+  readonly qualityGates: QualityGateService;
   readonly code: CodeService;
   readonly execution: ExecutionWorkflowCoordinator;
   readonly dstack: DstackLifecycleCoordinator;
@@ -193,6 +195,7 @@ export class AtelierCore {
       database: ledger.database,
       manifestPath: config.validationPath,
     });
+    this.qualityGates = new QualityGateService({ root: config.repositoryRoot, repository: this.repository });
     const effectiveCodeProvider = codeProvider;
     const selection = effectiveCodeProvider === undefined
       ? createCodeProviders(config)

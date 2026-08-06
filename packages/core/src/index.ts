@@ -32,6 +32,7 @@ export * from "./util/hash.ts";
 export * from "./util/ids.ts";
 
 export * from "./validation/validation-service.ts";
+export * from "./quality-gates/quality-gate-provider.ts";
 export * from "./workflow/execution-workflow-coordinator.ts";
 export * from "./workflow/dstack-lifecycle-coordinator.ts";
 
