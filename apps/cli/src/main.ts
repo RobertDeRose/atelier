@@ -77,7 +77,7 @@ Commands:
   config validate [--json]          Validate workspace and retrieval configuration
   code doctor [--json]              Diagnose code-provider configuration and health
   changed [--json]                  Show paths changed in the current Jujutsu workspace
-  validate list [--json]            List configured validations
+  validate list [--json]            List legacy validation compatibility records
   validate plan [--json]            Select focused validations for current changes
   validate focused [--json]         Run the selected focused validations
   validate run NAME [--json]        Run a configured validation and persist evidence
@@ -510,9 +510,9 @@ async function main(): Promise<void> {
           currentSnapshot: core.currentValidationSnapshot(),
           currentChangedPaths: core.currentSourceChangedPaths(),
           ...(evidenceName === undefined ? {} : { name: evidenceName }),
-        });
+        }).map((item) => core.validationEvidenceIsHistorical() ? { ...item, historical: true } : item);
         if (flagBoolean(parsed, "json")) asJson(evidence);
-        else for (const item of evidence) process.stdout.write(`${item.startedAt}\t${item.name}\t${item.status}\t${item.stale ? "stale" : "current"}\n`);
+        else for (const item of evidence) process.stdout.write(`${item.startedAt}\t${item.name}\t${item.status}\t${item.historical ? "historical compatibility" : item.stale ? "stale" : "current"}\n`);
         return;
       }
 

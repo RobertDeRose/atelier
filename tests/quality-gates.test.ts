@@ -224,6 +224,32 @@ test("quality-gate runs honor cancellation without turning it into success", asy
   }
 });
 
+test("new plan preparation treats legacy required validations as compatibility-only", async () => {
+  const root = createTemporaryRepository("atlr-quality-gate-legacy-plan-");
+  writeFileSync(`${root}/.atelier/PLAN.md`, VALID_PLAN, "utf8");
+  writeFileSync(`${root}/.atelier/validation.json`, JSON.stringify({ validations: {
+    legacy: { command: [process.execPath, "-e", "process.exit(0)"], category: "focused", focused: true, required: true },
+  } }), "utf8");
+  const core = AtelierCore.open(root, { taskProvider: "memory", codeProvider: new DisabledCodeProvider() });
+  try {
+    core.beginPlan("Use repository quality gates");
+    const review = core.beginPlanReview();
+    core.completePlanReview(review.id, { exitCode: 0 });
+    const prepared = await core.execution.prepare();
+    assert.equal(prepared.approval.qualityGateMode, "quality-gates");
+    assert.deepEqual(prepared.approval.taskConstraints.flatMap((item) => item.focusedValidations), []);
+    const started = await core.execution.approveAndApply(prepared.approval.id, true);
+    assert.ok(started.executionGrant);
+    const readiness = core.taskClosureReadiness();
+    assert.equal(readiness.validationReady, true);
+    assert.deepEqual(readiness.required, []);
+    assert.match(readiness.reason, /quality gate|local committed change|diff/i);
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("selected quality-gate failure refuses commit and records exact evidence", async () => {
   const { root, core } = await activeQualityCore("atlr-quality-gate-commit-failure-", "node -e \"process.exit(1)\"");
   try {

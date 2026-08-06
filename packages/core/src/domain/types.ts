@@ -336,6 +336,7 @@ export interface TaskReconciliation {
 }
 
 export type PlanApprovalStatus = "prepared" | "accepted" | "approved" | "rejected" | "invalidated" | "cancelled";
+export type QualityGateMode = "legacy" | "quality-gates";
 
 export interface ApprovedTaskConstraint {
   planTaskId: string;
@@ -354,6 +355,7 @@ export interface ApprovedTaskConstraint {
 export interface PlanApproval {
   id: string;
   executionSource?: ExecutionSource;
+  qualityGateMode?: QualityGateMode;
   status: PlanApprovalStatus;
   planPath: string;
   planHash: string;
@@ -380,6 +382,7 @@ export type ReconciliationTransactionStatus = "prepared" | "applying" | "applied
 export interface ReconciliationTransaction {
   id: string;
   planApprovalId: string;
+  qualityGateMode?: QualityGateMode;
   status: ReconciliationTransactionStatus;
   planHash: string;
   reconciliationDigest: string;
@@ -582,6 +585,8 @@ export interface ValidationEvidenceRecord {
   durationMs: number;
   exitCode: number;
   status: "passed" | "failed" | "interrupted";
+  /** Set only when surfaced as compatibility history under a quality-gate execution. */
+  historical?: boolean;
   stdout: string;
   stderr: string;
   stdoutTruncated: boolean;
@@ -596,6 +601,7 @@ export interface ValidationEvidenceSummary {
   snapshotFingerprint: string;
   stale: boolean;
   staleReason?: string;
+  historical?: boolean;
 }
 
 export type TaskClosureBlockerCode =
@@ -743,6 +749,6 @@ export interface WorkingState {
     warnings: string[];
     indexState: "missing" | "building" | "ready" | "stale" | "failed" | "unknown";
   }>;
-  validationEvidence: Array<{ id: string; name: string; status: "passed" | "failed" | "interrupted"; durationMs: number }>;
+  validationEvidence: Array<{ id: string; name: string; status: "passed" | "failed" | "interrupted"; durationMs: number; historical?: boolean }>;
   retrievalExplanation: string[];
 }

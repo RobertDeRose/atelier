@@ -57,17 +57,18 @@ atlr state --json
 /workflow full
 ```
 
-## Validation evidence and closure
+## Quality-gate evidence and closure
 
-A validation is a named definition in `.atelier/validation.json`. Its command
-is an argument array with bounded, redacted output. A focused selection is
-based on changed paths and symbols; it is not a disguised full-suite request.
-Every result is tied to a repository snapshot and becomes stale after relevant
-source changes.
+New plans and standalone tasks use the repository's discovered quality gates.
+Planning records the selected check, tool/configuration identity, planned-path
+coverage, and any gaps. You do not need to name an abstract validation in the
+plan or task contract. Commit and closure run the approved gate against the
+current source and approved diff; failed, unavailable, cancelled, stale, or
+mutating checks block the operation.
 
-The authoritative closure predicate requires all configured conditions:
+The authoritative closure predicate requires:
 
-1. required validations are current and passing;
+1. current quality-gate evidence, or an explicitly approved no-gate policy;
 2. the exact current baseline diff has been reviewed;
 3. the task-scoped local Git commit or Jujutsu change exists when required;
 4. required source paths are clean; and
@@ -77,7 +78,7 @@ Inspect blockers with:
 
 ```sh
 atlr state
-atlr validate plan
+atlr dstack gates
 atlr evidence
 atlr repo status
 atlr changed
@@ -86,14 +87,14 @@ atlr changed
 ```text
 /status
 /workflow full
-/validate plan
 /evidence
 ```
 
-If no required validation is configured while `requireValidation` is true,
-Atelier correctly reports that closure has no valid validation path. Add a
-reviewed named validation to the project manifest and task contract; do not
-substitute an unrecorded shell command.
+Older `.atelier/validation.json` definitions, focused selections, and
+validation evidence remain readable as historical compatibility records. They
+are not current quality-gate evidence for a new quality-gate execution. Use
+`atlr validate` only when inspecting or intentionally running those legacy
+records; do not add validation names merely to satisfy a new task contract.
 
 ## Recovery semantics
 

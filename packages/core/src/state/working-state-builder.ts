@@ -309,20 +309,28 @@ export class WorkingStateBuilder {
           decisions: scopedDecisions,
         };
 
+    const historicalValidation = planApproval?.qualityGateMode === "quality-gates";
     const validationEvidence = this.validation?.latestCurrent(request.snapshot).map((item) => ({
       id: item.id,
       name: item.name,
       status: item.status,
       durationMs: item.durationMs,
+      ...(historicalValidation ? { historical: true } : {}),
     })) ?? [];
-    const validationSummaries = this.validation?.summaries(
+    const validationSummary = this.validation?.summaries(
       request.snapshot,
       request.changedPaths ?? [],
       activeTask?.id,
     ) ?? { current: [], stale: [] };
+    const validationSummaries = {
+      current: validationSummary.current.map((item) => ({ ...item, ...(historicalValidation ? { historical: true } : {}) })),
+      stale: validationSummary.stale.map((item) => ({ ...item, ...(historicalValidation ? { historical: true } : {}) })),
+    };
     const taskClosure = activeExecutionGrant === undefined || this.validation === undefined
       ? { ready: false, blockers: [], required: [], missing: [], stale: [], failed: [], reason: "No active task exists." }
-      : this.validation.closureReadiness(request.snapshot, activeExecutionGrant.taskId, activeExecutionGrant.id);
+      : this.validation.closureReadiness(request.snapshot, activeExecutionGrant.taskId, activeExecutionGrant.id, {
+        ...(historicalValidation ? { qualityGateMode: "quality-gates" as const } : {}),
+      });
     const nextAction = describeNextAction({
       ...(request.plan === undefined ? {} : { planPath: request.plan.path }),
       ...(workflowRun === undefined ? {} : { workflowCheckpoint: workflowRun.checkpoint }),

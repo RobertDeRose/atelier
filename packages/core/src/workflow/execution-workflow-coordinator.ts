@@ -174,19 +174,25 @@ export class ExecutionWorkflowCoordinator {
     const snapshot = source.repositorySnapshot;
     const repositoryBindings = source.repositoryBindings;
     const retrievalBindings = source.retrievalBindings;
+    const qualityGateProfile = this.qualityGates === undefined ? undefined : await this.qualityGates.discover();
+    const hasLegacyValidationNames = plan.tasks.some((task) => (task.execution?.validations.length ?? 0) > 0);
+    const qualityGateMode = qualityGateProfile === undefined
+      || (qualityGateProfile.selectedGateId === undefined && hasLegacyValidationNames)
+      ? "legacy" as const
+      : "quality-gates" as const;
     const taskConstraints = createTaskConstraints(
       plan.tasks,
       this.repositoryRoot,
       this.validationConstraints(),
-      { requireValidation: this.validationRequired(), repositoryRoots: source.repositoryRoots, primaryRepositoryId: source.primaryRepositoryId },
+      { requireValidation: qualityGateMode === "legacy" && this.validationRequired(), repositoryRoots: source.repositoryRoots, primaryRepositoryId: source.primaryRepositoryId },
     );
-    const qualityGateProfile = this.qualityGates === undefined ? undefined : await this.qualityGates.discover();
     const qualityGatePlan = qualityGateProfile === undefined
       ? undefined
       : qualityGatePlanningInventory(qualityGateProfile, taskConstraints.flatMap((constraint) => constraint.writePaths));
     const timestamp = nowIso();
     const approval: PlanApproval = {
       id: newId("approval"),
+      qualityGateMode,
       status: "prepared",
       planPath: this.planPath,
       planHash: plan.hash,
@@ -210,6 +216,7 @@ export class ExecutionWorkflowCoordinator {
     const transaction: ReconciliationTransaction = {
       id: newId("reconciliation"),
       planApprovalId: approval.id,
+      qualityGateMode,
       status: "prepared",
       planHash: plan.hash,
       reconciliationDigest: reconciliation.digest,
@@ -286,7 +293,7 @@ export class ExecutionWorkflowCoordinator {
       plan.tasks,
       this.repositoryRoot,
       this.validationConstraints(),
-      { requireValidation: this.validationRequired(), repositoryRoots: source.repositoryRoots, primaryRepositoryId: source.primaryRepositoryId },
+      { requireValidation: approval.qualityGateMode !== "quality-gates" && this.validationRequired(), repositoryRoots: source.repositoryRoots, primaryRepositoryId: source.primaryRepositoryId },
     );
     const snapshot = source.repositorySnapshot;
     const mismatch = this.preparationMismatch(
@@ -449,6 +456,7 @@ export class ExecutionWorkflowCoordinator {
     const qualityGatePlan = qualityGateProfile === undefined
       ? undefined
       : qualityGatePlanningInventory(qualityGateProfile, taskConstraints.flatMap((constraint) => constraint.writePaths));
+    const qualityGateMode = qualityGateProfile === undefined ? "legacy" as const : "quality-gates" as const;
     const provider = providerIdentity(this.provider.name, status.version);
     const constraintDigest = taskConstraintDigest(taskConstraints);
     const planHash = sha256(JSON.stringify({
@@ -476,6 +484,7 @@ export class ExecutionWorkflowCoordinator {
     const approval: PlanApproval = {
       id: newId("approval"),
       executionSource: "standalone",
+      qualityGateMode,
       status: "approved",
       planPath: this.planPath,
       planHash,
@@ -510,6 +519,7 @@ export class ExecutionWorkflowCoordinator {
     const transaction: ReconciliationTransaction = {
       id: newId("reconciliation"),
       planApprovalId: approval.id,
+      qualityGateMode,
       status: "applied",
       planHash,
       reconciliationDigest,
@@ -954,7 +964,7 @@ export class ExecutionWorkflowCoordinator {
         plan.tasks,
         this.repositoryRoot,
         this.validationConstraints(),
-        { requireValidation: this.validationRequired(), repositoryRoots: source.repositoryRoots, primaryRepositoryId: source.primaryRepositoryId },
+        { requireValidation: approval.qualityGateMode !== "quality-gates" && this.validationRequired(), repositoryRoots: source.repositoryRoots, primaryRepositoryId: source.primaryRepositoryId },
       );
       const selectedConstraints = constraintsForPlanTask(approval.taskConstraints, grant.planTaskId);
       if (grant.approvalConstraintDigest !== approval.constraintDigest

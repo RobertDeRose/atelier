@@ -31,7 +31,7 @@ atlr launch
 ```
 
 The first launch creates missing `.atelier/config.json`, `.atelier/PLAN.md`,
-and `.atelier/validation.json`. Later launches reuse those files. Launching Pi
+and the legacy-compatible `.atelier/validation.json` when needed. Later launches reuse those files. Launching Pi
 is not a trust operation and does not grant access outside the workspace.
 
 Use an observational diagnostic before changing anything:
@@ -87,12 +87,12 @@ It creates the plan document but does not approve or activate work.
 The following files are project data and may be committed when the project
 chooses to share them:
 
-| Path                       | Purpose                                                                    |
-|----------------------------|----------------------------------------------------------------------------|
-| `.atelier/config.json`     | repository-scoped declarative choices such as provider types and plan path |
-| `.atelier/PLAN.md`         | the reviewed human-readable plan and task execution contracts              |
-| `.atelier/validation.json` | closure policy and argument-array validation definitions                   |
-| `.atelier/workspace.json`  | optional multi-repository identities                                       |
+| Path                       | Purpose                                                                            |
+|----------------------------|------------------------------------------------------------------------------------|
+| `.atelier/config.json`     | repository-scoped declarative choices such as provider types and plan path         |
+| `.atelier/PLAN.md`         | the reviewed human-readable plan and task execution contracts                      |
+| `.atelier/validation.json` | legacy closure policy, argument-array checks, and historical compatibility records |
+| `.atelier/workspace.json`  | optional multi-repository identities                                               |
 
 Mutable runtime data stays outside the repository. By default Atelier uses:
 

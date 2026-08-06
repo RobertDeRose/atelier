@@ -1297,14 +1297,14 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   });
 
   pi.registerCommand("validate", {
-    description: "List or run configured Atelier validations",
+    description: "List or run legacy validation compatibility checks",
     handler: async (args, ctx) => {
       const core = getCore(ctx);
       try {
         const name = args.trim();
         if (!name) {
           const manifest = core.validation.manifest();
-          appendAtelierReport(pi, ctx, "Configured validations", validationListMarkdown(manifest.validations), `${Object.keys(manifest.validations).length} configured`);
+          appendAtelierReport(pi, ctx, "Legacy validation compatibility", validationListMarkdown(manifest.validations), `${Object.keys(manifest.validations).length} compatibility record(s)`);
           return;
         }
         if (name === "plan" || name === "focused") {
@@ -1341,8 +1341,8 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       const items = core.validation.list({
         currentSnapshot: core.currentValidationSnapshot(),
         currentChangedPaths: core.currentSourceChangedPaths(),
-      });
-      appendAtelierReport(pi, ctx, "Validation evidence", evidenceMarkdown(items), `${items.filter((item) => !item.stale).length} current · ${items.filter((item) => item.stale).length} stale`);
+      }).map((item) => core.validationEvidenceIsHistorical() ? { ...item, historical: true } : item);
+      appendAtelierReport(pi, ctx, "Validation evidence", evidenceMarkdown(items), `${items.filter((item) => !item.stale && !item.historical).length} current · ${items.filter((item) => item.historical).length} historical compatibility · ${items.filter((item) => item.stale && !item.historical).length} stale`);
       await updateStatus(ctx, core);
     },
   });

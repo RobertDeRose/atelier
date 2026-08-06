@@ -328,7 +328,7 @@ export function evidenceMarkdown(items: ValidationEvidenceSummary[]): string {
   return [
     ...(items.length === 0
       ? ["No validation evidence."]
-      : items.map((item) => `- **${item.name}:** ${item.status} · ${item.stale ? "stale" : "current"}`)),
+      : items.map((item) => `- **${item.name}:** ${item.status} · ${item.historical ? "historical compatibility" : item.stale ? "stale" : "current"}`)),
   ].join("\n");
 }
 

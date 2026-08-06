@@ -470,6 +470,12 @@ export class AtelierCore {
     return constraintsForPlanTask(approval.taskConstraints, grant.planTaskId);
   }
 
+  validationEvidenceIsHistorical(): boolean {
+    const grant = this.ledger.getActiveExecutionGrant();
+    if (grant === undefined) return false;
+    return this.ledger.getPlanApproval(grant.planApprovalId)?.qualityGateMode === "quality-gates";
+  }
+
   evaluateWorkflow(request: WorkflowActionRequest): WorkflowDecision {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     const decision = this.workflowGuard.evaluate(request, {
@@ -704,20 +710,24 @@ export class AtelierCore {
         ...(executionGrant.executionBaseline === undefined ? {} : { baselineDigest: executionGrant.executionBaseline.digest }),
       }),
     });
+    const surfacedEvidence = this.validationEvidenceIsHistorical()
+      ? { ...evidence, historical: true }
+      : evidence;
     this.ledger.append({
       kind: "validation.completed",
       actor: "tool",
       ...(executionGrant === undefined ? {} : { taskId: executionGrant.taskId }),
       repositorySnapshot: snapshot,
       payload: {
-        id: evidence.id,
+        id: surfacedEvidence.id,
         name,
-        status: evidence.status,
-        durationMs: evidence.durationMs,
+        status: surfacedEvidence.status,
+        durationMs: surfacedEvidence.durationMs,
+        ...(surfacedEvidence.historical ? { historical: true } : {}),
         ...(options.selectionId === undefined ? {} : { selectionId: options.selectionId }),
       },
     });
-    return evidence;
+    return surfacedEvidence;
   }
 
   activeExecutionConstraints(): ApprovedTaskConstraint[] {
@@ -1216,7 +1226,10 @@ export class AtelierCore {
     }
     const repositories = this.workspaceRepositories(executionGrant);
     const snapshot = repositories.evidenceSnapshot();
-    const validation = this.validation.closureReadiness(snapshot, executionGrant.taskId, executionGrant.id);
+    const approval = this.ledger.getPlanApproval(executionGrant.planApprovalId);
+    const validation = this.validation.closureReadiness(snapshot, executionGrant.taskId, executionGrant.id, {
+      ...(approval?.qualityGateMode === "quality-gates" ? { qualityGateMode: "quality-gates" as const } : {}),
+    });
     const policy = this.validation.closurePolicy();
     const review = this.currentFinalDiffReview();
     const activeConstraint = this.activeTaskConstraints()[0];

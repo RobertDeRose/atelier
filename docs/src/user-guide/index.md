@@ -1,7 +1,7 @@
 # User Guide
 
 Atelier is the local-first control plane around Pi. It keeps plan review, task
-activation, workspace policy, recovery, validation evidence, and task closure
+activation, workspace policy, recovery, quality-gate evidence, and task closure
 durable while letting Git or Jujutsu, Beads, editors, and code providers keep
 their native responsibilities.
 
@@ -58,7 +58,7 @@ The durable workflow is:
 
 For a ready task that does not need a plan, use standalone activation:
 `/task-start TASK_ID` or `atlr approve --task TASK_ID --yes`. Standalone
-activation still has an exact write scope and the same evidence, validation,
+activation still has an exact write scope and the same evidence, quality-gate,
 commit, and closure gates; it never edits or reconciles `.atelier/PLAN.md`.
 
 ## Safety boundaries
@@ -75,20 +75,20 @@ commit, and closure gates; it never edits or reconciles `.atelier/PLAN.md`.
 - `/atelier-stop` ends one current turn. `/atelier-pause` keeps the task active
   but disables agent mutation. `/cancel` revokes execution without closing the
   task or reverting source files.
-- Closure is explicit and requires the configured current validation evidence,
-  exact final-diff review, local change, and repository cleanliness. An
+- Closure is explicit and requires current quality-gate evidence (or an approved
+  no-gate policy), exact final-diff review, local change, and repository cleanliness. An
   incomplete task can remain paused or idle.
 
 ## Guide map
 
 - [Setup, launch, and configuration](setup.md) covers workspace initialization,
   editors, providers, runtime state, and multi-repository workspaces.
-- [CLI reference](cli.md) covers command groups, exact approval, validation,
-  evidence, recovery, and closure.
+- [CLI reference](cli.md) covers command groups, exact approval, quality gates,
+  compatibility evidence, recovery, and closure.
 - [Pi reference](pi.md) covers every Atelier slash-command and its workflow
   transition.
-- [Shared state, validation, and recovery](operations.md) explains client
-  boundaries, failure recovery, closure blockers, and troubleshooting.
+- [Shared state, quality gates, and recovery](operations.md) explains client
+  boundaries, gate evidence, closure blockers, and troubleshooting.
 
 ## Command vocabulary
 

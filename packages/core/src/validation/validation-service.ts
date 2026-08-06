@@ -387,9 +387,26 @@ export class ValidationService {
     };
   }
 
-  closureReadiness(snapshot: RepositorySnapshot, taskId: string, executionGrantId: string): TaskClosureReadiness {
+  closureReadiness(
+    snapshot: RepositorySnapshot,
+    taskId: string,
+    executionGrantId: string,
+    options: { qualityGateMode?: "legacy" | "quality-gates" } = {},
+  ): TaskClosureReadiness {
     const manifest = this.manifest();
     const policy = this.closurePolicy();
+    if (options.qualityGateMode === "quality-gates") {
+      return {
+        ready: true,
+        validationReady: true,
+        blockers: [],
+        required: [],
+        missing: [],
+        stale: [],
+        failed: [],
+        reason: "Legacy validation records remain readable as compatibility history; current closure uses repository quality-gate evidence.",
+      };
+    }
     const selection = this.listFocusedSelections({ taskId, executionGrantId, limit: 1 })[0];
     const selectedRequired = selection?.selected.filter((item) => item.required).map((item) => item.name) ?? [];
     const configuredFocusedRequired = Object.entries(manifest.validations)

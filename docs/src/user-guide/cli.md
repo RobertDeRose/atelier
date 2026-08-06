@@ -62,8 +62,9 @@ atlr review
 ```
 
 `atlr plan` sets guarded plan mode and prints the path to review. `plan parse`
-validates headings, task metadata, execution contracts, dependencies, and
-named validations. `review` opens the configured editor, records a durable
+validates headings, task metadata, execution contracts, and dependencies. Repository
+quality-gate inventory is recorded during preparation; legacy validation names remain
+readable for compatibility. `review` opens the configured editor, records a durable
 `ManualEdit`, and prints the structural diff, diagnostics, and reconciliation
 preview.
 
@@ -75,7 +76,7 @@ atlr plan parse --json
 atlr plan reconcile --json
 atlr plan prepare --json
 atlr plan scope TASK_ID --write PATH[,PATH] \
-  --validation NAME[,NAME] [--dependencies] [--full-suite] [--no-local-change]
+  [--validation NAME[,NAME]] [--dependencies] [--full-suite] [--no-local-change]
 ```
 
 - `create` creates the plan document without starting approval.
@@ -97,7 +98,7 @@ atlr approve --approval APPROVAL_ID \
 ```
 
 Read the plan hash, provider identity, operations, retirements, proposed first
-task, exact paths, validations, and exclusions before approving. Rejection or
+task, exact paths, quality-gate coverage, and exclusions before approving. Rejection or
 drift performs no partial approval. A successful approval applies the reviewed
 reconciliation, claims the first approved task, installs its execution grant,
 and leaves the agent idle until an explicit implementation request.
@@ -107,7 +108,7 @@ and leaves the agent idle until an explicit implementation request.
 A ready task can be activated without creating or reconciling a plan:
 
 ```sh
-atlr approve --task TASK_ID --validation VALIDATION_NAME --yes
+atlr approve --task TASK_ID --yes
 ```
 
 The command displays the task and effective scope before confirmation. Without
@@ -117,25 +118,26 @@ scope explicitly:
 
 ```sh
 atlr approve --task TASK_ID \
-  --write src/,tests/ --validation VALIDATION_NAME --yes
+  --write src/,tests/ --yes
 ```
 
 The optional controls are:
 
 - `--dependencies` permits dependency manifest or lockfile changes;
-- `--full-suite` permits full-category validations;
+- `--full-suite` remains a legacy compatibility control;
 - `--no-local-change` makes a local change unnecessary for this task.
 
 The equivalent task command is:
 
 ```sh
 atlr task start TASK_ID --standalone \
-  --write src/,tests/ --validation VALIDATION_NAME --yes
+  --write src/,tests/ --yes
 ```
 
 Standalone activation never writes, reviews, or reconciles `.atelier/PLAN.md`.
-It still requires workspace authorization and the configured validation,
-final-diff, cleanliness, commit, and closure rules.
+It still requires workspace authorization, discovered quality-gate evidence,
+final-diff, cleanliness, commit, and closure rules. Legacy `--validation` input
+is optional compatibility data and is not required for new activation.
 
 ## Activate and control work
 
@@ -167,52 +169,41 @@ mutation. `resume` re-enables that execution without starting an agent turn.
 not revert edits. `resume-task` revalidates a cancelled approved task's exact
 bindings before issuing a new grant.
 
-## Validation and evidence
+## Quality gates and compatibility evidence
 
-Validation definitions live in `.atelier/validation.json` and run as bounded
-argument arrays, not through a shell substitution. Inspect them first:
+New plan and standalone approval discovers repository quality gates from native
+hooks, configured tools, `mise`, and package scripts. Inspect the inventory and
+planning coverage without naming a check:
+
+```sh
+atlr dstack gates
+atlr plan prepare --json
+atlr state
+atlr evidence
+```
+
+The selected gate runs automatically before `repo commit` and `task close`.
+Failures, unavailable tools, stale configuration, cancellation, and formatter
+or hook mutations block the operation and retain bounded evidence. `evidence`
+and `state` show the current quality-gate status, exact identity, output, and
+freshness. An approved no-gate repository is reported explicitly; it is not
+silently treated as a passing check.
+
+Existing `.atelier/validation.json` definitions and rows remain readable as
+legacy compatibility data. The compatibility commands are still available for
+inspection or an intentionally named historical check:
 
 ```sh
 atlr validate list
 atlr validate plan
 atlr validate focused
 atlr validate run NAME
-atlr evidence
 atlr evidence --name NAME
 ```
 
-`validate plan` selects configured focused checks by changed paths or symbols.
-`validate focused` runs that selection and records evidence. `validate run NAME`
-runs one named configured check. `evidence` shows whether each result is
-current or stale against the current source snapshot. A source change makes
-prior evidence stale and requires a rerun.
-
-A minimal manifest shape is:
-
-```json
-{
-  "closurePolicy": {
-    "requireValidation": true,
-    "requireFinalDiffReview": true,
-    "requireLocalChange": true,
-    "requireCleanSource": true,
-    "requireCleanRepository": true
-  },
-  "validations": {
-    "docs": {
-      "command": ["mise", "run", "docs:check"],
-      "category": "focused",
-      "required": true,
-      "paths": ["docs/**"]
-    }
-  }
-}
-```
-
-Use exact validation names in the reviewed task contract. If closure requires
-validation but the manifest has no required validation, focused selection has
-no match and closure remains blocked; configure a named check rather than
-pretending a shell command was evidence.
+Legacy validation evidence is marked historical compatibility when the active
+execution uses quality gates. Do not add validation names to new task contracts
+or use a legacy result as a substitute for current quality-gate evidence.
 
 ## Final diff, local change, and closure
 
@@ -228,7 +219,7 @@ atlr task close TASK_ID --reason "Documentation reviewed and validated"
 review only if it is unchanged. `repo commit` creates the one task-scoped Git
 commit or Jujutsu change allowed by the execution grant. `task close` enforces
 current required validation, exact diff review, local-change, and repository
-state evidence. If any requirement is missing or stale, `atlr state` explains
+quality-gate, exact diff, local-change, and repository-state evidence. If any requirement is missing or stale, `atlr state` explains
 what to do next.
 
 ## Code intelligence
