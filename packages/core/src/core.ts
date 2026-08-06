@@ -43,6 +43,15 @@ import {
   type WorkspaceCommitResult,
 } from "./repository/workspace-repository-service.ts";
 import { sourceRevisionIdentity, sourceSnapshotFingerprint } from "./repository/snapshot.ts";
+import {
+  MAX_COMMIT_FAILURE_ATTEMPTS,
+  CommitFailureError,
+  classifyCommitFailure,
+  commitAttemptState,
+  commitFailureMessage,
+  type CommitAttemptState,
+  type CommitFailureDecision,
+} from "./repository/commit-failure.ts";
 import { ValidationService } from "./validation/validation-service.ts";
 import { QualityGateService } from "./quality-gates/quality-gate-provider.ts";
 import type { CodeProvider } from "./code/provider.ts";
@@ -817,6 +826,32 @@ export class AtelierCore {
     return review;
   }
 
+  recordCommitFailureDecision(decision: Exclude<CommitFailureDecision, "pending">, actor: "user" | "agent" = "user"): CommitAttemptState | undefined {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant === undefined) return undefined;
+    const key = `commitAttempt:${executionGrant.id}`;
+    const current = this.ledger.getState<CommitAttemptState>(key);
+    if (current === undefined) return undefined;
+    if (decision === "retry" && actor === "agent" && (!current.retryable || current.attempt >= MAX_COMMIT_FAILURE_ATTEMPTS)) {
+      return current;
+    }
+    const updated: CommitAttemptState = {
+      ...current,
+      decision,
+      decisionActor: actor,
+      decisionAt: nowIso(),
+    };
+    this.ledger.setState(key, updated);
+    this.ledger.append({
+      kind: "repository.change_failure_decision",
+      actor,
+      taskId: executionGrant.taskId,
+      repositorySnapshot: this.repository.snapshot(),
+      payload: updated,
+    });
+    return updated;
+  }
+
   commitActiveTask(message: string, actor: "user" | "agent" = "user"): WorkspaceCommitResult {
     const executionGrant = this.ledger.getActiveExecutionGrant();
     if (executionGrant === undefined) throw new Error("A local task change requires an active execution grant.");
@@ -824,6 +859,14 @@ export class AtelierCore {
     const repositories = this.workspaceRepositories(executionGrant);
     const changes = repositories.approvedChanges(false).filter((entry) => entry.changedPaths.length > 0);
     if (changes.length === 0) throw new Error("No approved source changes are available to commit.");
+    const previousFailure = this.ledger.getState<CommitAttemptState>(`commitAttempt:${executionGrant.id}`);
+    if (previousFailure !== undefined && previousFailure.decision !== "retry") {
+      throw new CommitFailureError(
+        `The previous ${previousFailure.category} commit failure requires an explicit retry, pause, cancel, or reviewed bypass decision.`,
+        previousFailure,
+        previousFailure.attempt >= MAX_COMMIT_FAILURE_ATTEMPTS,
+      );
+    }
     const absolutePaths = changes.flatMap((entry) => entry.absolutePaths);
     const decision = this.evaluateWorkflow({
       action: "repository.change.create",
@@ -839,15 +882,69 @@ export class AtelierCore {
     try {
       result = repositories.commit(message);
     } catch (error) {
+      const failureSnapshot = this.repository.snapshot();
+      const classification = classifyCommitFailure(error);
+      const configurationFingerprint = sha256(stableJson(this.config));
+      const prior = this.ledger.getState<CommitAttemptState>(`commitAttempt:${executionGrant.id}`);
+      const firstAttempt = commitAttemptState(
+        executionGrant.taskId,
+        executionGrant.id,
+        classification,
+        1,
+        {
+          sourceFingerprint: sourceSnapshotFingerprint(failureSnapshot),
+          configurationFingerprint,
+        },
+      );
+      const sameFailure = prior?.failureFingerprint === firstAttempt.failureFingerprint;
+      const attempt = sameFailure ? prior.attempt + 1 : 1;
+      const state = commitAttemptState(
+        executionGrant.taskId,
+        executionGrant.id,
+        classification,
+        attempt,
+        {
+          sourceFingerprint: sourceSnapshotFingerprint(failureSnapshot),
+          configurationFingerprint,
+        },
+      );
+      if (sameFailure && prior.attempt >= MAX_COMMIT_FAILURE_ATTEMPTS) {
+        const exhausted: CommitAttemptState = {
+          ...state,
+          attempt: prior.attempt,
+          decision: "pending",
+        };
+        delete exhausted.decisionActor;
+        delete exhausted.decisionAt;
+        this.ledger.setState(`commitAttempt:${executionGrant.id}`, exhausted);
+        this.ledger.append({
+          kind: "repository.change_retry_budget_exhausted",
+          actor,
+          taskId: executionGrant.taskId,
+          repositorySnapshot: failureSnapshot,
+          payload: {
+            message,
+            ...exhausted,
+            budgetExhausted: true,
+          },
+        });
+        throw new CommitFailureError(commitFailureMessage(exhausted, true), exhausted, true, error);
+      }
+      this.ledger.setState(`commitAttempt:${executionGrant.id}`, state);
       this.ledger.append({
         kind: "repository.change_partial_failure",
         actor,
         taskId: executionGrant.taskId,
-        repositorySnapshot: this.repository.snapshot(),
-        payload: { message, error: error instanceof Error ? error.message : String(error) },
+        repositorySnapshot: failureSnapshot,
+        payload: {
+          message,
+          ...state,
+          budgetExhausted: false,
+        },
       });
-      throw error;
+      throw new CommitFailureError(commitFailureMessage(state), state, false, error);
     }
+    this.ledger.deleteState(`commitAttempt:${executionGrant.id}`);
     this.ledger.append({
       kind: "repository.change_created",
       actor,

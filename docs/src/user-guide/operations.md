@@ -185,6 +185,21 @@ In Pi use `/validate focused`, `/review-diff`, `/commit MESSAGE`, and `/close`.
 If a required local change or clean-source check cannot be satisfied, stop and
 resolve the repository state instead of force-closing the task.
 
+### A hook, filter, or signing operation rejects the commit
+
+Atelier preserves the repository's Git hooks, filters, signing configuration,
+and user policy. It never retries with `--no-verify`, `--no-gpg-sign`, an
+alternate hooks path, or changed signing configuration. Commit failures are
+classified as hook/check rejection, signing failure, filter failure, user
+cancellation, timeout, or unknown failure. CLI and Pi show the category plus
+bounded command evidence; the ledger stores the category, evidence, failure
+fingerprint, source/configuration fingerprints, and retry count.
+
+Fix the reported problem using the repository's existing policy, then choose an
+explicit retry. Corrective retries are bounded at two identical failures. If
+the problem remains, pause or cancel and decide any exception separately; no
+bypass is selected by the agent.
+
 ### The editor opens and immediately exits
 
 Use a foreground editor and, for GUI editors, a wait flag:

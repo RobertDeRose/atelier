@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { AtelierCore } from "../../../packages/core/src/index.ts";
+import { CommitFailureError, type AtelierCore } from "../../../packages/core/src/index.ts";
 
 export const ATELIER_STATE_TOOL = "atlr_state";
 export const ATELIER_COMMIT_TOOL = "atlr_commit";
@@ -49,11 +49,29 @@ export function registerWorkflowTools(
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const message = String((params as { message?: unknown }).message ?? "").trim();
       if (!message) throw new Error("Atelier local change requires a non-empty message.");
-      const result = coreFor(ctx).commitActiveTask(message, "agent");
-      return {
-        content: [{ type: "text", text: `Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}\nPaths: ${result.changedPaths.join(", ")}` }],
-        details: result,
-      };
+      try {
+        const core = coreFor(ctx);
+        core.recordCommitFailureDecision("retry", "agent");
+        const result = core.commitActiveTask(message, "agent");
+        return {
+          content: [{ type: "text", text: `Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}\nPaths: ${result.changedPaths.join(", ")}` }],
+          details: result,
+        };
+      } catch (error) {
+        if (!(error instanceof CommitFailureError)) throw error;
+        return {
+          content: [{
+            type: "text",
+            text: [
+              error.message,
+              `Failure fingerprint: ${error.state.failureFingerprint}`,
+              `Attempt: ${error.state.attempt}`,
+              ...error.state.remediation.map((item) => `Next: ${item}`),
+            ].join("\n"),
+          }],
+          details: { error: "commit_failure", state: error.state, budgetExhausted: error.budgetExhausted },
+        };
+      }
     },
   });
 

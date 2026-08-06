@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension/src/index.ts";
 import { executionGrantText, planStatusText, vcsStatusText } from "../apps/pi-extension/src/status-presentation.ts";
-import { recoveryActionDialog } from "../apps/pi-extension/src/approval-dialog.ts";
+import { commitFailureActionDialog, recoveryActionDialog } from "../apps/pi-extension/src/approval-dialog.ts";
 import { approveStandaloneTask, parseStandaloneTaskCommand } from "../apps/pi-extension/src/standalone-task-command.ts";
 import { registerDstackCommands } from "../apps/pi-extension/src/dstack-commands.ts";
 import {
@@ -296,6 +296,14 @@ test("Pi recovery prompt exposes explicit continue, pause, and cancel actions", 
     selectResult: "Continue task — send one explicit agent turn",
   });
   return recoveryActionDialog(context, "task-1").then((action) => assert.equal(action, "continue"));
+});
+
+test("Pi commit failure prompt keeps retry, pause, cancel, and bypass explicit", async () => {
+  const context = fakeContext("/tmp", { count: 0 }, [], {
+    selectResult: "Record an explicit bypass request (not applied automatically)",
+  });
+  const action = await commitFailureActionDialog(context, "signing_failure", ["Repair signing first."]);
+  assert.equal(action, "bypass");
 });
 
 test("Pi status presentation distinguishes missing plans, execution grants, and VCS identity", () => {

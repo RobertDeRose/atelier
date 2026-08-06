@@ -61,6 +61,29 @@ export async function confirmApprovalDialog(ctx: ExtensionContext, options: Appr
   });
 }
 
+export type CommitFailureAction = "retry" | "pause" | "cancel" | "bypass";
+
+const COMMIT_FAILURE_ACTIONS: ReadonlyArray<{ action: CommitFailureAction; label: string }> = [
+  { action: "retry", label: "Retry after external remediation" },
+  { action: "pause", label: "Pause the task" },
+  { action: "cancel", label: "Cancel this execution" },
+  { action: "bypass", label: "Record an explicit bypass request (not applied automatically)" },
+];
+
+export async function commitFailureActionDialog(
+  ctx: ExtensionContext,
+  category: string,
+  remediation: readonly string[],
+): Promise<CommitFailureAction> {
+  const labels = COMMIT_FAILURE_ACTIONS.map((item) => item.label);
+  const selected = await ctx.ui.select(
+    [`Commit blocked · ${category}`, ...remediation, "Choose the next explicit action."].join("\n"),
+    labels,
+  );
+  const index = selected === undefined ? -1 : labels.indexOf(selected);
+  return COMMIT_FAILURE_ACTIONS[index < 0 ? 1 : index]?.action ?? "pause";
+}
+
 export type RecoveryAction = "continue" | "pause" | "cancel";
 
 const RECOVERY_ACTIONS: ReadonlyArray<{

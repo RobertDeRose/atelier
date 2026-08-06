@@ -20,6 +20,7 @@ export * from "./workflow/workflow-guard.ts";
 export * from "./process/interactive-process.ts";
 export * from "./repository/repository-provider.ts";
 export * from "./repository/workspace-repository-service.ts";
+export * from "./repository/commit-failure.ts";
 export * from "./repository/repository-factory.ts";
 export * from "./repository/jujutsu-repository-provider.ts";
 export * from "./repository/git-repository-provider.ts";

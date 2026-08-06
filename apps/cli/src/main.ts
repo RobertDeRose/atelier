@@ -16,6 +16,7 @@ import {
   updatePlanTaskScopeFile,
   AtelierServiceClient,
   AtelierServiceServer,
+  CommitFailureError,
 } from "../../../packages/core/src/index.ts";
 import { flagBoolean, flagString, parseArgs, stripLaunchArguments } from "./arguments.ts";
 import { buildDoctorReport, formatDoctorReport } from "./doctor.ts";
@@ -254,9 +255,33 @@ async function main(): Promise<void> {
         if (subcommand === "commit") {
           const message = flagString(parsed, "message") ?? rest.join(" ").trim();
           if (!message) throw new Error("Usage: atlr repo commit --message TEXT");
-          const result = core.commitActiveTask(message);
-          if (flagBoolean(parsed, "json")) asJson(result);
-          else process.stdout.write(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}\n`);
+          try {
+            core.recordCommitFailureDecision("retry");
+            const result = core.commitActiveTask(message);
+            if (flagBoolean(parsed, "json")) asJson(result);
+            else process.stdout.write(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}\n`);
+          } catch (error) {
+            if (!(error instanceof CommitFailureError)) throw error;
+            process.exitCode = 1;
+            if (flagBoolean(parsed, "json")) {
+              asJson({
+                error: {
+                  code: "commit_failure",
+                  message: error.message,
+                  budgetExhausted: error.budgetExhausted,
+                  state: error.state,
+                },
+              });
+            } else {
+              process.stderr.write([
+                error.budgetExhausted
+                  ? `Commit retry budget exhausted (${error.state.category}; ${error.state.attempt} identical failures).`
+                  : `Commit not created (${error.state.category}; attempt ${error.state.attempt}).`,
+                `Evidence: ${error.state.evidence}`,
+                ...error.state.remediation.map((item) => `Next: ${item}`),
+              ].join("\n") + "\n");
+            }
+          }
           return;
         }
         throw new Error("Usage: atlr repo <status|review-diff|commit>");

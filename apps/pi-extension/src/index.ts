@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   AtelierCore,
+  CommitFailureError,
   classifyShellCommand,
   ensurePlanDocument,
   updatePlanTaskScopeFile,
@@ -26,7 +27,7 @@ import {
 } from "./code-tool-presentation.ts";
 import { toolExecutionOutcome } from "./execution-outcome.ts";
 import { preparationSummary } from "./approval-presentation.ts";
-import { confirmApprovalDialog, recoveryActionDialog } from "./approval-dialog.ts";
+import { commitFailureActionDialog, confirmApprovalDialog, recoveryActionDialog } from "./approval-dialog.ts";
 import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "./navigation.ts";
 import { runInteractiveProcessWithPi } from "./interactive-process.ts";
 import { runPlanEditorWithPi } from "./manual-edit-process.ts";
@@ -1018,8 +1019,40 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
       if (!message) { ctx.ui.notify("Usage: /commit MESSAGE", "warning"); return; }
       const core = getCore(ctx);
       try {
+        core.recordCommitFailureDecision("retry");
         const result = core.commitActiveTask(message);
         ctx.ui.notify(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}`, "info");
+      } catch (error) {
+        if (!(error instanceof CommitFailureError)) throw error;
+        ctx.ui.notify([
+          error.budgetExhausted
+            ? `Commit retry budget exhausted (${error.state.category}; ${error.state.attempt} identical failures).`
+            : `Commit failed (${error.state.category}; attempt ${error.state.attempt}).`,
+          `Evidence: ${error.state.evidence}`,
+        ].join(" "), "warning");
+        const action = await commitFailureActionDialog(ctx, error.state.category, error.state.remediation);
+        if (action === "retry") {
+          try {
+            core.recordCommitFailureDecision("retry");
+            const result = core.commitActiveTask(message);
+            ctx.ui.notify(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}`, "info");
+          } catch (retryError) {
+            if (!(retryError instanceof CommitFailureError)) throw retryError;
+            ctx.ui.notify(`Commit remains blocked (${retryError.state.category}); inspect the evidence before another explicit action.`, "warning");
+          }
+        } else if (action === "pause") {
+          core.recordCommitFailureDecision("pause");
+          core.execution.pause(`Paused after ${error.state.category} commit failure.`);
+          ctx.ui.notify("Task paused after the commit failure.", "warning");
+        } else if (action === "cancel") {
+          core.recordCommitFailureDecision("cancel");
+          core.execution.cancel(`Cancelled after ${error.state.category} commit failure.`);
+          ctx.ui.notify("Execution cancelled after the commit failure.", "warning");
+        } else {
+          core.recordCommitFailureDecision("bypass");
+          core.execution.pause("Paused while an explicit commit bypass request is reviewed.");
+          ctx.ui.notify("Explicit bypass request recorded; Atelier did not weaken repository policy or create a commit.", "warning");
+        }
       } finally {
         await updateStatus(ctx, core);
       }
