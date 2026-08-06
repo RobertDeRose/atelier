@@ -198,6 +198,10 @@ export class McpStdioClient {
     }
   }
 
+  processId(): number | undefined {
+    return this.child?.pid;
+  }
+
   stderrTail(): string {
     return this.stderr;
   }

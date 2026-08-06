@@ -27,6 +27,20 @@ export type CodeCapability = (typeof CODE_CAPABILITIES)[number];
 export type CodeSearchMode = "auto" | "lexical" | "semantic" | "hybrid";
 export type CodeSearchFocus = "auto" | "source" | "tests" | "docs" | "all";
 export type CodeIndexState = "missing" | "building" | "ready" | "stale" | "failed" | "unknown";
+export type CodeProviderLockState = "clear" | "held" | "unavailable";
+
+export interface CodeProviderLockHolder {
+  pid: number;
+  command: string;
+  paths: string[];
+}
+
+export interface CodeProviderLockStatus {
+  state: CodeProviderLockState;
+  databasePaths: string[];
+  holders?: CodeProviderLockHolder[];
+  detail?: string;
+}
 
 export interface CodeWorkspace {
   id: string;
@@ -58,6 +72,8 @@ export interface CodeProviderStatus {
   indexedRevisions?: Record<string, string>;
   degraded?: boolean;
   warnings?: string[];
+  /** Read-only diagnostics for local provider database contention. */
+  lock?: CodeProviderLockStatus;
 }
 
 export interface CodeSearchQuery {

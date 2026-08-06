@@ -79,6 +79,12 @@ export async function handleCode(core: AtelierCore, subcommand: string | undefin
       `Available: ${status.available}`,
       `Healthy: ${status.healthy}`,
       `Index: ${status.indexState}`,
+      ...(status.lock === undefined ? [] : [
+        `Database lock: ${status.lock.state}`,
+        `Database: ${status.lock.databasePaths.join(", ")}`,
+        ...(status.lock.holders?.map((holder) => `Lock holder: PID ${holder.pid} ${holder.command} (${holder.paths.join(", ")})`) ?? []),
+        ...(status.lock.detail === undefined ? [] : [`Lock detail: ${status.lock.detail}`]),
+      ]),
       `Capabilities: ${status.capabilities.join(", ") || "none"}`,
       ...(status.degraded === true ? ["Degraded: true"] : []),
       ...(status.warnings?.map((warning) => `Warning: ${warning}`) ?? []),

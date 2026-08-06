@@ -232,7 +232,7 @@ export function codeStatusState(status: CodeProviderStatus): "disabled" | "offli
 }
 
 export function codeStatusSummary(status: CodeProviderStatus, retrieval: RetrievalSessionStatus): string {
-  return `${status.identity.name} · ${codeStatusState(status)} · ${retrieval.inventory.freshness}`;
+  return `${status.identity.name} · ${codeStatusState(status)}${status.lock === undefined ? "" : ` · lock ${status.lock.state}`} · ${retrieval.inventory.freshness}`;
 }
 
 export function codeStatusMarkdown(status: CodeProviderStatus, retrieval: RetrievalSessionStatus): string {
@@ -246,6 +246,21 @@ export function codeStatusMarkdown(status: CodeProviderStatus, retrieval: Retrie
       ["index", status.indexState],
       ["retrieval freshness", retrieval.inventory.freshness],
       ["remaining requests", String(Math.max(0, retrieval.budget.providerRequestsLimit - retrieval.budget.providerRequestsUsed))],
+    ]),
+    ...(status.lock === undefined ? [] : [
+      "",
+      "### Database lock",
+      "",
+      `- **state:** ${status.lock.state}`,
+      `- **database:** ${status.lock.databasePaths.map(code).join(", ")}`,
+      ...(status.lock.holders?.map((holder) => `- **holder:** PID ${holder.pid} ${holder.command} · ${holder.paths.map(code).join(", ")}`) ?? []),
+      ...(status.lock.detail === undefined ? [] : [`- **detail:** ${status.lock.detail}`]),
+    ]),
+    ...(status.warnings === undefined || status.warnings.length === 0 ? [] : [
+      "",
+      "### Warnings",
+      "",
+      ...status.warnings.map((warning) => `- ${warning}`),
     ]),
     ...(status.detail === undefined ? [] : ["", "### Detail", "", status.detail.split(/\r?\n/)[0] ?? status.detail]),
     "",

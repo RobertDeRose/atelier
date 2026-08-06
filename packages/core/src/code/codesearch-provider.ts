@@ -19,6 +19,8 @@ import type {
   CodeChunk,
   CodeIndexState,
   CodeProviderIdentity,
+  CodeProviderLockHolder,
+  CodeProviderLockStatus,
   CodeProviderStatus,
   CodeProvenance,
   CodeReference,
@@ -41,6 +43,8 @@ export interface CodesearchProviderOptions {
   indexTimeoutMs?: number;
   pollIntervalMs?: number;
   environment?: Record<string, string>;
+  /** Process utility used to inspect local database lock ownership. */
+  lockCommand?: string;
 }
 
 interface CodesearchReferenceData {
@@ -59,6 +63,7 @@ export class CodesearchProvider implements CodeProvider {
   private readonly indexTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly environment: Record<string, string> | undefined;
+  private readonly lockCommand: string;
   private readonly indexSelectionStatePath: string;
   private readonly legacyIndexSelectionStatePath: string;
   private client: McpStdioClient | undefined;
@@ -72,6 +77,7 @@ export class CodesearchProvider implements CodeProvider {
   private workspace: CodeWorkspace | undefined;
   private readonly indexedSnapshots = new Map<string, string>();
   private lastWarnings: string[] = [];
+  private statusWarnings: string[] = [];
   private localIndexWarnings: string[] = [];
 
   constructor(options: CodesearchProviderOptions) {
@@ -82,6 +88,7 @@ export class CodesearchProvider implements CodeProvider {
     this.indexTimeoutMs = options.indexTimeoutMs ?? 300_000;
     this.pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.environment = options.environment;
+    this.lockCommand = options.lockCommand ?? "lsof";
     const stateDirectory = resolve(options.stateDirectory ?? join(defaultRuntimeDirectory(this.cwd), "code"));
     this.indexSelectionStatePath = join(stateDirectory, "codesearch-index-state.json");
     this.legacyIndexSelectionStatePath = repositoryPathTarget(
@@ -93,6 +100,7 @@ export class CodesearchProvider implements CodeProvider {
 
   async status(workspace?: CodeWorkspace): Promise<CodeProviderStatus> {
     if (workspace !== undefined) this.workspace = workspace;
+    this.statusWarnings = [];
     const version = this.detectVersion();
     if (version === undefined) {
       return {
@@ -109,32 +117,41 @@ export class CodesearchProvider implements CodeProvider {
       await this.connect();
       if (this.hasTool("status")) this.indexState = await this.readIndexState(this.workspace);
       const indexRevision = this.currentIndexRevision();
+      const lock = this.inspectLocks(this.workspace);
+      const warnings = this.statusWarningsWithLock(lock);
+      const indexState = lockAwareIndexState(this.indexState, lock);
       return {
         identity: this.identity,
         available: true,
         healthy: true,
         capabilities: this.capabilities(),
-        indexState: this.indexState,
+        indexState,
         ...(indexRevision === undefined ? {} : { indexRevision }),
         ...(this.detail === undefined ? {} : { detail: this.detail }),
         ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
         ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
         ...(this.indexedSnapshots.size === 0 ? {} : { indexedRevisions: Object.fromEntries(this.indexedSnapshots) }),
-        ...(this.combinedWarnings().length === 0 ? {} : { degraded: true, warnings: this.combinedWarnings() }),
+        ...(lock === undefined ? {} : { lock }),
+        ...(warnings.length === 0 ? {} : { degraded: true, warnings }),
       };
     } catch (error) {
+      this.statusWarnings = [`codesearch status request failed: ${errorMessage(error)}`];
       const indexRevision = this.currentIndexRevision();
+      const lock = this.inspectLocks(this.workspace);
+      const warnings = this.statusWarningsWithLock(lock);
+      const indexState = lockAwareIndexState(this.indexState, lock);
       return {
         identity: this.identity,
         available: true,
         healthy: false,
         capabilities: this.capabilities(),
-        indexState: this.indexState,
+        indexState,
         ...(indexRevision === undefined ? {} : { indexRevision }),
         detail: errorMessage(error),
         ...(this.lastIndexedAt === undefined ? {} : { lastIndexedAt: this.lastIndexedAt }),
         ...(this.lastQueryAt === undefined ? {} : { lastQueryAt: this.lastQueryAt }),
-        ...(this.combinedWarnings().length === 0 ? {} : { degraded: true, warnings: this.combinedWarnings() }),
+        ...(lock === undefined ? {} : { lock }),
+        ...(warnings.length === 0 ? {} : { degraded: true, warnings }),
       };
     }
   }
@@ -234,11 +251,16 @@ export class CodesearchProvider implements CodeProvider {
       });
     } catch (error) {
       this.indexState = "failed";
-      throw new Error(`codesearch ${operation} failed for ${repositoryRoot}: ${errorMessage(error)}`, { cause: error });
+      const lock = this.inspectLocksForRoots([repositoryRoot]);
+      throw new Error(
+        `codesearch ${operation} failed for ${repositoryRoot}: ${errorMessage(error)}${formatLockDiagnostic(lock)}`,
+        { cause: error },
+      );
     }
     if (result.exitCode !== 0 || result.timedOut || result.aborted) {
       this.indexState = "failed";
-      throw new Error(formatIndexFailure(operation, repositoryRoot, result, this.indexTimeoutMs));
+      const lock = this.inspectLocksForRoots([repositoryRoot]);
+      throw new Error(formatIndexFailure(operation, repositoryRoot, result, this.indexTimeoutMs, lock));
     }
   }
 
@@ -266,7 +288,31 @@ export class CodesearchProvider implements CodeProvider {
   }
 
   private combinedWarnings(): string[] {
-    return [...new Set([...this.localIndexWarnings, ...this.lastWarnings])];
+    return [...new Set([...this.localIndexWarnings, ...this.lastWarnings, ...this.statusWarnings])];
+  }
+
+  private statusWarningsWithLock(lock: CodeProviderLockStatus | undefined): string[] {
+    return [...new Set([...this.combinedWarnings(), ...(lock === undefined ? [] : [formatLockWarning(lock)])])];
+  }
+
+  private inspectLocks(workspace?: CodeWorkspace): CodeProviderLockStatus | undefined {
+    if (this.mode === "client" || this.routingMode === "client") return undefined;
+    const roots = workspace?.repositories.map((repository) => canonicalRepositoryRoot(repository.root)) ?? [this.cwd];
+    return this.inspectLocksForRoots(roots);
+  }
+
+  private inspectLocksForRoots(repositoryRoots: string[]): CodeProviderLockStatus | undefined {
+    if (this.mode === "client" || this.routingMode === "client") return undefined;
+    const processId = this.client?.processId();
+    const ignoredPids = processId === undefined ? [] : [processId];
+    const results = repositoryRoots.map((repositoryRoot) => inspectCodesearchRepositoryLocks({
+      repositoryRoot,
+      command: this.lockCommand,
+      ...(this.environment === undefined ? {} : { environment: this.environment }),
+      ignoredPids,
+    }));
+    const aggregate = mergeLockStatuses(results);
+    return aggregate.state === "clear" ? undefined : aggregate;
   }
 
   async search(query: CodeSearchQuery): Promise<CodeSearchHit[]> {
@@ -570,7 +616,10 @@ export class CodesearchProvider implements CodeProvider {
   private async readIndexState(workspace?: CodeWorkspace, signal?: AbortSignal): Promise<CodeIndexState> {
     const scope = workspace === undefined ? {} : this.scopeArguments(workspace);
     const result = await this.call("status", { kind: "index", ...scope }, signal);
-    return inferIndexState(extractData(result), inferIndexState(this.detail, this.indexState));
+    const data = extractData(result);
+    const diagnostic = statusDiagnostic(data);
+    if (diagnostic !== undefined) this.statusWarnings = [`codesearch status reported an error: ${diagnostic}`];
+    return inferIndexState(data, inferIndexState(this.detail, this.indexState));
   }
 
   private async waitForReady(workspace: CodeWorkspace, signal?: AbortSignal): Promise<CodeIndexState> {
@@ -594,7 +643,8 @@ export class CodesearchProvider implements CodeProvider {
 
     this.indexState = state;
     if (state !== "ready") {
-      throw new Error(`codesearch index is ${state} for workspace ${workspace.name}; run atlr code index before querying`);
+      const lock = this.inspectLocks(workspace);
+      throw new Error(formatIndexReadinessFailure(workspace, state, lock));
     }
     return state;
   }
@@ -1203,11 +1253,169 @@ interface IndexSelectionState {
 
 const INDEX_SELECTION_FILES = [".gitignore", ".codesearchignore", ".osgrepignore"] as const;
 
+interface CodesearchLockProbeOptions {
+  repositoryRoot: string;
+  command: string;
+  environment?: Record<string, string>;
+  ignoredPids: readonly number[];
+}
+
+export function parseCodesearchLockOutput(
+  output: string,
+  ignoredPids: readonly number[] = [],
+): CodeProviderLockHolder[] {
+  const ignored = new Set(ignoredPids);
+  const holders = new Map<number, CodeProviderLockHolder>();
+  let pid: number | undefined;
+  let command = "unknown";
+  let paths: string[] = [];
+
+  const commit = (): void => {
+    if (pid === undefined || ignored.has(pid)) return;
+    const existing = holders.get(pid);
+    if (existing === undefined) {
+      holders.set(pid, { pid, command, paths: [...new Set(paths)] });
+      return;
+    }
+    existing.command = existing.command === "unknown" && command !== "unknown" ? command : existing.command;
+    existing.paths = [...new Set([...existing.paths, ...paths])];
+  };
+
+  for (const line of output.split(/\r?\n/)) {
+    if (line.startsWith("p")) {
+      commit();
+      const parsedPid = Number(line.slice(1));
+      pid = Number.isSafeInteger(parsedPid) ? parsedPid : undefined;
+      command = "unknown";
+      paths = [];
+    } else if (line.startsWith("c")) {
+      command = line.slice(1) || "unknown";
+    } else if (line.startsWith("n") && line.length > 1) {
+      paths.push(line.slice(1));
+    }
+  }
+  commit();
+  return [...holders.values()].sort((left, right) => left.pid - right.pid);
+}
+
+function inspectCodesearchRepositoryLocks(options: CodesearchLockProbeOptions): CodeProviderLockStatus {
+  const databasePath = join(canonicalRepositoryRoot(options.repositoryRoot), ".codesearch.db");
+  const lockPaths = [
+    join(databasePath, ".writer.lock"),
+    join(databasePath, "lock.mdb"),
+    join(databasePath, "fts", ".tantivy-writer.lock"),
+  ].filter(existsSync);
+  if (lockPaths.length === 0) return { state: "clear", databasePaths: [databasePath] };
+
+  const result = spawnSync(options.command, ["-nP", "-Fpcn", "--", ...lockPaths], {
+    cwd: canonicalRepositoryRoot(options.repositoryRoot),
+    env: minimalEnvironment({ overrides: options.environment }),
+    encoding: "utf8",
+    shell: false,
+    timeout: 2_000,
+    maxBuffer: 128 * 1024,
+  });
+  if (result.error !== undefined || result.status === null || (result.status !== 0 && result.status !== 1)) {
+    return {
+      state: "unavailable",
+      databasePaths: [databasePath],
+      detail: `unable to inspect lock ownership with ${options.command}: ${result.error?.message ?? (result.stderr || `exit status ${result.status ?? "unknown"}`)}`,
+    };
+  }
+
+  const holders = parseCodesearchLockOutput(String(result.stdout ?? ""), options.ignoredPids)
+    .map((holder) => ({
+      ...holder,
+      paths: holder.paths.filter((path) => lockPaths.includes(path)),
+    }))
+    .filter((holder) => holder.paths.length > 0);
+  return {
+    state: holders.length > 0 ? "held" : "clear",
+    databasePaths: [databasePath],
+    ...(holders.length === 0 ? {} : { holders }),
+  };
+}
+
+function mergeLockStatuses(statuses: CodeProviderLockStatus[]): CodeProviderLockStatus {
+  const databasePaths = [...new Set(statuses.flatMap((status) => status.databasePaths))];
+  const holders = new Map<number, CodeProviderLockHolder>();
+  for (const holder of statuses.flatMap((status) => status.holders ?? [])) {
+    const existing = holders.get(holder.pid);
+    if (existing === undefined) holders.set(holder.pid, { ...holder, paths: [...holder.paths] });
+    else {
+      existing.paths = [...new Set([...existing.paths, ...holder.paths])];
+      if (existing.command === "unknown" && holder.command !== "unknown") existing.command = holder.command;
+    }
+  }
+  const details = statuses.flatMap((status) => status.detail === undefined ? [] : [status.detail]);
+  const state = holders.size > 0
+    ? "held"
+    : statuses.some((status) => status.state === "unavailable")
+      ? "unavailable"
+      : "clear";
+  return {
+    state,
+    databasePaths,
+    ...(holders.size === 0 ? {} : { holders: [...holders.values()].sort((left, right) => left.pid - right.pid) }),
+    ...(details.length === 0 ? {} : { detail: [...new Set(details)].join("; ") }),
+  };
+}
+
+function statusDiagnostic(data: unknown): string | undefined {
+  if (!isRecord(data)) return undefined;
+  const state = typeof data.status === "string" ? data.status : undefined;
+  const diagnostic = ["error_message", "status_message", "detail", "message"]
+    .map((key) => data[key])
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (state !== undefined && /error|fail/i.test(state)) return diagnostic ?? `provider status ${state}`;
+  if (typeof data.error_message === "string" && data.error_message.trim()) return data.error_message;
+  return undefined;
+}
+
+function formatLockWarning(lock: CodeProviderLockStatus): string {
+  if (lock.state === "held") {
+    const holders = (lock.holders ?? [])
+      .map((holder) => `PID ${holder.pid} ${holder.command}`)
+      .join(", ");
+    return `codesearch database lock detected; another process holds the local codesearch database lock${holders ? ` (${holders})` : ""}. Close the owning Pi/Atelier session or stop the stale codesearch process before running atlr code index.`;
+  }
+  return `unable to inspect local codesearch database locks${lock.detail === undefined ? "" : `: ${lock.detail}`}. Close any other Pi/Atelier or codesearch session before running atlr code index.`;
+}
+
+function formatLockDiagnostic(lock: CodeProviderLockStatus | undefined): string {
+  return lock === undefined ? "" : `\n${formatLockWarning(lock)}`;
+}
+
+function lockAwareIndexState(
+  state: CodeIndexState,
+  lock: CodeProviderLockStatus | undefined,
+): CodeIndexState {
+  return state === "missing" && lock !== undefined ? "failed" : state;
+}
+
+function formatIndexReadinessFailure(
+  workspace: CodeWorkspace,
+  state: CodeIndexState,
+  lock: CodeProviderLockStatus | undefined,
+): string {
+  if (lock === undefined) {
+    return `codesearch index is ${state} for workspace ${workspace.name}; run atlr code index before querying`;
+  }
+  if (lock.state === "held") {
+    const holders = (lock.holders ?? [])
+      .map((holder) => `PID ${holder.pid} ${holder.command}`)
+      .join(", ");
+    return `codesearch index readiness is blocked for workspace ${workspace.name}; another process holds the local codesearch database lock${holders ? ` (${holders})` : ""}. Close the owning Pi/Atelier session or stop the stale codesearch process; run atlr code index before querying`;
+  }
+  return `codesearch index readiness failed for workspace ${workspace.name} (provider state: ${state}); ${formatLockWarning(lock)} Run atlr code index before querying`;
+}
+
 function formatIndexFailure(
   operation: string,
   repositoryRoot: string,
   result: ProcessResult,
   timeoutMs: number,
+  lock?: CodeProviderLockStatus,
 ): string {
   const details: string[] = [];
   if (result.timedOut) details.push(`timed out after ${timeoutMs} ms`);
@@ -1220,7 +1428,10 @@ function formatIndexFailure(
     .map((value) => value.trim())
     .filter(Boolean)
     .join("\n");
-  return `codesearch ${operation} failed for ${repositoryRoot}: ${details.join(", ")}${output ? `\n${output}` : ""}`;
+  const lockDiagnostic = lock === undefined && /lockbusy|lock file|database.*(?:lock|open)|failed to acquire/i.test(output)
+    ? "\nA concurrent codesearch process may hold the local database lock. Close the owning Pi/Atelier session before rerunning atlr code index."
+    : formatLockDiagnostic(lock);
+  return `codesearch ${operation} failed for ${repositoryRoot}: ${details.join(", ")}${output ? `\n${output}` : ""}${lockDiagnostic}`;
 }
 
 function indexSelectionFingerprint(repositoryRoot: string, providerVersion: string): string {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodesearchProvider, type CodeWorkspace } from "../packages/core/src/index.ts";
+import { CodesearchProvider, parseCodesearchLockOutput, type CodeWorkspace } from "../packages/core/src/index.ts";
 
 function fakeCodesearch(root: string): { command: string; log: string; mcpLog: string } {
   const command = join(root, "codesearch");
@@ -17,6 +17,10 @@ const mcpLock = ${JSON.stringify(mcpLock)};
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
 if (args[0] === '--version') { console.log('codesearch 1.1.30'); process.exit(0); }
 if (args[0] === 'index') {
+  if (process.env.FAKE_INDEX_LOCKED === '1') {
+    console.error('Failed to acquire Lockfile: LockBusy');
+    process.exit(1);
+  }
   if (process.env.FAKE_MCP_LOCK === '1' && fs.existsSync(mcpLock)) {
     console.error('Failed to acquire Lockfile: LockBusy');
     process.exit(1);
@@ -65,9 +69,11 @@ process.stdin.on('data', chunk => {
       if (name === 'status') {
         statusCalls += 1;
         const buildingCalls = Number(process.env.FAKE_BUILDING_STATUS_COUNT ?? '0');
-        result = { structuredContent: process.env.FAKE_OPTIONAL_STATUS_ERROR === '1'
-          ? { database: 'project database (ready)', optional_indexer: { status: 'error', detail: 'SCIP unavailable' } }
-          : statusCalls <= buildingCalls ? { index_state: 'building' } : { index_state: 'ready', index_age_seconds: 3 } };
+        result = process.env.FAKE_STATUS_ERROR === '1'
+          ? { structuredContent: { indexed: false, status: 'not indexed', status_message: 'Error opening readonly database for read fallback', error_message: 'Error opening readonly database for read fallback' } }
+          : { structuredContent: process.env.FAKE_OPTIONAL_STATUS_ERROR === '1'
+            ? { database: 'project database (ready)', optional_indexer: { status: 'error', detail: 'SCIP unavailable' } }
+            : statusCalls <= buildingCalls ? { index_state: 'building' } : { index_state: 'ready', index_age_seconds: 3 } };
       }
       else if (name === 'search' && input.mode === 'semantic' && process.env.FAKE_SEMANTIC_ERROR === '1') result = { content: [{ type: 'text', text: 'Error searching vector store: Error opening database for read fallback' }], isError: false };
       else if (name === 'search') {
@@ -87,6 +93,13 @@ process.stdin.on('data', chunk => {
 `, "utf8");
   chmodSync(command, 0o755);
   return { command, log, mcpLog };
+}
+
+function fakeLsof(root: string, output: string): string {
+  const command = join(root, "lsof");
+  writeFileSync(command, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(output)});\n`, "utf8");
+  chmodSync(command, 0o755);
+  return command;
 }
 
 function canonicalRoot(root: string): string {
@@ -116,6 +129,28 @@ function workspace(root: string): CodeWorkspace {
     }],
   };
 }
+
+test("codesearch lock output groups holders and excludes ignored provider processes", () => {
+  const output = [
+    "p1234",
+    "ccodesearch",
+    "n/workspace/.codesearch.db/lock.mdb",
+    "p5678",
+    "cpi",
+    "n/workspace/.codesearch.db/.writer.lock",
+    "n/workspace/.codesearch.db/fts/.tantivy-writer.lock",
+    "n/workspace/.codesearch.db/data.mdb",
+  ].join("\n");
+  assert.deepEqual(parseCodesearchLockOutput(output, [1234]), [{
+    pid: 5678,
+    command: "pi",
+    paths: [
+      "/workspace/.codesearch.db/.writer.lock",
+      "/workspace/.codesearch.db/fts/.tantivy-writer.lock",
+      "/workspace/.codesearch.db/data.mdb",
+    ],
+  }]);
+});
 
 test("codesearch adapter negotiates MCP tools and normalizes search, fetch, and symbol results", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-"));
@@ -316,6 +351,161 @@ test("codesearch index readiness outranks unrelated optional-index errors", asyn
   }
 });
 
+
+test("codesearch status identifies a competing writer when provider status fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-status-lock-"));
+  const fake = fakeCodesearch(root);
+  const lockPath = join(root, ".codesearch.db", ".writer.lock");
+  mkdirSync(join(root, ".codesearch.db"), { recursive: true });
+  writeFileSync(lockPath, "", "utf8");
+  const lsof = fakeLsof(root, [
+    "p9876",
+    "ccodesearch",
+    `n${canonicalRoot(lockPath)}`,
+    "",
+  ].join("\n"));
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    lockCommand: lsof,
+    environment: { FAKE_STATUS_ERROR: "1" },
+  });
+  try {
+    const status = await provider.status(workspace(root));
+    assert.equal(status.indexState, "failed");
+    assert.equal(status.lock?.state, "held");
+    assert.deepEqual(status.lock?.holders, [{ pid: 9876, command: "codesearch", paths: [canonicalRoot(lockPath)] }]);
+    assert.equal(status.degraded, true);
+    assert.match(status.warnings?.join(" ") ?? "", /read fallback.*database lock/i);
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codesearch status reports unavailable lock ownership diagnostics", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-status-lock-unavailable-"));
+  const fake = fakeCodesearch(root);
+  const lockPath = join(root, ".codesearch.db", ".writer.lock");
+  mkdirSync(join(root, ".codesearch.db"), { recursive: true });
+  writeFileSync(lockPath, "", "utf8");
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    lockCommand: join(root, "missing-lsof"),
+    environment: { FAKE_STATUS_ERROR: "1" },
+  });
+  try {
+    const status = await provider.status(workspace(root));
+    assert.equal(status.indexState, "failed");
+    assert.equal(status.lock?.state, "unavailable");
+    assert.equal(status.degraded, true);
+    assert.match(status.warnings?.join(" ") ?? "", /unable to inspect local codesearch database locks/i);
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codesearch readiness errors identify a competing database lock holder", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-readiness-lock-"));
+  const fake = fakeCodesearch(root);
+  const lockPath = join(root, ".codesearch.db", "fts", ".tantivy-writer.lock");
+  mkdirSync(join(root, ".codesearch.db", "fts"), { recursive: true });
+  writeFileSync(lockPath, "", "utf8");
+  const lsof = fakeLsof(root, ["p9876", "ccodesearch", `n${canonicalRoot(lockPath)}`, ""].join("\n"));
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    lockCommand: lsof,
+    environment: { FAKE_STATUS_ERROR: "1" },
+  });
+  try {
+    await assert.rejects(provider.ensureIndex(workspace(root)), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /index readiness is blocked.*another process holds the local codesearch database lock.*PID 9876.*close the owning Pi\/Atelier session.*run atlr code index/i);
+      assert.doesNotMatch(error.message, /index is missing/i);
+      return true;
+    });
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codesearch index failures identify a competing database lock holder", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-index-lock-diagnostic-"));
+  const fake = fakeCodesearch(root);
+  const lockPath = join(root, ".codesearch.db", "fts", ".tantivy-writer.lock");
+  mkdirSync(join(root, ".codesearch.db", "fts"), { recursive: true });
+  writeFileSync(lockPath, "", "utf8");
+  const lsof = fakeLsof(root, ["p9876", "ccodesearch", `n${canonicalRoot(lockPath)}`, ""].join("\n"));
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    lockCommand: lsof,
+    environment: { FAKE_INDEX_LOCKED: "1" },
+  });
+  try {
+    await assert.rejects(
+      provider.ensureIndex(workspace(root)),
+      /codesearch index(?: --force)? failed[\s\S]*LockBusy[\s\S]*database lock[\s\S]*PID 9876[\s\S]*owning Pi\/Atelier session/i,
+    );
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codesearch lock failures retain safe guidance when no holder is observable", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-index-lock-fallback-"));
+  const fake = fakeCodesearch(root);
+  const lockPath = join(root, ".codesearch.db", ".writer.lock");
+  mkdirSync(join(root, ".codesearch.db"), { recursive: true });
+  writeFileSync(lockPath, "", "utf8");
+  const provider = new CodesearchProvider({
+    command: fake.command,
+    cwd: root,
+    stateDirectory: join(root, ".atelier", "runtime"),
+    mode: "local",
+    timeoutMs: 2_000,
+    indexTimeoutMs: 2_000,
+    pollIntervalMs: 5,
+    lockCommand: fakeLsof(root, ""),
+    environment: { FAKE_INDEX_LOCKED: "1" },
+  });
+  try {
+    await assert.rejects(provider.ensureIndex(workspace(root)), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /LockBusy[\s\S]*concurrent codesearch process may hold[\s\S]*before rerunning atlr code index/i);
+      assert.doesNotMatch(error.message, /index is missing|database is missing/i);
+      return true;
+    });
+  } finally {
+    await provider.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("codesearch local indexing closes the MCP writer before running the CLI repair", async () => {
   const root = mkdtempSync(join(tmpdir(), "atlr-codesearch-lock-"));
