@@ -9,7 +9,13 @@ import {
   type CodeProviderStatus,
   type CodeSearchHit,
   type CodeWorkspace,
+  type DstackAudit,
+  type DstackFeatureInspection,
+  type DstackLifecycleTransition,
+  type DstackImplementationPreparation,
+  type AtelierStatus,
   type ExecutionPreparation,
+  type QualityGateProfile,
   type ManualEdit,
   type PlanDiagnostic,
   type RetrievalSessionStatus,
@@ -298,6 +304,145 @@ function preparationText(core: AtelierCore, prepared: ExecutionPreparation): str
     `Proposed first task: ${proposed === undefined ? "none" : `${proposed.id} — ${proposed.title}`}`,
     ...taskConstraintSummary(prepared.approval.taskConstraints, core.config.repositoryRoot),
   ].join("\n");
+}
+
+function dstackFeatureId(core: AtelierCore, requested: string | undefined): string {
+  const featureId = requested?.trim() || core.ledger.getState<string>("dstack.feature.id");
+  if (!featureId) throw new Error("A dstack feature id is required.");
+  return featureId;
+}
+
+function dstackInspectionText(inspection: DstackFeatureInspection): string {
+  return [
+    `Feature: ${inspection.feature.id} — ${inspection.feature.title}`,
+    `State: ${inspection.status} · phase ${inspection.phase}`,
+    ...(inspection.metadata.featureSlug === undefined ? [] : [`Slug: ${inspection.metadata.featureSlug}`]),
+    ...(inspection.metadata.designPath === undefined ? [] : [`Design: ${inspection.metadata.designPath}`]),
+    `Snapshot: current · ${inspection.snapshot.vcs} ${inspection.snapshot.headCommit}`,
+    `Active task: ${inspection.activeTaskId ?? "none"}`,
+    `Children: ${inspection.children.length}; ready: ${inspection.readyTasks.map((task) => task.id).join(", ") || "none"}`,
+    `Blockers: ${inspection.blockers.map((task) => `${task.id} — ${task.title}`).join("; ") || "none"}`,
+    `Missing dependencies: ${inspection.missingDependencies.join(", ") || "none"}`,
+    `Next action: ${inspection.nextAction}`,
+  ].join("\n");
+}
+
+function dstackStatusText(status: AtelierStatus): string {
+  return [
+    `Core workflow next action: ${status.nextAction}`,
+    `Workflow checkpoint: ${status.workflowCheckpoint}`,
+    `Scope: ${status.activeTaskConstraints.flatMap((constraint) => constraint.writePaths).join(", ") || "none active"}`,
+    `Closure: ${status.closureStatus}`,
+  ].join("\n");
+}
+
+function dstackGateText(profile: QualityGateProfile): string {
+  return [
+    `Selected check: ${profile.selectedGateId ?? "none"}`,
+    `State: ${profile.noGate ? "no repository check discovered" : "repository checks available"}`,
+    ...profile.gates.filter((gate) => gate.kind !== "no-gate").map((gate) =>
+      `- ${gate.id}: ${gate.availability}; ${gate.tool.name} ${gate.tool.version}${gate.reason ? ` — ${gate.reason}` : ""}`),
+    ...(profile.omissions.length === 0 ? [] : [`Omissions: ${profile.omissions.join("; ")}`]),
+  ].join("\n");
+}
+
+function dstackTransitionText(transition: DstackLifecycleTransition): string {
+  return `${transition.action}: ${transition.after.feature.id}; state ${transition.after.status}; phase ${transition.after.phase}; snapshot ${transition.snapshot.headCommit}`;
+}
+
+function dstackPreparationText(preparation: DstackImplementationPreparation): string {
+  return [
+    dstackInspectionText(preparation.feature),
+    `Implementation task: ${preparation.task.id} — ${preparation.task.title}`,
+    `Ready tasks: ${preparation.readyTasks.map((task) => task.id).join(", ") || "none"}`,
+    "An explicit task execution grant is still required before mutation.",
+  ].join("\n");
+}
+
+function dstackAuditText(audit: DstackAudit): string {
+  return [dstackInspectionText(audit.inspection), `Close ready: ${audit.closeReady}`, `Close blockers: ${audit.closeBlockers.join("; ") || "none"}`].join("\n");
+}
+
+export async function handleDstack(core: AtelierCore, subcommand: string | undefined, rest: string[], args: ParsedArgs): Promise<void> {
+  const command = subcommand ?? "status";
+  if (command === "gates") {
+    const profile = await core.qualityGates.discover();
+    if (flagBoolean(args, "json")) asJson(profile);
+    else process.stdout.write(`${dstackGateText(profile)}\n`);
+    return;
+  }
+  const featureId = dstackFeatureId(core, rest[0]);
+  if (command === "inspect" || command === "status") {
+    const inspection = await core.dstack.inspectFeature(featureId);
+    if (command === "inspect") {
+      if (flagBoolean(args, "json")) asJson({ inspection });
+      else process.stdout.write(`${dstackInspectionText(inspection)}\n`);
+      return;
+    }
+    const [qualityGates, status] = await Promise.all([core.qualityGates.discover(), core.status()]);
+    if (flagBoolean(args, "json")) asJson({ inspection, qualityGates, status });
+    else process.stdout.write(`${dstackInspectionText(inspection)}\n\n${dstackStatusText(status)}\n\n${dstackGateText(qualityGates)}\n`);
+    return;
+  }
+  if (command === "audit") {
+    const audit = await core.dstack.auditFeature(featureId);
+    if (flagBoolean(args, "json")) asJson(audit);
+    else process.stdout.write(`${dstackAuditText(audit)}\n`);
+    return;
+  }
+  if (command === "pause") {
+    const reason = flagString(args, "reason") ?? rest.slice(1).join(" ").trim();
+    if (!reason) throw new Error("Usage: atlr dstack pause FEATURE_ID --reason TEXT");
+    const transition = await core.dstack.pauseFeature(featureId, reason);
+    if (transition === undefined) throw new Error("Dstack pause was not applied.");
+    if (flagBoolean(args, "json")) asJson(transition);
+    else process.stdout.write(`${dstackTransitionText(transition)}\n`);
+    return;
+  }
+  if (command === "start" || command === "implement" || command === "review" || command === "recover" || command === "close") {
+    const confirmed = await explicitConfirmation(args, `${command} dstack feature ${featureId}?`);
+    if (!confirmed) { process.stdout.write("Dstack lifecycle action cancelled.\n"); return; }
+    if (command === "start") {
+      const transition = await core.dstack.startFeature(featureId, true);
+      if (transition === undefined) throw new Error("Dstack start was not confirmed.");
+      if (flagBoolean(args, "json")) asJson(transition);
+      else process.stdout.write(`${dstackTransitionText(transition)}\n`);
+      return;
+    }
+    if (command === "implement") {
+      const preparation = await core.dstack.prepareImplementation(featureId, rest[1]);
+      if (flagBoolean(args, "json")) asJson(preparation);
+      else process.stdout.write(`${dstackPreparationText(preparation)}\n`);
+      return;
+    }
+    if (command === "review") {
+      const transition = await core.dstack.beginReview(featureId, true);
+      if (transition === undefined) throw new Error("Dstack review was not confirmed.");
+      if (flagBoolean(args, "json")) asJson(transition);
+      else process.stdout.write(`${dstackTransitionText(transition)}\n`);
+      return;
+    }
+    if (command === "recover") {
+      const transition = await core.dstack.resumeFeature(featureId, true);
+      if (transition === undefined) throw new Error("Dstack recovery was not confirmed.");
+      if (flagBoolean(args, "json")) asJson(transition);
+      else process.stdout.write(`${dstackTransitionText(transition)}\n`);
+      return;
+    }
+    const reason = flagString(args, "reason") ?? rest.slice(1).join(" ").trim();
+    if (!reason) throw new Error("Usage: atlr dstack close FEATURE_ID --reason TEXT --review-complete --gates-complete --yes");
+    const transition = await core.dstack.closeFeature(featureId, {
+      confirmed: true,
+      reason,
+      reviewComplete: flagBoolean(args, "review-complete"),
+      gatesComplete: flagBoolean(args, "gates-complete"),
+    });
+    if (transition === undefined) throw new Error("Dstack close was not confirmed.");
+    if (flagBoolean(args, "json")) asJson(transition);
+    else process.stdout.write(`${dstackTransitionText(transition)}\n`);
+    return;
+  }
+  throw new Error("Usage: atlr dstack <status|gates|inspect|start|implement|review|audit|pause|recover|close> FEATURE_ID");
 }
 
 export async function explicitConfirmation(args: ParsedArgs, prompt: string): Promise<boolean> {

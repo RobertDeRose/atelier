@@ -28,6 +28,7 @@ export interface DstackFeatureInspection {
   metadata: DstackFeatureMetadata;
   status: DstackLifecycleStatus;
   phase: DstackLifecyclePhase;
+  nextAction: string;
   activeTaskId?: string;
   snapshot: RepositorySnapshot;
 }
@@ -141,6 +142,34 @@ function phaseFor(status: DstackLifecycleStatus): DstackLifecyclePhase {
   }
 }
 
+function nextActionFor(input: {
+  status: DstackLifecycleStatus;
+  featureId: string;
+  blockers: readonly TaskRecord[];
+  missingDependencies: readonly string[];
+  readyTasks: readonly TaskRecord[];
+  activeTaskId?: string;
+}): string {
+  if (input.status === "completed") return "Feature is complete; review the delivered record.";
+  if (input.status === "cancelled") return "Feature is cancelled; reopen it explicitly in Beads if work should continue.";
+  if (input.status === "paused") return `Resume feature ${input.featureId} explicitly, or cancel it; no mutation will start automatically.`;
+  if (input.status === "recovery_required") return `Recover feature ${input.featureId} explicitly after inspecting its snapshot and task state.`;
+  if (input.status === "reviewing") return `Audit feature ${input.featureId}, then close it only with current review and repository-check evidence.`;
+  if (input.status === "implementing") {
+    if (input.activeTaskId !== undefined) return `Continue bounded implementation of task ${input.activeTaskId}; pause or close it explicitly.`;
+    const task = input.readyTasks[0];
+    return task === undefined
+      ? "Resolve implementation blockers or reconcile the feature graph before selecting another task."
+      : `Activate ready task ${task.id} with an explicit execution grant before mutation.`;
+  }
+  if (input.blockers.length > 0 || input.missingDependencies.length > 0) return `Resolve feature ${input.featureId} blockers before starting implementation.`;
+  if (input.status === "active") {
+    const task = input.readyTasks[0];
+    return task === undefined ? "Reconcile the feature graph; no ready implementation task is available." : `Prepare ready task ${task.id} for explicit implementation.`;
+  }
+  return `Start feature ${input.featureId} explicitly after reviewing its design, scope, and repository checks.`;
+}
+
 function statusFor(ledger: SqliteLedger, feature: TaskRecord): DstackLifecycleStatus {
   const currentFeature = ledger.getState<string>(FEATURE_STATE_KEY);
   if (feature.status === "closed" || feature.status === "deferred") return "completed";
@@ -195,18 +224,21 @@ export class DstackLifecycleCoordinator {
       && (task.status === "open" || task.status === "in_progress")
       && task.dependencies.every((dependencyId) => byId.get(dependencyId)?.status === "closed"),
     );
+    const sortedReadyTasks = sortTasks(readyTasks);
     const status = statusFor(this.ledger, feature);
     const activeGrant = this.ledger.getActiveExecutionGrant();
+    const activeTaskId = activeGrant?.taskId;
     return {
       feature,
       children,
       blockers,
       missingDependencies,
-      readyTasks: sortTasks(readyTasks),
+      readyTasks: sortedReadyTasks,
       metadata: metadataFor(feature),
       status,
       phase: phaseFor(status),
-      ...(activeGrant === undefined ? {} : { activeTaskId: activeGrant.taskId }),
+      nextAction: nextActionFor({ status, featureId: feature.id, blockers, missingDependencies, readyTasks: sortedReadyTasks, ...(activeTaskId === undefined ? {} : { activeTaskId }) }),
+      ...(activeTaskId === undefined ? {} : { activeTaskId }),
       snapshot: this.repository.snapshot(),
     };
   }

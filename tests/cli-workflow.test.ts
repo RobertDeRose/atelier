@@ -107,6 +107,87 @@ test("CLI activates an existing task without --yes or plan reconciliation", () =
   }
 });
 
+test("CLI exposes the explicit dstack lifecycle through one shared Core state", () => {
+  const root = createTemporaryRepository("atlr-cli-dstack-lifecycle-");
+  const beads = installFakeBeads(root);
+  const statePath = join(root, ".atelier", "fake-bd-state.json");
+  writeFileSync(statePath, JSON.stringify({
+    next: 1,
+    tasks: {
+      "feature-1": {
+        id: "feature-1", title: "CLI dstack feature", description: "A feature for CLI lifecycle coverage.",
+        status: "open", priority: 1, issue_type: "epic", dependencies: [], labels: ["workflow:feature"],
+        metadata: { feature_slug: "cli-dstack", feature_name: "CLI dstack feature", design_path: "docs/design.md" },
+      },
+      "task-1": {
+        id: "task-1", title: "First implementation", description: "Implement the first slice.",
+        status: "open", priority: 1, issue_type: "task", dependencies: [], parent: "feature-1", labels: [],
+      },
+    },
+  }), "utf8");
+  writeFileSync(join(root, ".atelier", "config.json"), JSON.stringify({
+    taskProvider: "beads", repositoryProvider: "git", codeProvider: "disabled",
+  }), "utf8");
+  const userConfig = `${root}-user-config.json`;
+  const previousUserConfig = process.env.ATLR_USER_CONFIG;
+  writeFileSync(userConfig, JSON.stringify({ beadsCommand: beads }), "utf8");
+  process.env.ATLR_USER_CONFIG = userConfig;
+  try {
+    const inspected = run(root, ["dstack", "inspect", "feature-1", "--json"]);
+    assert.equal(inspected.status, 0, inspected.stderr);
+    assert.equal(JSON.parse(inspected.stdout).inspection.metadata.featureSlug, "cli-dstack");
+    assert.match(JSON.parse(inspected.stdout).inspection.nextAction, /start feature .* explicitly/i);
+
+    const noConfirmation = run(root, ["dstack", "start", "feature-1", "--json"]);
+    assert.equal(noConfirmation.status, 1);
+    assert.match(noConfirmation.stderr, /--yes/i);
+
+    const started = run(root, ["dstack", "start", "feature-1", "--yes", "--json"]);
+    assert.equal(started.status, 0, started.stderr);
+    assert.equal(JSON.parse(started.stdout).action, "start");
+
+    const status = run(root, ["dstack", "status", "feature-1", "--json"]);
+    assert.equal(status.status, 0, status.stderr);
+    assert.equal(JSON.parse(status.stdout).qualityGates.noGate, true);
+
+    const prepared = run(root, ["dstack", "implement", "feature-1", "task-1", "--yes", "--json"]);
+    assert.equal(prepared.status, 0, prepared.stderr);
+    assert.equal(JSON.parse(prepared.stdout).requiresExplicitExecutionGrant, true);
+
+    const paused = run(root, ["dstack", "pause", "feature-1", "--reason", "operator pause", "--json"]);
+    assert.equal(paused.status, 0, paused.stderr);
+    assert.equal(JSON.parse(paused.stdout).action, "pause");
+
+    const recovered = run(root, ["dstack", "recover", "feature-1", "--yes", "--json"]);
+    assert.equal(recovered.status, 0, recovered.stderr);
+    assert.equal(JSON.parse(recovered.stdout).action, "recovery");
+
+    const beadsState = JSON.parse(readFileSync(statePath, "utf8")) as { tasks: Record<string, { status: string }> };
+    beadsState.tasks["task-1"]!.status = "closed";
+    writeFileSync(statePath, JSON.stringify(beadsState), "utf8");
+
+    const reviewed = run(root, ["dstack", "review", "feature-1", "--yes", "--json"]);
+    assert.equal(reviewed.status, 0, reviewed.stderr);
+    assert.equal(JSON.parse(reviewed.stdout).action, "review");
+
+    const audit = run(root, ["dstack", "audit", "feature-1", "--json"]);
+    assert.equal(audit.status, 0, audit.stderr);
+    assert.equal(JSON.parse(audit.stdout).closeReady, true);
+
+    const closed = run(root, [
+      "dstack", "close", "feature-1", "--reason", "All CLI dstack evidence is current.",
+      "--review-complete", "--gates-complete", "--yes", "--json",
+    ]);
+    assert.equal(closed.status, 0, closed.stderr);
+    assert.equal(JSON.parse(closed.stdout).action, "close");
+  } finally {
+    if (previousUserConfig === undefined) delete process.env.ATLR_USER_CONFIG;
+    else process.env.ATLR_USER_CONFIG = previousUserConfig;
+    rmSync(userConfig, { force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("CLI review, exact approval, cancellation, and JSON workflow remain coordinated", () => {
   const root = createTemporaryRepository("atlr-cli-workflow-");
   const beads = installFakeBeads(root);

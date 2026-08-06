@@ -8,6 +8,7 @@ import atelierExtension, { registerAtelierExtension } from "../apps/pi-extension
 import { executionGrantText, planStatusText, vcsStatusText } from "../apps/pi-extension/src/status-presentation.ts";
 import { recoveryActionDialog } from "../apps/pi-extension/src/approval-dialog.ts";
 import { approveStandaloneTask, parseStandaloneTaskCommand } from "../apps/pi-extension/src/standalone-task-command.ts";
+import { registerDstackCommands } from "../apps/pi-extension/src/dstack-commands.ts";
 import {
   AtelierCore,
   InMemoryTaskProvider,
@@ -335,6 +336,39 @@ test("Pi /trust remains independent and Atelier establishes the startup workspac
   }
 });
 
+test("Pi dstack command exposes shared lifecycle state and explicit mutation confirmation", async () => {
+  const root = createTemporaryRepository("atlr-pi-dstack-lifecycle-");
+  const provider = new InMemoryTaskProvider([
+    {
+      id: "feature-1", title: "Pi dstack feature", description: "Feature", acceptanceCriteria: [], status: "open", priority: 1,
+      type: "epic", dependencies: [], labels: ["workflow:feature"], raw: { metadata: { feature_slug: "pi-dstack" } },
+    },
+    {
+      id: "task-1", title: "Pi implementation", description: "Task", acceptanceCriteria: [], status: "open", priority: 1,
+      type: "task", dependencies: [], labels: [], parentId: "feature-1",
+    },
+  ]);
+  const core = AtelierCore.open(root, { taskProvider: "memory", taskProviderInstance: provider });
+  const commands = new Map<string, RegisteredCommand>();
+  const notifications: string[] = [];
+  const fakePi = {
+    registerCommand(name: string, command: RegisteredCommand): void { commands.set(name, command); },
+  } as unknown as ExtensionAPI;
+  const confirms = { count: 0 };
+  const context = fakeContext(root, confirms, [], { notifications });
+  try {
+    registerDstackCommands(fakePi, { getCore: () => core, updateStatus: async () => {} });
+    await commands.get("dstack")!.handler("status feature-1", context);
+    assert.match(notifications.at(-1) ?? "", /Pi dstack feature/);
+    await commands.get("dstack")!.handler("start feature-1", context);
+    assert.equal(confirms.count, 1);
+    assert.match(notifications.at(-1) ?? "", /Dstack start/);
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Pi extension makes provider-first discovery explicit while confining typed reads and safe shell reads", async () => {
   const events = new Map<string, (event: any, ctx: ExtensionContext) => Promise<any> | any>();
   const commands = new Map<string, RegisteredCommand>();
@@ -372,7 +406,7 @@ test("Pi extension makes provider-first discovery explicit while confining typed
   ]) {
     assert.ok(events.has(event), `missing event ${event}`);
   }
-  for (const command of ["status", "plan", "review", "approve", "execute", "cancel", "ready", "state", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence", "review-diff", "commit", "close"]) {
+  for (const command of ["status", "plan", "review", "approve", "execute", "cancel", "ready", "state", "dstack", "code-status", "code-index", "code-search", "code-symbols", "changed", "validate", "evidence", "review-diff", "commit", "close"]) {
     assert.ok(commands.has(command), `missing command ${command}`);
   }
   assert.equal(commands.has("trust"), false, "Pi reserves /trust; Atelier must not register a conflicting command");

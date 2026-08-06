@@ -61,6 +61,7 @@ import { executionGrantText, planStatusText, vcsStatusText } from "./status-pres
 import { FooterStatusController } from "./footer-status-controller.ts";
 import { registerCodeCommands } from "./code-commands.ts";
 import { registerStatusCommands } from "./status-commands.ts";
+import { registerDstackCommands } from "./dstack-commands.ts";
 import { clearAtelierPhase as clearPhase, showAtelierPhase as showPhase } from "./working-phase.ts";
 import { deniedUserBashResult } from "./user-bash-result.ts";
 import { recordAgentSettledEvidence, recordUserBashDenial } from "./ui-evidence.ts";
@@ -1039,6 +1040,7 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
     },
   });
   registerStatusCommands(pi, { getCore, updateStatus });
+  registerDstackCommands(pi, { getCore, updateStatus });
   pi.registerCommand("plan", {
     description: "Enter guarded plan mode; the completed draft opens in the configured editor",
     handler: async (args, ctx) => {

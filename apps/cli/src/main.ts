@@ -23,6 +23,7 @@ import {
   asJson,
   explicitConfirmation,
   handleCode,
+  handleDstack,
   handlePlan,
   handleTasks,
   handleTaskStart,
@@ -42,6 +43,8 @@ Commands:
   repo commit --message TEXT       Create the required local commit/change
   doctor [--json]                   Inspect configuration without creating state or starting providers
   status [--json]                   Show workflow, plan, task-provider, and repository state
+  dstack gates                      Show discovered repository checks
+  dstack <operation> FEATURE_ID     Use the shared dstack feature lifecycle
   mode <investigate|plan|act>       Change the guarded workflow mode
   plan [OBJECTIVE]                  Enter plan mode and create the plan document if missing
   plan parse [--json]               Parse and validate the plan
@@ -257,6 +260,11 @@ async function main(): Promise<void> {
           return;
         }
         throw new Error("Usage: atlr repo <status|review-diff|commit>");
+      }
+
+      case "dstack": {
+        await handleDstack(core, subcommand, rest, parsed);
+        return;
       }
 
       case "status": {
