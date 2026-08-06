@@ -44,8 +44,85 @@ External tools retain their native ownership:
 - Jujutsu is the primary repository model and Git is the compatibility provider;
 - Beads or another `TaskProvider` owns task storage;
 - codesearch and Octocode own indexing and retrieval implementation;
-- configured commands own validation behavior;
+- configured commands own their validation behavior; Core owns lifecycle policy, bounded invocation,
+  and evidence binding;
 - macOS Seatbelt or Linux Bubblewrap provides the available OS shell boundary.
+
+## dstack workflow authority
+
+Atelier applies dstack's documentation-first workflow as one execution boundary. The
+sources of truth remain separate: feature intent lives in the reviewed design and explicit
+user decisions, live work state lives in Beads, and runtime safety and evidence live in
+Atelier Core and its external ledger. No generated report, provider result, transcript,
+or presentation surface can replace those authorities.
+
+| Concern                                    | Authority                               | Atelier boundary                                                             |
+|--------------------------------------------|-----------------------------------------|------------------------------------------------------------------------------|
+| Feature intent and policy                  | `design.md` and explicit user decisions | Load the reviewed boundary; never infer missing policy.                      |
+| Roadmap narrative                          | `docs/src/planned-features.md`          | Reconcile delivery status; never select live work from it.                   |
+| Feature/task identity and graph            | Beads                                   | Resolve canonical IDs, dependencies, claims, blockers, and closure reasons.  |
+| Execution, permission, scope, and evidence | Atelier Core and external ledger        | Enforce grants, snapshots, effects, recovery, quality gates, and closure.    |
+| Repository state and policy                | Git/Jujutsu and user configuration      | Observe exact revisions and preserve hooks, signing, filters, and ownership. |
+| Code intelligence                          | Configured provider and index           | Keep results advisory, bounded, provenance-rich, and freshness-aware.        |
+| Presentation and decisions                 | CLI and Pi adapters                     | Render the shared state and request explicit user actions only.              |
+
+This boundary prevents a second task tracker or a second approval system. Beads owns whether
+work is live and claimable; Core owns whether an effect is authorized and whether evidence is
+current; the repository provider owns repository identity and configured Git/Jujutsu policy.
+
+### Lifecycle boundary
+
+The Core lifecycle coordinator verifies the canonical Beads identity and prerequisites before
+allowing each transition. The lifecycle is:
+
+```text
+plan -> review -> prepared -> explicitly activated
+  -> bounded implementation -> review/audit
+  -> current quality-gate evidence -> diff review -> commit -> explicit close
+
+active -> pause | cancel | recovery-required
+recovery-required -> explicit Continue | Pause | Cancel
+```
+
+Planning and review establish intent, scope, ownership, and dependencies. Activation creates the
+runtime binding for one bounded task. Every effectful transition records the source, repository,
+task, scope, ownership, provider, and relevant Beads baseline before it mutates state. A changed
+baseline invalidates only the affected grant or evidence and reports the next safe action.
+
+Pause, cancel, and recovery never resume mutation implicitly. Recovery preserves task identity,
+grants, files, scope, ownership, and intent; `Continue` is a new explicit user decision. A
+closure blocker reports missing or stale evidence but does not prevent the user from pausing,
+canceling, or choosing a recovery action.
+
+### Context and evidence boundary
+
+Core builds a bounded context capsule for the selected feature, task, or review boundary. It
+contains only relevant Beads ancestors, dependencies, blockers, and open findings; exact design,
+implemented, architecture, reference, and reader-facing pages; bounded code-intelligence results;
+and current Working State, snapshot, recovery, and quality-gate evidence. Each section carries
+its source identity, provenance, freshness, digest, and configured item/byte budget. Omitted,
+truncated, degraded, or unavailable sections are named explicitly.
+
+A capsule may be reused only while its Beads, document, provider/index, repository, snapshot, and
+review identities remain unchanged. Changes invalidate the narrowest affected section. The
+capsule is an observation packet, not a task database or authorization grant; provider failure
+never authorizes unbounded discovery or mutation.
+
+### Quality-gate boundary
+
+Repository policy determines the quality gates. Core discovers and runs configured hooks, tools,
+and scripts through bounded adapters and binds their results to the exact source or staged
+snapshot, configuration, tool identity, changed-path coverage, and bounded output. Users do not
+need to name an internal validation definition to implement or close work.
+
+Gate failure retains its actual cause. Hook, signing, filter, scope, ownership, or provider
+failures are not converted into success, and no path silently uses `--no-verify`,
+`--no-gpg-sign`, an empty hooks path, disabled filters, or alternate signing configuration.
+Bounded remediation may retry safe work; further retry, pause, cancel, or a one-turn explicit
+bypass remains an auditable user decision. Existing validation records remain readable as
+historical compatibility evidence while the quality-gate boundary is migrated. During that
+migration, the named-validation contract remains a compatibility path for historical and already
+active work; it is not a second task or closure authority.
 
 ## Runtime topology
 
@@ -232,7 +309,8 @@ stateDiagram-v2
 The workflow guard and workspace evaluator are deliberately separate:
 
 - **Workflow guard:** enforces investigate/plan/act mode, active-task identity, reviewed source paths,
-  named validations, local-change scope, pause state, and task-closure readiness.
+  current validation compatibility and quality-gate policy, local-change scope, pause state, and
+  task-closure readiness.
 - **Workspace evaluator:** decides whether concrete effects are inside the immutable workspace, protected
   as likely secrets, privileged, read-only, or exactly recoverable.
 
