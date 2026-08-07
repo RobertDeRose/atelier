@@ -275,6 +275,29 @@ test("selected quality-gate failure refuses commit and records exact evidence", 
   }
 });
 
+test("an explicit quality-gate bypass is consumed by one commit and cannot be reused", async () => {
+  const { root, core } = await activeQualityCore("atlr-quality-gate-bypass-", "node -e \"process.exit(1)\"");
+  try {
+    writeFileSync(`${root}/src.ts`, "export const bypassed = true;\n", "utf8");
+    const grant = core.ledger.getActiveExecutionGrant();
+    assert.ok(grant);
+    await assert.rejects(core.commitActiveTask("feat: require explicit bypass"), QualityGatePolicyError);
+    const authorization = core.authorizeQualityGateBypass("User approved the one-turn quality-gate bypass for this commit.");
+    assert.equal(authorization.operation, "commit");
+    assert.equal(authorization.expiresAfter, "next-commit-attempt");
+    const committed = await core.commitActiveTask("feat: use one-turn bypass");
+    assert.deepEqual(committed.changedPaths, ["src.ts"]);
+    assert.equal(core.ledger.getState(`qualityGateBypass:${grant.id}`), undefined);
+
+    writeFileSync(`${root}/src.ts`, "export const bypassedAgain = true;\n", "utf8");
+    await assert.rejects(core.commitActiveTask("feat: bypass must expire"), QualityGatePolicyError);
+    assert.equal(core.ledger.listEvents({ kind: "quality_gate.bypass_used" }).length, 1);
+  } finally {
+    await core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("quality-gate mutation refuses commit and records a fresh diff requirement", async () => {
   const { root, core } = await activeQualityCore("atlr-quality-gate-mutation-", "node -e \"require('fs').writeFileSync('generated.ts', 'changed')\"");
   try {

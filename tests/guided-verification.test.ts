@@ -145,7 +145,8 @@ test("guided verification resolves step workspace paths before launching and col
     const approvalGuide = readFileSync(join(guidedRoot, "guides", "04-approval.md"), "utf8");
     assert.match(approvalGuide, /do not replace or repair the generated plan/i);
     assert.match(approvalGuide, /<!-- atlr:task\n\{/);
-    assert.match(approvalGuide, /"validations": \[\s*"manual-acceptance"\s*\]/);
+    assert.match(approvalGuide, /"validations": \[\s*\]/);
+    assert.match(approvalGuide, /discovered repository quality gate/i);
     const controlGuide = readFileSync(join(guidedRoot, "guides", "05-control.md"), "utf8");
     assert.match(controlGuide, /three separate Pi sessions/i);
     const implementationGuide = readFileSync(join(guidedRoot, "guides", "05a-control-implementation.md"), "utf8");

@@ -205,6 +205,16 @@ Legacy validation evidence is marked historical compatibility when the active
 execution uses quality gates. Do not add validation names to new task contracts
 or use a legacy result as a substitute for current quality-gate evidence.
 
+If a user explicitly accepts the risk, one commit may skip the selected quality
+gate without weakening Git policy:
+
+```sh
+atlr repo commit --message "type(scope): summary" --bypass-quality-gate --yes
+```
+
+The bypass is audited, source-bound, and expires before another commit. Hooks,
+signing, filters, and task scope still apply.
+
 ## Final diff, local change, and closure
 
 The completion sequence is intentionally separate:

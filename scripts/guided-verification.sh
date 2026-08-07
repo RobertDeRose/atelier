@@ -416,15 +416,7 @@ prepare_control() {
     "requireCleanSource": true,
     "requireCleanRepository": true
   },
-  "validations": {
-    "manual-acceptance": {
-      "command": ["node", "--no-warnings", "--experimental-strip-types", "--import", "./tests/test-environment.ts", "--test", "tests/version.test.ts"],
-      "category": "focused",
-      "focused": true,
-      "required": true,
-      "paths": ["packages/core/src/version.ts", "tests/version.test.ts"]
-    }
-  }
+  "validations": {}
 }
 JSON
     jj commit -m 'test: establish Atelier guided-control baseline' >/dev/null
@@ -562,7 +554,12 @@ Exit Pi with Ctrl-D. The harness will print the checkpoint ID, restore it, and v
 GUIDE
 
   cat >"$GUIDED_ROOT/guides/04-approval.md" <<'GUIDE'
-# Step 4 — Plan review, rejection, and idle approval
+# Step 4 — Plan review, quality-gate inventory, and idle approval
+
+Before planning, run `/dstack gates`. Confirm that the report names the discovered
+repository check, tool identity, Git policy, and inventory digest without running
+the check. This is a read-only discovery step; do not approve a proposed
+replacement command.
 
 Run:
 
@@ -584,9 +581,7 @@ It must contain this readable multiline execution object:
       "tests/version.test.ts"
     ],
     "allowDependencyChanges": false,
-    "validations": [
-      "manual-acceptance"
-    ],
+    "validations": [],
     "allowFullSuite": false,
     "allowLocalChange": true
   }
@@ -594,14 +589,14 @@ It must contain this readable multiline execution object:
 -->
 ```
 
-Also verify that the human-readable `### Validation` and `### Completion criteria` sections name `manual-acceptance`, not an invented validation such as `typecheck`.
+Also verify that the human-readable `### Validation` and `### Completion criteria` sections describe the discovered repository quality gate in user language and do not require an internal validation name.
 
 The exact reviewed write paths are:
 
 - `packages/core/src/version.ts`
 - `tests/version.test.ts`
 
-If any field or validation name is wrong, leave the plan unchanged, exit Pi, and record this step as **FAIL**. Manually correcting generated metadata would hide the planner defect this step is intended to test.
+If any field or quality-gate description is wrong, leave the plan unchanged, exit Pi, and record this step as **FAIL**. Manually correcting generated metadata would hide the planner defect this step is intended to test.
 
 If the plan is correct, save it unchanged and close the editor.
 
@@ -1076,8 +1071,8 @@ const execution = task.execution;
 assert(task.id === "ATLR-001", `unexpected task id: ${task.id}`);
 assert(JSON.stringify(execution.writePaths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]),
   `unexpected write paths: ${JSON.stringify(execution.writePaths)}`);
-assert(JSON.stringify(execution.validations) === JSON.stringify(["manual-acceptance"]),
-  `unexpected validations: ${JSON.stringify(execution.validations)}`);
+assert(Array.isArray(execution.validations) && execution.validations.length === 0,
+  `new task named legacy validations: ${JSON.stringify(execution.validations)}`);
 assert(execution.allowDependencyChanges === false, "dependency changes were allowed");
 assert(execution.allowFullSuite === false, "full suite was allowed");
 assert(execution.allowLocalChange === true, "local change was not allowed");
@@ -1768,9 +1763,18 @@ show_status() {
   return 0
 }
 
+verify_quality_gate_inventory() {
+  load_run
+  local output="$EVIDENCE_DIR/quality-gate-inventory.json"
+  (cd "$SOURCE_REPO" && mise exec -- node ./bin/atlr.mjs dstack gates --json) >"$output"
+  json_assert "$output" 'assert(Array.isArray(data.gates), "quality-gate inventory is missing gates"); assert(typeof data.digest === "string" && data.digest.length === 64, "quality-gate inventory is missing a digest"); assert(data.gitPolicy && typeof data.gitPolicy.digest === "string", "quality-gate inventory is missing Git policy identity");'
+  pass "quality-gate inventory is discoverable without running a repository check"
+}
+
 run_automated() {
   local source="${1:-$PWD}"
   source="$(canonical_dir "$source")"
+  SOURCE_REPO="$source"
   require_command mise
   require_command node
   require_command git
@@ -1791,6 +1795,7 @@ run_automated() {
     mise exec -- "$source/scripts/live-acceptance.sh" all "$source"
   )
   load_run
+  verify_quality_gate_inventory
   prepare_manual
 }
 

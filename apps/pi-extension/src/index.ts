@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   AtelierCore,
-  CommitFailureError,
   QualityGatePolicyError,
   classifyShellCommand,
   ensurePlanDocument,
@@ -28,8 +27,9 @@ import {
 } from "./code-tool-presentation.ts";
 import { toolExecutionOutcome } from "./execution-outcome.ts";
 import { preparationSummary } from "./approval-presentation.ts";
-import { commitFailureActionDialog, confirmApprovalDialog, recoveryActionDialog } from "./approval-dialog.ts";
+import { confirmApprovalDialog, recoveryActionDialog } from "./approval-dialog.ts";
 import { commandOnPath, editorArguments, parseFileLocation, projectTree } from "./navigation.ts";
+import { handleCommitFailure, handleQualityGatePolicyFailure } from "./quality-gate-actions.ts";
 import { runInteractiveProcessWithPi } from "./interactive-process.ts";
 import { runPlanEditorWithPi } from "./manual-edit-process.ts";
 import { planInstruction } from "./plan-instruction.ts";
@@ -1025,42 +1025,10 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
         ctx.ui.notify(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}`, "info");
       } catch (error) {
         if (error instanceof QualityGatePolicyError) {
-          ctx.ui.notify([
-            `Quality gate blocked the commit (${error.evidence.gateId ?? "no gate"}; ${error.evidence.status}).`,
-            error.evidence.reason ?? "Inspect the recorded quality-gate evidence before retrying.",
-          ].join(" "), "warning");
+          await handleQualityGatePolicyFailure(ctx, core, message, error);
           return;
         }
-        if (!(error instanceof CommitFailureError)) throw error;
-        ctx.ui.notify([
-          error.budgetExhausted
-            ? `Commit retry budget exhausted (${error.state.category}; ${error.state.attempt} identical failures).`
-            : `Commit failed (${error.state.category}; attempt ${error.state.attempt}).`,
-          `Evidence: ${error.state.evidence}`,
-        ].join(" "), "warning");
-        const action = await commitFailureActionDialog(ctx, error.state.category, error.state.remediation);
-        if (action === "retry") {
-          try {
-            core.recordCommitFailureDecision("retry");
-            const result = await core.commitActiveTask(message);
-            ctx.ui.notify(`Created local ${result.snapshot.vcs === "jj" ? "change" : "commit"}: ${result.message}`, "info");
-          } catch (retryError) {
-            if (!(retryError instanceof CommitFailureError)) throw retryError;
-            ctx.ui.notify(`Commit remains blocked (${retryError.state.category}); inspect the evidence before another explicit action.`, "warning");
-          }
-        } else if (action === "pause") {
-          core.recordCommitFailureDecision("pause");
-          core.execution.pause(`Paused after ${error.state.category} commit failure.`);
-          ctx.ui.notify("Task paused after the commit failure.", "warning");
-        } else if (action === "cancel") {
-          core.recordCommitFailureDecision("cancel");
-          core.execution.cancel(`Cancelled after ${error.state.category} commit failure.`);
-          ctx.ui.notify("Execution cancelled after the commit failure.", "warning");
-        } else {
-          core.recordCommitFailureDecision("bypass");
-          core.execution.pause("Paused while an explicit commit bypass request is reviewed.");
-          ctx.ui.notify("Explicit bypass request recorded; Atelier did not weaken repository policy or create a commit.", "warning");
-        }
+        await handleCommitFailure(ctx, core, message, error);
       } finally {
         await updateStatus(ctx, core);
       }
@@ -1335,14 +1303,25 @@ export function registerAtelierExtension(pi: ExtensionAPI, options: AtelierExten
   });
 
   pi.registerCommand("evidence", {
-    description: "Show current and stale validation evidence",
+    description: "Show quality-gate evidence and legacy compatibility history",
     handler: async (_args, ctx) => {
       const core = getCore(ctx);
       const items = core.validation.list({
         currentSnapshot: core.currentValidationSnapshot(),
         currentChangedPaths: core.currentSourceChangedPaths(),
       }).map((item) => core.validationEvidenceIsHistorical() ? { ...item, historical: true } : item);
-      appendAtelierReport(pi, ctx, "Validation evidence", evidenceMarkdown(items), `${items.filter((item) => !item.stale && !item.historical).length} current · ${items.filter((item) => item.historical).length} historical compatibility · ${items.filter((item) => item.stale && !item.historical).length} stale`);
+      const qualityGates = core.qualityGateEvidenceForActiveTask();
+      const qualityLines = Object.entries(qualityGates)
+        .filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== undefined)
+        .map(([operation, item]) => `- **quality gate · ${operation} · ${item.gateId ?? "none"}:** ${item.status} · ${item.passed ? "current" : "blocked"}`);
+      const markdown = [
+        "### Quality-gate evidence",
+        ...(qualityLines.length === 0 ? ["No quality-gate evidence."] : qualityLines),
+        "",
+        "### Legacy validation compatibility",
+        evidenceMarkdown(items),
+      ].join("\n");
+      appendAtelierReport(pi, ctx, "Quality-gate evidence", markdown, `${qualityLines.length} quality-gate record(s) · ${items.filter((item) => item.historical).length} historical compatibility record(s)`);
       await updateStatus(ctx, core);
     },
   });

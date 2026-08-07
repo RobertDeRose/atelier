@@ -132,6 +132,22 @@ export interface QualityGateProvider {
 export type QualityGateEvidenceStatus = QualityGateRunStatus | "no_gate" | "stale";
 export type QualityGateEvidenceOperation = "commit" | "closure";
 
+export interface QualityGateBypassAuthorization {
+  version: 1;
+  id: string;
+  taskId: string;
+  executionGrantId: string;
+  operation: "commit";
+  gateId: string;
+  profileDigest: string;
+  planDigest: string;
+  sourceFingerprint: string;
+  reason: string;
+  actor: "user";
+  authorizedAt: string;
+  expiresAfter: "next-commit-attempt";
+}
+
 export interface QualityGateEvidence {
   version: 1;
   id: string;

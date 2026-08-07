@@ -42,7 +42,8 @@ Describe the outcome this task must produce.
 
 ### Validation
 
-- Name the configured validations listed in execution.validations and describe any manual checks.
+- Describe the repository quality gates discovered during approval and any bounded manual checks.
+- Leave execution.validations empty for new work; it is retained only for legacy compatibility.
 
 ### Completion criteria
 

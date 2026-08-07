@@ -300,7 +300,7 @@ test("Pi recovery prompt exposes explicit continue, pause, and cancel actions", 
 
 test("Pi commit failure prompt keeps retry, pause, cancel, and bypass explicit", async () => {
   const context = fakeContext("/tmp", { count: 0 }, [], {
-    selectResult: "Record an explicit bypass request (not applied automatically)",
+    selectResult: "Record explicit policy exception request (not applied automatically)",
   });
   const action = await commitFailureActionDialog(context, "signing_failure", ["Repair signing first."]);
   assert.equal(action, "bypass");
@@ -967,9 +967,8 @@ test("Pi /plan starts immediately without waiting on Pi idle state", async () =>
     await commands.get("plan")!.handler("continue building Atelier", context);
     assert.match(sentMessages.at(-1) ?? "", /Atelier PLAN MODE/);
     assert.match(sentMessages.at(-1) ?? "", /Objective: continue building Atelier/);
-    assert.match(sentMessages.at(-1) ?? "", /manual-acceptance/);
-    assert.match(sentMessages.at(-1) ?? "", /Do not substitute an unconfigured command such as typecheck/);
-    assert.match(sentMessages.at(-1) ?? "", /packages\/core\/src\/version\.ts/);
+    assert.match(sentMessages.at(-1) ?? "", /quality-gate profile/i);
+    assert.match(sentMessages.at(-1) ?? "", /leave the compatibility execution\.validations array empty/i);
     assert.match(sentMessages.at(-1) ?? "", /do not inspect package manifests or start provider search/i);
     assert.ok(
       lifecycle.indexOf("planning-phase-presented") >= 0

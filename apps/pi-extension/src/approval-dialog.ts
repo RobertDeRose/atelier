@@ -67,15 +67,18 @@ const COMMIT_FAILURE_ACTIONS: ReadonlyArray<{ action: CommitFailureAction; label
   { action: "retry", label: "Retry after external remediation" },
   { action: "pause", label: "Pause the task" },
   { action: "cancel", label: "Cancel this execution" },
-  { action: "bypass", label: "Record an explicit bypass request (not applied automatically)" },
+  { action: "bypass", label: "Record explicit policy exception request (not applied automatically)" },
 ];
 
 export async function commitFailureActionDialog(
   ctx: ExtensionContext,
   category: string,
   remediation: readonly string[],
+  options: { bypassLabel?: string } = {},
 ): Promise<CommitFailureAction> {
-  const labels = COMMIT_FAILURE_ACTIONS.map((item) => item.label);
+  const labels = COMMIT_FAILURE_ACTIONS.map((item) => item.action === "bypass"
+    ? options.bypassLabel ?? item.label
+    : item.label);
   const selected = await ctx.ui.select(
     [`Commit blocked · ${category}`, ...remediation, "Choose the next explicit action."].join("\n"),
     labels,

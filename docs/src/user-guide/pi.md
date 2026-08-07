@@ -90,7 +90,10 @@ The legacy `/validate`, `/validate plan`, `/validate focused`, and
 `/validate NAME` commands remain available for compatibility inspection. Their
 results are marked historical when the active execution uses quality gates; a
 new task does not need validation names. Do not treat a green-looking
-compatibility result or unchanged report card as current gate evidence.
+compatibility result or unchanged report card as current gate evidence. Pi's
+commit failure action can explicitly authorize one selected quality-gate bypass
+for one commit; the authorization expires and never weakens Git hooks, signing,
+filters, or scope.
 
 ## Code-intelligence commands
 

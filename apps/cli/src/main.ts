@@ -43,6 +43,7 @@ Commands:
   repo status [--json]             Show the selected repository provider and identity
   repo review-diff [--json]        Record review of the exact current task diff
   repo commit --message TEXT       Create the required local commit/change
+                                    --bypass-quality-gate --yes is one-turn and audited
   doctor [--json]                   Inspect configuration without creating state or starting providers
   status [--json]                   Show workflow, plan, task-provider, and repository state
   dstack gates                      Show discovered repository checks
@@ -81,7 +82,7 @@ Commands:
   validate plan [--json]            Select focused validations for current changes
   validate focused [--json]         Run the selected focused validations
   validate run NAME [--json]        Run a configured validation and persist evidence
-  evidence [--name NAME] [--json]   Show validation evidence and freshness
+  evidence [--name NAME] [--json]   Show quality-gate evidence and legacy history
   ledger tail [--limit N] [--json]  Show recent durable events
   data inspect|prune|delete|export  Manage redacted retained evidence
   sandbox status                    Show shell sandbox availability
@@ -256,7 +257,14 @@ async function main(): Promise<void> {
         if (subcommand === "commit") {
           const message = flagString(parsed, "message") ?? rest.join(" ").trim();
           if (!message) throw new Error("Usage: atlr repo commit --message TEXT");
+          const bypassQualityGate = flagBoolean(parsed, "bypass-quality-gate");
+          if (bypassQualityGate && !flagBoolean(parsed, "yes")) {
+            throw new Error("--bypass-quality-gate requires --yes and is limited to one audited commit turn.");
+          }
           try {
+            if (bypassQualityGate) {
+              core.authorizeQualityGateBypass(flagString(parsed, "reason") ?? "Explicit CLI one-turn quality-gate bypass.");
+            }
             core.recordCommitFailureDecision("retry");
             const result = await core.commitActiveTask(message);
             if (flagBoolean(parsed, "json")) asJson(result);
@@ -506,13 +514,24 @@ async function main(): Promise<void> {
 
       case "evidence": {
         const evidenceName = flagString(parsed, "name");
-        const evidence = core.validation.list({
+        const legacy = core.validation.list({
           currentSnapshot: core.currentValidationSnapshot(),
           currentChangedPaths: core.currentSourceChangedPaths(),
           ...(evidenceName === undefined ? {} : { name: evidenceName }),
         }).map((item) => core.validationEvidenceIsHistorical() ? { ...item, historical: true } : item);
-        if (flagBoolean(parsed, "json")) asJson(evidence);
-        else for (const item of evidence) process.stdout.write(`${item.startedAt}\t${item.name}\t${item.status}\t${item.historical ? "historical compatibility" : item.stale ? "stale" : "current"}\n`);
+        if (evidenceName !== undefined) {
+          if (flagBoolean(parsed, "json")) asJson(legacy);
+          else for (const item of legacy) process.stdout.write(`${item.startedAt}\t${item.name}\t${item.status}\t${item.historical ? "historical compatibility" : item.stale ? "stale" : "current"}\n`);
+          return;
+        }
+        const qualityGates = core.qualityGateEvidenceForActiveTask();
+        if (flagBoolean(parsed, "json")) asJson({ qualityGates, legacyValidations: legacy });
+        else {
+          for (const [operation, item] of Object.entries(qualityGates)) {
+            if (item !== undefined) process.stdout.write(`${item.finishedAt}\tquality-gate:${operation}:${item.gateId ?? "none"}\t${item.status}\t${item.passed ? "current" : "blocked"}\n`);
+          }
+          for (const item of legacy) process.stdout.write(`${item.startedAt}\t${item.name}\t${item.status}\t${item.historical ? "historical compatibility" : item.stale ? "stale" : "current"}\n`);
+        }
         return;
       }
 

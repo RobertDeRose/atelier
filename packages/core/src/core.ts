@@ -58,6 +58,7 @@ import {
   QualityGateService,
   qualityGatePlanningInventory,
   QualityGatePolicyError,
+  type QualityGateBypassAuthorization,
   type QualityGateEvidence,
   type QualityGateEvidenceOperation,
   type QualityGatePlanInventory,
@@ -79,6 +80,7 @@ import type { RepositoryDisplayState } from "./repository/repository-provider.ts
 import { hashFile, sha256 } from "./util/hash.ts";
 import { newId, nowIso } from "./util/ids.ts";
 import { isPathWithin, resolveAccessPath, sameAccessEntryPath } from "./security/path-boundary.ts";
+import { redactText } from "./security/redaction.ts";
 import { isSourcePath, sourcePaths } from "./repository/source-path.ts";
 import { repositoryPathTarget, repositoryPathTargets, repositoryRelativePath } from "./repository/repository-path.ts";
 import {
@@ -848,8 +850,103 @@ export class AtelierCore {
     return this.ledger.getPlanApproval(executionGrant.planApprovalId)?.qualityGatePlan;
   }
 
+  qualityGateEvidenceForActiveTask(): Partial<Record<QualityGateEvidenceOperation, QualityGateEvidence>> {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant === undefined) return {};
+    const evidence: Partial<Record<QualityGateEvidenceOperation, QualityGateEvidence>> = {};
+    for (const operation of ["commit", "closure"] as const) {
+      const item = this.ledger.getState<QualityGateEvidence>(this.qualityGateEvidenceKey(executionGrant.id, operation));
+      if (item !== undefined) evidence[operation] = item;
+    }
+    return evidence;
+  }
+
   private qualityGateEvidenceKey(executionGrantId: string, operation: QualityGateEvidenceOperation): string {
     return `qualityGateEvidence:${executionGrantId}:${operation}`;
+  }
+
+  private qualityGateBypassKey(executionGrantId: string): string {
+    return `qualityGateBypass:${executionGrantId}`;
+  }
+
+  authorizeQualityGateBypass(reason: string, actor: "user" = "user"): QualityGateBypassAuthorization {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    if (executionGrant === undefined) throw new Error("A quality-gate bypass requires an active execution grant.");
+    const plan = this.qualityGatePlanFor(executionGrant);
+    if (plan?.selectedGateId === undefined) throw new Error("The approved execution has no selected quality gate to bypass.");
+    const evidence = this.ledger.getState<QualityGateEvidence>(this.qualityGateEvidenceKey(executionGrant.id, "commit"));
+    if (evidence === undefined || evidence.gateId !== plan.selectedGateId || evidence.passed
+      || ["failed", "unavailable", "cancelled", "timed_out", "blocked", "mutation_detected", "stale"].includes(evidence.status) === false) {
+      throw new Error("A one-turn quality-gate bypass requires a current failed or blocked commit-gate result.");
+    }
+    const normalizedReason = redactText(reason).trim().slice(0, 1_024);
+    if (!normalizedReason) throw new Error("A quality-gate bypass requires an explicit reason.");
+    const snapshot = this.repository.snapshot();
+    const authorization: QualityGateBypassAuthorization = {
+      version: 1,
+      id: newId("quality-gate-bypass"),
+      taskId: executionGrant.taskId,
+      executionGrantId: executionGrant.id,
+      operation: "commit",
+      gateId: plan.selectedGateId,
+      profileDigest: evidence.profileDigest,
+      planDigest: evidence.planDigest ?? plan.digest,
+      sourceFingerprint: sourceSnapshotFingerprint(snapshot),
+      reason: normalizedReason,
+      actor,
+      authorizedAt: nowIso(),
+      expiresAfter: "next-commit-attempt",
+    };
+    this.ledger.setState(this.qualityGateBypassKey(executionGrant.id), authorization);
+    this.ledger.append({
+      kind: "quality_gate.bypass_authorized",
+      actor,
+      taskId: executionGrant.taskId,
+      repositorySnapshot: snapshot,
+      payload: authorization,
+    });
+    return authorization;
+  }
+
+  private async consumeQualityGateBypass(
+    executionGrant: ExecutionGrant,
+    snapshot: RepositorySnapshot,
+  ): Promise<QualityGateBypassAuthorization | undefined> {
+    const key = this.qualityGateBypassKey(executionGrant.id);
+    const authorization = this.ledger.getState<QualityGateBypassAuthorization>(key);
+    if (authorization === undefined) return undefined;
+    this.ledger.deleteState(key);
+    const approvedPlan = this.qualityGatePlanFor(executionGrant);
+    const profile = approvedPlan === undefined ? undefined : await this.qualityGates.discover();
+    const currentPlan = approvedPlan === undefined || profile === undefined
+      ? undefined
+      : qualityGatePlanningInventory(profile, approvedPlan.plannedPaths);
+    if (authorization.taskId !== executionGrant.taskId
+      || authorization.executionGrantId !== executionGrant.id
+      || authorization.operation !== "commit"
+      || authorization.actor !== "user"
+      || authorization.expiresAfter !== "next-commit-attempt"
+      || authorization.sourceFingerprint !== sourceSnapshotFingerprint(snapshot)
+      || approvedPlan?.selectedGateId !== authorization.gateId
+      || currentPlan?.digest !== authorization.planDigest
+      || profile?.digest !== authorization.profileDigest) {
+      this.ledger.append({
+        kind: "quality_gate.bypass_expired",
+        actor: "system",
+        taskId: executionGrant.taskId,
+        repositorySnapshot: snapshot,
+        payload: { authorization, reason: "The one-turn bypass no longer matches the active task or source snapshot." },
+      });
+      return undefined;
+    }
+    this.ledger.append({
+      kind: "quality_gate.bypass_used",
+      actor: "user",
+      taskId: executionGrant.taskId,
+      repositorySnapshot: snapshot,
+      payload: authorization,
+    });
+    return authorization;
   }
 
   private saveQualityGateEvidence(evidence: QualityGateEvidence): QualityGateEvidence {
@@ -1121,7 +1218,10 @@ export class AtelierCore {
       rationale: "Create the local repository change required by the approved task.",
     });
     if (decision.result !== "allow") throw new Error(decision.reason);
-    const qualityGateEvidence = await this.enforceQualityGate(executionGrant, "commit", repositories);
+    const qualityGateBypass = await this.consumeQualityGateBypass(executionGrant, snapshot);
+    const qualityGateEvidence = qualityGateBypass === undefined
+      ? await this.enforceQualityGate(executionGrant, "commit", repositories)
+      : undefined;
     let result: WorkspaceCommitResult;
     try {
       result = repositories.commit(message);
@@ -1198,6 +1298,7 @@ export class AtelierCore {
         message: result.message,
         changedPaths: result.changedPaths,
         ...(qualityGateEvidence === undefined ? {} : { qualityGate: qualityGateEvidence }),
+        ...(qualityGateBypass === undefined ? {} : { qualityGateBypass }),
         baselineHeadCommit: executionGrant.repositorySnapshot.sourceBaseCommit ?? executionGrant.repositorySnapshot.headCommit,
         repositories: result.repositories.map((repository) => ({
           repositoryId: repository.repositoryId,

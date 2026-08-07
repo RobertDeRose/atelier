@@ -161,14 +161,14 @@ cancelled approved task, inspect source and evidence before
 settlement do not schedule a forced follow-up. Existing source edits remain
 available for review; cancellation is not a revert.
 
-### Validation fails, is interrupted, or is stale
+### A quality gate fails, is interrupted, or is stale
 
-Read `/evidence` or `atlr evidence`. Rerun the exact named validation with
-`/validate NAME` or `atlr validate run NAME`; use `/validate focused` or
-`atlr validate focused` only after reviewing the current selection. An
-interrupted result is neither pass nor failure. Fix the source, then plan and
-rerun the relevant checks; never rely on a pass recorded before the last source
-change.
+Read `/evidence` or `atlr evidence`, then inspect the read-only inventory with
+`atlr dstack gates`. Fix the source or repository policy using its normal
+commands and retry the approved commit. An interrupted, failed, or stale result
+is not current evidence; never rely on a pass recorded before the last source or
+configuration change. Legacy `/validate` and `atlr validate` commands remain
+available only for historical compatibility records.
 
 ### Closure is blocked
 
@@ -176,13 +176,13 @@ Read `atlr state` or `/workflow full`; it reports the missing predicate. The
 usual sequence is:
 
 ```sh
-atlr validate focused
+atlr dstack gates
 atlr repo review-diff
 atlr repo commit --message "type(scope): summary"
 atlr task close TASK_ID --reason "Evidence-backed completion"
 ```
 
-In Pi use `/validate focused`, `/review-diff`, `/commit MESSAGE`, and `/close`.
+In Pi use `/evidence`, `/review-diff`, `/commit MESSAGE`, and `/close`.
 If a required local change or clean-source check cannot be satisfied, stop and
 resolve the repository state instead of force-closing the task.
 
@@ -198,8 +198,10 @@ fingerprint, source/configuration fingerprints, and retry count.
 
 Fix the reported problem using the repository's existing policy, then choose an
 explicit retry. Corrective retries are bounded at two identical failures. If
-the problem remains, pause or cancel and decide any exception separately; no
-bypass is selected by the agent.
+the problem remains, pause or cancel, or explicitly authorize a one-turn
+quality-gate bypass. A bypass skips only that selected gate for one commit;
+Git hooks, signing, filters, scope, and repository policy remain active, and the
+authorization expires before another commit.
 
 ### The editor opens and immediately exits
 

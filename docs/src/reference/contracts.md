@@ -67,11 +67,13 @@ retain their real cause and stale or incomplete evidence cannot satisfy closure.
 
 Bypasses are not inferred. Core never supplies `--no-verify`, `--no-gpg-sign`, an
 empty `core.hooksPath`, disabled filters, alternate signing configuration, or an
-environment override. A bypass, if a later reviewed adapter supports one, is
-single-use, actor-bound, bounded to the current operation, explicitly confirmed,
-and recorded as evidence with its reason and expiry. Existing named validation
-manifests and evidence remain readable as historical compatibility records while
-quality-gate discovery is migrated.
+environment override. The supported quality-gate bypass is single-use,
+actor-bound, source-bound to one commit operation, explicitly confirmed, and
+recorded with its reason and `expiresAfter: next-commit-attempt`; it skips only
+the selected quality gate and does not weaken Git policy. Existing named validation
+manifests and evidence remain
+readable as historical compatibility records while quality-gate discovery is
+migrated.
 
 ## Implementation contracts
 

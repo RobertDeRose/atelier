@@ -798,9 +798,7 @@ write_plan_fixture() {
       "tests/version.test.ts"
     ],
     "allowDependencyChanges": false,
-    "validations": [
-      "manual-acceptance"
-    ],
+    "validations": [],
     "allowFullSuite": false,
     "allowLocalChange": true
   }
@@ -830,13 +828,13 @@ Expose a stable Atelier product-name constant and verify it independently of rel
 
 ### Validation
 
-- Run the configured `manual-acceptance` focused validation.
+- Pass the repository quality gate discovered during approval; do not add an invented command.
 
 ### Completion criteria
 
 - `ATELIER_PRODUCT_NAME` is exported with the value `Atelier`.
 - Existing `ATELIER_VERSION` behavior remains unchanged.
-- `tests/version.test.ts` passes through the configured validation.
+- `tests/version.test.ts` is covered by and passes the discovered repository quality gate.
 
 ### Notes
 
@@ -921,7 +919,7 @@ review_reject_and_approve() {
     const execution = data.tasks[0].execution;
     assert(JSON.stringify(execution.writePaths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]), "wrong write paths");
     assert(execution.allowDependencyChanges === false, "dependency changes were permitted");
-    assert(JSON.stringify(execution.validations) === JSON.stringify(["manual-acceptance"]), "wrong validation contract");
+    assert(Array.isArray(execution.validations) && execution.validations.length === 0, "new plan named a legacy validation");
     assert(execution.allowFullSuite === false, "full suite was permitted");
     assert(execution.allowLocalChange === true, "local change was not permitted");
   '
@@ -962,7 +960,7 @@ review_reject_and_approve() {
   json_assert "$EVIDENCE_DIR/plan-parse.json" '
     const execution = data.tasks[0].execution;
     assert(JSON.stringify(execution.writePaths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]), "reviewed write constraints drifted");
-    assert(JSON.stringify(execution.validations) === JSON.stringify(["manual-acceptance"]), "reviewed validation constraints drifted");
+    assert(Array.isArray(execution.validations) && execution.validations.length === 0, "reviewed plan added a legacy validation name");
   '
   pass "rejection was zero-mutation and acceptance installed only the reviewed task constraints"
 }
@@ -978,11 +976,25 @@ run_pi_json() {
     "${model_args[@]}" --tools "$tools" "$prompt"
 }
 
-verify_current_validation() {
+verify_quality_gate_inventory() {
   local file="$1"
   json_assert "$file" '
-    assert(Array.isArray(data), "evidence output is not an array");
-    assert(data.some((item) => item.name === "manual-acceptance" && item.status === "passed" && item.stale === false), "no current passing manual-acceptance evidence");
+    assert(Array.isArray(data.gates), "quality-gate inventory is missing gates");
+    assert(typeof data.digest === "string" && data.digest.length === 64, "quality-gate inventory digest is missing");
+    assert(data.gitPolicy && typeof data.gitPolicy.digest === "string", "Git policy identity is missing");
+  '
+}
+
+verify_quality_gate_evidence() {
+  local file="$1"
+  json_assert "$file" '
+    const events = Array.isArray(data) ? data : data.events ?? [];
+    const evidence = events.find((item) => item.kind === "quality_gate.evidence_recorded"
+      && item.payload?.operation === "commit");
+    assert(evidence?.payload?.passed === true, "current commit quality-gate evidence is missing or failed");
+    assert(typeof evidence.payload?.profileDigest === "string", "quality-gate profile identity is missing");
+    assert(typeof evidence.payload?.sourceFingerprintBefore === "string", "quality-gate source evidence is missing");
+    assert(typeof evidence.payload?.stagedDiffHashBefore === "string", "quality-gate diff evidence is missing");
   '
 }
 
@@ -1172,17 +1184,15 @@ continue_headless_after_shell() {
     >"$EVIDENCE_DIR/premature-close.stdout" 2>"$EVIDENCE_DIR/premature-close.stderr"
   local close_status=$?
   set -e
-  [[ "$close_status" -ne 0 ]] || fail "task closed before validation, diff review, and local change"
+  [[ "$close_status" -ne 0 ]] || fail "task closed before quality-gate, diff review, and local-change evidence"
 
-  log "deterministic focused validation"
+  log "repository quality-gate discovery and source contract"
   version_test_import_contract tests/version.test.ts \
-    || fail 'refusing validation: tests/version.test.ts does not use the required .ts source import'
-  "${ATLR_BIN[@]}" validate plan --json >"$EVIDENCE_DIR/validation-plan-first.json"
-  "${ATLR_BIN[@]}" validate focused --json >"$EVIDENCE_DIR/validation-focused-first.json"
-  "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-current-first.json"
-  verify_current_validation "$EVIDENCE_DIR/evidence-current-first.json"
+    || fail 'refusing quality-gate run: tests/version.test.ts does not use the required .ts source import'
+  "${ATLR_BIN[@]}" dstack gates --json >"$EVIDENCE_DIR/quality-gate-inventory-before.json"
+  verify_quality_gate_inventory "$EVIDENCE_DIR/quality-gate-inventory-before.json"
 
-  log "typed edit makes validation evidence stale"
+  log "typed edit changes source before the bound quality-gate run"
   local old_title new_title
   old_title="$(node --input-type=module - <<'NODE'
 import { readFileSync } from "node:fs";
@@ -1196,17 +1206,11 @@ NODE
   run_pi_json "$EVIDENCE_DIR/pi-stale-edit.jsonl" "edit" \
     "Use the edit tool exactly once in tests/version.test.ts. Replace the exact text '$old_title' with '$new_title'. Do not read, write, validate, commit, close, or use Bash."
   jsonl_tool_assert "$EVIDENCE_DIR/pi-stale-edit.jsonl" "edit" "read,write,bash,atlr_validate,atlr_commit,atlr_task_close,atlr_state"
-  grep -Fq "$new_title" tests/version.test.ts || fail "typed stale-evidence edit did not apply the exact title replacement"
-  "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-stale.json"
-  json_assert "$EVIDENCE_DIR/evidence-stale.json" '
-    assert(data.some((item) => item.name === "manual-acceptance" && item.stale === true), "validation did not become stale after source edit");
-  '
+  grep -Fq "$new_title" tests/version.test.ts || fail "typed source edit did not apply the exact title replacement"
+  "${ATLR_BIN[@]}" dstack gates --json >"$EVIDENCE_DIR/quality-gate-inventory-after-edit.json"
+  verify_quality_gate_inventory "$EVIDENCE_DIR/quality-gate-inventory-after-edit.json"
 
-  log "rerun focused validation and create the scoped local change"
-  "${ATLR_BIN[@]}" validate focused --json >"$EVIDENCE_DIR/validation-focused-second.json"
-  "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-current-second.json"
-  verify_current_validation "$EVIDENCE_DIR/evidence-current-second.json"
-
+  log "run the bound quality gate and create the scoped local change"
   run_pi_json "$EVIDENCE_DIR/pi-commit.jsonl" "atlr_commit,atlr_state" \
     "Call atlr_commit exactly once with message 'test: add automated Atelier product-name acceptance', then call atlr_state. Do not use Bash or raw VCS commands."
   jsonl_tool_assert "$EVIDENCE_DIR/pi-commit.jsonl" "atlr_commit,atlr_state" "bash"
@@ -1219,8 +1223,8 @@ NODE
     const paths = [...event.payload.changedPaths].sort();
     assert(JSON.stringify(paths) === JSON.stringify(["packages/core/src/version.ts", "tests/version.test.ts"]), `scoped commit included unexpected paths: ${paths}`);
   '
-  "${ATLR_BIN[@]}" evidence --json >"$EVIDENCE_DIR/evidence-current-after-commit.json"
-  verify_current_validation "$EVIDENCE_DIR/evidence-current-after-commit.json"
+  "${ATLR_BIN[@]}" ledger tail --limit 160 --json >"$EVIDENCE_DIR/ledger-after-quality-gate.json"
+  verify_quality_gate_evidence "$EVIDENCE_DIR/ledger-after-quality-gate.json"
 
   log "exact diff review and typed task closure"
   "${ATLR_BIN[@]}" repo review-diff --json >"$EVIDENCE_DIR/final-diff-review.json"
