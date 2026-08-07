@@ -30,9 +30,12 @@ cd /path/to/project
 atlr launch
 ```
 
-The first launch creates missing `.atelier/config.json`, `.atelier/PLAN.md`,
-and the legacy-compatible `.atelier/validation.json` when needed. Later launches reuse those files. Launching Pi
-is not a trust operation and does not grant access outside the workspace.
+The first launch creates missing `.atelier/config.json` and `.atelier/PLAN.md`.
+A legacy-compatible `.atelier/validation.json` may also be present for older
+projects; new plans use discovered repository quality gates and do not require
+that file or its validation names. Later launches reuse the existing files.
+Launching Pi is not a trust operation and does not grant access outside the
+workspace.
 
 Use an observational diagnostic before changing anything:
 
@@ -87,12 +90,12 @@ It creates the plan document but does not approve or activate work.
 The following files are project data and may be committed when the project
 chooses to share them:
 
-| Path                       | Purpose                                                                            |
-|----------------------------|------------------------------------------------------------------------------------|
-| `.atelier/config.json`     | repository-scoped declarative choices such as provider types and plan path         |
-| `.atelier/PLAN.md`         | the reviewed human-readable plan and task execution contracts                      |
-| `.atelier/validation.json` | legacy closure policy, argument-array checks, and historical compatibility records |
-| `.atelier/workspace.json`  | optional multi-repository identities                                               |
+| Path                       | Purpose                                                                                                                    |
+|----------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `.atelier/config.json`     | repository-scoped declarative choices such as provider types and plan path                                                 |
+| `.atelier/PLAN.md`         | the reviewed human-readable plan and task execution contracts                                                              |
+| `.atelier/validation.json` | legacy closure policy, argument-array checks, and historical compatibility records; not required by new quality-gate plans |
+| `.atelier/workspace.json`  | optional multi-repository identities                                                                                       |
 
 Mutable runtime data stays outside the repository. By default Atelier uses:
 
@@ -279,8 +282,9 @@ atlr --workspace ../workspace workspace status
 atlr --workspace ../workspace status --json
 ```
 
-Approval, source freshness, validation, diff review, and local finalization
-bind each repository independently. A secondary repository changing outside
+Approval, source freshness, quality-gate evidence, diff review, and local
+finalization bind each repository independently. Legacy validation records remain
+readable as compatibility history. A secondary repository changing outside
 its approved baseline invalidates the transaction; a multi-repository commit
 may stop after recording the repositories already finalized. Recover the
 reported partial set explicitly rather than assuming an automatic rollback.

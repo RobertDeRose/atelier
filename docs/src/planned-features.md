@@ -7,9 +7,10 @@ dependencies, claims, and ready-work selection.
 
 Atelier is a local-first, policy-aware workflow control plane for Pi. It owns
 reviewed-plan execution, task reconciliation, authorization, durable evidence,
-validation closure, Working State, and provider-neutral code intelligence. It
+quality-gate closure, Working State, and provider-neutral code intelligence. It
 integrates with Jujutsu/Git and Beads without replacing editors, VCS, task
-storage, provider indexing, configured validation commands, or OS sandboxing.
+storage, provider indexing, repository quality gates, legacy compatibility
+records, or OS sandboxing.
 
 ## Goals
 
@@ -35,8 +36,9 @@ storage, provider indexing, configured validation commands, or OS sandboxing.
 
 ## Cross-Cutting Decisions
 
-- Core retains approval, reconciliation, repository evidence, validation,
-  recovery, and closure authority.
+- Core retains approval, reconciliation, repository evidence, quality-gate,
+  recovery, and closure authority. Legacy validation records remain readable as
+  compatibility history.
 - Launchers and hosts package, verify, initialize, and coordinate tools only.
 - Private runtime state stays outside repositories and normal user profiles.
 - Provider and host integrations receive explicit typed inputs; they do not
@@ -102,4 +104,6 @@ storage, provider indexing, configured validation commands, or OS sandboxing.
   CLI/Pi integration, compatibility, documentation, and repository-standard checks.
 - Documentation impact: architecture, development workflow, reference contracts, User
   Guide operations/CLI/Pi pages, navigation, roadmap, and the implemented record are
-  reconciled by the assigned lifecycle and implementation tasks.
+  reconciled by the assigned lifecycle and implementation tasks. Migration keeps
+  existing validation manifests and evidence inspectable while new work uses
+  repository quality gates.

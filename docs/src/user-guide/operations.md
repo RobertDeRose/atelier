@@ -1,4 +1,4 @@
-# Shared state, validation, and recovery
+# Shared state, quality gates, compatibility, and recovery
 
 This page explains what remains true when work moves between CLI and Pi, how
 closure evidence is built, and how to recover from common failures.
@@ -12,8 +12,8 @@ CLI and Pi share these authorities:
 - the Git or Jujutsu repository provider;
 - the configured task provider and its task state;
 - the external Atelier SQLite ledger containing approvals, execution grants,
-  Working State inputs, mutation evidence, validation evidence, and recovery
-  checkpoints; and
+  Working State inputs, mutation evidence, quality-gate evidence, legacy
+  compatibility evidence, and recovery checkpoints; and
 - code-provider identity, index freshness, retrieval provenance, and budgets.
 
 Each Pi session owns a session-local Core instance and retrieval session. A CLI
@@ -107,9 +107,10 @@ provider state, affected paths, and verification result.
 
 When a task is active, the checkpoint also records the task execution baseline:
 task and plan identity, execution grant, repository/workspace identity, source
-snapshot and bindings, reviewed scope, validation contract, and task ownership.
-Evidence, diff review, and validation records retain the same baseline digest so
-an observation cannot be reused for a different task boundary.
+snapshot and bindings, reviewed scope, quality-gate mode, compatibility
+validation contract, and task ownership. Evidence, diff review, and quality-gate
+records retain the same baseline digest so an observation cannot be reused for a
+different task boundary.
 
 List or restore checkpoints from the CLI:
 
