@@ -75,7 +75,7 @@ records, or OS sandboxing.
 
 ### First-class dstack workflow harness (`first-class-dstack-harness`)
 
-- Status: ready for delivery
+- Status: delivered
 - Beads root: `atelier-fon`
 - Design: [First-class dstack workflow harness](features/first-class-dstack-harness/design.md)
 - Overview: Make Atelier the execution harness for dstack's documentation-first,

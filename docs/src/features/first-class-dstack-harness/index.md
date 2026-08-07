@@ -3,9 +3,9 @@
 ## Delivery Summary
 
 - Beads feature root: `atelier-fon`
-- Status: ready for delivery
+- Status: delivered
 - Pull request: not created
-- Merge commit: not created
+- Merge commit: `b3c65cfc98021c2e514faeb4fc2ed3d74298a83a` (fast-forward)
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
@@ -98,9 +98,9 @@ requires a fresh bounded task/ready observation so external task changes do not 
 
 ### Deferred Work
 
-Pull-request creation, merge, post-merge delivery reconciliation, and feature worktree removal remain pending the
-user's explicit delivery choice. Fresh interactive Pi restart/recovery verification and the Pi extension line-count
-cleanup remain separate follow-up work; no external provider is made a prerequisite for local deterministic tests.
+No pull request was created; delivery used the confirmed fast-forward merge above. Fresh interactive Pi
+restart/recovery verification and the Pi extension line-count cleanup remain separate follow-up work. No external
+provider is a prerequisite for local deterministic tests.
 
 ### Rejected or Removed Scope
 
@@ -128,6 +128,7 @@ unbounded context/history scans, and repository-policy bypasses remain rejected.
 - Beads: `atelier-fon`; implementation coordinator `atelier-fon.14`; documentation reconciliation `atelier-fon.15`;
   validation `atelier-fon.16`; delivery reviews `atelier-fon.17` and `atelier-fon.18`; delivery `atelier-fon.19`.
 - Quality-gate workstream: `atelier-k36` with children `.1` through `.8`.
+- Merge: `b3c65cfc98021c2e514faeb4fc2ed3d74298a83a` (fast-forward); pull request: not created.
 - Implementation commits include `8f83bfb1cdd94cad3ee052a1184ee7f42b4dce4c`,
   `31662bcaeb5f784effe0289ea3f45c91c7b0a979`, `21b2886936b67ba291a08803d6d874afe3af6bea`,
   `94207d9a373b1dfd99e24418d22d45ce1d948a8f`, `6f4a685264fb59e232d2e0911df5a5572d260acb`,
