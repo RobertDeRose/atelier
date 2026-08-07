@@ -72,4 +72,5 @@
   - [Retrieval Session Orchestration](./features/retrieval-session-orchestration/index.md)
   - [Durable Retrieval Inventory](./features/durable-retrieval-inventory/index.md)
   - [Retrieval Guidance in CLI and Pi](./features/retrieval-guidance/index.md)
+  - [First-class dstack workflow harness](./features/first-class-dstack-harness/index.md)
   <!-- END IMPLEMENTED FEATURES -->

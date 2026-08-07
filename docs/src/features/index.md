@@ -22,5 +22,6 @@ pages and code/tests define supported behavior.
 - [Retrieval Session Orchestration](retrieval-session-orchestration/index.md)
 - [Durable Retrieval Inventory](durable-retrieval-inventory/index.md)
 - [Retrieval Guidance in CLI and Pi](retrieval-guidance/index.md)
+- [First-class dstack workflow harness](first-class-dstack-harness/index.md)
 
 <!-- END IMPLEMENTED FEATURES -->
