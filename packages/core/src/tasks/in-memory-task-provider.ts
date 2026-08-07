@@ -33,13 +33,7 @@ export class InMemoryTaskProvider implements TaskProvider {
     return task === undefined ? undefined : cloneTask(task);
   }
 
-  async status(): Promise<TaskProviderStatus> {
-    return { provider: this.name, available: true, initialized: true, version: "1" };
-  }
-
-  async initialize(): Promise<void> {}
-
-  async ready(): Promise<TaskRecord[]> {
+  peekReady(): TaskRecord[] {
     const closed = new Set(
       [...this.tasks.values()].filter((task) => task.status === "closed").map((task) => task.id),
     );
@@ -48,6 +42,16 @@ export class InMemoryTaskProvider implements TaskProvider {
       .filter((task) => task.dependencies.every((dependency) => closed.has(dependency)))
       .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id))
       .map(cloneTask);
+  }
+
+  async status(): Promise<TaskProviderStatus> {
+    return { provider: this.name, available: true, initialized: true, version: "1" };
+  }
+
+  async initialize(): Promise<void> {}
+
+  async ready(): Promise<TaskRecord[]> {
+    return this.peekReady();
   }
 
   async get(taskId: string): Promise<TaskRecord | undefined> {

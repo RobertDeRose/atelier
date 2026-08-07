@@ -1824,7 +1824,73 @@ export class AtelierCore {
     return state;
   }
 
+  private contextCapsulePreflightKey(options: BuildContextCapsuleOptions): string | undefined {
+    const executionGrant = this.ledger.getActiveExecutionGrant();
+    const currentTaskId = executionGrant?.taskId ?? this.ledger.getState<string>("currentTaskId");
+    const task = currentTaskId === undefined
+      ? undefined
+      : this.taskProvider.peekTask?.(currentTaskId);
+    const readyTasks = currentTaskId === undefined
+      ? this.taskProvider.peekReady?.()
+      : undefined;
+    const providerObservation = currentTaskId === undefined
+      ? readyTasks
+      : task;
+    // Do not reuse a capsule when the provider has no fresh read-only observation
+    // with which to detect an external task/provider change.
+    if (providerObservation === undefined) return undefined;
+    const approvalId = executionGrant?.planApprovalId ?? this.ledger.getState<string>("currentPlanApprovalId");
+    const approval = approvalId === undefined ? undefined : this.ledger.getPlanApproval(approvalId);
+    const snapshot = this.repository.snapshot();
+    const validationEvidence = this.validation.summaries(snapshot, [], currentTaskId);
+    const state = {
+      workflowMode: this.ledger.getState<WorkflowMode>("workflowMode"),
+      planObjective: this.ledger.getState<string>("planObjective"),
+      reviewedPlanHash: this.ledger.getState<string>("reviewedPlanHash"),
+      currentManualEditId: this.ledger.getCurrentManualEdit()?.id,
+      executionPause: this.ledger.getState<unknown>("executionPause"),
+      workflowRunId: this.ledger.getState<string>("currentWorkflowRunId"),
+      finalDiffReview: executionGrant === undefined
+        ? undefined
+        : this.ledger.getState<unknown>(`finalDiffReview:${executionGrant.id}`),
+      qualityGateEvidence: executionGrant === undefined
+        ? undefined
+        : {
+            commit: this.ledger.getState<unknown>(this.qualityGateEvidenceKey(executionGrant.id, "commit")),
+            closure: this.ledger.getState<unknown>(this.qualityGateEvidenceKey(executionGrant.id, "closure")),
+            bypass: this.ledger.getState<unknown>(this.qualityGateBypassKey(executionGrant.id)),
+          },
+      planApproval: approval,
+      reconciliation: approval === undefined
+        ? undefined
+        : this.ledger.getApprovalReconciliationTransaction(approval.id),
+      validationEvidence,
+    };
+    return contextBoundaryDigest({
+      explicitTaskId: options.explicitTaskId,
+      repository: this.config.repositoryRoot,
+      sourceRevision: sourceRevisionIdentity(snapshot),
+      plan: sourcePathFingerprint(this.config.repositoryRoot, this.config.planPath),
+      validation: sourcePathFingerprint(this.config.repositoryRoot, this.config.validationPath),
+      documents: (options.documentPaths ?? []).map((path) => ({
+        path,
+        fingerprint: sourcePathFingerprint(this.config.repositoryRoot, path),
+      })),
+      gateInventory: options.gateInventory,
+      budgets: options.budgets ?? {},
+      taskProvider: this.taskProvider.name,
+      task,
+      readyTasks,
+      executionGrant,
+      currentTaskId,
+      state,
+    });
+  }
+
   async buildContextCapsule(options: BuildContextCapsuleOptions = {}): Promise<ContextCapsule> {
+    const preflightKey = this.contextCapsulePreflightKey(options);
+    const cached = preflightKey === undefined ? undefined : this.contextCapsuleCache.getCached(preflightKey);
+    if (cached !== undefined) return cached;
     const state = await this.buildWorkingState(options.explicitTaskId);
     const omissions = [...state.omissions];
     const documentSources: ContextCapsuleSource[] = [];
@@ -2021,8 +2087,8 @@ export class AtelierCore {
       documentPaths: documentSources.map((source) => source.location),
       budgets: options.budgets ?? {},
     };
-    const boundaryDigest = contextBoundaryDigest(boundary);
-    return this.contextCapsuleCache.getOrBuild(boundaryDigest, () => buildContextCapsule({
+    const cacheKey = preflightKey ?? contextBoundaryDigest(boundary);
+    return this.contextCapsuleCache.getOrBuild(cacheKey, () => buildContextCapsule({
       boundary,
       sections,
       ...(options.budgets === undefined ? {} : { budgets: options.budgets }),

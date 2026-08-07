@@ -29,6 +29,19 @@ listing, non-TUI editor use, and exact service operations. Switching is safe
 when the previous client is idle and the next client starts with `atlr status`
 or `/status` plus `/workflow` as needed.
 
+## Bounded context capsules
+
+Atelier gives the model a compact, redacted context capsule assembled from the current task,
+review evidence, repository snapshot, quality-gate inventory, retrieval evidence, and explicitly
+requested documents. Each section identifies its source and freshness, and item, history,
+retrieval, and byte budgets are enforced before the capsule is rendered.
+
+Repeated context requests reuse the capsule while the task, source snapshot, documents, approval,
+and evidence boundary are unchanged. A source, plan, task, provider, or evidence change creates a
+new capsule; Atelier does not respond to a cache miss by scanning unbounded repository or Beads
+history. A truncated or unavailable section is reported as an omission rather than silently
+substituted with unbounded context.
+
 ## Workflow modes and state transitions
 
 Atelier uses three guarded modes:

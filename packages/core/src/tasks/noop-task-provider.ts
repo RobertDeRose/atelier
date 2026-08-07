@@ -32,6 +32,10 @@ export class NoopTaskProvider implements TaskProvider {
     return undefined;
   }
 
+  peekReady(): TaskRecord[] {
+    return [];
+  }
+
   async status(): Promise<TaskProviderStatus> {
     return {
       provider: this.name,

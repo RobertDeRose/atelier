@@ -176,6 +176,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
   private versionPromise?: Promise<CommandResult>;
   private statusPromise?: Promise<TaskProviderStatus>;
   private cachedStatus?: { value: TaskProviderStatus; observedAt: number };
+  private cachedReady?: { value: TaskRecord[]; observedAt: number };
   private readonly taskCache = new Map<string, { value: TaskRecord | undefined; observedAt: number }>();
 
   constructor(options: { cwd: string; executable?: string; timeoutMs?: number }) {
@@ -222,6 +223,13 @@ export class BeadsCliTaskProvider implements TaskProvider {
       : undefined;
   }
 
+  peekReady(): TaskRecord[] | undefined {
+    const cached = this.cachedReady;
+    return cached !== undefined && Date.now() - cached.observedAt <= 2_000
+      ? structuredClone(cached.value)
+      : undefined;
+  }
+
   private version(): Promise<CommandResult> {
     if (this.versionPromise !== undefined) return this.versionPromise;
     const pending = this.run(["version"], { allowFailure: true });
@@ -233,6 +241,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
   }
 
   private invalidateCaches(options: { status?: boolean; taskId?: string } = {}): void {
+    delete this.cachedReady;
     if (options.status === true) {
       delete this.cachedStatus;
       delete this.statusPromise;
@@ -323,7 +332,9 @@ export class BeadsCliTaskProvider implements TaskProvider {
 
   async ready(): Promise<TaskRecord[]> {
     const result = await this.run(["ready", "--json"]);
-    return unwrapBeadsJson(parseJsonOutput(result.stdout, ["ready", "--json"])).map(normalizeBeadsTask);
+    const value = unwrapBeadsJson(parseJsonOutput(result.stdout, ["ready", "--json"])).map(normalizeBeadsTask);
+    this.cachedReady = { value: structuredClone(value), observedAt: Date.now() };
+    return value;
   }
 
   async get(taskId: string): Promise<TaskRecord | undefined> {
@@ -346,6 +357,7 @@ export class BeadsCliTaskProvider implements TaskProvider {
   }
 
   async create(request: CreateTaskRequest): Promise<TaskRecord> {
+    this.invalidateCaches();
     this.taskCache.clear();
     const notes = [
       `Atelier plan task: ${request.planTaskId}`,

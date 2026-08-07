@@ -13,6 +13,8 @@ export interface TaskProvider {
   peekStatus?(): TaskProviderStatus | undefined;
   /** Return a cached task without performing provider I/O. */
   peekTask?(taskId: string): TaskRecord | undefined;
+  /** Return the cached ready set without performing provider I/O. */
+  peekReady?(): TaskRecord[] | undefined;
   status(): Promise<TaskProviderStatus>;
   initialize(options?: { stealth?: boolean; quiet?: boolean }): Promise<void>;
   ready(): Promise<TaskRecord[]>;

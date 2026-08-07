@@ -377,12 +377,16 @@ function cloneCapsule(capsule: ContextCapsule): ContextCapsule {
 export class ContextCapsuleCache {
   private cached: { key: string; capsule: ContextCapsule } | undefined;
 
+  getCached(key: string): ContextCapsule | undefined {
+    if (this.cached?.key !== key) return undefined;
+    const reused = cloneCapsule(this.cached.capsule);
+    reused.reused = true;
+    return reused;
+  }
+
   getOrBuild(key: string, build: () => ContextCapsule): ContextCapsule {
-    if (this.cached?.key === key) {
-      const reused = cloneCapsule(this.cached.capsule);
-      reused.reused = true;
-      return reused;
-    }
+    const cached = this.getCached(key);
+    if (cached !== undefined) return cached;
     const capsule = cloneCapsule({ ...build(), reused: false });
     this.cached = { key, capsule };
     return cloneCapsule(capsule);
